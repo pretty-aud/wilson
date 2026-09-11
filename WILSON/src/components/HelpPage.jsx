@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, HelpCircle } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ICON } from '../ui/tokens'
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../data/dogHelpContent'
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../data/otterHelpContent'
 
@@ -23,18 +24,37 @@ const WILSON_ITEMS = [
   { id: 'wilson-settings', label: 'System Settings' },
 ]
 
-// Light-theme style tokens for content area
+// Light-surface text roles for the content area (HELP-03, HELP-06).
+//
+// Every value here is a Tailwind utility generated from the `@theme` block in
+// index.css — the same values `src/ui/tokens.js` exports by name. There is no
+// hex, no rgba and no off-scale size in this object, because this object is
+// the worked example other light pages copy.
+//
+// ONE ink. On `ground-light` the only legible ink is `ink-light` (8.48:1);
+// white is 2.06:1 and a grey is worse than both. Hierarchy comes from the
+// scale and from weight, never from a second colour — which is why the old
+// `listMuted` (stone-600, 3.70:1) is gone rather than retinted: it was a grey
+// by another name.
 const L = {
-  sectionTitle: 'text-sm font-bold text-stone-900 uppercase tracking-wide mb-3',
-  bodyText: 'text-xs text-stone-800 leading-relaxed',
-  card: 'bg-white/40 p-3 rounded-sm border border-stone-400/30',
-  cardTitle: 'text-xs font-bold text-stone-900 mb-2',
-  listItem: 'text-[11px] text-stone-700 leading-relaxed',
-  listBold: 'text-stone-900',
-  listMuted: 'text-[11px] text-stone-600 leading-relaxed',
-  mono: 'text-[10px] text-stone-600 bg-white/30 p-2 rounded font-mono leading-relaxed',
-  notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-sm p-3',
-  notesTitle: 'text-xs font-bold text-stone-900 uppercase tracking-wide mb-2',
+  // H2 — 16 / 600 / sentence case / zero tracking
+  sectionTitle: 'text-h2 text-ink-light mb-3',
+  // Body — 14 / 400 / leading 1.5
+  bodyText: 'text-body text-ink-light',
+  // A well, not a white card (C9): ground + one hairline + the control radius
+  card: 'bg-well-light border border-rule-light rounded-control p-3',
+  // H3 — 14 / 600 / sentence case
+  cardTitle: 'text-h3 text-ink-light mb-2',
+  // Dense — 13 / 400
+  listItem: 'text-dense text-ink-light',
+  // Emphasis inside a list item: weight only, same ink
+  listBold: 'font-semibold',
+  // The lists themselves: real markers in their own column (HELP-05)
+  list: 'list-disc pl-5 space-y-1',
+  // Caption — 12 / 400, mono kept because it holds paths and commands
+  mono: 'text-caption text-ink-light font-mono bg-well-light border border-rule-light rounded-control p-2',
+  notesBox: 'bg-well-light border border-rule-light rounded-control p-3',
+  notesTitle: 'text-h3 text-ink-light mb-2',
 }
 
 export default function HelpPage() {
@@ -62,17 +82,20 @@ export default function HelpPage() {
   }
 
   return (
-    <div className="h-full w-full flex overflow-hidden">
-        {/* ===== SIDEBAR ===== */}
+    // `data-surface="light"` is what makes the global :focus-visible ring
+    // resolve to ink-light here. Without it the ring is the signal orange on
+    // an orange page, which is 1.0:1 — a focus indicator nobody can see.
+    // `wilson-light-scroll` replaces the two DIFFERENT inline scrollbar
+    // treatments this page used to carry (white-alpha on the sidebar,
+    // black-alpha on the content pane) with the one the light pages share.
+    <div className="h-full w-full flex overflow-hidden wilson-light-scroll" data-surface="light">
+        {/* ===== SIDEBAR =====
+            No ground of its own: it sits on the page's orange and is separated
+            by a single hairline, like every other panel in the system. The
+            brown well and its seven alpha-whites are gone (HELP-04). */}
         <nav
-          className="flex-shrink-0 overflow-y-auto flex flex-col"
-          style={{
-            width: '200px',
-            backgroundColor: 'rgba(120, 70, 30, 0.55)',
-            borderRight: '1px solid rgba(0,0,0,0.1)',
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'rgba(255,255,255,0.2) transparent',
-          }}
+          className="flex-shrink-0 overflow-y-auto flex flex-col border-r border-rule-light"
+          style={{ width: '200px' }}
         >
           {/* Tool Sections */}
           <div className="flex-1 overflow-y-auto pt-1">
@@ -85,33 +108,33 @@ export default function HelpPage() {
                   <button
                     onClick={() => toggleTool(tool.id)}
                     data-state={isExpanded ? 'expanded' : 'collapsed'}
-                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-colors data-[state=collapsed]:hover:bg-[rgba(0,0,0,0.06)] data-[state=expanded]:bg-[rgba(0,0,0,0.1)]"
-                    style={{ borderBottom: '1px solid rgba(0,0,0,0.08)' }}
+                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 border-b border-rule-light transition-colors duration-state data-[state=collapsed]:hover:bg-well-light data-[state=expanded]:bg-well-light"
                   >
                     {isExpanded
-                      ? <ChevronDown className="w-3 h-3 text-white flex-shrink-0" />
-                      : <ChevronRight className="w-3 h-3 text-white/50 flex-shrink-0" />
+                      ? <ChevronDown size={ICON.sm} className="text-ink-light flex-shrink-0" />
+                      : <ChevronRight size={ICON.sm} className="text-ink-light flex-shrink-0" />
                     }
-                    <span className={`text-[11px] font-bold uppercase tracking-wider ${isExpanded ? 'text-white' : 'text-white/70'}`}>
-                      {tool.label}
+                    <span className="flex flex-col min-w-0">
+                      <span className="text-dense font-semibold text-ink-light">
+                        {tool.label}
+                      </span>
+                      {/* HELP-07: the subtitle the file already defines, finally rendered */}
+                      <span className="text-caption text-ink-light">
+                        {tool.subtitle}
+                      </span>
                     </span>
                   </button>
 
-                  {/* Expanded Sub-items */}
+                  {/* Expanded Sub-items — selected state is weight plus the signal
+                      edge, hover is the light well. No second ink. */}
                   {isExpanded && (
-                    <div style={{ backgroundColor: 'rgba(0,0,0,0.12)' }}>
+                    <div>
                       {items.map(item => (
                         <button
                           key={item.id}
                           onClick={() => setActivePage(item.id)}
                           data-state={activePage === item.id ? 'active' : 'idle'}
-                          className="w-full text-left py-1.5 text-[11px] transition-colors data-[state=idle]:text-[rgba(255,255,255,0.55)] data-[state=idle]:hover:text-[rgba(255,255,255,0.8)] data-[state=idle]:hover:bg-[rgba(0,0,0,0.06)] data-[state=active]:text-white data-[state=active]:bg-[rgba(0,0,0,0.1)]"
-                          style={{
-                            paddingLeft: '24px',
-                            paddingRight: '8px',
-                            fontWeight: activePage === item.id ? 'bold' : 'normal',
-                            borderLeft: activePage === item.id ? '2px solid #fff' : '2px solid transparent',
-                          }}
+                          className="w-full text-left py-1.5 pl-6 pr-2 text-dense text-ink-light border-l-2 border-l-transparent transition-colors duration-state hover:bg-well-light data-[state=idle]:font-normal data-[state=active]:font-semibold data-[state=active]:border-l-signal"
                         >
                           {item.label}
                         </button>
@@ -123,23 +146,19 @@ export default function HelpPage() {
             })}
           </div>
 
-          {/* Version footer */}
-          <div className="px-3 py-2 flex-shrink-0" style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}>
-            <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
+          {/* Version footer — Label step, full ink, mono because a version is data */}
+          <div className="px-3 py-2 flex-shrink-0 border-t border-rule-light">
+            <span className="text-label font-mono text-ink-light">
               {typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'}
             </span>
           </div>
         </nav>
 
         {/* ===== CONTENT AREA ===== */}
-        <div
-          className="flex-1 overflow-y-auto p-6"
-          style={{
-            backgroundColor: '#f4a261',
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'rgba(0,0,0,0.15) transparent',
-          }}
-        >
+        <div className="flex-1 overflow-y-auto p-6 bg-ground-light">
+          {/* HELP-01: one measure cap for the whole prose column, inside the
+              page padding. Cards and lists inherit it; none sets its own. */}
+          <div style={{ maxWidth: 'var(--measure-prose-max)' }}>
           {/* D.O.G. Help Content — light theme */}
           {expandedTool === 'dog' && (
             <DogHelpContent helpPage={activePage} theme="light" />
@@ -162,12 +181,12 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Key Features</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Multiple projects</span> — Create and manage separate projects with their own documents and assets</li>
-                      <li>• <span className={L.listBold}>Document storage</span> — Upload PDFs, text files, markdown, and other source materials per project</li>
-                      <li>• <span className={L.listBold}>Visual asset library</span> — Store images and videos that can be used for visual asset placement in D.O.G.</li>
-                      <li>• <span className={L.listBold}>Date tracking</span> — Set start and end dates for project timelines</li>
-                      <li>• <span className={L.listBold}>Persistent storage</span> — Projects are saved locally using IndexedDB for large file support</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Multiple projects</span> — Create and manage separate projects with their own documents and assets</li>
+                      <li><span className={L.listBold}>Document storage</span> — Upload PDFs, text files, markdown, and other source materials per project</li>
+                      <li><span className={L.listBold}>Visual asset library</span> — Store images and videos that can be used for visual asset placement in D.O.G.</li>
+                      <li><span className={L.listBold}>Date tracking</span> — Set start and end dates for project timelines</li>
+                      <li><span className={L.listBold}>Persistent storage</span> — Projects are saved locally using IndexedDB for large file support</li>
                     </ul>
                   </div>
                 </div>
@@ -182,19 +201,19 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Creating a Project</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Click the + button</span> in the project list to create a new project</li>
-                      <li>• <span className={L.listBold}>Set a descriptive title</span> that identifies the presentation or campaign</li>
-                      <li>• <span className={L.listBold}>Add a description</span> with project scope, goals, or notes for reference</li>
-                      <li>• <span className={L.listBold}>Set project dates</span> to track deadlines and timelines</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Click the + button</span> in the project list to create a new project</li>
+                      <li><span className={L.listBold}>Set a descriptive title</span> that identifies the presentation or campaign</li>
+                      <li><span className={L.listBold}>Add a description</span> with project scope, goals, or notes for reference</li>
+                      <li><span className={L.listBold}>Set project dates</span> to track deadlines and timelines</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Using Projects with D.O.G.</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Select a project</span> in D.O.G. to load its documents and assets into the generation context</li>
-                      <li>• <span className={L.listBold}>Enable "Use Project Assets"</span> to let the AI place project images into slide frames</li>
-                      <li>• <span className={L.listBold}>Project documents</span> are automatically included as context alongside any directly uploaded files</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Select a project</span> in D.O.G. to load its documents and assets into the generation context</li>
+                      <li><span className={L.listBold}>Enable "Use Project Assets"</span> to let the AI place project images into slide frames</li>
+                      <li><span className={L.listBold}>Project documents</span> are automatically included as context alongside any directly uploaded files</li>
                     </ul>
                   </div>
                 </div>
@@ -209,20 +228,20 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Documents</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Supported formats:</span> PDF, DOC, DOCX, TXT, MD, CSV, XLSX</li>
-                      <li>• <span className={L.listBold}>Upload via drag-and-drop</span> or click the upload area in the project detail view</li>
-                      <li>• <span className={L.listBold}>Documents are stored locally</span> using IndexedDB for larger file support</li>
-                      <li>• <span className={L.listBold}>Remove documents</span> by clicking the X button next to each file</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Supported formats:</span> PDF, DOC, DOCX, TXT, MD, CSV, XLSX</li>
+                      <li><span className={L.listBold}>Upload via drag-and-drop</span> or click the upload area in the project detail view</li>
+                      <li><span className={L.listBold}>Documents are stored locally</span> using IndexedDB for larger file support</li>
+                      <li><span className={L.listBold}>Remove documents</span> by clicking the X button next to each file</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Visual Assets</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Supported image formats:</span> JPG, PNG, GIF, WebP, BMP, TIFF, SVG</li>
-                      <li>• <span className={L.listBold}>Supported video formats:</span> MP4, MOV, WebM, AVI, MKV</li>
-                      <li>• <span className={L.listBold}>Name files descriptively</span> for better AI-driven placement (e.g., "product_hero.jpg" not "IMG_4521.jpg")</li>
-                      <li>• <span className={L.listBold}>Storage limits:</span> Large assets are stored in IndexedDB. A warning appears when storage is running low</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Supported image formats:</span> JPG, PNG, GIF, WebP, BMP, TIFF, SVG</li>
+                      <li><span className={L.listBold}>Supported video formats:</span> MP4, MOV, WebM, AVI, MKV</li>
+                      <li><span className={L.listBold}>Name files descriptively</span> for better AI-driven placement (e.g., "product_hero.jpg" not "IMG_4521.jpg")</li>
+                      <li><span className={L.listBold}>Storage limits:</span> Large assets are stored in IndexedDB. A warning appears when storage is running low</li>
                     </ul>
                   </div>
                 </div>
@@ -242,19 +261,19 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Included Tools</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>D.O.G. (Deck Outline Generator)</span> — AI-powered slide outline generation with theme colors, image prompts, and a live visualizer</li>
-                      <li>• <span className={L.listBold}>O.T.T.E.R. (Training & Education)</span> — AI-powered learning platform for software, shortcuts, and coding languages</li>
-                      <li>• <span className={L.listBold}>Project Manager</span> — Organize documents, visual assets, and metadata for multiple projects</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>D.O.G. (Deck Outline Generator)</span> — AI-powered slide outline generation with theme colors, image prompts, and a live visualizer</li>
+                      <li><span className={L.listBold}>O.T.T.E.R. (Training & Education)</span> — AI-powered learning platform for software, shortcuts, and coding languages</li>
+                      <li><span className={L.listBold}>Project Manager</span> — Organize documents, visual assets, and metadata for multiple projects</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Technical Details</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Platform:</span> Electron desktop application (Windows)</li>
-                      <li>• <span className={L.listBold}>Storage:</span> Workspace data lives in your company's cloud workspace; per-machine preferences stay local</li>
-                      <li>• <span className={L.listBold}>AI:</span> Included with your workspace sign-in — requests route through your workspace's secure AI service, no API key to configure</li>
-                      <li>• <span className={L.listBold}>Storage:</span> Uses localStorage and IndexedDB for project data and settings</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Platform:</span> Electron desktop application (Windows)</li>
+                      <li><span className={L.listBold}>Storage:</span> Workspace data lives in your company's cloud workspace; per-machine preferences stay local</li>
+                      <li><span className={L.listBold}>AI:</span> Included with your workspace sign-in — requests route through your workspace's secure AI service, no API key to configure</li>
+                      <li><span className={L.listBold}>Storage:</span> Uses localStorage and IndexedDB for project data and settings</li>
                     </ul>
                   </div>
                 </div>
@@ -269,23 +288,23 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Home Screen</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>The home screen</span> is the central hub with buttons for each tool and System Settings</li>
-                      <li>• <span className={L.listBold}>Use arrow keys</span> to navigate between buttons, press Enter to select</li>
-                      <li>• <span className={L.listBold}>Help page</span> is accessible from the home screen below System Settings</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>The home screen</span> is the central hub with buttons for each tool and System Settings</li>
+                      <li><span className={L.listBold}>Use arrow keys</span> to navigate between buttons, press Enter to select</li>
+                      <li><span className={L.listBold}>Help page</span> is accessible from the home screen below System Settings</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Navigation Menu</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Hamburger menu</span> — Available on all non-home pages via the icon in the top-right</li>
-                      <li>• <span className={L.listBold}>Quick access</span> to HOME, other tools, and System Settings from any page</li>
-                      <li>• <span className={L.listBold}>Click outside</span> the nav strip to dismiss it</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Hamburger menu</span> — Available on all non-home pages via the icon in the top-right</li>
+                      <li><span className={L.listBold}>Quick access</span> to HOME, other tools, and System Settings from any page</li>
+                      <li><span className={L.listBold}>Click outside</span> the nav strip to dismiss it</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Page Transitions</h4>
-                    <p className={L.listItem}>
+                    <p className={L.bodyText}>
                       Navigating between pages triggers an animated transition: the content fades out, orange bars compress to the center revealing the destination page title, then expand to reveal the new page. This creates a smooth, branded experience between tools.
                     </p>
                   </div>
@@ -305,59 +324,59 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Interacting with Your Pet</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Click the sprite</span> (bottom-right corner) to open/close the chat window</li>
-                      <li>• <span className={L.listBold}>Press Enter</span> to toggle the chat window (when not typing in an input)</li>
-                      <li>• <span className={L.listBold}>Feed button</span> — Restores hunger (available when pet mode is on and pet is alive)</li>
-                      <li>• <span className={L.listBold}>Pet button</span> — Increases happiness and shows affection</li>
-                      <li>• <span className={L.listBold}>Thumbs up/down</span> — Rate AI responses to help the companion learn your preferences</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Click the sprite</span> (bottom-right corner) to open/close the chat window</li>
+                      <li><span className={L.listBold}>Press Enter</span> to toggle the chat window (when not typing in an input)</li>
+                      <li><span className={L.listBold}>Feed button</span> — Restores hunger (available when pet mode is on and pet is alive)</li>
+                      <li><span className={L.listBold}>Pet button</span> — Increases happiness and shows affection</li>
+                      <li><span className={L.listBold}>Thumbs up/down</span> — Rate AI responses to help the companion learn your preferences</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Pet Lifecycle</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Egg</span> — Your pet starts as an egg. Pet it 2-4 times to hatch</li>
-                      <li>• <span className={L.listBold}>Baby</span> — Hatches with a random breed and gender. Smaller sprite. Evolves over time</li>
-                      <li>• <span className={L.listBold}>Adult</span> — Fully grown. Needs regular feeding and attention to stay happy</li>
-                      <li>• <span className={L.listBold}>Corpse → Ghost</span> — If hunger reaches 0, the pet dies. A ghost appears</li>
-                      <li>• <span className={L.listBold}>New egg</span> — When your pet is a ghost, you can create a new egg from System Settings</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Egg</span> — Your pet starts as an egg. Pet it 2-4 times to hatch</li>
+                      <li><span className={L.listBold}>Baby</span> — Hatches with a random breed and gender. Smaller sprite. Evolves over time</li>
+                      <li><span className={L.listBold}>Adult</span> — Fully grown. Needs regular feeding and attention to stay happy</li>
+                      <li><span className={L.listBold}>Corpse → Ghost</span> — If hunger reaches 0, the pet dies. A ghost appears</li>
+                      <li><span className={L.listBold}>New egg</span> — When your pet is a ghost, you can create a new egg from System Settings</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>8 Pet Breeds</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Otter, Bird, Octopus, Blob, Rabbit, Pig, Monkey</span> — 14% chance each</li>
-                      <li>• <span className={L.listBold}>Demon</span> — Rare breed with only a 2% chance of hatching</li>
-                      <li>• Breed is randomly assigned at hatch time and cannot be changed</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Otter, Bird, Octopus, Blob, Rabbit, Pig, Monkey</span> — 14% chance each</li>
+                      <li><span className={L.listBold}>Demon</span> — Rare breed with only a 2% chance of hatching</li>
+                      <li>Breed is randomly assigned at hatch time and cannot be changed</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Pet States & Moods</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Content</span> — Default happy state when well-fed and recently petted</li>
-                      <li>• <span className={L.listBold}>Hungry</span> — Hunger dropping below 40%. Feed to fix</li>
-                      <li>• <span className={L.listBold}>Starving</span> — Hunger below 15%. Feed urgently or pet will die</li>
-                      <li>• <span className={L.listBold}>Lonely</span> — Happiness dropped too low. Pet or chat to restore</li>
-                      <li>• <span className={L.listBold}>Sleeping</span> — Pet sleeps periodically. Cannot feed during sleep</li>
-                      <li>• <span className={L.listBold}>Happy</span> — Temporarily shown after feeding or petting</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Content</span> — Default happy state when well-fed and recently petted</li>
+                      <li><span className={L.listBold}>Hungry</span> — Hunger dropping below 40%. Feed to fix</li>
+                      <li><span className={L.listBold}>Starving</span> — Hunger below 15%. Feed urgently or pet will die</li>
+                      <li><span className={L.listBold}>Lonely</span> — Happiness dropped too low. Pet or chat to restore</li>
+                      <li><span className={L.listBold}>Sleeping</span> — Pet sleeps periodically. Cannot feed during sleep</li>
+                      <li><span className={L.listBold}>Happy</span> — Temporarily shown after feeding or petting</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Pet Mode & Settings</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Pet Mode ON</span> — Full Tamagotchi experience with hunger, sleep, mood, and lifecycle</li>
-                      <li>• <span className={L.listBold}>Pet Mode OFF</span> — Companion is a helper-only chatbot with no mechanics</li>
-                      <li>• <span className={L.listBold}>Difficulty (Low/Medium/High)</span> — Controls how fast hunger and happiness decay</li>
-                      <li>• <span className={L.listBold}>All pet settings</span> are in System Settings under the "Companion" section</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Pet Mode ON</span> — Full Tamagotchi experience with hunger, sleep, mood, and lifecycle</li>
+                      <li><span className={L.listBold}>Pet Mode OFF</span> — Companion is a helper-only chatbot with no mechanics</li>
+                      <li><span className={L.listBold}>Difficulty (Low/Medium/High)</span> — Controls how fast hunger and happiness decay</li>
+                      <li><span className={L.listBold}>All pet settings</span> are in System Settings under the "Companion" section</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Dream Cloud & Animations</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• A thought bubble appears above the sprite showing its current mood</li>
-                      <li>• <span className={L.listBold}>Hearts</span> when content or happy, <span className={L.listBold}>sad face</span> when hungry/lonely</li>
-                      <li>• <span className={L.listBold}>Zzz</span> when sleeping — the sprite bobs slowly</li>
-                      <li>• The sprite slides out during page transitions and slides back in when the new page loads</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li>A thought bubble appears above the sprite showing its current mood</li>
+                      <li><span className={L.listBold}>Hearts</span> when content or happy, <span className={L.listBold}>sad face</span> when hungry/lonely</li>
+                      <li><span className={L.listBold}>Zzz</span> when sleeping — the sprite bobs slowly</li>
+                      <li>The sprite slides out during page transitions and slides back in when the new page loads</li>
                     </ul>
                   </div>
                 </div>
@@ -372,24 +391,25 @@ export default function HelpPage() {
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>AI Features</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Included with sign-in</span> — generation, theme colors, image prompts and rewrites work as soon as you're signed in to your workspace</li>
-                      <li>• <span className={L.listBold}>No API key</span> — access is managed by your workspace admins, not per-user keys</li>
-                      <li>• <span className={L.listBold}>Shared across tools</span> — D.O.G., O.T.T.E.R. and R.A.B.B.I.T. all use the same workspace AI access</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Included with sign-in</span> — generation, theme colors, image prompts and rewrites work as soon as you're signed in to your workspace</li>
+                      <li><span className={L.listBold}>No API key</span> — access is managed by your workspace admins, not per-user keys</li>
+                      <li><span className={L.listBold}>Shared across tools</span> — D.O.G., O.T.T.E.R. and R.A.B.B.I.T. all use the same workspace AI access</li>
                     </ul>
                   </div>
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Password</h4>
-                    <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Managed by your workspace account</span> — not stored in the app</li>
-                      <li>• <span className={L.listBold}>Reset it</span> with "Forgot password" on the sign-in screen, or ask a workspace admin</li>
-                      <li>• <span className={L.listBold}>No separate launch password</span> — signing in to your workspace is the only gate</li>
+                    <ul className={`${L.listItem} ${L.list}`}>
+                      <li><span className={L.listBold}>Managed by your workspace account</span> — not stored in the app</li>
+                      <li><span className={L.listBold}>Reset it</span> with "Forgot password" on the sign-in screen, or ask a workspace admin</li>
+                      <li><span className={L.listBold}>No separate launch password</span> — signing in to your workspace is the only gate</li>
                     </ul>
                   </div>
                 </div>
               </section>
             </div>
           )}
+          </div>
         </div>
     </div>
   )

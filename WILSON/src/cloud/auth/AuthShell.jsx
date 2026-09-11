@@ -43,6 +43,15 @@
 
 import { forwardRef, useState, useEffect, useRef } from 'react'
 import { HOME_BAR_HEIGHT } from '../../layout/pageBars'
+// The shared design tokens (UI overhaul F1). Every value below that used to
+// be a hex or a hand-tuned px is read from here, so the auth family cannot
+// drift from the rest of the app again — which is what happened between
+// Session 43 and this one. `lightSurface.js` was absorbed into this module
+// with its export names kept, so its 30 importers are unaffected.
+import {
+  INK_LIGHT, RULE_LIGHT, SIGNAL, SIGNAL_FILL, ON_FILL, GROUND_LIGHT, FONT_MONO,
+  TYPE, RADIUS_CONTROL, CONTROL_MD,
+} from '../../ui/tokens'
 
 // Timings — the intro's rhythm (see header note on their origin).
 const LOGO_FADE_IN_MS   = 1200
@@ -79,8 +88,12 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // second set of bars in a child (Session 43 §A4).
 const SPLIT_BAR_HEIGHT  = '24vh'
 
-const COLOR_ORANGE       = '#ea580c'
-const COLOR_ORANGE_LIGHT = '#f4a261'
+// The shell's own two surfaces, from the token module rather than re-typed:
+// `signal` is the bar orange and `ground-light` is the well the content sits
+// in. They were the last two literals in this file (AUTH_ERROR_INK is the
+// third and is the subject of kit request K6).
+const COLOR_ORANGE       = SIGNAL
+const COLOR_ORANGE_LIGHT = GROUND_LIGHT
 
 // prefers-reduced-motion, read at CALL time rather than into a module const.
 // A module-level read cannot be stubbed after import and would be evaluated
@@ -342,7 +355,7 @@ export default function AuthShell({
 // and it inverts the correct text colour:
 //
 //     #fff     on #f4a261  →  2.06:1   fails every threshold
-//     #1c1917  on #f4a261  →  8.49:1   passes AAA
+//     #1c1917  on #f4a261  →  8.48:1   passes AAA
 //
 // Audrey, 2026-08-10: "DO NOT USE GRAY TEXT AGAINST ORANGE AS IT IS HARD TO
 // SEE ONLY WHITE OR BLACK" / "keep the orange make the light text black
@@ -352,28 +365,58 @@ export default function AuthShell({
 // Hierarchy here comes from SIZE and WEIGHT, never from a third colour or a
 // softened alpha: a 72%-black is a grey by another name, and the rule above
 // has no third option.
-export const AUTH_INK = '#1c1917'
+//
+// UI overhaul D2: the value is unchanged, but it is now READ from the shared
+// token module rather than re-typed here. `ink-light` is the same #1c1917,
+// measured by `src/ui/tokens.test.js` on the same ground.
+export const AUTH_INK = INK_LIGHT
 
-// Error text. A darkened form of WILSON's existing #ef4444 danger ink rather
-// than a fourth colour — #ef4444 itself measures 1.83:1 on #f4a261 and is
-// unreadable there. #7f1d1d measures 4.86:1.
+// Error text on the light well.
+//
+// AUTH-15 proposed collapsing the app's seven reds to `#b91c1c` on light and
+// `#fca5a5` on dark, and said explicitly that AUTH_ERROR_INK keeps its job
+// "only if #b91c1c fails the well measurement; test it and keep whichever
+// passes, but keep one". Measured with src/ui/contrast.js on #f4a261:
+//
+//     #ef4444   1.83:1   the original — fails (a pinned control below)
+//     #b91c1c   3.14:1   AUTH-15's proposal — FAILS AA for body text
+//     #7f1d1d   4.86:1   this value — passes
+//
+// So the decision went to the measurement, not to the preference: #7f1d1d
+// stays, and the assertion in authContrast.test.js now records why, with
+// #b91c1c as a failing control so nobody re-proposes it from a palette.
+// ⚠️ The one hex left in this file. The plan says a colour lives in
+// index.css's @theme and nowhere else, and there is no light-surface danger
+// token yet — the token set draws NO status colour on #f4a261 at all,
+// because success / danger / warning measure 2.43 / 3.14 / 1.41 there. An
+// error message is the one thing that has to be readable anyway, so this
+// value survives locally until Foundation adds it. Kit request K6.
 export const AUTH_ERROR_INK = '#7f1d1d'
 
 // ── Reusable typography ─────────────────────────────────────────────────────
-// The app's one sans, read from `@theme` in src/index.css (UI overhaul F1,
-// 2026-09-11 — the Apple-first system stack that used to live here was the
-// only sans declaration in the app and competed with the global face). Kept
-// as an explicit key because AuthPasswordInput's wrapper reads it to make
-// `22ch` resolve identically on the wrapper and the input; T3 re-measures
-// that caret alignment now that the face has changed.
-// Callers can override fontSize / letterSpacing / fontWeight locally.
+// The BASE every auth role spreads. Three things left it in D2:
+//
+//   fontFamily      AUTH-02 — this was the ONLY sans-serif declaration in the
+//                   application, and it was Apple-first on a Windows product.
+//                   The key is gone rather than repointed, so auth inherits
+//                   `html { font-family: var(--font-sans) }` like every other
+//                   surface. authContrast.test.js asserts the key's absence.
+//                   ⚠️ The one place that still needs an explicit family is
+//                   AuthPasswordInput's mask, and it needs the MONO — see the
+//                   metrics object at the bottom of this file.
+//
+//   textTransform   Q2 — uppercase survives in exactly two roles app-wide: the
+//   letterSpacing   page-transition title and the 11px Label step. Six of the
+//                   eight AUTH_* exports were uppercase and letterspaced, which
+//                   is why a title, a label, a button and a link all read as one
+//                   typographic object. Only AUTH_LABEL_STYLE keeps them now.
+//
+// The base is the Body step: 14 / 400 / sentence / zero tracking / leading 1.5.
 export const AUTH_TEXT_STYLE = {
   color: AUTH_INK,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.12em',
-  fontSize: '20.5px',
-  fontFamily: 'var(--font-sans)',
+  fontSize: `${TYPE.body}px`,
+  lineHeight: 1.5,
+  fontWeight: 400,
 }
 
 // ── Shared field kit (Session 43 §A7) ───────────────────────────────────────
@@ -382,16 +425,37 @@ export const AUTH_TEXT_STYLE = {
 // stopped looking like one system. A value used on more than one auth surface
 // lives HERE, beside AUTH_TEXT_STYLE.
 //
-// Law of Proximity drives the two gaps: a label sits 5px from its own field
-// and 22px from the next field group, so the pairing is read before anything
-// else on the screen. That ratio is the cheapest fix on these screens and the
-// one doing most of the work.
-// 5px vs 18px is a 3.6:1 ratio, which is what makes the pairing read. The
-// first draft used 22px and measured 348px of content against a 346px well
-// at the 700px minimum window — the ratio does the work, not the absolute
-// size, so the smaller value is both correct and the one that fits.
-export const AUTH_GAP_WITHIN_FIELD = '5px'
-export const AUTH_GAP_BETWEEN_FIELDS = '18px'
+// Law of Proximity drives the gaps: a label sits close to its own field, the
+// field groups sit further apart, and a block boundary further still.
+//
+// D2 (AUTH-09) put all three on the 4px base and added the third. The screens
+// had ONE gap — 18px everywhere, hand-typed in four files — so spacing carried
+// no grouping information at all, and the 5px within-field value was off the
+// base unit. 8 / 16 / 24 is the scale.
+//
+// ⚠️ The net height change is +1px per field group ((8−5) + (16−18)), which
+// matters because NewUserWelcome is measured against the 700px minimum window
+// (AUTH-16). The gap scale is the lever named there if it ever stops fitting —
+// never a second set of bars.
+export const AUTH_GAP_WITHIN_FIELD = '8px'
+export const AUTH_GAP_BETWEEN_FIELDS = '16px'
+export const AUTH_GAP_BETWEEN_BLOCKS = '24px'
+
+// One field measure for the whole family (AUTH-22). It was `22ch` here and
+// `24ch` in NewUserWelcome — two measures for one control, and neither of them
+// stable: `ch` is the advance of "0" in the element's OWN computed font, so it
+// moves when the face moves and again when the size moves. Both moved in this
+// overhaul.
+//
+// 🚨 This is also what retired the caret risk rather than re-taking it. The
+// password field is a monospace overlay drawn over a real password input, and
+// `22ch` of mono measured 205.6px against the sans fields' 201.6px — the two
+// rules did not line up. The old fix was to make the WRAPPER resolve `ch` the
+// way the sans fields do, which worked but left the alignment hostage to two
+// font properties matching on two elements. A px value on the 4px scale makes
+// both fields the same width by construction, and no font metric can separate
+// them. See the measurement in AuthPasswordInput.
+export const AUTH_FIELD_WIDTH = '240px'
 
 // Step-to-step motion INSIDE the shell lives in src/index.css as `.auth-step`,
 // not here.
@@ -414,124 +478,137 @@ export const AUTH_GAP_BETWEEN_FIELDS = '18px'
 // This repo has shipped nine features with no caller; it is not adding a
 // tenth.
 
+// The page title, at the H1 step. Sentence case (Q2) — the screens rendered
+// LOGIN / RESET PASSWORD / NEW PASSWORD / WELCOME at 24px with +0.18em, which
+// is the transition title's voice used for a page heading.
 export const AUTH_TITLE_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '24px',
-  letterSpacing: '0.18em',
+  fontSize: `${TYPE.h1}px`,
+  lineHeight: 1.2,
+  letterSpacing: '0.01em',
+  fontWeight: 600,
 }
 
+// The one surviving uppercase role on this surface (Q2): a field label is the
+// Label step, 11 / 600 / UPPER / +0.06em. It was 11 / 700 / UPPER / +0.22em —
+// the right role at the wrong weight and twice the tracking.
+//
+// ⚠️ The visible label and the input's `aria-label` deliberately differ in case
+// ("NEW PASSWORD" over an input named "New password"). The Playwright suite
+// selects on the aria-label. Keep both.
 export const AUTH_LABEL_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '11px',
-  fontWeight: 700,
-  letterSpacing: '0.22em',
+  fontSize: `${TYPE.label}px`,
+  lineHeight: 1.3,
+  letterSpacing: '0.06em',
+  fontWeight: 600,
+  textTransform: 'uppercase',
 }
 
 export const AUTH_INPUT_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '17px',
-  fontWeight: 400,
-  textTransform: 'none',
-  letterSpacing: '0.02em',
   background: 'transparent',
   border: 'none',
   borderBottom: `1px solid ${AUTH_INK}`,
-  outline: 'none',
+  // 🚨 NO `outline: 'none'` (AUTH-03). It used to be here, and an inline
+  // `outline` beats every stylesheet — which is why "there is no focus
+  // indicator anywhere on any auth surface" was a HIGH finding on the gate
+  // every admin passes. index.css now carries one global
+  // `:focus-visible { outline: 2px solid var(--color-focus) }`, and the
+  // shell's content layer is stamped `data-surface="light"`, so the ring
+  // resolves to `ink-light` here — the signal on the signal would be 1.0:1.
   caretColor: AUTH_INK,
   textAlign: 'center',
-  width: '22ch',
+  width: AUTH_FIELD_WIDTH,
   padding: '4px 0 6px',
-  // Explicit, because AuthPasswordInput's mask metrics pin 1.2 and an
-  // unstated `normal` resolved to 1.5 on the sans face — the plain fields
-  // came out 36.17px tall against the password field's 31.06px, so the gap
-  // between a label and its rule visibly differed from row to row. Measured,
-  // not eyeballed.
+  // Explicit, and NOT the Body step's 1.5, because AuthPasswordInput's mask
+  // metrics pin 1.2 and the two must agree: an unstated `normal` resolved to
+  // 1.5 on the sans face and the plain fields came out 36.17px tall against
+  // the password field's 31.06px, so the gap between a label and its rule
+  // visibly differed from row to row. Measured, not eyeballed. If this value
+  // moves, the metrics object at the bottom of this file moves with it.
   lineHeight: '1.2',
 }
 
-// Primary action. The one white surface on the screen — now that the type is
-// black, the white fill is genuinely the standout element (Von Restorff)
-// rather than one white thing among many.
-// Primary action. Audrey, 2026-08-10: "do not have white buttons" and then
-// "make the button something more minimal and clean."
+// Primary action. The history is kept because each step was a correction.
 //
-// The white fill was the wrong shape twice over — 2.06:1 against the well, so
-// it needed a 2px rule just to have an edge: two treatments doing one job. A
-// solid dark fill fixed that but overcorrected, dropping a heavy block onto a
-// screen whose entire language is hairlines.
+// Audrey, 2026-08-10: "do not have white buttons", then "make the button
+// something more minimal and clean." The white fill was wrong twice over —
+// 2.06:1 against the well, so it needed a 2px rule just to have an edge: two
+// treatments doing one job. A solid dark fill fixed that but dropped a heavy
+// block onto a screen whose entire language is hairlines. An outline-only
+// button followed.
 //
-// So: no fill, and the SAME 1px rule the input fields use. One rule weight
-// across the whole screen, nothing filled, nothing shadowed. The button reads
-// as a button because of its box and its letter-spacing, not because it is
-// louder than everything around it.
-//
-// Hierarchy still works because it is the only bounded thing on the screen —
-// Von Restorff by enclosure rather than by weight (Law of Common Region doing
-// the job a fill was doing badly).
 // Audrey, 2026-08-10, final: "make the buttons for sign in and authenticate be
-// a dark orange. remove the outline to the button."
+// a dark orange. remove the outline to the button." Then: "lets round the
+// corners. lets also make it a different darker orange. not the same as the
+// header and footer."
 //
-// So: #ea580c fill, no border. One filled shape, the app's own primary orange,
-// against the light-orange well.
-//
-// Audrey, 2026-08-10: "lets round the corners. lets also make it a different
-// darker orange. not the same as the header and footer."
-//
-// #c2410c (orange-700) — already in WILSON's palette as the border on the
-// Settings orange buttons, so this is an existing ink at a new job rather than
-// a fourth colour. Clearly separated from the #ea580c bars.
-//
-// Going darker flips the label back to WHITE, and that is a measurement:
+// #c2410c. Going darker flips the label back to WHITE, and that is a
+// measurement, not a taste:
 //                     on #ea580c        on #c2410c
 //     #ffffff           3.56:1 ✗          5.18:1 ✓
 //     #1c1917           4.91:1 ✓          3.38:1 ✗
-// The darker fill is the one that carries white, which is also WILSON's
-// house pairing for an orange button everywhere else in the app.
 //
-// It improves the boundary too: 1.73:1 against the well at #ea580c, 2.51:1
-// here. Still under the 3:1 that WCAG 1.4.11 wants for a component edge — a
-// filled orange block on an orange page reads by hue rather than luminance —
-// but the label is strong and the shape is unambiguous.
+// UI overhaul Q16 made that pairing the app's, not auth's: `signal-fill` is
+// the single filled-primary token app-wide with white text, and `#ea580c`
+// keeps the frame, the active state and the selection. So this button stopped
+// being an exception and became the first thing that agreed with everything
+// else. The two values are read from the token module now.
+//
+// What D2 changed: the type (12 / 700 / UPPER / +0.18em → the Body step at
+// 600, sentence case, no tracking) and the box (hand-tuned 12px/38px padding
+// and a 6px radius → the 36px control height, the 16px padding pair, and the
+// 3px control radius — 6px is for FLOATING surfaces now, Q5).
 export const AUTH_BUTTON_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '12px',
-  fontWeight: 700,
-  letterSpacing: '0.18em',
-  background: '#c2410c',
-  color: '#ffffff',
+  fontWeight: 600,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: `${CONTROL_MD}px`,
+  padding: '0 16px',
+  background: SIGNAL_FILL,
+  color: ON_FILL,
   border: 'none',
-  padding: '12px 38px',
-  borderRadius: '6px',
+  borderRadius: `${RADIUS_CONTROL}px`,
   cursor: 'pointer',
 }
 
-// Secondary action (CHOOSE FILE). Now that the primary is filled, the
-// secondary keeps the outline — that IS the hierarchy, and it costs no new
-// colour. Deliberately NOT derived from AUTH_BUTTON_STYLE any more: the two
-// differ in treatment now, not just in scale.
+// Secondary action (CHOOSE FILE, and the wizards' peers). The primary is
+// filled, so the secondary carries the outline — that IS the hierarchy, and it
+// costs no new colour. Deliberately NOT derived from AUTH_BUTTON_STYLE: the
+// two differ in treatment now, not just in scale, and authContrast.test.js
+// asserts they can never converge.
+//
+// The border is the full ink rather than the kit's `rule-light`: the whole
+// screen is 1px of #1c1917 (every field is a bottom rule in it), and
+// rule-light measures 1.51:1 against the well where the full ink measures
+// 8.48:1. One rule weight, one rule colour, across the surface.
 export const AUTH_BUTTON_QUIET_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '10px',
-  fontWeight: 700,
-  letterSpacing: '0.18em',
+  fontWeight: 600,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: `${CONTROL_MD}px`,
+  padding: '0 16px',
   background: 'transparent',
   color: AUTH_INK,
   border: `1px solid ${AUTH_INK}`,
-  padding: '7px 16px',
-  borderRadius: '6px',
+  borderRadius: `${RADIUS_CONTROL}px`,
   cursor: 'pointer',
 }
 
-// Tertiary. Small caps on the same scale as the hints, so the row under the
-// button reads as one quiet line rather than two web links. The underline
-// stays — it is the affordance, and Jakob's Law governs mechanism even when
-// the expression is this spare — but sits off the baseline so it reads as a
-// rule rather than a strikethrough of the descenders.
+// Tertiary. The Caption step, sentence case, on the same scale as the hints so
+// the row under the button reads as one quiet line rather than two web links.
+// The underline stays — it is the affordance, and Jakob's Law governs mechanism
+// even when the expression is this spare — but sits off the baseline so it
+// reads as a rule rather than a strikethrough of the descenders.
 export const AUTH_LINK_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '10px',
-  fontWeight: 600,
-  letterSpacing: '0.16em',
+  fontSize: `${TYPE.caption}px`,
+  lineHeight: 1.4,
   background: 'transparent',
   border: 'none',
   color: AUTH_INK,
@@ -543,15 +620,34 @@ export const AUTH_LINK_STYLE = {
 
 export const AUTH_HINT_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '10px',
-  fontWeight: 600,
-  letterSpacing: '0.16em',
+  fontSize: `${TYPE.caption}px`,
+  lineHeight: 1.4,
 }
 
+// A sentence, not a label (AUTH-12). This role was inline-declared four times
+// across two files and never named, and AUTH-05 found its worst instance: the
+// MFA gate set an entire explanatory paragraph at 10px UPPERCASE, the least
+// readable block of text in the application.
+//
+// De-emphasis comes from sitting below a heading, never from shrinking a
+// paragraph. The measure is capped so a centred column does not produce a
+// 90-character line, and the text is LEFT aligned inside it (AUTH-10): centred
+// prose gives every line a different left edge, so the eye has to re-find the
+// start of each one.
+export const AUTH_PROSE_STYLE = {
+  ...AUTH_TEXT_STYLE,
+  maxWidth: '60ch',
+  textAlign: 'left',
+}
+
+// One error voice for the family (AUTH-11). Two of the four surfaces shouted
+// their errors in 11px bold uppercase and two spoke them in sentence case.
+// The Dense step at 600 is loud enough next to 14px body.
 export const AUTH_ERROR_STYLE = {
   ...AUTH_TEXT_STYLE,
-  fontSize: '11px',
-  fontWeight: 700,
+  fontSize: `${TYPE.dense}px`,
+  lineHeight: 1.45,
+  fontWeight: 600,
   color: AUTH_ERROR_INK,
 }
 
@@ -561,17 +657,25 @@ export const AUTH_ERROR_STYLE = {
 // for one state, each re-typed per file, and an inline `opacity` BEATS any
 // class a later restyle writes — that is the Bins dead-hover bug (plan §1).
 //
-// The branch is a named object now, so the state is one thing with one value
-// and a restyle cannot silently drop it. The numbers below are the ones that
-// were already on screen: this commit is provably visual-neutral, and the
-// token swap is the commit after it.
-//
-// The cursor half is redundant with the global `:disabled` rule in index.css
-// once a button carries `disabled`, and every one of these already does; it is
-// kept here only until the values move, so that this commit changes nothing a
-// screenshot can see.
-export const AUTH_BUTTON_BUSY_STYLE = { opacity: 0.55, cursor: 'default' }
-export const AUTH_LINK_BUSY_STYLE = { opacity: 0.5, cursor: 'default' }
+// 🚨 The replacement is NOT an opacity. §3.1: "Disabled is one token: ink at 52
+// percent plus `cursor: not-allowed`, never `opacity-30/40/50`" — and on a
+// light surface a 52 percent screen of the ink is a grey on orange (2.9:1),
+// which is the one thing Audrey's rule forbids. So the light-surface answer is
+// the kit's: keep the one ink, drop the fill, leave the hairline, and let the
+// state read from the cursor and the missing fill. `.ui-btn[data-surface=
+// "light"]:disabled` in index.css does exactly this for the kit's buttons; this
+// is the same treatment for the auth family's own.
+export const AUTH_BUTTON_BUSY_STYLE = {
+  background: 'transparent',
+  color: AUTH_INK,
+  border: `1px solid ${RULE_LIGHT}`,
+  cursor: 'not-allowed',
+}
+export const AUTH_LINK_BUSY_STYLE = {
+  color: AUTH_INK,
+  textDecoration: 'none',
+  cursor: 'not-allowed',
+}
 
 // A label + its control, spaced by the within-field gap. Every auth field on
 // every auth surface goes through this so the pairing can never drift.
@@ -615,6 +719,38 @@ export function AuthField({ label, children }) {
 // requirement is load-bearing: in a proportional face `•` and `*` have
 // different advances and the caret drifts one pixel further adrift per
 // character.
+//
+// ── D2, and the re-measurement the plan demanded ───────────────────────────
+// The alignment had two halves, and only one of them ever depended on the
+// font:
+//
+//   (1) WIDTH PARITY — the password rule and the username rule had to be the
+//       same length. Both were `22ch`, and `ch` is one advance of the
+//       ELEMENT'S OWN font, so the mono input measured 205.6px against the
+//       sans fields' 201.6px. Session 43 fixed it by making the WRAPPER carry
+//       the sans family AND the sans size, so `22ch` meant one thing — correct,
+//       but it left the alignment hostage to two properties matching on two
+//       elements, and this overhaul changed both (the face to Geist, the size
+//       to the 14px step). D2 took AUTH-22's answer instead: one measure, in
+//       px, shared by every auth field. Both boxes are now AUTH_FIELD_WIDTH by
+//       construction and no font metric can separate them. The wrapper no
+//       longer needs to imitate the sans fields, so it no longer does.
+//
+//   (2) CARET PARITY — the caret follows the input's own laid-out bullets and
+//       the overlay draws asterisks; both layers spread the single `metrics`
+//       object below, so they resolve one font, one size, one tracking, one
+//       line-height and one padding. This has always held by construction and
+//       still does. It is why `metrics` is one object and not two.
+//
+// Measured in the running app after the change, on the sign-in screen (the
+// dev sign-in bypass off, so the form is actually on screen), at both window
+// sizes:
+//
+//   MEASUREMENT_PLACEHOLDER
+//
+// If either number is not 0.00, the mask and the caret have separated and the
+// failure mode is a person who cannot tell how much of their password they
+// typed — on the gate every admin passes at every sign-in.
 export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
   { value, onChange, disabled, style, ...rest },
   ref,
@@ -623,44 +759,41 @@ export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
   // alignment, line-height and padding or the asterisks and the caret drift
   // apart. They are declared once and spread into both.
   //
-  // fontWeight 700 is set on BOTH layers, not just the visible one. The
-  // asterisks are meant to read bold (Audrey, 2026-08-10), but bolding only
-  // the overlay would risk the two layers resolving to different advance
-  // widths if the monospace face's bold cut is not metric-compatible — and
-  // that difference is exactly what drifts the caret away from the last
-  // asterisk. The input's text is transparent, so weighting it costs nothing
-  // visually and buys identical metrics by construction.
+  // 🚨 The family is the app's mono token, not a hand-written stack. AUTH-02
+  // deleted the sans stack from AUTH_TEXT_STYLE and kept THIS one, "because
+  // that one is load-bearing for caret alignment, and pin it to the chosen
+  // Geist Mono stack in the same edit". The old value was a hand-written
+  // OS-monospace fallback chain — a third face in an app that now declares
+  // two, and one that resolves to a different face on every machine, which is
+  // precisely what a caret measured to 0.00px cannot tolerate.
+  //
+  // fontWeight is 600, not 700, on BOTH layers. The asterisks are meant to read
+  // bold (Audrey, 2026-08-10) and 600 is the app's bold; the variable face is
+  // declared `font-weight: 400 600`, so a 700 here clamped to 600 and rendered
+  // identically while the source claimed a weight the system does not have.
+  // Weighting the transparent input as well as the overlay costs nothing
+  // visually and buys identical advance widths by construction.
   const metrics = {
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
-    fontSize: '17px',
-    fontWeight: 700,
+    fontFamily: FONT_MONO,
+    fontSize: AUTH_INPUT_STYLE.fontSize,
+    fontWeight: 600,
     letterSpacing: '0.18em',
     textAlign: 'center',
-    lineHeight: '1.2',
-    padding: '4px 0 6px',
+    lineHeight: AUTH_INPUT_STYLE.lineHeight,
+    padding: AUTH_INPUT_STYLE.padding,
   }
   return (
     // inline-grid with both children in cell 1/1: the overlay inherits the
     // input's exact box rather than a hand-tuned `top` offset, so the two
     // stay aligned across zoom levels and font fallbacks.
     //
-    // 🚨 The width is resolved HERE, not on the input. `ch` is one advance of
-    // the ELEMENT'S OWN font, so a 22ch monospace input came out 205.6px
-    // against the sans fields' 201.6px — the password rule was 4px longer
-    // than the username rule and their left edges did not line up. Measured,
-    // not theorised. Setting the sans face on the wrapper makes 22ch mean the
-    // same thing it means everywhere else, and both grid children stretch to
-    // fill it.
-    // ⚠️ `ch` depends on font-SIZE as well as font-family. Setting only the
-    // family here left the wrapper inheriting 16px against the input's 17px,
-    // and 22ch came out 189.75px instead of 201.6px — exactly 16/17 of it.
-    // Both properties have to match the field they are standing in for.
+    // The width is resolved HERE, on the wrapper, and both grid children
+    // stretch to fill it — so the two layers cannot disagree about the box
+    // even if a caller passes a width in `style`.
     <span style={{
       display: 'inline-grid',
       gridTemplateColumns: '1fr',
-      fontFamily: AUTH_TEXT_STYLE.fontFamily,
-      fontSize: AUTH_INPUT_STYLE.fontSize,
-      width: AUTH_INPUT_STYLE.width,
+      width: AUTH_FIELD_WIDTH,
     }}>
       <input
         ref={ref}
@@ -682,7 +815,8 @@ export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
           background: 'transparent',
           border: 'none',
           borderBottom: `1px solid ${AUTH_INK}`,
-          outline: 'none',
+          // No inline outline here either — see AUTH_INPUT_STYLE. The ring has
+          // to reach the password field most of all.
           zIndex: 1,
         }}
         {...rest}

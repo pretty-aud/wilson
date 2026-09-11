@@ -4,11 +4,32 @@
 // Shown once per sign-in when the updater reports a newer version (and the
 // user hasn't skipped that exact version). Update → download with live
 // percent → restart+install. Skip remembers the version and stays quiet
-// until the next release. Von Restorff: single orange modal, two choices.
+// until the next release. Von Restorff: one modal, two choices.
+//
+// D2 / AUTH-06 + AUTH-13: this was a hand-rolled overlay — its own backdrop,
+// its own #1c1917 card with a 2px #ea580c border, mono body copy, a
+// `rounded-sm` progress bar, and two buttons in one row wearing two different
+// type treatments (one 12px mono sentence case, one 12px bold uppercase
+// letterspaced). It is now the kit `Dialog` at the 'confirm' width (400 — the
+// only widths that may be written are 400 / 560 / 720 / 960) with kit
+// `Button`s in the footer.
+//
+// The Dialog brings Escape-to-close, the modal stack and the busy lock
+// (Q17, "yes, but keep it minimal"), which is why `onClose` is `onDismiss`:
+// Escape and the header close both mean "not now", the same thing the quiet
+// button has always meant. `dismissOnBackdrop` is deliberately NOT passed —
+// a stray click must not dismiss a release notice.
+//
+// The body line is a SENTENCE, so it carries no mono (AUTH-13). The only
+// mono left is the percentage readout, which is a numeric.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, RotateCw } from 'lucide-react'
+import { AlertTriangle, Download, RotateCw } from 'lucide-react'
+import {
+  Banner, Button, Dialog,
+  DURATION, EASE_RESPONSE, FONT_MONO, INK_2, RADIUS_CONTROL, RULE, SIGNAL_FILL, TYPE,
+} from '../ui'
 import {
   downloadUpdate, installUpdate, onUpdateStatus, skipVersion,
 } from '../cloud/updates'
@@ -50,97 +71,74 @@ export default function UpdatePrompt({ version, onDismiss }) {
     onDismiss?.()
   }, [version, onDismiss])
 
+  const footer = (
+    <>
+      {phase === 'offer' && (
+        <>
+          <Button variant="secondary" onClick={skip}>Skip this version</Button>
+          <Button variant="primary" onClick={start}>
+            <Download aria-hidden="true" />
+            Update now
+          </Button>
+        </>
+      )}
+      {phase === 'downloading' && (
+        <Button
+          variant="secondary"
+          onClick={onDismiss}
+          title="Keeps downloading — install from Settings when ready"
+        >
+          Continue in background
+        </Button>
+      )}
+      {phase === 'ready' && (
+        <Button variant="primary" onClick={() => installUpdate()}>
+          <RotateCw aria-hidden="true" />
+          Restart &amp; install
+        </Button>
+      )}
+      {phase === 'error' && (
+        <Button variant="secondary" onClick={onDismiss}>Close</Button>
+      )}
+    </>
+  )
+
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 55,
-        backgroundColor: 'rgba(28, 25, 23, 0.72)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-    >
-      <div
-        className="flex flex-col gap-4 p-6"
-        style={{
-          backgroundColor: '#1c1917', border: '2px solid #ea580c',
-          borderRadius: '6px', width: 380, maxWidth: '90vw',
-        }}
-      >
-        <div className="text-sm font-bold uppercase tracking-widest" style={{ color: '#f4a261' }}>
-          Update available
-        </div>
-        <div className="text-xs font-mono leading-relaxed" style={{ color: '#e7e5e4' }}>
-          WILSON {version} is ready to install (you're on {wilsonVersion}).
-        </div>
-
-        {phase === 'downloading' && (
-          <div>
-            <div className="w-full h-2 rounded-sm overflow-hidden" style={{ backgroundColor: '#44403c' }}>
-              <div style={{ width: `${percent}%`, height: '100%', backgroundColor: '#f97316', transition: 'width 200ms ease-out' }} />
-            </div>
-            <div className="mt-1 text-[11px] font-mono" style={{ color: '#a8a29e' }}>{percent}%</div>
-          </div>
-        )}
-
-        {phase === 'error' && (
-          <div className="text-[11px] font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.15)', color: '#fca5a5' }}>
-            {error} — you can retry from Settings later.
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2">
-          {phase === 'offer' && (
-            <>
-              <button
-                type="button"
-                onClick={skip}
-                className="text-xs font-mono px-3 py-2 rounded-sm"
-                style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
-              >
-                Skip this version
-              </button>
-              <button
-                type="button"
-                onClick={start}
-                className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-              >
-                <Download className="w-3.5 h-3.5" /> Update now
-              </button>
-            </>
-          )}
-          {phase === 'downloading' && (
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="text-xs font-mono px-3 py-2 rounded-sm"
-              style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
-              title="Keeps downloading — install from Settings when ready"
-            >
-              Continue in background
-            </button>
-          )}
-          {phase === 'ready' && (
-            <button
-              type="button"
-              onClick={() => installUpdate()}
-              className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-            >
-              <RotateCw className="w-3.5 h-3.5" /> Restart &amp; install
-            </button>
-          )}
-          {phase === 'error' && (
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="text-xs font-mono px-3 py-2 rounded-sm"
-              style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
-            >
-              Close
-            </button>
-          )}
-        </div>
+    <Dialog title="Update available" width="confirm" onClose={onDismiss} footer={footer}>
+      <div>
+        WILSON {version} is ready to install (you're on {wilsonVersion}).
       </div>
-    </div>
+
+      {phase === 'downloading' && (
+        <div style={{ marginTop: 16 }}>
+          <div
+            style={{
+              height: 8, borderRadius: RADIUS_CONTROL, overflow: 'hidden',
+              backgroundColor: RULE,
+            }}
+          >
+            <div
+              style={{
+                width: `${percent}%`, height: '100%',
+                backgroundColor: SIGNAL_FILL,
+                transition: `width ${DURATION.response}ms ${EASE_RESPONSE}`,
+              }}
+            />
+          </div>
+          {/* The readout is a numeric, so it keeps the mono (Q4). */}
+          <div style={{ marginTop: 6, fontFamily: FONT_MONO, fontSize: TYPE.caption, color: INK_2 }}>
+            {percent}%
+          </div>
+        </div>
+      )}
+
+      {phase === 'error' && (
+        <div style={{ marginTop: 16 }}>
+          <Banner tone="danger" Icon={AlertTriangle}>
+            {error} — you can retry from Settings later.
+          </Banner>
+        </div>
+      )}
+    </Dialog>
   )
 }

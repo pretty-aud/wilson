@@ -223,7 +223,7 @@ export default function Home({ onNavigate, currentPage }) {
                 style={{ color: highlighted ? '#fff' : '#1c1917' }}
               />
               <span
-                className="font-bold text-sm tracking-widest uppercase transition-colors duration-200"
+                className="text-h2 transition-colors duration-200"
                 style={{ color: highlighted ? '#fff' : '#1c1917' }}
               >
                 {item.label}
@@ -297,7 +297,7 @@ export default function Home({ onNavigate, currentPage }) {
                   style={{ color: highlighted ? '#fff' : '#1c1917' }}
                 />
                 <span
-                  className="font-bold text-sm tracking-widest uppercase transition-colors duration-200"
+                  className="text-h2 transition-colors duration-200"
                   style={{ color: highlighted ? '#fff' : '#1c1917' }}
                 >
                   {item.label}

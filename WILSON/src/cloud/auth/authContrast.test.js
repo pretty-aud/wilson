@@ -116,3 +116,280 @@ describe('the auth ink survives the surface it actually sits on', () => {
     expect(contrast(AUTH_INK, BARS)).toBeGreaterThanOrEqual(4.5)
   })
 })
+
+// =============================================================================
+// UI overhaul D2 — the extension.
+//
+// The ten cases above are Session 43's and are untouched, deliberately: the
+// plan says "extend `authContrast.test.js` rather than editing it", and the
+// review's first risk is that a session quietly rewrites assertions which
+// correctly encode Audrey's verbatim instructions. Everything below is new.
+//
+// Two differences from the block above, both on purpose:
+//
+//   - it imports the arithmetic from `src/ui/contrast.js` instead of carrying
+//     a fourth copy. That module exists because this file's own three-digit
+//     `#fff` bug had to be fixed in three places; the block above keeps its
+//     private copy so its assertions are provably unchanged, and everything
+//     new uses the shared one.
+//   - it needs `over()`. Half the token set is alpha — rules, wells, tints,
+//     the banner's own ground — and an alpha's real contrast is against the
+//     blend, never against the raw channel values.
+//
+// Every ratio below was measured from these exact tokens before being written
+// down. Each group ends with a FAILING CONTROL, because "the value passes"
+// proves nothing about whether the threshold means anything on that ground.
+// =============================================================================
+
+import {
+  AUTH_TITLE_STYLE, AUTH_LABEL_STYLE, AUTH_INPUT_STYLE, AUTH_HINT_STYLE,
+  AUTH_LINK_STYLE, AUTH_PROSE_STYLE, AUTH_ERROR_STYLE, AUTH_FIELD_WIDTH,
+  AUTH_BUTTON_BUSY_STYLE, AUTH_LINK_BUSY_STYLE, AUTH_GAP_WITHIN_FIELD,
+  AUTH_GAP_BETWEEN_FIELDS, AUTH_GAP_BETWEEN_BLOCKS,
+} from './AuthShell'
+import {
+  INK, INK_2, INK_3, PAPER, PAPER_RAISED, WARNING, INK_LIGHT, RULE_LIGHT,
+  TYPE, TYPE_FLOOR,
+} from '../../ui/tokens'
+import { contrast as ratio, over } from '../../ui/contrast'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const authShellSrc = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), 'AuthShell.jsx'), 'utf8',
+)
+
+describe('the auth type kit sits on the scale and inside the case rule', () => {
+  // Every role that carries a size, with the step it is supposed to be on.
+  const ROLES = [
+    ['AUTH_TITLE_STYLE', AUTH_TITLE_STYLE, TYPE.h1],
+    ['AUTH_LABEL_STYLE', AUTH_LABEL_STYLE, TYPE.label],
+    ['AUTH_INPUT_STYLE', AUTH_INPUT_STYLE, TYPE.body],
+    ['AUTH_HINT_STYLE', AUTH_HINT_STYLE, TYPE.caption],
+    ['AUTH_LINK_STYLE', AUTH_LINK_STYLE, TYPE.caption],
+    ['AUTH_ERROR_STYLE', AUTH_ERROR_STYLE, TYPE.dense],
+    ['AUTH_BUTTON_STYLE', AUTH_BUTTON_STYLE, TYPE.body],
+    ['AUTH_BUTTON_QUIET_STYLE', AUTH_BUTTON_QUIET_STYLE, TYPE.body],
+    ['AUTH_TEXT_STYLE', AUTH_TEXT_STYLE, TYPE.body],
+    ['AUTH_PROSE_STYLE', AUTH_PROSE_STYLE, TYPE.body],
+  ]
+  const px = (s) => Number(String(s).replace('px', ''))
+
+  it.each(ROLES)('%s is on its scale step and above the 11px floor', (_n, style, step) => {
+    expect(px(style.fontSize)).toBe(step)
+    expect(px(style.fontSize)).toBeGreaterThanOrEqual(TYPE_FLOOR)
+  })
+
+  it('the control: three of these used to be 10px, which the floor now rejects', () => {
+    // AUTH_LINK_STYLE, AUTH_HINT_STYLE and AUTH_BUTTON_QUIET_STYLE were all
+    // 10px before this session. If the floor were not enforced the loop above
+    // would happily pass on a 10 that is not a step at all.
+    expect(Object.values(TYPE)).not.toContain(10)
+    expect(TYPE_FLOOR).toBe(11)
+  })
+
+  it('only the Label role is uppercase, and only it is letterspaced (Q2)', () => {
+    // Six of the eight exports were uppercase and tracked, which is why a
+    // title, a label, a button and a link all read as one typographic object.
+    for (const [name, style] of ROLES) {
+      if (name === 'AUTH_LABEL_STYLE') {
+        expect(style.textTransform).toBe('uppercase')
+        expect(style.letterSpacing).toBe('0.06em')
+      } else if (name === 'AUTH_TITLE_STYLE') {
+        // The H1 step's own +0.01em, which is optical, not a voice.
+        expect(style.textTransform).toBeUndefined()
+        expect(style.letterSpacing).toBe('0.01em')
+      } else {
+        expect(style.textTransform, name).toBeUndefined()
+        expect(style.letterSpacing, name).toBeUndefined()
+      }
+    }
+  })
+
+  it('every weight is 400 or 600 — the face declares no others (Q3)', () => {
+    for (const [name, style] of ROLES) {
+      expect([400, 600, undefined], name).toContain(style.fontWeight)
+    }
+  })
+
+  it('AUTH_TEXT_STYLE declares no font family (AUTH-02)', () => {
+    // It carried the ONLY sans-serif declaration in the application, and it
+    // was Apple-first on a Windows product. Deleting the key — rather than
+    // repointing it — is what makes auth inherit the one app face.
+    expect(AUTH_TEXT_STYLE).not.toHaveProperty('fontFamily')
+    for (const [name, style] of ROLES) {
+      expect(style, name).not.toHaveProperty('fontFamily')
+    }
+  })
+
+  it('the ONE family the file still names is the mono token, and it is a token', () => {
+    // AUTH-02 keeps the mono stack inside AuthPasswordInput's metrics
+    // "because that one is load-bearing for caret alignment, and pin it to the
+    // chosen Geist Mono stack in the same edit". A hand-written stack there is
+    // a third face in an app that declares two.
+    expect(authShellSrc).toContain('fontFamily: FONT_MONO')
+    expect(authShellSrc).not.toMatch(/ui-monospace|SFMono-Regular|Menlo|Liberation Mono/)
+    expect(authShellSrc).not.toMatch(/-apple-system|BlinkMacSystemFont/)
+  })
+})
+
+describe('one field measure, one gap scale', () => {
+  it('the field width is px on the 4px scale, not ch (AUTH-22)', () => {
+    // `ch` is one advance of the ELEMENT'S OWN font, so a monospace 22ch and a
+    // sans 22ch are different widths — that is the bug that made the password
+    // rule 4px longer than the username rule. It was also 22ch here and 24ch
+    // on the welcome wizard: two measures for one control.
+    expect(AUTH_FIELD_WIDTH).toMatch(/^\d+px$/)
+    expect(Number(AUTH_FIELD_WIDTH.replace('px', '')) % 4).toBe(0)
+    expect(AUTH_INPUT_STYLE.width).toBe(AUTH_FIELD_WIDTH)
+    expect(String(AUTH_INPUT_STYLE.width)).not.toContain('ch')
+  })
+
+  it('the three gaps are on the 4px base and strictly increasing (AUTH-09)', () => {
+    const g = [AUTH_GAP_WITHIN_FIELD, AUTH_GAP_BETWEEN_FIELDS, AUTH_GAP_BETWEEN_BLOCKS]
+      .map((v) => Number(String(v).replace('px', '')))
+    for (const v of g) expect(v % 4).toBe(0)
+    expect(g[0]).toBeLessThan(g[1])
+    expect(g[1]).toBeLessThan(g[2])
+  })
+
+  it('the control: the values they replaced were not on the base', () => {
+    // 5px within a field and 18px between them, the latter hand-typed in four
+    // files. Spacing carried no grouping information because there was one gap.
+    expect(5 % 4).not.toBe(0)
+    expect(18 % 4).not.toBe(0)
+  })
+})
+
+describe('busy and disabled are a named treatment, never an opacity', () => {
+  it('neither busy variant carries an opacity', () => {
+    // 3.1: "Disabled is one token: ink at 52 percent plus cursor: not-allowed,
+    // never opacity-30/40/50." The surface used three numbers for one state —
+    // 0.55 on five submits, 0.5 on two links, 0.6 on the MFA gate.
+    expect(AUTH_BUTTON_BUSY_STYLE).not.toHaveProperty('opacity')
+    expect(AUTH_LINK_BUSY_STYLE).not.toHaveProperty('opacity')
+    expect(AUTH_BUTTON_BUSY_STYLE.cursor).toBe('not-allowed')
+    expect(AUTH_LINK_BUSY_STYLE.cursor).toBe('not-allowed')
+  })
+
+  it('the disabled button keeps the one ink rather than screening it', () => {
+    // On #f4a261 a 52 percent screen of the ink measures 2.9:1 — a grey on
+    // orange, which is the defect Audrey's rule exists to stop. So the light
+    // answer is: keep the ink, drop the fill, leave the hairline.
+    expect(AUTH_BUTTON_BUSY_STYLE.color).toBe(AUTH_INK)
+    expect(ratio(AUTH_BUTTON_BUSY_STYLE.color, WELL)).toBeGreaterThanOrEqual(4.5)
+    expect(AUTH_BUTTON_BUSY_STYLE.background).toBe('transparent')
+  })
+
+  it('the control: a 52 percent screen of the ink would fail on the well', () => {
+    expect(ratio(over('rgba(28, 25, 23, 0.52)', WELL), WELL)).toBeLessThan(4.5)
+  })
+})
+
+describe('every auth role survives the light orange well', () => {
+  const INKED = [
+    ['AUTH_TITLE_STYLE', AUTH_TITLE_STYLE],
+    ['AUTH_LABEL_STYLE', AUTH_LABEL_STYLE],
+    ['AUTH_INPUT_STYLE', AUTH_INPUT_STYLE],
+    ['AUTH_HINT_STYLE', AUTH_HINT_STYLE],
+    ['AUTH_LINK_STYLE', AUTH_LINK_STYLE],
+    ['AUTH_PROSE_STYLE', AUTH_PROSE_STYLE],
+  ]
+
+  it.each(INKED)('%s clears AA on #f4a261', (_n, style) => {
+    expect(ratio(style.color, WELL)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the input rule is a visible edge, not a suggestion', () => {
+    // WCAG 1.4.11 wants 3:1 for a component boundary. The field IS its rule on
+    // this surface — there is no fill to fall back on.
+    expect(AUTH_INPUT_STYLE.borderBottom).toBe(`1px solid ${AUTH_INK}`)
+    expect(ratio(AUTH_INK, WELL)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the quiet button keeps the full ink for its edge, not the light rule', () => {
+    // The whole screen is 1px of the ink; rule-light measures 1.51:1 here
+    // against the ink's 8.48:1, and a button nobody can find the edge of is
+    // not a button. One rule weight, one rule colour, across the surface.
+    expect(AUTH_BUTTON_QUIET_STYLE.border).toBe(`1px solid ${AUTH_INK}`)
+    expect(ratio(over(RULE_LIGHT, WELL), WELL)).toBeLessThan(3)
+  })
+})
+
+describe('the error ink was chosen by the measurement, not by the palette', () => {
+  it('#b91c1c — the AUTH-15 proposal — FAILS on the well, which is why it was not taken', () => {
+    // The finding said AUTH_ERROR_INK keeps its job "only if #b91c1c fails the
+    // well measurement; test it and keep whichever passes, but keep one".
+    // It measures 3.14:1. This is the record of that test.
+    expect(ratio('#b91c1c', WELL)).toBeLessThan(4.5)
+    expect(ratio(AUTH_ERROR_INK, WELL)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('one error ink per surface: #7f1d1d on light, the danger token on dark', () => {
+    expect(ratio(AUTH_ERROR_STYLE.color, WELL)).toBeGreaterThanOrEqual(4.5)
+    expect(AUTH_ERROR_STYLE.color).toBe(AUTH_ERROR_INK)
+  })
+})
+
+describe('the ink ladder is 100 / 72 / 52, and 48 is not a token', () => {
+  // The system review proposed a four-rung ladder ending at 48 percent. The
+  // critic's first correction: it measures 4.47:1 and fails AA. The three
+  // rungs are pre-flattened so nobody re-derives them from an alpha.
+  it('all three rungs clear AA on paper', () => {
+    expect(ratio(INK, PAPER)).toBeGreaterThanOrEqual(4.5)
+    expect(ratio(INK_2, PAPER)).toBeGreaterThanOrEqual(4.5)
+    expect(ratio(INK_3, PAPER)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the control: the 48 percent rung that was proposed does not', () => {
+    expect(ratio(over('rgba(245, 240, 236, 0.48)', PAPER), PAPER)).toBeLessThan(4.5)
+  })
+})
+
+describe('the degraded-model banner is legible where it actually renders (AUTH-01)', () => {
+  // It mounts as the first child of the authenticated column, whose background
+  // is the #ea580c frame. It painted #b45309 on a 14 percent amber tint of
+  // that ground: the tint composited to #e2570c and the text measured 1.34:1.
+  // "The one notice built to be impossible to miss is invisible."
+  //
+  // The fix is a RAISED DARK SURFACE rather than a tint of the ground it sits
+  // on, which is also the only route that does not wait on a light-surface
+  // warning token that does not exist.
+  const BANNER_GROUND = over('rgba(245, 158, 11, 0.14)', PAPER_RAISED)
+
+  it('the banner body clears AA on the raised surface', () => {
+    expect(ratio(INK, BANNER_GROUND)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the warning glyph clears AA on the same ground', () => {
+    expect(ratio(WARNING, BANNER_GROUND)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the control: what it used to paint, on what it used to paint it on', () => {
+    // #b45309 is absent from the critic's own failing-controls list even
+    // though the critic measured it failing twice. It is here now.
+    expect(ratio('#b45309', BARS)).toBeLessThan(3)
+    expect(ratio('#b45309', over('rgba(180, 83, 9, 0.14)', BARS))).toBeLessThan(3)
+  })
+})
+
+describe('Home hover, measured for Audrey rather than changed (Q19)', () => {
+  // C3 scopes Home to fonts, and Q19 leaves the hover colour to her with
+  // "Ask. Default: leave it." Both numbers are recorded here so the decision
+  // is one line in a hand-off and not another measuring session, and so that
+  // whichever she picks has a control the day it lands.
+  const HOME_HOVER = over('rgba(154, 100, 56, 0.65)', WELL)
+
+  it('white on the hover fill is below AA — the state being read is the weaker one', () => {
+    expect(ratio('#ffffff', HOME_HOVER)).toBeLessThan(4.5)
+  })
+
+  it('the one ink on the same fill would clear it', () => {
+    expect(ratio(INK_LIGHT, HOME_HOVER)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('and the resting state already clears it, which is what makes the hover odd', () => {
+    expect(ratio(INK_LIGHT, WELL)).toBeGreaterThanOrEqual(4.5)
+  })
+})

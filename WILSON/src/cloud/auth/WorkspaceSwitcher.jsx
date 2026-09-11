@@ -11,12 +11,41 @@
 //   3. saveSession() writes the refreshed tokens via safeStorage.
 //   4. window.location.reload() — the cleanest way to flush RabbitProvider,
 //      adapter caches, and anything else that keyed off the old workspace.
+//
+// ── UI overhaul D2 ──────────────────────────────────────────────────────────
+// This widget mounts in ONE place: SettingsPage's General tab (SettingsPage
+// .jsx:380). Settings is a LIGHT page (#f4a261, Q1 Option A), so unlike
+// MfaSection — which is both a Settings panel AND a full-screen enrol gate —
+// there is no dark branch here. Every value below is the light family.
+//
+// AUTH-14  The `h2 text-sm font-bold uppercase tracking-widest` + `p text-xs`
+//          pair that opened this file was byte-identical to MfaSection's and
+//          one of 43 copies in src. There is no `src/ui/SectionTitle` yet
+//          (Foundation 2), so the role is rendered inline from shared tokens:
+//          a 1px `rule-light` hairline above, 24px of padding under it, an
+//          H2 at 16/600 sentence case with zero tracking, and a 13px Dense
+//          description capped at 60ch. Filed as KIT REQUEST "SectionTitle".
+//
+// AUTH-25  Five `font-mono` uses; four were a name, a status word, a status
+//          word and an error. ONE survives: the workspace SLUG, which is an
+//          identifier (Q4 keeps mono for ids). LoginScreen.jsx:680 carries
+//          the same slug and must make the same call.
+//
+// AUTH-15  The error was a seventh red, `#991b1b`, hand-typed. It now takes
+//          the auth family's one error voice, AUTH_ERROR_STYLE — #7f1d1d,
+//          measured at 4.86:1 on #f4a261 in AuthShell's own comment.
+//
+// State (active / busy) lives in `data-state` + Tailwind variants on
+// mutually exclusive selectors, never in an inline style ternary, so a later
+// class-based restyle cannot be silently outranked by a surviving inline
+// style. Nothing here is a colour on a light surface except the one ink:
+// the selected row is carried by its border, its dot fill and weight 600.
 // =============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
-import { LIGHT_INK } from '../../components/lightSurface'
+import { AUTH_ERROR_STYLE } from './AuthShell'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -128,52 +157,53 @@ export default function WorkspaceSwitcher() {
 
   return (
     <div>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-        Active Workspace
-      </h2>
-      <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-        You belong to more than one workspace. Switching reloads the app so
-        every view re-reads the new workspace's data.
-      </p>
-      <div className="flex flex-col gap-2">
+      {/* AUTH-14 — the SectionTitle role, rendered inline until the kit has it. */}
+      <div className="border-t border-rule-light pt-6">
+        <h2 className="text-h2 text-ink-light">Active workspace</h2>
+        <p className="text-dense text-ink-light mt-2 max-w-[60ch]">
+          You belong to more than one workspace. Switching reloads the app so
+          every view re-reads the new workspace's data.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2 mt-4">
         {workspaces.map(ws => {
           const active = ws.id === activeWsId
           const busy   = switchingId === ws.id
+          const state  = active ? 'active' : 'idle'
           return (
             <button
               key={ws.id}
               type="button"
+              data-state={state}
               disabled={!!switchingId || active}
               onClick={() => handleSwitch(ws.id)}
-              className="flex items-center gap-3 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
-              style={{
-                backgroundColor: active ? 'rgba(234, 88, 12, 0.18)' : 'rgba(120, 70, 30, 0.18)',
-                border: `2px solid ${active ? '#ea580c' : 'transparent'}`,
-              }}
+              className="flex items-center gap-3 px-3 py-2 text-left rounded-control border bg-well-light transition-colors disabled:cursor-default data-[state=idle]:border-rule-light data-[state=active]:border-ink-light"
             >
+              {/* On light, status is a dot in the one ink — never a colour. */}
               <span
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{
-                  backgroundColor: active ? '#ea580c' : 'transparent',
-                  border: '2px solid #7c2d12',
-                }}
+                data-state={state}
+                className="w-3 h-3 rounded-full flex-shrink-0 border border-ink-light data-[state=idle]:bg-transparent data-[state=active]:bg-ink-light"
               />
               <div className="flex flex-col flex-1">
-                <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
+                <span
+                  data-state={state}
+                  className="text-body text-ink-light data-[state=idle]:font-normal data-[state=active]:font-semibold"
+                >
                   {ws.name}
                 </span>
-                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
+                {/* The one surviving mono on this file: a slug is an id. */}
+                <span className="text-caption font-mono text-ink-light">
                   {ws.slug}
                 </span>
               </div>
               {busy && (
-                <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
-                  switching…
+                <span className="text-label uppercase text-ink-light">
+                  Switching…
                 </span>
               )}
               {active && !busy && (
-                <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
-                  current
+                <span className="text-label uppercase text-ink-light">
+                  Current
                 </span>
               )}
             </button>
@@ -181,7 +211,7 @@ export default function WorkspaceSwitcher() {
         })}
       </div>
       {error && (
-        <div className="mt-2 text-[11px] font-mono" style={{ color: '#991b1b' }}>
+        <div className="mt-3" style={AUTH_ERROR_STYLE}>
           {error}
         </div>
       )}

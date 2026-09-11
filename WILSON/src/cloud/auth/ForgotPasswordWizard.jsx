@@ -21,15 +21,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthShell, {
-  AUTH_TEXT_STYLE,
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE,
   AUTH_BUTTON_BUSY_STYLE,
   AUTH_LINK_STYLE,
-  AUTH_HINT_STYLE,
+  AUTH_PROSE_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
+  AUTH_GAP_BETWEEN_BLOCKS,
   AuthField,
 } from './AuthShell'
 import { supabase } from './supabaseClient'
@@ -127,11 +127,17 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
       showLogoIntro={false}
       playStartupSound={false}
     >
+      {/* AUTH-09: the outer stack separates BLOCKS — the title from the form,
+          the form from a whole-screen message — so it takes the block gap. The
+          field-to-field gap lives inside the form. It was 18px in both places,
+          hand-typed, so spacing carried no grouping information. */}
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '18px', minWidth: '320px',
+        gap: AUTH_GAP_BETWEEN_BLOCKS, minWidth: '320px',
       }}>
-        <div style={AUTH_TITLE_STYLE}>RESET PASSWORD</div>
+        {/* Q2 / AUTH-11: sentence case. This was `RESET PASSWORD` at the H1
+            step — the page transition's voice borrowed for a page heading. */}
+        <div style={AUTH_TITLE_STYLE}>Reset password</div>
 
         {stage === 'form' && (
           <form onSubmit={handleSubmit}
@@ -139,8 +145,12 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
                   display: 'flex', flexDirection: 'column', alignItems: 'center',
                   gap: AUTH_GAP_BETWEEN_FIELDS,
                 }}>
-            <div style={{ ...AUTH_HINT_STYLE, maxWidth: '32ch', textAlign: 'center' }}>
-              ENTER YOUR USERNAME. WE'LL EMAIL A RESET LINK.
+            {/* AUTH-05 / AUTH-12: a sentence, so it is the prose role, not the
+                hint role — the Body step, sentence case, left aligned inside
+                the centred column, measure capped by AUTH_PROSE_STYLE rather
+                than by a hand-typed 32ch. */}
+            <div style={AUTH_PROSE_STYLE}>
+              Enter your username. We'll email a reset link.
             </div>
 
             <AuthField label="USERNAME">
@@ -172,8 +182,14 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
         )}
 
         {stage === 'sent' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
+          // AUTH-10: the column stays centred, the sentence inside it does not.
+          // The wrapper's own `maxWidth: 38ch` and `textAlign: center` are gone
+          // — the measure belongs to the prose role, and centred prose gives
+          // every line a different left edge.
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            {/* AUTH-12: one of the four inline copies of an unnamed prose role
+                (14 / 500 / +0.04em). Weight 500 existed nowhere else in the app. */}
+            <div style={AUTH_PROSE_STYLE}>
               If an account matches that username, a reset link is on its way. Check your inbox — it expires in 1 hour.
             </div>
             <button type="button" onClick={handleBack} style={AUTH_BUTTON_STYLE}>

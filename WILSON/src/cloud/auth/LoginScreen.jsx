@@ -60,6 +60,33 @@
 //   - The same generic error is used for every failure mode below rate-limiting.
 //   - Response-body shape + timing are uniform across found / not-found /
 //     rate-limited (the Edge Function's job; we just mirror that here).
+//
+// ── UI overhaul, session D2 ──────────────────────────────────────────────────
+// AUTH-09  Every gap was a hand-typed 18px, so the title sat exactly as far
+//          from the first field as the fields sat from each other and spacing
+//          carried no grouping information. Now the three named tokens do it:
+//          24 between blocks, 16 between field groups, 8 within one.
+// AUTH-11  Every message here SHOUTED while the two sibling wizards spoke
+//          theirs. All of them are sentence case now; the words are untouched,
+//          because the genericness of GENERIC_ERROR is a security property.
+//          The three repeated strings are constants rather than five literals.
+//          ⚠️ ONE shouted string survives, `'COMPANY NOT FOUND.'` inside the
+//          dev auto sign-in effect below, which is byte-for-byte pinned by
+//          devAutoLogin.test.js and was not mine to reword. Dev builds only.
+// AUTH-05  The MFA instruction is a sentence, so it takes AUTH_PROSE_STYLE.
+//   /-12  AUTH_HINT_STYLE keeps only the label-like fragments: the company
+//          echo, the "·" separator and the "Select workspace" caption.
+// AUTH-24  The code field keeps its 0.35em tracking — that is what makes six
+//          digits read as six digits — and gains a matching `textIndent`, so
+//          the trailing letter-space stops pulling the run ~3px left of centre.
+// AUTH-25  The workspace slug is an identifier, so it keeps the mono (Q4).
+//          WorkspaceSwitcher.jsx made the same call for the same value; the
+//          two screens now agree by decision rather than by accident.
+// AUTH-07  The "↑ ↓ TO MOVE · ENTER TO SELECT" caps line is gone. Q10: no
+//          shortcut bar anywhere, so its replacement is nothing. The arrow-key
+//          handler is untouched — only the decoration went.
+// Q2       The page title is `Login`, not `LOGIN`. Uppercase survives in two
+//          roles app-wide and a page heading is neither of them.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -74,11 +101,15 @@ import AuthShell, {
   AUTH_LINK_STYLE,
   AUTH_LINK_BUSY_STYLE,
   AUTH_HINT_STYLE,
+  AUTH_PROSE_STYLE,
   AUTH_ERROR_STYLE,
+  AUTH_GAP_WITHIN_FIELD,
   AUTH_GAP_BETWEEN_FIELDS,
+  AUTH_GAP_BETWEEN_BLOCKS,
   AuthField,
   AuthPasswordInput,
 } from './AuthShell'
+import { TYPE, FONT_MONO } from '../../ui/tokens'
 import { SLUG_RE, slugifyWorkspace } from './workspaceSlug'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 
@@ -90,7 +121,18 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 // with a mistyped company round a loop that cannot succeed. This is the
 // generic error — it stays generic, and it must never grow a branch that
 // says WHICH of the three was wrong.
-const GENERIC_ERROR = 'SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.'
+//
+// AUTH-11 (UI overhaul D2): sentence case. Every message on this screen was
+// SHOUTED while its two sibling wizards spoke theirs, so the auth family had
+// two voices for one role. An all-caps error reads as the system blaming the
+// user. Only the case and the terminal punctuation changed — the WORDS are
+// untouched, because this string's genericness is a security property.
+const GENERIC_ERROR = 'Sign-in failed. Check company, username and password.'
+
+// One timeout voice, likewise. A stalled network is not a wrong credential,
+// and saying so is what stops the user retrying a thing that cannot succeed.
+const TIMEOUT_ERROR = 'The server did not respond. Check your connection and try again.'
+const MFA_REJECTED_ERROR = 'Code rejected. Try again.'
 
 async function resolveLogin({ username, workspaceSlug }) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
@@ -243,9 +285,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       }, 4000)
     } catch (err) {
       console.warn('[wilson] completeSignIn failed:', err?.message ?? err)
-      setError(err?.name === 'TimeoutError'
-        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
-        : GENERIC_ERROR)
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR)
       setBusy(false)
     }
   }, [onAuthenticated])
@@ -257,7 +297,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     if (busy) return
     const typed = company.trim()
     if (typed.length < 2 || typed.length > 80) {
-      setError('ENTER YOUR COMPANY.')
+      setError('Enter your company.')
       return
     }
     setBusy(true)
@@ -280,7 +320,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       }
 
       if (!result.exists || !SLUG_RE.test(result.slug ?? '')) {
-        setError('COMPANY NOT FOUND.')
+        setError('Company not found.')
         return
       }
       setCompanySlug(result.slug)
@@ -452,7 +492,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     if (busy || !mfaFactorId) return
     const code = mfaCode.replace(/\s+/g, '')
     if (!/^[0-9]{6}$/.test(code)) {
-      setError('CODE REJECTED. TRY AGAIN.')
+      setError(MFA_REJECTED_ERROR)
       return
     }
     setBusy(true)
@@ -470,7 +510,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: ch.id, code }),
         AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
-        setError('CODE REJECTED. TRY AGAIN.')
+        setError(MFA_REJECTED_ERROR)
         setMfaCode('')
         setBusy(false)
         return
@@ -511,9 +551,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       // A timeout is NOT a rejected code, and telling the user their code was
       // wrong when the network stalled sends them round a loop that cannot
       // succeed. Distinguish them.
-      setError(err?.name === 'TimeoutError'
-        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
-        : 'CODE REJECTED. TRY AGAIN.')
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : MFA_REJECTED_ERROR)
       setMfaCode('')
       setBusy(false)
     }
@@ -563,7 +601,11 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   const submitStyle = {
     ...AUTH_BUTTON_STYLE,
     ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),
-    transition: `opacity 150ms ease-out`,
+    // Named properties, never `all` (§3.1) — and these are the properties the
+    // busy token actually moves now. It used to read `opacity 150ms`, left
+    // over from when busy WAS an opacity; after AuthShell's rewrite busy drops
+    // the fill and keeps the ink, so an opacity tween animated nothing.
+    transition: 'background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out',
   }
   // AUTH-21. The press effect used to be three handlers writing
   // `transform: scale(0.98)` straight onto the DOM node. Nothing survives
@@ -593,14 +635,23 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       showLogoIntro
       playStartupSound={true}
     >
+      {/* AUTH-09. Every gap on this screen was a hand-typed 18px — the title
+          sat exactly as far from the first field as the fields sat from each
+          other, so spacing carried no grouping information at all. The three
+          named gaps now do the grouping: BLOCKS here (title → form), FIELDS
+          inside the step, WITHIN_FIELD inside AuthField. No literal px gap. */}
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '18px', minWidth: '320px',
+        gap: AUTH_GAP_BETWEEN_BLOCKS, minWidth: '320px',
       }}>
         {/* Static title — and it must stay OUTSIDE the keyed block below, or
             it animates on every step change. That is exactly what the first
-            attempt at this did. In reveal, the parent fades the whole block. */}
-        <div style={AUTH_TITLE_STYLE}>LOGIN</div>
+            attempt at this did. In reveal, the parent fades the whole block.
+
+            Sentence case (Q2): this is a page heading at the H1 step, not the
+            page-transition title, and the transition title is one of only two
+            roles app-wide that keep uppercase. */}
+        <div style={AUTH_TITLE_STYLE}>Login</div>
 
         {/* The step swap. `key={stage}` remounts on every change so the CSS
             entrance in .auth-step (index.css) re-runs; the outgoing step is
@@ -609,7 +660,12 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         <div
           key={stage}
           className="auth-step"
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px' }}
+          style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            // The step's form and the error line under it are two groups, not
+            // two blocks — the error is about the form directly above it.
+            gap: AUTH_GAP_BETWEEN_FIELDS,
+          }}
         >
 
         {/* ── Step 1: COMPANY ── one input, one action ────────────────── */}
@@ -679,7 +735,14 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 mid-sign-in, "Change company" walked the user back to step 1
                 while an auth request was still in flight, and its completion
                 then landed on a screen that had moved on. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* AUTH-09: the form-to-tertiary-row boundary is a BLOCK gap, and
+                the form's own gap is already the FIELDS one, so the margin is
+                the difference between the two named tokens rather than a
+                fourth hand-typed number. */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: AUTH_GAP_WITHIN_FIELD,
+              marginTop: `calc(${AUTH_GAP_BETWEEN_BLOCKS} - ${AUTH_GAP_BETWEEN_FIELDS})`,
+            }}>
               <button
                 type="button"
                 onClick={handleChangeCompany}
@@ -717,12 +780,32 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9\s]/g, ''))}
                 disabled={busy}
-                style={{ ...AUTH_INPUT_STYLE, letterSpacing: '0.35em', textAlign: 'center' }}
+                // AUTH-24. The tracking here is functional — it is what keeps
+                // six digits readable as six digits — so it stays, and it is
+                // the one letterSpacing on this screen that is not a Label.
+                //
+                // But CSS lays tracking after the FINAL glyph as well as
+                // between glyphs, so a centred tracked string is always offset
+                // left by half the tracking, ~3px at this size. `textIndent`
+                // equal to the tracking pushes the run back by the width of
+                // that phantom trailing space and restores optical centre.
+                // MfaSection.jsx and OperatorLogin.jsx carry the same field
+                // and need the same two properties.
+                style={{
+                  ...AUTH_INPUT_STYLE,
+                  letterSpacing: '0.35em',
+                  textIndent: '0.35em',
+                  textAlign: 'center',
+                }}
                 aria-label="Authenticator code"
               />
             </AuthField>
-            <div style={AUTH_HINT_STYLE}>
-              ENTER THE 6-DIGIT CODE FROM YOUR AUTHENTICATOR APP
+            {/* AUTH-05 / AUTH-12: a sentence takes the prose role, not the
+                hint role. AUTH_HINT_STYLE is the Caption step and belongs to
+                label-like fragments; an instruction shouted in caption caps
+                was the least readable text on the surface. */}
+            <div style={AUTH_PROSE_STYLE}>
+              Enter the 6-digit code from your authenticator app.
             </div>
             <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Verifying…' : 'Verify'}
@@ -731,11 +814,20 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         )}
 
         {stage === 'workspace' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            <div style={AUTH_HINT_STYLE}>SELECT WORKSPACE</div>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            gap: AUTH_GAP_WITHIN_FIELD,
+          }}>
+            {/* AUTH-11 names this one of the shouted hints. It is a short
+                caption over the list, not a field label, so it keeps the
+                Caption step and loses the case. */}
+            <div style={AUTH_HINT_STYLE}>Select workspace</div>
             <ul style={{
               listStyle: 'none', padding: 0, margin: 0,
-              display: 'flex', flexDirection: 'column', gap: '4px',
+              display: 'flex', flexDirection: 'column',
+              // Row-to-row rhythm inside one group, so it is tighter than the
+              // within-field gap rather than a fourth hand-typed number.
+              gap: `calc(${AUTH_GAP_WITHIN_FIELD} / 2)`,
               minWidth: '280px',
             }}>
               {workspaces.map((ws, i) => {
@@ -748,31 +840,49 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                       onClick={() => handleWorkspaceChoose(ws.id)}
                       disabled={busy}
                       style={{
+                        // 15px was off the scale entirely — a sixth size for
+                        // one row. AUTH_TEXT_STYLE is the Body step and is
+                        // what the row wanted; the override just goes.
                         ...AUTH_TEXT_STYLE,
-                        fontSize: '15px',
                         background: 'transparent',
                         border: 'none',
                         width: '100%',
                         textAlign: 'left',
                         padding: '4px 8px',
-                        display: 'flex', alignItems: 'center', gap: '10px',
+                        display: 'flex', alignItems: 'center', gap: AUTH_GAP_WITHIN_FIELD,
                         // Selection reads as weight, not as a lighter ink —
                         // a dimmed row on light orange is the grey-on-orange
-                        // defect this session exists to remove.
-                        fontWeight: selected ? 700 : 400,
+                        // defect this session exists to remove. 600, not 700:
+                        // the variable face is declared `400 600`, so 700 was
+                        // already rendering as 600 and the source was the only
+                        // thing claiming otherwise.
+                        fontWeight: selected ? 600 : 400,
                       }}
                     >
                       <span style={{ width: '12px' }}>{selected ? '>' : ' '}</span>
                       <span>{ws.name}</span>
-                      <span style={{ fontSize: '11px', fontWeight: 400 }}>{ws.slug}</span>
+                      {/* AUTH-25: a slug is an identifier, which is one of the
+                          things mono keeps (Q4). WorkspaceSwitcher.jsx made
+                          the same call for the same value — `text-caption
+                          font-mono` — so the two screens now agree by decision
+                          rather than by accident. */}
+                      <span style={{
+                        fontSize: `${TYPE.caption}px`,
+                        fontFamily: FONT_MONO,
+                        fontWeight: 400,
+                      }}>{ws.slug}</span>
                     </button>
                   </li>
                 )
               })}
             </ul>
-            <div style={{ ...AUTH_HINT_STYLE, marginTop: '8px' }}>
-              ↑ ↓ TO MOVE · ENTER TO SELECT
-            </div>
+            {/* AUTH-07: the hand-drawn "↑ ↓ TO MOVE · ENTER TO SELECT" caps
+                line that used to sit here is gone. It was arrow glyphs set in
+                running caption text — one of three different ways three
+                screens showed their shortcuts. Q10 ruled there is no shortcut
+                bar anywhere ("i prefer it being cleaner"), so the replacement
+                is nothing, not a component. The arrow-key handler above is
+                untouched; only the decoration went. Do not re-draw it here. */}
           </div>
         )}
 

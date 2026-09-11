@@ -13,10 +13,27 @@
 //
 // Dismissal is per-warning. Dismissing does not fix the setting, and the
 // banner returns on the next call that resolves the same bad value.
+//
+// D2 / AUTH-01: this used to paint amber `#b45309` on a 14 percent amber tint,
+// mounted as the first child of the authenticated column whose ground is the
+// `#ea580c` frame. The tint composited to `#e2570c` and the text measured
+// 1.34:1 — the one notice built to be impossible to miss was invisible, and it
+// put an amber grey on an orange surface, which the light-surface rule forbids
+// outright. The strip is now a RAISED DARK surface rather than a tint of the
+// ground it sits on, and it is the kit `Banner`'s first caller.
+//
+// Measured on `paper-raised` #232020: the banner's own 14 percent `warning`
+// tint composites to #40321d; `ink` #f5f0ec on it is 10.97:1 and the `warning`
+// #f59e0b icon is 5.78:1.
+//
+// `data-surface="dark"` is load-bearing, not decoration: `.wilson-chrome`
+// alone scopes the focus ring to `ink-light`, which is 1.00:1 on #232020.
+// The dark-surface rule in index.css takes the signal ring back.
 // =============================================================================
 
 import { useEffect, useState } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
+import { Banner, IconButton, PAPER_RAISED } from '../ui'
 import { subscribeModelWarnings, dismissModelWarning } from '../lib/activeModel'
 
 export default function ModelWarningBanner() {
@@ -27,42 +44,27 @@ export default function ModelWarningBanner() {
   if (warnings.length === 0) return null
 
   return (
-    <div className="wilson-chrome" style={{ position: 'relative', zIndex: 40 }}>
+    <div
+      className="wilson-chrome"
+      data-surface="dark"
+      style={{ position: 'relative', zIndex: 40, backgroundColor: PAPER_RAISED }}
+    >
       {warnings.map((w) => (
-        <div
+        <Banner
           key={w.key}
-          role="status"
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 10,
-            padding: '10px 14px',
-            backgroundColor: 'rgba(180, 83, 9, 0.14)',
-            borderBottom: '1px solid rgba(180, 83, 9, 0.35)',
-            color: '#b45309',
-            fontSize: 13,
-            lineHeight: 1.45,
-          }}
+          tone="warning"
+          Icon={AlertTriangle}
+          action={(
+            <IconButton
+              Icon={X}
+              size="sm"
+              title="Dismiss"
+              onClick={() => dismissModelWarning(w.key)}
+            />
+          )}
         >
-          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span style={{ flex: 1 }}>{w.text}</span>
-          <button
-            type="button"
-            onClick={() => dismissModelWarning(w.key)}
-            aria-label="Dismiss"
-            style={{
-              flexShrink: 0,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'inherit',
-              opacity: 0.7,
-              padding: 2,
-            }}
-          >
-            <X size={14} />
-          </button>
-        </div>
+          {w.text}
+        </Banner>
       ))}
     </div>
   )

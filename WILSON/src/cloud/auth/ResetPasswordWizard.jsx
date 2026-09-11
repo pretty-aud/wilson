@@ -37,13 +37,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthShell, {
-  AUTH_TEXT_STYLE,
   AUTH_TITLE_STYLE,
   AUTH_BUTTON_STYLE,
   AUTH_BUTTON_BUSY_STYLE,
-  AUTH_HINT_STYLE,
+  AUTH_PROSE_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
+  AUTH_GAP_BETWEEN_BLOCKS,
   AuthField,
   AuthPasswordInput,
 } from './AuthShell'
@@ -211,19 +211,30 @@ export default function ResetPasswordWizard({ onDone }) {
       showLogoIntro={false}
       playStartupSound={false}
     >
+      {/* AUTH-09: the outer stack separates BLOCKS — the title from whichever
+          stage is mounted — so it takes the block gap. 18px was hand-typed here
+          and in three sibling files, and 14px below was off the scale entirely. */}
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '18px', minWidth: '320px',
+        gap: AUTH_GAP_BETWEEN_BLOCKS, minWidth: '320px',
       }}>
-        <div style={AUTH_TITLE_STYLE}>NEW PASSWORD</div>
+        {/* Q2 / AUTH-11: sentence case. The visible AuthField labels below stay
+            UPPERCASE — Label is the one role that keeps its case. */}
+        <div style={AUTH_TITLE_STYLE}>New password</div>
 
         {stage === 'loading' && (
-          <div style={AUTH_HINT_STYLE}>VERIFYING LINK…</div>
+          // AUTH-05 / AUTH-11: a status sentence, not a label. It was
+          // `VERIFYING LINK…` in the hint role, typographically identical to
+          // the field labels beside it.
+          <div style={AUTH_PROSE_STYLE}>Verifying link…</div>
         )}
 
         {stage === 'confirm' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
+          // AUTH-10: centred column, left-aligned sentence. The wrapper's
+          // `maxWidth: 38ch` and `textAlign: center` belong to the prose role.
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            {/* AUTH-12: was 14 / 500 / +0.04em / textTransform none, inline. */}
+            <div style={AUTH_PROSE_STYLE}>
               {link?.type === 'invite'
                 ? 'Welcome to WILSON. Confirm below to activate your account and choose a password.'
                 : 'Confirm below to continue resetting your password.'}
@@ -240,8 +251,10 @@ export default function ResetPasswordWizard({ onDone }) {
         )}
 
         {stage === 'invalid' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
+          // The longest paragraph on the surface, and the one the 60ch measure
+          // in AUTH_PROSE_STYLE exists for (AUTH-10, AUTH-12).
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            <div style={AUTH_PROSE_STYLE}>
               This link has already been used, or it has expired.
               {' '}
               Invite and reset links work only once — and some email providers
@@ -292,8 +305,11 @@ export default function ResetPasswordWizard({ onDone }) {
         )}
 
         {stage === 'done' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            {/* ⚠️ Playwright matches this sentence on /password updated/i.
+                Only its typographic role changed (AUTH-12); the wording is
+                load-bearing. */}
+            <div style={AUTH_PROSE_STYLE}>
               Password updated. Sign in with your new password.
             </div>
             <button
