@@ -27,6 +27,7 @@ import {
 import { useNotes } from './useNotes'
 import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
 import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
+import './dashboard.css'
 
 // ── WILSON light-page tokens (local per page, by convention) ──
 // The Dashboard is a LIGHT page (#f4a261), so every ink here is LIGHT_INK —
@@ -195,10 +196,8 @@ export default function NotesView() {
             type="button"
             title="Manage subjects"
             onClick={() => setManageSubjects(v => !v)}
-            className="p-1.5 rounded-sm"
-            style={manageSubjects
-              ? { backgroundColor: L.primary, color: L.primaryText }
-              : { backgroundColor: L.chipBg, color: L.chipText }}
+            className="dash-subjects-toggle p-1.5 rounded-sm"
+            data-active={String(manageSubjects)}
           >
             <Settings2 className="w-3.5 h-3.5" />
           </button>
@@ -236,10 +235,8 @@ export default function NotesView() {
                     key={n.id}
                     type="button"
                     onClick={() => setSelectedId(n.id)}
-                    className="text-left rounded-sm px-3 py-2 transition-colors"
-                    style={selectedId === n.id
-                      ? { backgroundColor: L.chipBg, color: L.chipText }
-                      : { backgroundColor: L.surface, color: L.text, border: `1px solid ${L.border}` }}
+                    className="dash-note-row text-left rounded-sm px-3 py-2 transition-colors"
+                    data-selected={String(selectedId === n.id)}
                   >
                     <div className="text-xs font-mono font-bold truncate">{n.title || 'Untitled note'}</div>
                     <div className="flex items-center gap-2 pt-0.5">
@@ -249,13 +246,12 @@ export default function NotesView() {
                           {n.subject}
                         </span>
                       )}
-                      <span className="text-[10px] font-mono" style={{ color: selectedId === n.id ? '#a8a29e' : L.muted }}>
+                      <span className="dash-note-meta text-[10px] font-mono">
                         {fmtDate(n.note_date)}
                       </span>
                     </div>
                     {n.body_preview && (
-                      <div className="text-[10.5px] font-mono truncate pt-0.5"
-                        style={{ color: selectedId === n.id ? '#a8a29e' : L.muted }}>
+                      <div className="dash-note-meta text-[10.5px] font-mono truncate pt-0.5">
                         {n.body_preview}
                       </div>
                     )}
@@ -550,10 +546,9 @@ function NoteEditor({ note, nb, onDelete }) {
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
   }, [])
 
-  const tbBtn = (active) => ({
-    backgroundColor: active ? L.primary : L.chipBg,
-    color: active ? L.primaryText : L.chipText,
-  })
+  // Was a style helper returning one of two inline branches; the branch is a
+  // data attribute now so no inline value can beat the rule (plan §1).
+  const tbState = (active) => String(!!active)
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -600,38 +595,36 @@ function NoteEditor({ note, nb, onDelete }) {
 
       {/* toolbar */}
       <div className="flex items-center gap-1 pb-2">
-        <button type="button" title="Heading 1" style={tbBtn(editor?.isActive('heading', { level: 1 }))}
-          className="p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
+        <button type="button" title="Heading 1" data-active={tbState(editor?.isActive('heading', { level: 1 }))}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
           <Heading1 className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title="Heading 2" style={tbBtn(editor?.isActive('heading', { level: 2 }))}
-          className="p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
+        <button type="button" title="Heading 2" data-active={tbState(editor?.isActive('heading', { level: 2 }))}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
           <Heading2 className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title="Bold" style={tbBtn(editor?.isActive('bold'))}
-          className="p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleBold().run()}>
+        <button type="button" title="Bold" data-active={tbState(editor?.isActive('bold'))}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleBold().run()}>
           <Bold className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title="Underline" style={tbBtn(editor?.isActive('underline'))}
-          className="p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleUnderline().run()}>
+        <button type="button" title="Underline" data-active={tbState(editor?.isActive('underline'))}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleUnderline().run()}>
           <UnderlineIcon className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title="Bullet list" style={tbBtn(editor?.isActive('bulletList'))}
-          className="p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleBulletList().run()}>
+        <button type="button" title="Bullet list" data-active={tbState(editor?.isActive('bulletList'))}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleBulletList().run()}>
           <List className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title="Add / edit link" style={tbBtn(editor?.isActive('link') || linkPanel !== null)}
-          className="p-1.5 rounded-sm" onClick={openLinkPanel}>
+        <button type="button" title="Add / edit link" data-active={tbState(editor?.isActive('link') || linkPanel !== null)}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={openLinkPanel}>
           <Link2 className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title="Remove link" style={tbBtn(false)}
-          className="p-1.5 rounded-sm" onClick={() => editor?.chain().focus().unsetLink().run()}>
+        <button type="button" title="Remove link" data-active={tbState(false)}
+          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().unsetLink().run()}>
           <Link2Off className="w-3.5 h-3.5" />
         </button>
         <div className="flex-1" />
-        <span className="text-[10px] font-bold uppercase tracking-wider" style={{
-          color: saveState === 'error' ? '#dc2626' : saveState === 'saved' ? '#15803d' : L.muted,
-        }}>
+        <span className="dash-save-state text-[10px] font-bold uppercase tracking-wider" data-state={saveState}>
           {saveState === 'saving' ? 'Saving…'
             : saveState === 'dirty' ? 'Unsaved'
             : saveState === 'error' ? 'Save failed — retrying on next edit'

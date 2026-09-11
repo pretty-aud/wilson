@@ -1,0 +1,136 @@
+/* ═══════════════════════════════════════════════════════════════
+   Dashboard — the extracted state
+   UI overhaul C2, 2026-09-11
+
+   COMMIT 1 OF THE BUNDLE: "no visual change". Every hover / selected /
+   active / drag-over / save-state branch on this surface moved out of an
+   inline `style` ternary or a className template literal and into a
+   `data-*` attribute resolved here, with the values transcribed UNCHANGED.
+
+   Why this is its own commit (plan §5, §1, risk 4): an inline style beats a
+   `hover:` class, so a class-based restyle written next to a surviving
+   inline style silently drops the state. Three of the branches below were
+   already dead before this file existed — the note row declared
+   `transition-colors` and had no hover rule at all (D21), and the sort and
+   filter chips declared `transition-colors` beside a hard inline
+   `backgroundColor` (D22). Enumerating every branch first is what makes the
+   restyle in commit 2 reviewable instead of hopeful.
+
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST LINE OF THIS FILE, and it has
+   to be. A layer's position in the cascade is fixed where it is FIRST named,
+   not where its rules are written. This stylesheet is imported from a
+   component, so the bundler can emit it BEFORE `src/index.css` — and when
+   that happened to D1, `components` was created ahead of `base` and every
+   rule in it, theirs and all of `src/ui/`'s, lost to Tailwind's preflight.
+   The symptom was specific: `height` survived while `padding`, `font-size`,
+   `color` and `background-color` were silently reset, and all 2136 tests
+   stayed green because no test in this repo mounts React. Naming the four
+   layers here is idempotent when `index.css` gets there first and corrective
+   when it does not. (D1 hand-off §5 trap 1.)
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ DashboardPage — the tab bar ═══════════════════════════════════════
+     Was a two-branch inline ternary at DashboardPage.jsx:45-47. */
+  .dash-tab[data-active="true"] {
+    background-color: rgba(120, 70, 30, 0.55);
+    color: #ffffff;
+    border-bottom: 2px solid #f97316;
+  }
+  .dash-tab[data-active="false"] {
+    background-color: transparent;
+    color: #1c1917;
+    border-bottom: 2px solid transparent;
+  }
+
+  /* ═══ DashboardTasksView ════════════════════════════════════════════════ */
+
+  /* View toggle (table / board / gallery) — DashboardTasksView.jsx:222-224. */
+  .dash-viewmode[data-active="true"]  { background-color: #1c1917; color: #f4a261; }
+  .dash-viewmode[data-active="false"] { background-color: transparent; color: #1c1917; }
+
+  /* Filter button — :308-310. Active when a filter is set OR the panel is open. */
+  .dash-filter-btn[data-active="true"]  { background-color: #ea580c; color: #ffffff; }
+  .dash-filter-btn[data-active="false"] { background-color: #1c1917; color: #f4a261; }
+
+  /* The three toolbar chips and the two filter-panel buttons. All five were
+     the same dark square; only refresh had a hover, and it was an opacity
+     (D22). `data-hover="fade"` marks that one branch rather than letting the
+     odd one out hide inside a className. */
+  .dash-chip { background-color: #1c1917; color: #f4a261; }
+  .dash-chip[data-hover="fade"]:hover { opacity: 0.8; }
+
+  /* Table rows — was Tailwind's `hover:bg-black/5` at :531. */
+  .dash-task-row:hover > td { background-color: rgba(0, 0, 0, 0.05); }
+
+  /* Group band, drag target — :513. */
+  .dash-group-row[data-dragover="true"]  { background-color: rgba(234, 88, 12, 0.12); }
+  .dash-group-row[data-dragover="false"] { background-color: rgba(120, 70, 30, 0.10); }
+
+  /* Kanban column, drag target — :591-594. Both the fill and the inset ring
+     are the state; the transition came with it. */
+  .dash-kanban-col {
+    background-color: rgba(120, 70, 30, 0.18);
+    box-shadow: none;
+    transition: background-color 200ms ease, box-shadow 200ms ease;
+  }
+  .dash-kanban-col[data-dragover="true"] {
+    background-color: rgba(234, 88, 12, 0.10);
+    box-shadow: inset 0 0 0 2px #ea580c;
+  }
+
+  /* RolePill — :89-91. Two branches plus the "no role" dash, which is a
+     different element and stays where it is. */
+  .dash-role-pill[data-role="assigned"]  { background-color: #ea580c; color: #ffffff; }
+  .dash-role-pill[data-role="reviewing"] { background-color: rgba(120, 70, 30, 0.55); color: #fde8d0; }
+
+  /* ═══ NotesView ═════════════════════════════════════════════════════════ */
+
+  /* Manage-subjects toggle — NotesView.jsx:199-201. */
+  .dash-subjects-toggle[data-active="true"]  { background-color: #ea580c; color: #ffffff; }
+  .dash-subjects-toggle[data-active="false"] { background-color: #1c1917; color: #f4a261; }
+
+  /* Note list row — :240-242. The selected branch swapped the SURFACE from
+     near-white to near-black and dropped the 1px border with it, which is why
+     the meta inks below have two branches too and why the row's contents
+     shift a pixel on selection (D21, alignment 10). Transcribed as shipped. */
+  .dash-note-row[data-selected="true"] {
+    background-color: #1c1917;
+    color: #f4a261;
+  }
+  .dash-note-row[data-selected="false"] {
+    background-color: rgba(255, 255, 255, 0.45);
+    color: #1c1917;
+    border: 1px solid rgba(28, 25, 23, 0.22);
+  }
+  .dash-note-row[data-selected="true"]  .dash-note-meta { color: #a8a29e; }
+  .dash-note-row[data-selected="false"] .dash-note-meta { color: #1c1917; }
+
+  /* Editor format-toolbar buttons — :553-556 (`tbBtn`). */
+  .dash-tb-btn[data-active="true"]  { background-color: #ea580c; color: #ffffff; }
+  .dash-tb-btn[data-active="false"] { background-color: #1c1917; color: #f4a261; }
+
+  /* Save state — :632-634. Four states, three inks as shipped. */
+  .dash-save-state[data-state="error"]  { color: #dc2626; }
+  .dash-save-state[data-state="saved"]  { color: #15803d; }
+  .dash-save-state[data-state="dirty"]  { color: #1c1917; }
+  .dash-save-state[data-state="saving"] { color: #1c1917; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Appended by the same commit: the last inline colour branch on the
+   surface. RolePill's "no role" dash is the one branch that is a SURFACE
+   choice rather than an interaction state — the caller declares which
+   ground it landed on (`onDark`), which the review singles out as the
+   correct mental model for a two-surface app. It is extracted here for the
+   same reason as the others: an inline colour beats the class beside it.
+   Values transcribed unchanged (`L.muted` #78716c on the dark card,
+   `LIGHT_INK` #1c1917 on the light table).
+   ═══════════════════════════════════════════════════════════════ */
+@layer components {
+  .dash-role-none[data-surface="dark"]  { color: #78716c; }
+  .dash-role-none[data-surface="light"] { color: #1c1917; }
+}

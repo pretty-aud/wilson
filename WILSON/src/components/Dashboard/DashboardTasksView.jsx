@@ -28,6 +28,7 @@ import {
   statusColor, priorityColor, fmt, myRoleOnTask,
 } from './dashboardTaskModel'
 import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
+import './dashboard.css'
 
 // ── WILSON light-page tokens (local per page, by convention) ──
 const L = {
@@ -108,16 +109,14 @@ function PrioritySelect({ value, onChange, disabled }) {
 function RolePill({ role, onDark = false }) {
   if (!role) {
     return (
-      <span className="text-xs font-mono italic" style={{ color: onDark ? L.muted : LIGHT_INK }}>—</span>
+      <span className="dash-role-none text-xs font-mono italic" data-surface={onDark ? 'dark' : 'light'}>—</span>
     )
   }
   const assigned = role === 'assigned'
   return (
     <span
-      className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider"
-      style={assigned
-        ? { backgroundColor: L.primary, color: L.primaryText }
-        : { backgroundColor: L.inputBg, color: L.inputText }}
+      className="dash-role-pill px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider"
+      data-role={assigned ? 'assigned' : 'reviewing'}
     >
       {assigned ? 'Assigned' : 'Reviewing'}
     </span>
@@ -247,10 +246,8 @@ export default function DashboardTasksView() {
               type="button"
               title={title}
               onClick={() => setViewMode(key)}
-              className="px-2.5 py-1.5 transition-colors"
-              style={viewMode === key
-                ? { backgroundColor: L.chipBg, color: L.chipText }
-                : { backgroundColor: 'transparent', color: L.label }}
+              className="dash-viewmode px-2.5 py-1.5 transition-colors"
+              data-active={String(viewMode === key)}
             >
               <Icon className="w-4 h-4" />
             </button>
@@ -294,8 +291,7 @@ export default function DashboardTasksView() {
           type="button"
           onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
           title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
-          className="p-1.5 rounded-sm transition-colors"
-          style={{ backgroundColor: L.chipBg, color: L.chipText }}
+          className="dash-chip p-1.5 rounded-sm transition-colors"
         >
           {sortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
@@ -304,10 +300,8 @@ export default function DashboardTasksView() {
         <button
           type="button"
           onClick={() => setShowFilters(v => !v)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider transition-colors"
-          style={filters.length || showFilters
-            ? { backgroundColor: L.primary, color: L.primaryText }
-            : { backgroundColor: L.chipBg, color: L.chipText }}
+          className="dash-filter-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider transition-colors"
+          data-active={String(!!(filters.length || showFilters))}
         >
           <Filter className="w-3.5 h-3.5" />
           Filter{filters.length ? ` (${filters.length})` : ''}
@@ -321,8 +315,8 @@ export default function DashboardTasksView() {
           type="button"
           onClick={() => mt.reload()}
           title="Refresh"
-          className="p-1.5 rounded-sm transition-colors hover:opacity-80"
-          style={{ backgroundColor: L.chipBg, color: L.chipText }}
+          className="dash-chip p-1.5 rounded-sm transition-colors"
+          data-hover="fade"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${mt.loading ? 'animate-spin' : ''}`} />
         </button>
@@ -433,8 +427,7 @@ function FilterPanel({ filters, setFilters, projectsById }) {
       <button
         type="button"
         onClick={() => setFilters(prev => [...prev, { field: 'status', op: 'is', value: '' }])}
-        className="self-start px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider"
-        style={{ backgroundColor: L.chipBg, color: L.chipText }}
+        className="dash-chip self-start px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider"
       >
         + Add filter
       </button>
@@ -510,7 +503,8 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
         onDragOver={droppable ? (e) => e.preventDefault() : undefined}
         onDragLeave={droppable ? () => { dragCountRef.current--; if (dragCountRef.current <= 0) { dragCountRef.current = 0; setDragOver(false) } } : undefined}
         onDrop={droppable ? handleDrop : undefined}
-        style={{ backgroundColor: dragOver ? 'rgba(234, 88, 12, 0.12)' : 'rgba(120, 70, 30, 0.10)' }}
+        className="dash-group-row"
+        data-dragover={String(dragOver)}
       >
         <td colSpan={8} className="px-3 py-1.5">
           <div className="flex items-center gap-2">
@@ -528,7 +522,7 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
           draggable={canWriteTask(task)}
           onDragStart={(e) => { e.dataTransfer.setData('text/plain', task.id); e.dataTransfer.effectAllowed = 'move' }}
           onClick={() => onOpen(task.id)}
-          className="cursor-pointer transition-colors hover:bg-black/5"
+          className="dash-task-row cursor-pointer transition-colors"
           style={{ borderBottom: `1px solid ${LIGHT_RULE}` }}
         >
           <td className="px-3 py-2 text-xs font-mono" style={{ color: L.text }}>{task.title}</td>
@@ -585,13 +579,11 @@ function KanbanColumn({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
 
   return (
     <div
-      className="flex flex-col flex-shrink-0 rounded-sm"
+      className="dash-kanban-col flex flex-col flex-shrink-0 rounded-sm"
+      data-dragover={String(dragOver)}
       style={{
         width: 270,
-        backgroundColor: dragOver ? 'rgba(234, 88, 12, 0.10)' : L.columnBg,
         border: `1px solid ${L.border}`,
-        boxShadow: dragOver ? `inset 0 0 0 2px ${L.primary}` : 'none',
-        transition: 'background-color 200ms ease, box-shadow 200ms ease',
         maxHeight: '100%',
       }}
       onDragEnter={droppable ? (e) => { e.preventDefault(); dragCountRef.current++; if (dragCountRef.current === 1) setDragOver(true) } : undefined}
