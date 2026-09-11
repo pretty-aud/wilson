@@ -37,7 +37,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../auth/supabaseClient'
 import { runOtterMigration } from './runOtterMigration'
-import { LIGHT_INK } from '../../components/lightSurface'
+import '../../components/settings/settings.css'
+import { Section, Group, Row } from '../../components/settings/SettingsChrome'
+import { Button, Select } from '../../ui'
 
 export default function OtterMigrationPanel() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null)
@@ -81,67 +83,67 @@ export default function OtterMigrationPanel() {
 
   if (!activeWorkspaceId) {
     return (
-      <div>
-        <SectionHeading>Migrate O.T.T.E.R. courses to cloud</SectionHeading>
-        <p className="text-xs text-stone-950 leading-relaxed">
-          Sign in to move your O.T.T.E.R. courses into the active workspace.
-        </p>
-      </div>
+      <Section
+        title="Migrate O.T.T.E.R. courses to cloud"
+        description="Sign in to move your O.T.T.E.R. courses into the active workspace."
+      />
     )
   }
 
   if (!hasLocalServer) {
     return (
-      <div>
-        <SectionHeading>Migrate O.T.T.E.R. courses to cloud</SectionHeading>
-        <p className="text-xs text-stone-950 leading-relaxed">
-          This reads courses saved on your computer, so it only runs in the desktop app.
-        </p>
-      </div>
+      <Section
+        title="Migrate O.T.T.E.R. courses to cloud"
+        description="This reads courses saved on your computer, so it only runs in the desktop app."
+      />
     )
   }
 
   const completed = report && !report.dryRun
 
   return (
-    <div>
-      <SectionHeading>Migrate O.T.T.E.R. courses to cloud</SectionHeading>
-      <p className="text-xs text-stone-950 mb-3 leading-relaxed">
-        Copy every course saved on this computer into the active workspace. Dry-run first to
-        preview. Re-running is safe — courses already in the cloud are skipped, not duplicated.
-      </p>
-
-      <div className="mb-3">
-        <label className="block text-[11px] font-mono uppercase tracking-wider text-stone-700 mb-1">
-          Bring them in as
-        </label>
-        <select
-          value={visibility}
-          onChange={(e) => setVisibility(e.target.value)}
-          disabled={busy}
-          className="px-3 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
-          style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
+    <Section
+      title="Migrate O.T.T.E.R. courses to cloud"
+      description="Copy every course saved on this computer into the active workspace. Dry-run first to preview. Re-running is safe — courses already in the cloud are skipped, not duplicated."
+    >
+      <Group>
+        {/* The label here was the ONE field label on the surface set in mono
+            rather than the sans Label step, with its own mb-1 instead of the
+            shared mb-1.5 — two small divergences that made the same object
+            look like a different one (B′ in the row-shape inventory). */}
+        <Row
+          label="Bring them in as"
+          htmlFor="s-otter-visibility"
+          description="You can share individual courses afterwards. Sharing everything at once cannot be undone course-by-course as easily."
         >
-          <option value="personal">Just for me (recommended)</option>
-          <option value="shared">Shared with the company</option>
-        </select>
-        <p className="text-[10px] text-stone-700 mt-1">
-          You can share individual courses afterwards. Sharing everything at once cannot be undone
-          course-by-course as easily.
-        </p>
-      </div>
+          <Select
+            id="s-otter-visibility"
+            surface="light"
+            size="sm"
+            aria-label="Bring them in as"
+            value={visibility}
+            onChange={(v) => setVisibility(v || 'personal')}
+            disabled={busy}
+            options={[
+              { value: 'personal', label: 'Just for me (recommended)' },
+              { value: 'shared', label: 'Shared with the company' },
+            ]}
+          />
+        </Row>
 
-      <div className="flex gap-2 mb-3">
-        <MigrateButton onClick={() => runOnce(true)} disabled={busy}>
-          {busy && !report ? 'RUNNING…' : 'DRY-RUN'}
-        </MigrateButton>
-        <MigrateButton onClick={() => runOnce(false)} disabled={busy || completed} primary>
-          {busy && report ? 'MIGRATING…' : 'MIGRATE'}
-        </MigrateButton>
-      </div>
+        <Row label="Migration">
+          <MigrateButton onClick={() => runOnce(true)} disabled={busy}>
+            {busy && !report ? 'Running…' : 'Dry-run'}
+          </MigrateButton>
+          <MigrateButton onClick={() => runOnce(false)} disabled={busy || completed} primary>
+            {busy && report ? 'Migrating…' : 'Migrate'}
+          </MigrateButton>
+        </Row>
+      </Group>
 
+      {/* Whitespace inside <pre> is rendered output; only the class moves. */}
       {progress.length > 0 && (
-        <pre className="text-[11px] font-mono bg-stone-900 text-stone-100 rounded-sm p-3 max-h-40 overflow-auto">
+        <pre className="s-log mt-4" data-surface="dark">
           {progress.join('\n')}
         </pre>
       )}
@@ -149,64 +151,58 @@ export default function OtterMigrationPanel() {
       {report && <OtterReportTable r={report} />}
 
       {error && (
-        <div className="mt-2 text-[11px] font-mono" style={{ color: '#991b1b' }}>
-          {error}
-        </div>
+        <p className="s-feedback mt-4" data-tone="error" role="alert">{error}</p>
       )}
-    </div>
+    </Section>
   )
 }
 
-function SectionHeading({ children }) {
-  return (
-    <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-      {children}
-    </h2>
-  )
-}
 
+
+// The private button is gone: this is the kit Button, so the migration panels
+// stop being a ninth and tenth button treatment in the app (C8). `primary`
+// maps to the one filled primary token; everything else is secondary, which
+// is what makes "Dry-run first" read as the safe default it is meant to be.
 function MigrateButton({ children, onClick, disabled, primary }) {
   return (
-    <button
-      type="button"
+    <Button
+      surface="light"
+      size="sm"
+      variant={primary ? 'primary' : 'secondary'}
       onClick={onClick}
       disabled={disabled}
-      className="px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider rounded-sm transition-colors disabled:cursor-default"
-      style={{
-        backgroundColor: primary ? '#ea580c' : 'rgba(120, 70, 30, 0.18)',
-        color: primary ? '#fff' : '#1c1917',
-        border: primary ? '2px solid #ea580c' : '2px solid transparent',
-        opacity: disabled ? 0.5 : 1,
-      }}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
 function OtterReportTable({ r }) {
   const Row = ({ label, bucket }) => (
     <tr>
-      <td className="pr-3 py-0.5">{label}</td>
-      <td className="px-2 text-right">{bucket.total}</td>
-      <td className="px-2 text-right" style={{ color: '#166534' }}>{bucket.inserted}</td>
-      <td className="px-2 text-right" style={{ color: LIGHT_INK }}>{bucket.skipped}</td>
-      <td className="px-2 text-right" style={{ color: bucket.failed ? '#991b1b' : LIGHT_INK }}>{bucket.failed}</td>
+      <td>{label}</td>
+      <td>{bucket.total}</td>
+      <td>{bucket.inserted}</td>
+      <td>{bucket.skipped}</td>
+      <td className="s-report-cell" data-failed={!!bucket.failed}>{bucket.failed}</td>
     </tr>
   )
   return (
-    <div className="mt-3">
-      <div className="text-[11px] font-mono uppercase tracking-wider text-stone-700 mb-1">
-        {r.dryRun ? 'Dry-run report' : 'Migration report'}
-      </div>
-      <table className="text-[11px] font-mono">
+    <div className="mt-4">
+      {/* Same contract as the R.A.B.B.I.T. panel's table, deliberately: the
+          two migrations are the same grammar, and two tables that look
+          different is one more thing to learn. Column LABELS still differ
+          ("Migrated"/"Already there" against "Inserted"/"Skipped") because
+          they describe different runners; that is copy, not chrome. */}
+      <table className="s-table">
+        <caption>{r.dryRun ? 'Dry-run report' : 'Migration report'}</caption>
         <thead>
-          <tr className="text-stone-900">
-            <th className="pr-3 py-0.5 text-left">Table</th>
-            <th className="px-2 text-right">Total</th>
-            <th className="px-2 text-right">Migrated</th>
-            <th className="px-2 text-right">Already there</th>
-            <th className="px-2 text-right">Failed</th>
+          <tr>
+            <th scope="col">Table</th>
+            <th scope="col">Total</th>
+            <th scope="col">Migrated</th>
+            <th scope="col">Already there</th>
+            <th scope="col">Failed</th>
           </tr>
         </thead>
         <tbody>
@@ -220,11 +216,11 @@ function OtterReportTable({ r }) {
           {scope, id, message} objects — rendering it as an object would print
           "[object Object]" for every line. */}
       {r.errors.length > 0 && (
-        <details className="mt-2">
-          <summary className="text-[11px] text-red-700 cursor-pointer">
+        <details className="mt-3">
+          <summary className="s-label cursor-pointer">
             {r.errors.length} problem{r.errors.length === 1 ? '' : 's'}
           </summary>
-          <ul className="text-[10px] font-mono mt-1 space-y-0.5">
+          <ul className="s-data s-row-desc mt-2 space-y-1">
             {r.errors.slice(0, 20).map((e, i) => (
               <li key={i}>{typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e))}</li>
             ))}

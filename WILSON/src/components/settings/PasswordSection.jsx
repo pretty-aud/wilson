@@ -43,7 +43,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { withTimeout, AUTH_TIMEOUT_MS } from '../../cloud/auth/withTimeout'
-import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
+import { Section, Group, Row } from './SettingsChrome'
+import { Button, Input } from '../../ui'
 
 // Mirrors ResetPasswordWizard.jsx:158 — one rule for the whole app, so a
 // password accepted at reset is accepted here.
@@ -123,93 +125,85 @@ export default function PasswordSection() {
     }
   }, [busy, password, confirm])
 
-  const inputStyle = { backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }
-  const inputClass = 'w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500'
-  const labelClass = 'block text-[11px] font-bold uppercase tracking-wider mb-1.5'
-
+  // The fourth verbatim copy of one inputStyle object, and the second of
+  // inputClass/labelClass, are gone: both now come from the kit (S3, U4).
   return (
-    <div>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-        Change Password
-      </h2>
-
+    <Section title="Change password">
       {checking ? (
-        <p className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
-          Checking your account…
-        </p>
+        <p className="s-row-desc">Checking your account…</p>
       ) : !email ? (
         // Unchanged from what S15 left here — still the true thing to say when
         // there is no cloud session behind this window.
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+        <p className="s-row-desc">
           Your password is managed by your workspace account. Use “Forgot
           password” on the sign-in screen to reset it, or ask a workspace admin.
         </p>
       ) : (
         <>
-          <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-            Changing the password for <span className="font-mono">{email}</span>.
+          <p className="s-row-desc mb-4">
+            Changing the password for <span className="s-data">{email}</span>.
             Must be {MIN_LEN}–{MAX_LEN} characters. You will stay signed in on
             this device; other devices keep their existing sessions until those
             expire.
           </p>
 
-          <form onSubmit={handleSubmit} className="max-w-md space-y-3">
-            <div>
-              <label className={labelClass} style={{ color: LIGHT_INK }} htmlFor="pw-new">
-                New password
-              </label>
-              <input
-                id="pw-new"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(''); setDone(false) }}
-                disabled={busy}
-                className={inputClass}
-                style={inputStyle}
-              />
-            </div>
+          {/* A2: this form was max-w-md (448px) inside a 672px column under
+              paragraphs that ran the full 672px, so one scroll had three
+              different right edges. It is on the page's one measure now, and
+              its fields are rows like every other setting. */}
+          <form onSubmit={handleSubmit}>
+            <Group>
+              <Row label="New password" htmlFor="pw-new" stacked>
+                <Input
+                  id="pw-new"
+                  surface="light"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(v) => { setPassword(v); setError(''); setDone(false) }}
+                  disabled={busy}
+                  className="w-full"
+                />
+              </Row>
 
-            <div>
-              <label className={labelClass} style={{ color: LIGHT_INK }} htmlFor="pw-confirm">
-                Confirm new password
-              </label>
-              <input
-                id="pw-confirm"
-                type="password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => { setConfirm(e.target.value); setError(''); setDone(false) }}
-                disabled={busy}
-                className={inputClass}
-                style={inputStyle}
-              />
-            </div>
+              <Row label="Confirm new password" htmlFor="pw-confirm" stacked>
+                <Input
+                  id="pw-confirm"
+                  surface="light"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirm}
+                  onChange={(v) => { setConfirm(v); setError(''); setDone(false) }}
+                  disabled={busy}
+                  className="w-full"
+                />
+              </Row>
 
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                type="submit"
-                disabled={busy || !password || !confirm}
-                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-              >
-                {busy ? 'Changing…' : 'Change Password'}
-              </button>
-              {done && (
-                <span className="text-xs font-mono" style={{ color: '#15803d' }}>
-                  Password changed.
-                </span>
-              )}
-            </div>
+              <Row label="Apply">
+                <Button
+                  surface="light"
+                  size="sm"
+                  variant="primary"
+                  type="submit"
+                  disabled={busy || !password || !confirm}
+                >
+                  {busy ? 'Changing…' : 'Change password'}
+                </Button>
+              </Row>
+            </Group>
 
+            {/* S10: 'Password changed.' was #15803d on #f4a261 — 2.60:1 —
+                and the error #b91c1c at 3.14:1. Both keep the page's ink and
+                carry their meaning on the left edge. */}
+            {done && (
+              <p className="s-feedback mt-4" data-tone="ok" role="status">Password changed.</p>
+            )}
             {error && (
-              <p className="text-xs font-mono" style={{ color: '#b91c1c' }} role="alert">
-                {error}
-              </p>
+              <p className="s-feedback mt-4" data-tone="error" role="alert">{error}</p>
             )}
           </form>
         </>
       )}
-    </div>
+    </Section>
   )
 }

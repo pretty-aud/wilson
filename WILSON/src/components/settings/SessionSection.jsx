@@ -21,7 +21,9 @@
 import { useCallback, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import { usePermissions } from '../../permissions/usePermissions'
-import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
+import { Section, Group, Row } from './SettingsChrome'
+import { Button } from '../../ui'
 
 export default function SessionSection() {
   const perms = usePermissions()
@@ -41,67 +43,48 @@ export default function SessionSection() {
   }, [])
 
   return (
-    <div>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-        Session
-      </h2>
-
+    <Section title="Session">
       {!perms.ready ? (
-        <p className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
-          Checking your account…
-        </p>
+        <p className="s-row-desc">Checking your account…</p>
       ) : !perms.userId ? (
         // The true thing to say when there is no cloud session behind this
         // window — the same shape PasswordSection uses rather than rendering a
         // live control that cannot work.
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+        <p className="s-row-desc">
           You are not signed in to a workspace account on this device, so there
           is nothing to sign out of.
         </p>
       ) : (
-        <>
-          <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-            Signs you out on <strong>this device only</strong> — other computers
-            you are signed in on stay signed in, and so does the operator console
-            if you use one. Your pet and your personal settings live with your
-            account, so they will be waiting when you sign back in.
-          </p>
-
-          {!confirming ? (
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors border border-red-700 text-red-800 hover:bg-red-50 inline-flex items-center gap-2"
-              style={{ backgroundColor: 'transparent' }}
-            >
-              <LogOut size={13} />
-              Sign out
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-stone-950 mr-1">Sign out of WILSON on this device?</span>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                disabled={busy}
-                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors border border-red-700 text-red-800 hover:bg-red-50 disabled:opacity-50"
-                style={{ backgroundColor: 'transparent' }}
-              >
-                {busy ? 'Signing out…' : 'Sign out'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                disabled={busy}
-                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors border border-stone-600 text-stone-800 hover:bg-stone-100 disabled:opacity-50"
-                style={{ backgroundColor: 'transparent' }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-        </>
+        <Group>
+          {/* The in-place confirm stays in place. S25 routes the two
+              DESTRUCTIVE hand-rolled overlays through the kit Dialog; this one
+              is a two-step on a reversible action (you can sign back in), and
+              the review keeps the inline pattern exactly there. What changes
+              is that both buttons had `hover:bg-red-50` and `hover:bg-stone-100`
+              — two near-white fills on the orange ground, which C9 bans. */}
+          <Row
+            label="Sign out"
+            description={confirming
+              ? 'Sign out of WILSON on this device?'
+              : 'Signs you out on this device only — other computers you are signed in on stay signed in, and so does the operator console if you use one. Your pet and your personal settings live with your account, so they will be waiting when you sign back in.'}
+          >
+            {!confirming ? (
+              <Button surface="light" size="sm" variant="danger" onClick={() => setConfirming(true)}>
+                <LogOut aria-hidden="true" />Sign out
+              </Button>
+            ) : (
+              <>
+                <Button surface="light" size="sm" variant="danger" onClick={handleSignOut} disabled={busy}>
+                  {busy ? 'Signing out…' : 'Sign out'}
+                </Button>
+                <Button surface="light" size="sm" onClick={() => setConfirming(false)} disabled={busy}>
+                  Cancel
+                </Button>
+              </>
+            )}
+          </Row>
+        </Group>
       )}
-    </div>
+    </Section>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { PET_BREEDS } from './sprites/index'
 import { AGENT_SYSTEM_PROMPT } from '../agent/agentPrompts'
 import { useAgent } from '../agent/AgentProvider'
@@ -24,11 +24,37 @@ import StorageConnections from './settings/StorageConnections'
 import UserModelsSection from './settings/UserModelsSection'
 import { usePermissions } from '../permissions'
 import GatedAction from '../permissions/GatedAction'
-// Session 43 §B — Settings is a light page (#f4a261). The two CONFIRM DIALOGS
-// near the bottom paint #1c1917 and keep their greys.
-import { LIGHT_INK, LIGHT_RULE } from './lightSurface'
+// Session 43 §B — Settings is a light page (#f4a261). The two confirm dialogs
+// near the bottom paint #1c1917 and keep their greys; they are the kit Dialog
+// now, which stamps data-surface="dark" and brings its own tokens, so this
+// file no longer imports a light token directly. Everything it needs is in
+// settings.css and in src/ui/.
 import { canCreateNewEgg } from '../lib/petLifecycle'
+// UI overhaul D1 (2026-09-11): every hover / selected / on / tone state on
+// this surface moved out of inline style ternaries and out of two
+// onMouseEnter/onMouseLeave handlers into data attributes resolved here. An
+// inline style beats a hover: class, so the two cannot coexist — see the
+// file header for why this had to be its own commit.
+import './settings/settings.css'
+import { Section, Group, Row, Note } from './settings/SettingsChrome'
+import { Button, IconButton, Input, TextArea, Select, Dialog } from '../ui'
+import { Lock, X } from 'lucide-react'
 
+
+/**
+ * The pet card's status word, as one named tone per state rather than the
+ * six-branch nested colour ternary it used to be inline. Kept next to the
+ * component (not in the pet's own modules) because it is Settings chrome:
+ * plan §2 Q20 puts this card in scope and leaves PetCompanion.jsx, the
+ * sprites and every pet keyframe untouched (C5).
+ */
+function petStateTone(state) {
+  if (state === 'dead' || state === 'starving') return 'danger'
+  if (state === 'hungry') return 'warning'
+  if (state === 'lonely') return 'lonely'
+  if (state === 'sleeping') return 'sleeping'
+  return 'ok'
+}
 
 export default function SettingsPage({
   petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet,
@@ -247,12 +273,6 @@ export default function SettingsPage({
     }
   }
 
-  const inputStyle = {
-    backgroundColor: 'rgba(120, 70, 30, 0.55)',
-    color: '#fde8d0',
-    border: 'none',
-  }
-
   const wilsonVersion = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
 
   const form = petData?.form || 'egg'
@@ -271,6 +291,7 @@ export default function SettingsPage({
     'Audio', 'Physical Production', 'Development', 'Executive', 'Operations',
   ])
   const [newDeptName, setNewDeptName] = useState('')
+  const deptInputRef = useRef(null)
 
   // Load departments from otter-settings on mount (localData: Express in
   // Electron, localStorage on the web).
@@ -311,42 +332,61 @@ export default function SettingsPage({
   // 28 functions grouped by tool is a screenful, and burying the only place
   // that answers "why is this function using that model?" under a scroll is
   // how the last outage stayed invisible for 47 days.
+  //
+  // `groupEnd` draws a hairline separator after the tab, nothing more. It is
+  // the whole of S17's fix: seven ungrouped peers read as
+  // [General | Profile] [Models | Storage | Teams] [Agent | Agent Skills]
+  // — two account tabs, three workspace tabs, two AI tabs. No tab moves, none
+  // is hidden and none is collapsed, so the count of reachable controls and
+  // the number of clicks to each are unchanged (C1).
   const tabs = [
     { key: 'general', label: 'General' },
-    { key: 'profile', label: 'Profile' },
+    { key: 'profile', label: 'Profile', groupEnd: true },
     { key: 'models',  label: 'Models' },
     // Session 22: labelled "Storage", not "RABBIT". The tab is about where
     // data lives, and naming it after the tool told users nothing. The KEY
     // stays 'rabbit' — it is the only thing the panel below switches on.
     { key: 'rabbit',  label: 'Storage' },
-    { key: 'teams',   label: 'Teams' },
+    { key: 'teams',   label: 'Teams', groupEnd: true },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
     { key: 'skills', label: 'Agent Skills' },
   ]
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 flex justify-center py-8 px-8 overflow-auto">
-        <div className="w-full max-w-2xl">
-          {/* Tab bar */}
-          <div className="flex gap-1 mb-8">
+    // 🚨 `data-surface="light"` is load-bearing, not decoration. F1 scopes the
+    // global :focus-visible ring, the placeholder ink, the caret and
+    // ::selection off it; without the stamp this page keeps the orange signal
+    // ring, which measures about 1.6:1 on #f4a261 and is invisible. That
+    // single attribute is most of S32's fix (49 buttons, zero focus styles).
+    // `wilson-light-scroll` is F1's light scrollbar, applied per surface.
+    <div className="h-full flex flex-col wilson-light-scroll" data-surface="light">
+      <div className="flex-1 flex justify-center overflow-auto">
+        {/* One measure for the whole surface (S18): the password form's own
+            max-w-md and the page's py-8 px-8 are gone, so every tab's right
+            edge lands in the same place and the gutter is the shell's 24px. */}
+        <div className="s-page">
+          <div className="s-tabs" role="tablist" aria-label="Settings sections">
             {tabs.map(tab => (
               <button
                 key={tab.key}
+                type="button"
+                role="tab"
+                id={`s-tab-${tab.key}`}
+                aria-selected={activeTab === tab.key}
+                aria-controls={`s-panel-${tab.key}`}
                 onClick={() => setActiveTab(tab.key)}
-                className="px-5 py-2 text-xs font-bold uppercase tracking-widest rounded-t-sm transition-colors"
-                style={{
-                  backgroundColor: activeTab === tab.key ? 'rgba(120, 70, 30, 0.55)' : 'transparent',
-                  color: activeTab === tab.key ? '#ffffff' : LIGHT_INK,
-                  borderBottom: activeTab === tab.key ? '2px solid #f97316' : '2px solid transparent',
-                }}
+                className="s-tab"
+                data-active={activeTab === tab.key}
+                data-group-end={!!tab.groupEnd}
               >
                 {tab.label}
               </button>
             ))}
           </div>
 
-          <div className="space-y-8">
+          {/* Arrow-key roving focus is deliberately NOT added: the review
+              (S35) says it changes interaction, so it waits for Audrey. */}
+          <div role="tabpanel" id={`s-panel-${activeTab}`} aria-labelledby={`s-tab-${activeTab}`}>
 
           {/* ═══════════════════════════════════════════════════════════ */}
           {/*  PROFILE TAB (Session 4 — same component the Session 8     */}
@@ -380,147 +420,152 @@ export default function SettingsPage({
               <WorkspaceSwitcher />
 
               {/* Session 9: version + auto-update surface. */}
-              <VersionPanel />
+              <VersionPanel first />
 
               {/* AI access (Session 12, locked #21): no per-user key anymore.
                   AI features authenticate with the signed-in session and the
                   workspace's key lives server-side, managed by admins. */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  AI Features
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  AI features are included with your workspace sign-in — no API key
-                  needed. Access is managed by your workspace admins.
-                </p>
-              </div>
+              {/* S16: this was an h2 at the same rank as Companion and
+                  Project files location, followed by two lines of prose and
+                  nothing to set — a note wearing a section's clothes. It is a
+                  note now. It stays on this tab: moving it to Models, which
+                  the review also proposed, would be a cross-tab content move
+                  rather than a restyle. */}
+              <Note>
+                AI features are included with your workspace sign-in — no API key
+                needed. Access is managed by your workspace admins.
+              </Note>
 
-              {/* Companion Section */}
+              {/* Companion Section. Q20: the CARD is Settings chrome and is
+                  in scope — its name label, its two numeric readouts, its
+                  progress bars and its status word. The pet itself is not:
+                  PetCompanion.jsx, src/components/sprites/ and every pet
+                  keyframe in index.css are untouched (C5). */}
               {petData && (
-                <div>
-                  <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                    Companion
-                  </h2>
-                  <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                    Your AI pet companion appears on every page. Manage pet mode, difficulty, and more.
-                  </p>
-
-                  <div className="space-y-4">
-                    {/* Pet info card */}
-                    <div className="p-4 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)' }}>
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <span className="text-sm font-bold" style={{ color: '#f4a261' }}>{petData.name || 'Ollie'}</span>
-                          <span className="text-xs ml-2" style={{ color: '#1c1917' }}>
-                            {petData.gender === 'female' ? 'F' : 'M'} / {breedLabel} / {form}
-                          </span>
-                        </div>
-                        <span className="text-xs uppercase font-bold tracking-wider" style={{
-                          color: petData.state === 'dead' ? '#ef4444' :
-                                 petData.state === 'starving' ? '#ef4444' :
-                                 petData.state === 'hungry' ? '#f59e0b' :
-                                 petData.state === 'lonely' ? '#8b5cf6' :
-                                 petData.state === 'sleeping' ? '#6b7280' :
-                                 '#22c55e'
-                        }}>
-                          {petData.state}
+                <Section
+                  title="Companion"
+                  description="Your AI pet companion appears on every page. Manage pet mode, difficulty, and more."
+                >
+                  {/* Pet info card. S6: the name and both numeric readouts
+                      were #f4a261 — the page's own ground used as ink — on the
+                      0.55 well, measuring 2.10:1. That is within rounding of
+                      the 2.06:1 white-on-orange defect Session 43 existed to
+                      fix. One ink now; the name takes the 14px card-title step
+                      and the numbers the 12px caption step with tabular
+                      figures, so rank comes from size, not colour. */}
+                  <div className="s-well mb-4">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div className="min-w-0">
+                        <span className="s-card-title">{petData.name || 'Ollie'}</span>
+                        <span className="s-row-desc inline-block ml-2">
+                          {petData.gender === 'female' ? 'F' : 'M'} / {breedLabel} / {form}
                         </span>
                       </div>
-                      {(form === 'baby' || form === 'adult') && (
-                        <div className="flex items-center gap-4">
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-0.5">
-                              <span className="text-[10px] uppercase tracking-wider" style={{ color: '#1c1917' }}>Hunger</span>
-                              <span className="text-[10px] font-mono" style={{ color: '#f4a261' }}>{Math.round(petData.hunger)}/100</span>
-                            </div>
-                            <div className="h-1.5 rounded-none overflow-hidden" style={{ backgroundColor: 'rgba(80, 45, 15, 0.5)' }}>
-                              <div className="h-full transition-all duration-500" style={{ width: `${Math.round(petData.hunger)}%`, backgroundColor: '#f97316' }} />
-                            </div>
+                      {/* The six-value colour ladder was a nested ternary
+                          inline. Two of the six (#8b5cf6 violet, #6b7280 cool
+                          grey) were cool hues on a warm-only palette — S11 —
+                          and under Q1 option A no status colour is drawn on
+                          this ground at all. The word carries the state; the
+                          tone attribute survives so a dark-ground rendering
+                          can colour it later with no JSX change. */}
+                      <span className="s-pet-state" data-tone={petStateTone(petData.state)}>
+                        {petData.state}
+                      </span>
+                    </div>
+                    {(form === 'baby' || form === 'adult') && (
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="s-label">Hunger</span>
+                            <span className="s-data s-row-desc">{Math.round(petData.hunger)}/100</span>
                           </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-0.5">
-                              <span className="text-[10px] uppercase tracking-wider" style={{ color: '#1c1917' }}>Happiness</span>
-                              <span className="text-[10px] font-mono" style={{ color: '#f4a261' }}>{Math.round(petData.happiness)}/100</span>
-                            </div>
-                            <div className="h-1.5 rounded-none overflow-hidden" style={{ backgroundColor: 'rgba(80, 45, 15, 0.5)' }}>
-                              <div className="h-full transition-all duration-500" style={{ width: `${Math.round(petData.happiness)}%`, backgroundColor: '#f97316' }} />
-                            </div>
+                          {/* S34: 500ms on a readout that only moves on a data
+                              refresh the user did not initiate. 120ms is the
+                              state-change duration from §3.4. */}
+                          <div className="s-pet-bar">
+                            <div className="s-pet-bar-fill" style={{ width: `${Math.round(petData.hunger)}%` }} />
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Pet mode toggle */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-stone-900">Pet Mode</span>
-                        <p className="text-[10px] text-stone-950 mt-0.5">When off, companion is a helper-only chatbot with no hunger/sleep mechanics</p>
-                      </div>
-                      <button
-                        onClick={() => onPetModeToggle(!petData.petMode)}
-                        className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
-                        style={{
-                          backgroundColor: petData.petMode ? '#f97316' : '#44403c',
-                          color: petData.petMode ? '#fff' : LIGHT_INK,
-                        }}
-                      >
-                        {petData.petMode ? 'ON' : 'OFF'}
-                      </button>
-                    </div>
-
-                    {/* Difficulty selector */}
-                    {petData.petMode && (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-bold uppercase tracking-wider text-stone-900">Difficulty</span>
-                          <p className="text-[10px] text-stone-950 mt-0.5">Controls decay speed, evolution time, and sleep duration</p>
-                        </div>
-                        <div className="flex gap-1">
-                          {['low', 'medium', 'high'].map(d => (
-                            <button
-                              key={d}
-                              onClick={() => onDifficultyChange(d)}
-                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                              style={{
-                                backgroundColor: petData.difficulty === d ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                                color: petData.difficulty === d ? '#fff' : LIGHT_INK,
-                              }}
-                            >
-                              {d}
-                            </button>
-                          ))}
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="s-label">Happiness</span>
+                            <span className="s-data s-row-desc">{Math.round(petData.happiness)}/100</span>
+                          </div>
+                          <div className="s-pet-bar">
+                            <div className="s-pet-bar-fill" style={{ width: `${Math.round(petData.happiness)}%` }} />
+                          </div>
                         </div>
                       </div>
                     )}
+                  </div>
 
-                    {/* Danger zone */}
-                    <div className="pt-2 border-t border-stone-400/30">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-red-700 block mb-3">Danger Zone</span>
-                      <div className="flex gap-2">
+                  {/* S20 / A3: these two rows and the two on the Agent tab
+                      were `flex items-center justify-between` with no height
+                      at all, so a ~30px toggle sat above a ~26px segmented
+                      group and no two rows shared a baseline. */}
+                  <Group>
+                    <Row
+                      label="Pet mode"
+                      description="When off, companion is a helper-only chatbot with no hunger/sleep mechanics"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onPetModeToggle(!petData.petMode)}
+                        className="s-toggle"
+                        data-on={!!petData.petMode}
+                      >
+                        {petData.petMode ? 'On' : 'Off'}
+                      </button>
+                    </Row>
+
+                    {petData.petMode && (
+                      <Row
+                        label="Difficulty"
+                        description="Controls decay speed, evolution time, and sleep duration"
+                      >
+                        {['low', 'medium', 'high'].map(d => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => onDifficultyChange(d)}
+                            className="s-seg"
+                            data-selected={petData.difficulty === d}
+                          >
+                            {d}
+                          </button>
+                        ))}
+                      </Row>
+                    )}
+                  </Group>
+
+                  {/* Danger zone. The eyebrow was text-red-700 on #f4a261 —
+                      2.41:1 — so the one label whose whole job is to warn was
+                      among the least readable text on the page (S10). It is
+                      the page's ink at the Label step; the warning is carried
+                      by the grouping and by each button's own copy. */}
+                  <div className="mt-6">
+                    <Group label="Danger zone">
+                      <div className="s-row">
+                        <div className="s-row-label">
+                          <p className="s-row-desc">
+                            Resetting clears this pet&rsquo;s feedback and interaction history. Neither action can be undone.
+                          </p>
+                        </div>
+                        <div className="s-row-control">
                         <button
+                          type="button"
                           onClick={() => setPetResetConfirm(true)}
-                          className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors border"
-                          style={{
-                            backgroundColor: 'transparent',
-                            color: '#1c1917',
-                            borderColor: '#44403c',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#44403c'; e.currentTarget.style.color = '#1c1917'; }}
+                          className="s-danger-btn"
+                          data-tone="danger"
                         >
-                          Reset History
+                          Reset history
                         </button>
                         {isGhost && (
                           <button
+                            type="button"
                             onClick={() => setNewPetConfirm(true)}
-                            className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors border"
-                            style={{
-                              backgroundColor: 'transparent',
-                              color: '#1c1917',
-                              borderColor: '#44403c',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.color = '#f97316'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#44403c'; e.currentTarget.style.color = '#1c1917'; }}
+                            className="s-danger-btn"
+                            data-tone="signal"
                           >
                             {/* ⚠️ NO pending label or `disabled` here, deliberately.
                                 A first pass added both and they were DEAD CODE: the
@@ -529,9 +574,10 @@ export default function SettingsPage({
                                 before either can render. The pending state is shown
                                 by the status block below, which is outside that gate.
                                 Re-entrancy is guarded in handleNewPet itself. */}
-                            New Pet
+                            New pet
                           </button>
                         )}
+                        </div>
                       </div>
 
                       {/* 🚨 Phase 3: the outcome, ON THE PAGE THAT HOSTS THE
@@ -556,93 +602,93 @@ export default function SettingsPage({
                         <div
                           role="status"
                           aria-live="polite"
-                          className="mt-3 px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
-                          style={
-                            newPetPending
-                              ? { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
-                              : newPetStatus.ok
-                                ? { borderColor: '#14532d', color: LIGHT_INK, backgroundColor: 'rgba(21, 128, 61, 0.10)' }
-                                : { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
-                          }
+                          className="s-status mt-3"
+                          data-state={newPetPending ? 'pending' : newPetStatus.ok ? 'ok' : 'error'}
                         >
                           {newPetPending ? 'Creating a new egg…' : newPetStatus.message}
                         </div>
                       )}
-                    </div>
+                    </Group>
                   </div>
-                </div>
+                </Section>
               )}
 
-              {/* Project Files Root Directory */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Project Files Location
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Default root directory where RABBIT creates project folders and stores asset files.
-                  Each project can also override this with its own location.
-                </p>
-                <div className="p-4 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.15)', border: '1px solid rgba(120, 70, 30, 0.3)' }}>
-                  {filesRootDir ? (
-                    <div className="space-y-3">
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: LIGHT_INK }}>Current path</span>
-                        <div className="mt-1 px-3 py-2 rounded-sm text-xs font-mono break-all" style={{ backgroundColor: 'rgba(0,0,0,0.1)', color: '#1c1917' }}>
-                          {filesRootDir}
-                        </div>
+              {/* Project files location.
+
+                  ⚠️ THIS SECTION IS TEST-PINNED IN A WAY A RESTYLE CAN BREAK.
+                  workspaceRootWiring.test.js:282 counts the gated-action tags
+                  in this file by their source text and requires at least
+                  THREE. There are exactly three, all below, so none may be
+                  removed.
+
+                  🚨 That comment does NOT spell the tag out, deliberately. A
+                  source-text count cannot tell code from prose: writing the
+                  literal here would have raised the count to four and the
+                  assertion would then have passed with one real gate deleted.
+                  The same trap is recorded in userStateWiring.test.js, where a
+                  negative assertion matched its own documentation twice.
+
+                  The review's S15 proposes deleting
+                  this panel in favour of the near-identical one in the Storage
+                  tab; doing that would drop the count to one and fail a test
+                  that says nothing about design. Both mount points stay, and
+                  the row contract is what makes them read as one control
+                  instead of two that merely resemble each other. */}
+              <Section
+                title="Project files location"
+                description="Default root directory where R.A.B.B.I.T. creates project folders and stores asset files. Each project can also override this with its own location."
+              >
+                {filesRootDir ? (
+                  <Group>
+                    <Row label="Current path" stacked>
+                      {/* A path is a fact: mono, full, wraps anywhere, never
+                          truncated — the same treatment StorageConnections'
+                          PathLine gives it, so the two agree. */}
+                      <div className="s-data s-well break-all" style={{ fontSize: 'var(--text-dense)' }}>
+                        {filesRootDir}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                          <button
-                            type="button"
-                            onClick={handlePickRootDir}
-                            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                          >
-                            Change
-                          </button>
-                        </GatedAction>
-                        <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                          <button
-                            type="button"
-                            onClick={handleClearRootDir}
-                            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors hover:bg-red-50"
-                            style={{ color: '#dc2626', border: '1px solid #dc2626' }}
-                          >
-                            Clear
-                          </button>
-                        </GatedAction>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.electronAPI?.rabbit?.openInExplorer?.({ filePath: filesRootDir })
-                          }}
-                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                          style={{ color: LIGHT_INK, border: `1px solid ${LIGHT_RULE}` }}
-                        >
-                          Open in Explorer
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-xs italic" style={{ color: LIGHT_INK }}>
-                        No default location set. Project files will not be managed until a root directory is chosen.
-                      </p>
+                    </Row>
+                    <Row label="Folder">
                       <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                        <button
-                          type="button"
-                          onClick={handlePickRootDir}
-                          className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                        >
-                          Select Root Directory
-                        </button>
+                        <Button surface="light" size="sm" variant="primary" onClick={handlePickRootDir}>
+                          Change
+                        </Button>
                       </GatedAction>
-                    </div>
-                  )}
-                </div>
-              </div>
+                      <Button
+                        surface="light"
+                        size="sm"
+                        onClick={() => {
+                          window.electronAPI?.rabbit?.openInExplorer?.({ filePath: filesRootDir })
+                        }}
+                      >
+                        Open in Explorer
+                      </Button>
+                      {/* One filled primary per region (S7). Clear is the
+                          danger variant rather than a second fill, and its
+                          hover:bg-red-50 — a near-white on the orange ground,
+                          C9 — goes with it. */}
+                      <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                        <Button surface="light" size="sm" variant="danger" onClick={handleClearRootDir}>
+                          Clear
+                        </Button>
+                      </GatedAction>
+                    </Row>
+                  </Group>
+                ) : (
+                  <Group>
+                    <Row
+                      label="Folder"
+                      description="No default location set. Project files will not be managed until a root directory is chosen."
+                    >
+                      <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                        <Button surface="light" size="sm" variant="primary" onClick={handlePickRootDir}>
+                          Select root directory
+                        </Button>
+                      </GatedAction>
+                    </Row>
+                  </Group>
+                )}
+              </Section>
 
               {/* Password. Session 15 deleted the legacy LOCAL password panel
                   (MASTER_PLAN §6 #32): it drove /api/auth/change, which edited
@@ -665,18 +711,30 @@ export default function SettingsPage({
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'rabbit' && (
             <>
-              {/* Adapter mode */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Storage Backend
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+              {/* Adapter mode.
+
+                  🚨 THE PARAGRAPH BELOW KEEPS ITS EXACT LINE BREAKS, and that
+                  is a test contract rather than a formatting preference.
+                  localMediaWiring.test.js:124-125 asserts two substrings
+                  against this file's raw source: one ends a line here and the
+                  other IS the following line. Re-wrapping the paragraph
+                  splits the second across a newline and the assertion fails —
+                  with copy that never changed and a message that says nothing
+                  about design. Change the className freely; do not reflow the
+                  text. The same holds for the `hint` ternary below, whose
+                  Local Server string is asserted WITH its surrounding single
+                  quotes, so it must stay a one-line quoted literal. */}
+              <Section
+                first
+                title="Storage backend"
+                description={<>
                   Where R.A.B.B.I.T. stores projects, phases, assets, tasks, files, and rate
                   cards. Switching backends preserves whatever lives in the destination — it
                   does not migrate data between adapters. Supabase is where every project’s
                   database lives and the only backend other people can see. Local Server is
                   for demos only: its projects stay on this computer and cannot be shared.
-                </p>
+                </>}
+              >
                 <div className="flex flex-col gap-2">
                   {ADAPTER_MODES.map(mode => {
                     const active = rabbitCtx?.adapterMode === mode
@@ -707,60 +765,46 @@ export default function SettingsPage({
                         type="button"
                         disabled={adapterSwitching || active || unavailableOnWeb}
                         onClick={() => handleRabbitAdapterSwitch(mode)}
-                        className="flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
-                        style={{
-                          backgroundColor: active ? 'rgba(234, 88, 12, 0.18)' : 'rgba(120, 70, 30, 0.18)',
-                          border: `2px solid ${active ? '#ea580c' : 'transparent'}`,
-                        }}
+                        className="s-adapter"
+                        data-selected={active}
                       >
-                        <span
-                          className="mt-0.5 w-3 h-3 rounded-full flex-shrink-0"
-                          style={{
-                            backgroundColor: active ? '#ea580c' : 'transparent',
-                            border: '2px solid #7c2d12',
-                          }}
-                        />
-                        <div className="flex flex-col">
-                          <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
+                        <span className="s-adapter-dot" />
+                        <div className="flex flex-col min-w-0">
+                          {/* S41: a 12px label wearing four emphasis
+                              mechanisms at once — mono, bold, uppercase and
+                              tracking. It is a name, so it takes the card
+                              title step in sentence case. */}
+                          <span className="s-adapter-label">
                             {label}
                             {/* Session 22: an active backend is disabled because
                                 you are already on it, not because it failed.
                                 Say so — this badge is the whole difference
                                 between "connected" and "dead". */}
                             {active && (
-                              <span
-                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
-                                style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #166534' }}
-                              >
-                                In use
-                              </span>
+                              <span className="s-badge" data-badge="in-use">In use</span>
                             )}
                             {!writes && (
-                              <span
-                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
-                                style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #991b1b' }}
-                              >
-                                Read only
-                              </span>
+                              <span className="s-badge" data-badge="read-only">Read only</span>
                             )}
                           </span>
-                          <span className="text-[11px]" style={{ color: '#1c1917' }}>{hint}</span>
+                          <span className="s-adapter-hint">{hint}</span>
                         </div>
                       </button>
                     )
                   })}
                 </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: rabbitCtx?.adapterStatus?.online ? '#22c55e' : '#ef4444' }}
-                  />
-                  <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
+                {/* A8: the status dot used to sit at the container's left
+                    edge while the radio dots above it started ~14px in, so the
+                    two label columns never lined up. It is inside the group
+                    now, on the same optical left edge. */}
+                <div className="s-adapter-status">
+                  <span className="s-online-dot" data-online={!!rabbitCtx?.adapterStatus?.online} />
+                  <span className="s-row-desc">
                     {rabbitCtx?.adapterStatus?.online ? 'Connected' : 'Offline'}
                     {rabbitCtx?.adapterStatus?.error && ` — ${rabbitCtx.adapterStatus.error}`}
                   </span>
                 </div>
-              </div>
+              </Section>
 
               {/* Cloud migration tool — dry-run + migrate + archive local */}
               {/* Session 9: per-provider connection details (locked #14). */}
@@ -773,72 +817,69 @@ export default function SettingsPage({
                   same place. */}
               <OtterMigrationPanel />
 
-              {/* Default currency */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Default Project Currency
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Used as the starting currency for new RABBIT projects and budget rollups.
-                  Each project can override this once it's been created.
-                </p>
-                <CurrencyPicker
-                  value={rabbitDefaultCurrency}
-                  onChange={handleCurrencyChange}
-                />
-              </div>
+              {/* Default currency. H8 in the review is the one Hick's-law
+                  hotspot on this surface that was ALREADY right: nineteen
+                  options behind one trigger with an autofocusing search
+                  filter. Only its geometry changes (48px trigger to 36px). */}
+              <Section
+                title="Default project currency"
+                description="Used as the starting currency for new R.A.B.B.I.T. projects and budget rollups. Each project can override this once it has been created."
+              >
+                <Group>
+                  <Row label="Currency" stacked>
+                    <CurrencyPicker
+                      value={rabbitDefaultCurrency}
+                      onChange={handleCurrencyChange}
+                    />
+                  </Row>
+                </Group>
+              </Section>
 
-              {/* Default rate card */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Default Rate Card
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  New projects open with this rate card pinned in the budget view. Manage
-                  individual cards on the Rate Card page.
-                </p>
-                {rateCard.rateCards.length === 0 ? (
-                  <div className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
-                    No rate cards yet. Create one on the Rate Card page.
-                  </div>
-                ) : (
-                  <select
-                    value={rabbitDefaultRateCardId || ''}
-                    onChange={(e) => handleRabbitDefaultRateCardChange(e.target.value)}
-                    className="px-4 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                    style={{
-                      backgroundColor: 'rgba(120, 70, 30, 0.55)',
-                      color: '#fde8d0',
-                      border: 'none',
-                      minWidth: '260px',
-                    }}
-                  >
-                    <option value="">— None —</option>
-                    {rateCard.rateCards.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
+              {/* Default rate card. The empty state used #7c2d12, an ink
+                  used nowhere else on the surface, at 11px italic mono (S27).
+                  The select used the 0.55 well with #fde8d0 — 3.40:1, the
+                  worst measured contrast in the project (S5). */}
+              <Section
+                title="Default rate card"
+                description="New projects open with this rate card pinned in the budget view. Manage individual cards on the Rate Card page."
+              >
+                <Group>
+                  {/* The empty state is a sentence, so it belongs in the
+                      description, not in the control slot — the control slot
+                      is right-aligned, which made it the only right-aligned
+                      prose on the surface. `htmlFor` only when the control
+                      it names actually renders. */}
+                  {rateCard.rateCards.length === 0 ? (
+                    <Row label="Rate card" description="No rate cards yet. Create one on the Rate Card page." />
+                  ) : (
+                    <Row label="Rate card" htmlFor="s-default-rate-card">
+                      <Select
+                        id="s-default-rate-card"
+                        surface="light"
+                        size="sm"
+                        aria-label="Default rate card"
+                        value={rabbitDefaultRateCardId || ''}
+                        onChange={(v) => handleRabbitDefaultRateCardChange(v || '')}
+                        placeholder="None"
+                        options={rateCard.rateCards.map(c => ({ value: c.id, label: c.name }))}
+                      />
+                    </Row>
+                  )}
+                </Group>
+              </Section>
 
-              {/* Task Templates */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Task Templates
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Define reusable sets of tasks that can be automatically applied to assets.
-                  Templates are available across all projects unless marked as project-specific.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowTemplateManager(true)}
-                  className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                  style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                >
-                  Manage Task Templates
-                </button>
-              </div>
+              <Section
+                title="Task templates"
+                description="Define reusable sets of tasks that can be automatically applied to assets. Templates are available across all projects unless marked as project-specific."
+              >
+                <Group>
+                  <Row label="Templates">
+                    <Button surface="light" size="sm" variant="primary" onClick={() => setShowTemplateManager(true)}>
+                      Manage task templates
+                    </Button>
+                  </Row>
+                </Group>
+              </Section>
             </>
           )}
 
@@ -851,39 +892,54 @@ export default function SettingsPage({
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'teams' && (
             <>
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Departments
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Manage the department tags available for team members. These appear as dropdown
-                  options when assigning a department to a team member.
-                </p>
+              <Section
+                first
+                title="Departments"
+                description="Manage the department tags available for team members. These appear as dropdown options when assigning a department to a team member."
+              >
+                <Group label="Add a department">
+                  <div className="s-row">
+                    <div className="s-row-label flex-1">
+                      {/* The kit Input keeps binUi's Escape-reverts-the-edit
+                          behaviour, which is the best input interaction in the
+                          app and which this surface had only in DepartmentRow,
+                          hand-rolled (U4). */}
+                      {/* Input blurs on Enter before forwarding the key, so
+                          adding a second department used to cost an extra
+                          click. Focus is put back, which is what the bare
+                          <input> did by never losing it. `size="sm"` matches
+                          the rename field sixteen pixels below — the two were
+                          36px and 28px for the same data. */}
+                      <Input
+                        ref={deptInputRef}
+                        surface="light"
+                        size="sm"
+                        aria-label="New department name"
+                        value={newDeptName}
+                        onChange={setNewDeptName}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter') return
+                          handleAddDepartment()
+                          requestAnimationFrame(() => deptInputRef.current?.focus())
+                        }}
+                        placeholder="New department name"
+                      />
+                    </div>
+                    <div className="s-row-control">
+                      <Button
+                        surface="light"
+                        size="sm"
+                        variant="primary"
+                        onClick={handleAddDepartment}
+                        disabled={!newDeptName.trim()}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                </Group>
 
-                {/* Add new department */}
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="text"
-                    value={newDeptName}
-                    onChange={(e) => setNewDeptName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddDepartment() }}
-                    placeholder="New department name..."
-                    className="flex-1 px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-                    style={inputStyle}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddDepartment}
-                    disabled={!newDeptName.trim()}
-                    className="px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
-                  >
-                    Add
-                  </button>
-                </div>
-
-                {/* Department list */}
-                <div className="space-y-1">
+                <div className="mt-4">
                   {departments.map((dept, idx) => (
                     <DepartmentRow
                       key={idx}
@@ -892,13 +948,15 @@ export default function SettingsPage({
                       onRemove={() => handleRemoveDepartment(dept)}
                     />
                   ))}
+                  {/* S27: this was the only centred text on the surface, and
+                      it used the empty-state treatment that also stood in for
+                      loading and for errors. Left-aligned like everything
+                      else, and it says only what it means. */}
                   {departments.length === 0 && (
-                    <div className="text-xs font-mono italic py-4 text-center" style={{ color: LIGHT_INK }}>
-                      No departments configured. Add one above.
-                    </div>
+                    <p className="s-row-desc">No departments configured. Add one above.</p>
                   )}
                 </div>
-              </div>
+              </Section>
             </>
           )}
 
@@ -907,122 +965,126 @@ export default function SettingsPage({
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'agent' && onAgentEnabledChange && (
             <>
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Agent Settings
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  The companion agent can edit, correct, and create lesson content in O.T.T.E.R. when switched to "Work with" mode.
-                </p>
+              <Section
+                first
+                title="Agent settings"
+                description={'The companion agent can edit, correct, and create lesson content in O.T.T.E.R. when switched to "Work with" mode.'}
+              >
+                <Note>
+                  Agent workflows use <strong>Sonnet</strong> and consume tokens faster than companion chat (which uses Haiku). Each edit request costs approximately 3-5x more tokens than a chat message.
+                </Note>
 
-                <div className="space-y-4">
-                  {/* Token warning */}
-                  <div className="p-3 rounded-sm border" style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', borderColor: 'rgba(120, 70, 30, 0.5)' }}>
-                    <p className="text-[11px] text-stone-900 leading-relaxed">
-                      Agent workflows use <strong>Sonnet</strong> and consume tokens faster than companion chat (which uses Haiku). Each edit request costs approximately 3-5x more tokens than a chat message.
-                    </p>
-                  </div>
-
-                  {/* Agent enable/disable */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold uppercase tracking-wider text-stone-900">Agent Mode</span>
-                      <p className="text-[10px] text-stone-950 mt-0.5">When off, the agent toggle is hidden from the companion</p>
-                    </div>
+                <div className="mt-4">
+                <Group>
+                  <Row
+                    label="Agent mode"
+                    description="When off, the agent toggle is hidden from the companion"
+                  >
                     <button
+                      type="button"
                       onClick={() => onAgentEnabledChange(!agentEnabled)}
-                      className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
-                      style={{
-                        backgroundColor: agentEnabled ? '#f97316' : '#44403c',
-                        color: agentEnabled ? '#fff' : LIGHT_INK,
-                      }}
+                      className="s-toggle"
+                      data-on={!!agentEnabled}
                     >
-                      {agentEnabled ? 'ON' : 'OFF'}
+                      {agentEnabled ? 'On' : 'Off'}
                     </button>
-                  </div>
+                  </Row>
 
-                  {/* Auto-approve threshold */}
                   {agentEnabled && (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-stone-900">Auto-Approve</span>
-                        <p className="text-[10px] text-stone-950 mt-0.5">Controls when changes are applied without review</p>
-                      </div>
-                      <div className="flex gap-1">
-                        {[
-                          { key: 'always_ask', label: 'Always Ask' },
-                          { key: 'minor', label: 'Minor Edits' },
-                          { key: 'all', label: 'All' },
-                        ].map(opt => (
-                          <button
-                            key={opt.key}
-                            onClick={() => onAutoApproveChange(opt.key)}
-                            className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                            style={{
-                              backgroundColor: autoApprove === opt.key ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                              color: autoApprove === opt.key ? '#fff' : LIGHT_INK,
-                            }}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <Row
+                      label="Auto-approve"
+                      description="Controls when changes are applied without review"
+                    >
+                      {[
+                        { key: 'always_ask', label: 'Always ask' },
+                        { key: 'minor', label: 'Minor edits' },
+                        { key: 'all', label: 'All' },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => onAutoApproveChange(opt.key)}
+                          className="s-seg"
+                          data-selected={autoApprove === opt.key}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </Row>
                   )}
+                </Group>
 
-                  {/* Auto-approve "all" warning */}
+                  {/* 🚨 S10, and the single worst-measured thing on this
+                      surface: this sentence is the most consequential one on
+                      the page and it was text-red-700 on a translucent red
+                      over #f4a261 — 2.41:1, the LEAST readable text here. The
+                      semantics move to the left edge and the ink becomes the
+                      page's one ink, which is the pattern the new-pet status
+                      block sixty lines up already proved at 7.68:1. */}
                   {agentEnabled && autoApprove === 'all' && (
-                    <div className="p-3 rounded-sm border border-red-700/50" style={{ backgroundColor: 'rgba(153, 27, 27, 0.2)' }}>
-                      <p className="text-[11px] text-red-700 font-bold leading-relaxed">
-                        Warning: All agent edits will be applied immediately without review. Use with caution.
-                      </p>
-                    </div>
+                    <p className="s-feedback mt-4" data-tone="warning" role="alert">
+                      Warning: All agent edits will be applied immediately without review. Use with caution.
+                    </p>
                   )}
 
                   {/* Scope restrictions — locked subjects */}
+                  {/* H6: an unbounded row of unlabelled chips with one 10px
+                      line of explanation. The eyebrow names what the row IS
+                      ("Course"), the chips take the 28px control height that
+                      the difficulty and auto-approve groups use, and the
+                      subject list beneath reads as the result of a choice.
+                      Nothing is hidden and nothing is collapsed. */}
                   {agentEnabled && (
-                    <div>
-                      <span className="text-xs font-bold uppercase tracking-wider text-stone-900 block mb-2">Scope Restrictions</span>
-                      <p className="text-[10px] text-stone-950 mb-3">Lock subjects to prevent the agent from editing them. Select a course to see its subjects.</p>
+                    <div className="mt-6">
+                      <Group label="Scope restrictions">
+                        {/* The eyebrow is the Row's LABEL, not a child: a
+                            stacked row's control slot is still a flex ROW, so
+                            as a child it rendered beside the chips and read as
+                            a fourth chip rather than as the group's name. */}
+                        <Row
+                          label="Course"
+                          description="Lock subjects to prevent the agent from editing them. Select a course to see its subjects."
+                          stacked
+                        >
+                          <div className="flex gap-2 flex-wrap">
+                            {softwareList.map(sw => (
+                              <button
+                                key={sw.slug}
+                                type="button"
+                                onClick={() => handleLoadSubjectsForSoftware(sw.slug)}
+                                className="s-seg"
+                              >
+                                {sw.name}
+                              </button>
+                            ))}
+                          </div>
+                        </Row>
+                      </Group>
 
-                      {/* Course selector */}
-                      <div className="flex gap-2 mb-3 flex-wrap">
-                        {softwareList.map(sw => (
-                          <button
-                            key={sw.slug}
-                            onClick={() => handleLoadSubjectsForSoftware(sw.slug)}
-                            className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                            style={{
-                              backgroundColor: 'rgba(120, 70, 30, 0.45)',
-                              color: '#1c1917',
-                            }}
-                          >
-                            {sw.name}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Subject list with lock toggles */}
                       {subjectList.length > 0 && (
-                        <div className="space-y-1 p-3 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)' }}>
+                        <div className="s-well mt-3">
                           {subjectList.map(sub => {
                             const isLocked = lockedSubjects?.includes(sub.slug)
                             return (
-                              <div key={sub.slug} className="flex items-center justify-between py-1">
-                                <span className="text-xs text-stone-900 font-mono flex items-center gap-1.5">
-                                  {isLocked && <span title="Locked">🔒</span>}
-                                  {sub.title || sub.slug}
-                                </span>
-                                <button
-                                  onClick={() => handleToggleLock(sub.slug)}
-                                  className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm transition-colors"
-                                  style={{
-                                    backgroundColor: isLocked ? '#ef4444' : 'rgba(120, 70, 30, 0.45)',
-                                    color: isLocked ? '#fff' : LIGHT_INK,
-                                  }}
-                                >
-                                  {isLocked ? 'Unlock' : 'Lock'}
-                                </button>
+                              <div key={sub.slug} className="s-row">
+                                <div className="s-row-label flex items-center gap-2">
+                                  {/* S29: a lock EMOJI, which rendered from the
+                                      OS colour-emoji font. visual-language.md
+                                      bans emoji in UI; lucide is the library. */}
+                                  {isLocked && <Lock size={14} aria-hidden="true" />}
+                                  <span className="s-row-desc">{sub.title || sub.slug}</span>
+                                </div>
+                                <div className="s-row-control">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleLock(sub.slug)}
+                                    className="s-lock"
+                                    data-locked={!!isLocked}
+                                    aria-pressed={!!isLocked}
+                                  >
+                                    {isLocked ? 'Unlock' : 'Lock'}
+                                  </button>
+                                </div>
                               </div>
                             )
                           })}
@@ -1032,62 +1094,76 @@ export default function SettingsPage({
                   )}
 
                   {/* Agent system prompt editor */}
+                  {/* S26: two system-prompt editors one tab apart, on two
+                      wells, in two inks, at two sizes — this one on the 0.55
+                      brown at 3.40:1, the Agent Skills one on a #1c1917 well
+                      with #f4a261 ink. One TextArea for both now, and the
+                      read-only preview is the same control disabled rather
+                      than a third treatment. */}
                   {agentEnabled && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-stone-900">Agent System Prompt</span>
-                        <div className="flex gap-1">
-                          {!editingAgentPrompt ? (
-                            <button
-                              onClick={() => { setAgentPromptDraft(agentSystemPrompt || AGENT_SYSTEM_PROMPT); setEditingAgentPrompt(true); }}
-                              className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                              style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#1c1917' }}
+                    <div className="mt-6">
+                      <Group
+                        label="Agent system prompt"
+                        actions={!editingAgentPrompt ? (
+                          <Button
+                            surface="light"
+                            size="sm"
+                            onClick={() => { setAgentPromptDraft(agentSystemPrompt || AGENT_SYSTEM_PROMPT); setEditingAgentPrompt(true); }}
+                          >
+                            Edit
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              surface="light"
+                              size="sm"
+                              variant="primary"
+                              onClick={() => { onAgentSystemPromptChange(agentPromptDraft); setEditingAgentPrompt(false); }}
                             >
-                              Edit
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => { onAgentSystemPromptChange(agentPromptDraft); setEditingAgentPrompt(false); }}
-                                className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: '#f97316', color: '#fff' }}
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingAgentPrompt(false)}
-                                className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: LIGHT_INK }}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => { setAgentPromptDraft(AGENT_SYSTEM_PROMPT); }}
-                                className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: LIGHT_INK }}
-                              >
-                                Reset
-                              </button>
-                            </>
-                          )}
+                              Save
+                            </Button>
+                            <Button surface="light" size="sm" onClick={() => setEditingAgentPrompt(false)}>
+                              Cancel
+                            </Button>
+                            <Button surface="light" size="sm" onClick={() => { setAgentPromptDraft(AGENT_SYSTEM_PROMPT); }}>
+                              Reset
+                            </Button>
+                          </>
+                        )}
+                      >
+                        <div className="s-row" data-stacked="true">
+                          <div className="s-row-control">
+                            {editingAgentPrompt ? (
+                              <TextArea
+                                surface="light"
+                                aria-label="Agent system prompt"
+                                value={agentPromptDraft}
+                                onChange={setAgentPromptDraft}
+                                rows={12}
+                                className="w-full"
+                              />
+                            ) : (
+                              /* The preview is a 200-character TEASER, and it
+                                 stays one: showing the whole prompt here would
+                                 change what the view shows, which is a view
+                                 change, not a restyle. */
+                              <TextArea
+                                surface="light"
+                                aria-label="Agent system prompt (read only)"
+                                value={`${(agentSystemPrompt || AGENT_SYSTEM_PROMPT).slice(0, 200)}…`}
+                                onChange={() => {}}
+                                rows={3}
+                                disabled
+                                className="w-full"
+                              />
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      {editingAgentPrompt ? (
-                        <textarea
-                          value={agentPromptDraft}
-                          onChange={e => setAgentPromptDraft(e.target.value)}
-                          className="w-full h-48 px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
-                          style={inputStyle}
-                        />
-                      ) : (
-                        <div className="px-3 py-2 rounded-sm text-[10px] text-stone-950 font-mono leading-relaxed max-h-24 overflow-hidden" style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)' }}>
-                          {(agentSystemPrompt || AGENT_SYSTEM_PROMPT).slice(0, 200)}...
-                        </div>
-                      )}
+                      </Group>
                     </div>
                   )}
                 </div>
-              </div>
+              </Section>
             </>
           )}
 
@@ -1106,53 +1182,73 @@ export default function SettingsPage({
         </div>
       </div>
 
-      {/* Version number */}
-      <div className="flex justify-start px-6 pb-3">
-        <span className="text-xs text-stone-950 font-mono">{wilsonVersion}</span>
+      {/* S21 / A5: the version string was px-6 on the OUTER column while the
+          content was centred inside it, so it aligned to the window edge and
+          sat roughly 300px left of everything it belongs to. It is inside the
+          measure now, on the same gutter, with a hairline above. */}
+      <div className="flex justify-center">
+        <div className="s-page" style={{ paddingTop: 0 }}>
+          <div className="pt-3" style={{ borderTop: '1px solid var(--color-rule-light)' }}>
+            {/* Data, not a label: mono and tabular, sentence case, 400.
+                Stacking the Label role on top of `.s-data` gave it the four
+                emphasis mechanisms this stylesheet condemns elsewhere. */}
+            <span className="s-version s-data">{wilsonVersion}</span>
+          </div>
+        </div>
       </div>
 
-      {/* Pet Reset Confirmation Modal */}
+      {/* S25 / S42: these two were the highest-stakes moments on the page —
+          resetting a pet's history, releasing a ghost — rendered by the least
+          systematic code on it. 100 percent inline style, zero Tailwind, the
+          only 6px radius and the only hard-coded `fontFamily: 'monospace'` on
+          the surface, a 0.15em tracked uppercase title, two radii inside one
+          dialog, and no Escape key, no modal stack and no focus handling.
+
+          They are the kit Dialog now, at the 400px `confirm` width, which
+          brings Escape-to-close, the modal stack and the busy lock and
+          nothing else (Q17, ruled "yes, but keep it minimal"). The dialog is
+          dark by design and correct on a light page: it floats over its own
+          backdrop and stamps `data-surface="dark"` so the focus ring inside
+          it goes back to the signal.
+
+          ⚠️ The four `window.confirm` calls on this surface are NOT converted.
+          localDemoWiring.test.js:225 pins one of them as a demo-sprint wiring
+          guard, and converting only the other three would leave one surface
+          with two confirm idioms. Recorded in the hand-off. */}
       {petResetConfirm && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <div style={{ backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '28px 32px', maxWidth: '400px', width: '90%', textAlign: 'center' }}>
-            <h2 style={{ color: '#ea580c', fontSize: '14px', fontWeight: 'bold', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '8px', fontFamily: 'monospace' }}>Reset Pet History</h2>
-            <p style={{ color: '#a8a29e', fontSize: '12px', lineHeight: '1.5', marginBottom: '20px' }}>
-              Reset all pet feedback and interaction history? This cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button
-                onClick={() => setPetResetConfirm(false)}
-                style={{ flex: 1, padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.1em', textTransform: 'uppercase', backgroundColor: '#44403c', color: '#a8a29e', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
-              >Cancel</button>
-              <button
-                onClick={() => { onPetReset(); setPetResetConfirm(false); }}
-                style={{ flex: 1, padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.1em', textTransform: 'uppercase', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
-              >Reset</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title="Reset pet history"
+          width="confirm"
+          onClose={() => setPetResetConfirm(false)}
+          footer={
+            <>
+              <Button onClick={() => setPetResetConfirm(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { onPetReset(); setPetResetConfirm(false); }}>
+                Reset
+              </Button>
+            </>
+          }
+        >
+          Reset all pet feedback and interaction history? This cannot be undone.
+        </Dialog>
       )}
 
-      {/* New Pet Confirmation Modal */}
       {newPetConfirm && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <div style={{ backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '28px 32px', maxWidth: '400px', width: '90%', textAlign: 'center' }}>
-            <h2 style={{ color: '#ea580c', fontSize: '14px', fontWeight: 'bold', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '8px', fontFamily: 'monospace' }}>New Pet</h2>
-            <p style={{ color: '#a8a29e', fontSize: '12px', lineHeight: '1.5', marginBottom: '20px' }}>
-              Create a new egg? Your current ghost will be released.
-            </p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button
-                onClick={() => setNewPetConfirm(false)}
-                style={{ flex: 1, padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.1em', textTransform: 'uppercase', backgroundColor: '#44403c', color: '#a8a29e', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
-              >Cancel</button>
-              <button
-                onClick={() => { onNewPet(); setNewPetConfirm(false); }}
-                style={{ flex: 1, padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.1em', textTransform: 'uppercase', backgroundColor: '#ea580c', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
-              >Create Egg</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title="New pet"
+          width="confirm"
+          onClose={() => setNewPetConfirm(false)}
+          footer={
+            <>
+              <Button onClick={() => setNewPetConfirm(false)}>Cancel</Button>
+              <Button variant="primary" onClick={() => { onNewPet(); setNewPetConfirm(false); }}>
+                Create egg
+              </Button>
+            </>
+          }
+        >
+          Create a new egg? Your current ghost will be released.
+        </Dialog>
       )}
     </div>
   )
@@ -1173,44 +1269,54 @@ function DepartmentRow({ name, onRename, onRemove }) {
   }
 
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors hover:bg-stone-200/40"
-      style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)' }}
-    >
+    <div className="s-dept-row">
+      {/* The input is CONDITIONALLY MOUNTED, not hidden with CSS, and it must
+          stay that way: `autoFocus` only fires on mount, so turning this into
+          a show/hide would silently break focus-on-edit. */}
       {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commit()
-            if (e.key === 'Escape') { setDraft(name); setEditing(false) }
-          }}
-          className="flex-1 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-          style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: '1px solid #d6d3d1' }}
-        />
+        <div className="flex-1 min-w-0">
+          {/* 🚨 COMMIT THROUGH THE KIT'S OWN CHANNEL, NOT THROUGH onBlur.
+              Input handles Escape itself: it reverts to the focus-time value
+              and blurs, and the blur fires `onBlur` UNCONDITIONALLY — only
+              `onCommit` is gated on "the edit was not cancelled". So an
+              `onBlur={commit}` here made Escape PERSIST the edit it was
+              cancelling. Enter had the same shape and wrote twice. `onCommit`
+              is the contract: it fires on blur only when the edit stands. */}
+          <Input
+            surface="light"
+            size="sm"
+            autoFocus
+            aria-label={`Rename ${name}`}
+            value={draft}
+            onChange={setDraft}
+            onCommit={commit}
+            onBlur={() => setEditing(false)}
+          />
+        </div>
       ) : (
         <button
           type="button"
           onClick={() => { setDraft(name); setEditing(true) }}
-          className="flex-1 text-left text-xs font-mono px-2 py-1 rounded-sm hover:bg-stone-200 transition-colors"
-          style={{ color: '#1c1917' }}
+          className="s-dept-name"
         >
           {name}
         </button>
       )}
-      <button
-        type="button"
+      {/* S29: the remove control was an HTML &times; glyph at text-sm, which
+          sat high in its 24px hit area and was not an icon at all.
+          visual-language.md's own rule is lucide-react, and no text glyph ever
+          stands in for an icon. */}
+      <IconButton
+        surface="light"
+        size="sm"
+        icon={X}
+        title="Remove department"
+        aria-label={`Remove department ${name}`}
+        danger
         onClick={() => {
           if (window.confirm(`Remove department "${name}"?`)) onRemove()
         }}
-        className="p-1 rounded-sm hover:bg-stone-300 transition-colors"
-        style={{ color: '#dc2626' }}
-        title="Remove department"
-      >
-        <span className="text-sm font-mono">&times;</span>
-      </button>
+      />
     </div>
   )
 }

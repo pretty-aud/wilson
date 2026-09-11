@@ -13,11 +13,13 @@ import {
   updatesSupported, getUpdateState, checkForUpdates, downloadUpdate,
   installUpdate, onUpdateStatus,
 } from '../../cloud/updates'
-import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
+import { Section, Group, Row } from './SettingsChrome'
+import { Button } from '../../ui'
 
 const wilsonVersion = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
 
-export default function VersionPanel() {
+export default function VersionPanel({ first = false }) {
   const [status, setStatus] = useState({ state: 'disabled' })
   const [busy, setBusy] = useState(false)
   const [lastChecked, setLastChecked] = useState(null)
@@ -64,64 +66,59 @@ export default function VersionPanel() {
   })()
 
   return (
-    <div>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">Version &amp; Updates</h2>
-      <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-        {supported
-          ? 'WILSON checks for updates at sign-in; you can also check manually.'
-          : 'Updates ship with the installer build — this environment updates manually.'}
-      </p>
+    <Section
+      first={first}
+      title="Version and updates"
+      description={supported
+        ? 'WILSON checks for updates at sign-in; you can also check manually.'
+        : 'Updates ship with the installer build — this environment updates manually.'}
+    >
+      <Group>
+        <Row label="Installed">
+          {/* A version IS data, so it keeps the mono and gains tabular
+              figures — one of the seven mono uses S43 leaves standing. */}
+          <span className="s-data s-row-desc">WILSON {wilsonVersion}</span>
+        </Row>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs font-mono px-2 py-1 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#1c1917' }}>
-          WILSON {wilsonVersion}
-        </span>
-
-        {supported && status.state === 'available' && (
-          <button
-            type="button"
-            onClick={() => { setBusy(true); downloadUpdate() }}
-            disabled={busy && status.state !== 'available'}
-            className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-          >
-            <Download className="w-3.5 h-3.5" /> Download update
-          </button>
+        {/* The error variant is rendered once, by the feedback block below;
+            showing it here as well printed it twice. */}
+        {supported && (
+          <Row label="Updates" description={status.state === 'error' ? undefined : (line || undefined)}>
+            {status.state === 'available' && (
+              <Button surface="light" size="sm" variant="primary"
+                onClick={() => { setBusy(true); downloadUpdate() }}
+                disabled={busy && status.state !== 'available'}>
+                <Download aria-hidden="true" />Download update
+              </Button>
+            )}
+            {status.state === 'downloaded' && (
+              <Button surface="light" size="sm" variant="primary" onClick={() => installUpdate()}>
+                <RotateCw aria-hidden="true" />Restart and install
+              </Button>
+            )}
+            {status.state !== 'available' && status.state !== 'downloaded' && status.state !== 'downloading' && (
+              <Button surface="light" size="sm" onClick={check} disabled={busy || status.state === 'checking'}>
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${(busy || status.state === 'checking') ? 'animate-spin' : ''}`}
+                  aria-hidden="true"
+                />
+                Check for updates
+              </Button>
+            )}
+          </Row>
         )}
 
-        {supported && status.state === 'downloaded' && (
-          <button
-            type="button"
-            onClick={() => installUpdate()}
-            className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-          >
-            <RotateCw className="w-3.5 h-3.5" /> Restart &amp; install
-          </button>
+        {/* The update line used #dc2626 on #f4a261 for an error — 2.51:1
+            (S10). It is the page's ink inside the row description now, and
+            when it is an error it also gets the feedback treatment below. */}
+        {!supported && line && status.state !== 'error' && (
+          <Row label="Status" description={line} />
         )}
+      </Group>
 
-        {supported && status.state !== 'available' && status.state !== 'downloaded' && status.state !== 'downloading' && (
-          <button
-            type="button"
-            onClick={check}
-            disabled={busy || status.state === 'checking'}
-            className="flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-sm"
-            style={{
-              backgroundColor: '#1c1917', color: '#f4a261',
-              opacity: (busy || status.state === 'checking') ? 0.6 : 1,
-            }}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${(busy || status.state === 'checking') ? 'animate-spin' : ''}`} />
-            Check for updates
-          </button>
-        )}
-      </div>
-
-      {line && (
-        <div className="mt-2 text-[11px] font-mono" style={{ color: status.state === 'error' ? '#dc2626' : LIGHT_INK }}>
-          {line}
-        </div>
+      {line && status.state === 'error' && (
+        <p className="s-feedback mt-4" data-tone="error" role="alert">{line}</p>
       )}
-    </div>
+    </Section>
   )
 }
