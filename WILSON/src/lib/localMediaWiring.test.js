@@ -177,10 +177,14 @@ describe('FILES under RESOURCES, and the file facts (Audrey, 2026-09-11 00:50)',
     expect(files, "'project-files' is missing from the PAGES registry").toBeDefined()
     expect(files.title).toBe('Files')
     expect(files.nav).toBe('resources')
-    // Its geometry twin is Projects, a lane-C row still at 200/150. It used
-    // to be Team Members, which UI overhaul D1b moved to 120/80 (Q8b / W10)
-    // while Files waits for lane C's own conversion commit.
-    expect(files.bars.top).toBe(PAGE_BY_ID['project-manager'].bars.top)
+    // The property itself (F-R04: Files must not render in Home's chrome),
+    // not equality with some other row. It used to be pinned to Team
+    // Members' geometry, which UI overhaul D1b moved to 120/80 (Q8b / W10)
+    // and turned this red for a reason unrelated to the bug it guards; lane
+    // C moves Files to the tool geometry 95/8 next, so any twin would go red
+    // again. Files ≠ Home survives both.
+    expect(files.bars.top).not.toBe(PAGE_BY_ID.home.bars.top)
+    expect(files.bars.bottom).not.toBe(PAGE_BY_ID.home.bars.bottom)
     // The control: the old shape really is gone, so this test cannot pass by
     // accident against a stale App.jsx that still carries the hand-kept lists.
     expect(app).not.toContain("'project-files': 'FILES',")

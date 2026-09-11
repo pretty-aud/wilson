@@ -120,12 +120,13 @@ const PAGE_LIST = [
     id: 'settings',
     title: 'App settings',
     // Q8(b) / W10, ruled 2026-09-11 ("if already said yes then yes"): the
-    // light reading pages drop from 200/150 to 120/80 and give 150px back
-    // to the field. UI overhaul D1b set the three rows no lane owns —
-    // Settings, Help, Team Members. The five lane-C rows below keep 200/150
-    // until each page's own conversion commit moves it (W10: "lane C sets its
-    // own pages' rows"), so the resource class is deliberately split until
-    // lane C lands. Home stays 268/268: it is not a resource page.
+    // resource-class rows drop from 200/150 to 120/80 and give 150px back to
+    // the field. UI overhaul D1b set the three rows no lane owns — Settings
+    // and Help (light) and Team Members (dark since F2; W10 names it). The
+    // surface has nothing to do with it: the five lane-C rows below keep
+    // 200/150 only until each page's own conversion commit moves it (W10:
+    // "lane C sets its own pages' rows"), so the class is deliberately split
+    // until lane C lands. Home stays 268/268: it is not a resource page.
     bars: bars(120, 80),
     surface: 'light',
     chrome: 'page',

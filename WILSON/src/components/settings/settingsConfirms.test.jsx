@@ -110,11 +110,38 @@ describe('the Storage card: close the demo folder', () => {
     expect(screen.getByRole('dialog', { name: 'Close demo folder' })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: 'Close' }).disabled).toBe(false)   // the X: lock released
     expect(reloadApp).not.toHaveBeenCalled()
+    // One live region at a time: while the dialog is up the footer carries
+    // the message and the card does not (a failure used to be ONE alert).
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
     // The card's own error line still says what went wrong (the old outcome),
     // so once the dialog is dismissed the message is not lost under it.
     fireEvent.click(within(footerOf(dialog)).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.getByRole('alert').textContent).toContain('the drive is read-only')
+  })
+
+  it('the X and Cancel dismiss a fresh dialog and run nothing; the card is inert only while a dialog is up', async () => {
+    const { localDemo } = installBridges()
+    const { container } = render(<StorageConnections />)
+    const trigger = await screen.findByRole('button', { name: /Close folder/ })
+    expect(container.querySelector('[inert]')).toBeNull()
+    fireEvent.click(trigger)
+    let dialog = dialogNamed('Close demo folder')
+    // The card's content is inert behind the backdrop; the dialog is not inside it.
+    const inertWrapper = container.querySelector('[inert]')
+    expect(inertWrapper).not.toBeNull()
+    expect(inertWrapper.contains(dialog)).toBe(false)
+    expect(inertWrapper.contains(trigger)).toBe(true)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))   // the X
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(container.querySelector('[inert]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Close folder/ }))
+    dialog = dialogNamed('Close demo folder')
+    fireEvent.click(within(footerOf(dialog)).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(localDemo.close).not.toHaveBeenCalled()
+    expect(reloadApp).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).toBeNull()   // nothing failed, nothing promoted to the card
   })
 })
 
@@ -143,6 +170,9 @@ describe('the Storage card: reset the demo folder', () => {
     expect((await within(footerOf(dialog)).findByRole('alert')).textContent).toContain('the folder is locked')
     expect(reloadApp).not.toHaveBeenCalled()
     go()
+    // The retry clears the footer at once: a locked dialog must not still
+    // show the previous failure while the new attempt is in flight.
+    expect(within(footerOf(dialog)).queryByRole('alert')).toBeNull()
     await waitFor(() => expect(reloadApp).toHaveBeenCalledTimes(1))
     expect(localDemo.reset).toHaveBeenCalledTimes(2)
   })
@@ -162,6 +192,26 @@ describe('the Storage card: reset the demo folder', () => {
     expect(reloadApp).not.toHaveBeenCalled()
     settle({ ok: true })
     await waitFor(() => expect(reloadApp).toHaveBeenCalledTimes(1))
+  })
+
+  // jsdom does not enforce `inert`, so a click can still reach the Forget
+  // button behind the backdrop here — which is exactly the case the guard
+  // exists for: the folder goes away under the open dialog.
+  it('when the folder goes away under the open dialog, the dialog AND the confirming state go with it', async () => {
+    const { localDemo } = installBridges()
+    localDemo.getState = vi.fn(async () => ({ active: FOLDER, recent: [{ path: 'E:\\Other' }] }))
+    localDemo.forget = vi.fn(async () => ({ ok: true, state: { active: null, recent: [] } }))
+    const { container } = render(<StorageConnections />)
+    fireEvent.click(await screen.findByRole('button', { name: /Reset demo folder/ }))
+    expect(dialogNamed('Reset demo folder')).toBeTruthy()
+    expect(container.querySelector('[inert]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Forget' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // The slot cleared with the dialog: the card is no longer inert and the
+    // next dialog opens clean.
+    await waitFor(() => expect(container.querySelector('[inert]')).toBeNull())
+    expect(localDemo.reset).not.toHaveBeenCalled()
+    expect(reloadApp).not.toHaveBeenCalled()
   })
 })
 
@@ -190,8 +240,10 @@ describe('the Storage card: disconnect Google Drive', () => {
 // DepartmentRow is a private function inside SettingsPage.jsx, and mounting
 // SettingsPage would mean mounting the app. The pin: the same Dialog, the
 // same width, the old wording, the danger variant, and no native confirm
-// left on either file. The regex form is deliberate (D1 hand-off §5, trap 2):
-// a comment that names the old API by name neither satisfies nor fails it.
+// left on either file. The negative pin is the CALL form, `window.confirm(`
+// with its paren (D1 hand-off §5, trap 2): a comment that names the old API
+// without the paren neither satisfies nor fails it; one that spells the call
+// out does fail it, so describe, never quote.
 describe('the Teams tab: remove a department, and no native confirm anywhere on the surface', () => {
   const here = dirname(fileURLToPath(import.meta.url))
   const settingsPage = readFileSync(join(here, '../SettingsPage.jsx'), 'utf8')
@@ -201,15 +253,20 @@ describe('the Teams tab: remove a department, and no native confirm anywhere on 
   it('DepartmentRow asks in a confirm-width danger Dialog with the old wording', () => {
     expect(departmentRow).toContain('Remove department "{name}"?')
     expect(departmentRow).toMatch(/<Dialog\s[\s\S]{0,80}title="Remove department"[\s\S]{0,60}width="confirm"/)
-    expect(departmentRow).toMatch(/<Button variant="danger" onClick=\{\(\) => \{ setRemoveConfirm\(false\); onRemove\(\) \}\}>/)
+    // The danger button is the one that calls onRemove; the statement order
+    // inside its handler is not pinned (both orders are correct under React
+    // 19 batching — review round 1 traced the removal of a middle row).
+    expect(departmentRow).toMatch(/<Button variant="danger"[^>]*onClick=\{\(\) => \{[^}]*onRemove\(\)[^}]*\}\}>/)
     expect(departmentRow).toContain('onClick={() => setRemoveConfirm(true)}')
   })
 
   it('no native confirm is left on either file, and the surface has exactly six confirm-width Dialogs', () => {
     for (const src of [settingsPage, storageCard]) expect(src).not.toMatch(/window\.confirm\s*\(/)
-    // SettingsPage: the two pet dialogs D1 converted plus the department one.
-    expect((settingsPage.match(/width="confirm"/g) || []).length).toBe(3)
-    // StorageConnections: drive, close, reset.
-    expect((storageCard.match(/width="confirm"/g) || []).length).toBe(3)
+    // Exact counts on purpose: a LOST dialog is the defect this guards. A
+    // later session that adds a confirm here updates the number and says so.
+    expect((settingsPage.match(/width="confirm"/g) || []).length,
+      'SettingsPage confirm-width Dialogs: the two pet dialogs (D1) plus remove-department (D1b). Added one? Update this count.').toBe(3)
+    expect((storageCard.match(/width="confirm"/g) || []).length,
+      'StorageConnections confirm-width Dialogs: disconnect Drive, close folder, reset folder (D1b). Added one? Update this count.').toBe(3)
   })
 })

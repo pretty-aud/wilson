@@ -196,11 +196,18 @@ export default function StorageConnections() {
   // as before, so the card still says what went wrong once the dialog closes.
   const failPending = useCallback((message) => {
     if (!mountedRef.current) return
-    setDemoError(message)
     setPendingError(message)
     setBusy(false)
   }, [])
-  const closePending = useCallback(() => { setPending(null); setPendingError('') }, [])
+  // Dismissing a dialog whose attempt failed hands its message to the card's
+  // own error line — the old outcome, reached one live region at a time (a
+  // failure used to be one `role="alert"`; footer AND card at once would be
+  // two, review round 1).
+  const closePending = useCallback(() => {
+    setPending(null)
+    if (pendingError) setDemoError(pendingError)
+    setPendingError('')
+  }, [pendingError])
 
   const disconnectDrive = useCallback(() => {
     if (!bridge?.clearGdrive || busy) return
@@ -262,6 +269,7 @@ export default function StorageConnections() {
     if (!demo?.close || busy) return
     setBusy(true)
     setDemoError('')
+    setPendingError('')   // a retry clears the footer as well as the card
     try { await demo.close(); reloadApp() }
     catch (err) { failPending(err?.message || 'the folder could not be closed') }
   }, [demo, busy, canEditMachineRoot, failPending])
@@ -295,6 +303,7 @@ export default function StorageConnections() {
     if (!demo?.reset || busy || !demoState?.active) return
     setBusy(true)
     setDemoError('')
+    setPendingError('')   // a retry clears the footer as well as the card
     try {
       const r = await demo.reset()
       if (!r?.ok) { failPending(r?.error || 'the folder could not be reset'); return }
@@ -303,6 +312,13 @@ export default function StorageConnections() {
       failPending(err?.message || 'the folder could not be reset')
     }
   }, [demo, busy, canEditMachineRoot, demoState, failPending])
+  // If the folder goes away under an open reset dialog (a bridge refresh, a
+  // Forget that answers with a new state), the dialog's own guard unmounts
+  // it; the slot must clear with it or the card is left "confirming" with no
+  // dialog on screen (review round 1).
+  useEffect(() => {
+    if (pending === 'reset' && !demoState?.active) closePending()
+  }, [pending, demoState, closePending])
 
   const createDemoProject = useCallback(async () => {
     if (!canSeed || busy) return
@@ -329,7 +345,14 @@ export default function StorageConnections() {
       title="Storage connections"
       description="Connection details for each backend on this machine. AWS S3 and Hetzner arrive after v1.0 through one S3-compatible adapter."
     >
-      <div className="flex flex-col gap-3">
+      {/* A native confirm blocked the whole renderer; the kit Dialog has no
+          focus trap (Q17: Escape, the stack and the busy lock, nothing else),
+          so a keyboard user could Tab behind the backdrop and, say, Forget a
+          folder under an open reset dialog (review round 1). While one of the
+          three dialogs is up, the card's own content is inert — the old
+          outcome, restored by the caller, not the kit. The dialogs are
+          siblings of this wrapper, so they stay live. */}
+      <div className="flex flex-col gap-3" inert={pending !== null}>
         <Card icon={Cloud} title="Supabase (company cloud)" connected={!!perms.workspaceId}>
           <div className="s-row-desc">
             {perms.workspaceId
@@ -533,16 +556,18 @@ export default function StorageConnections() {
       {/* W9: the card's three confirms, one kit Dialog each at the 400px
           'confirm' width — dark by design over the light page, as the pet
           dialogs in SettingsPage are. Escape, the X and Cancel dismiss; the
-          one filled button runs the action under the busy lock; a failed
+          one action button runs the action under the busy lock; a failed
           attempt reports in the footer. Reset is the destructive one (it
-          deletes two subtrees) and takes the danger variant; closing deletes
-          nothing and disconnecting is undone by reconnecting, so both take
-          the filled primary. The body copy is the old confirm text, verbatim. */}
+          deletes two subtrees) and takes the danger variant — a red outline,
+          not a fill; closing deletes nothing and disconnecting is undone by
+          reconnecting, so both take the filled primary. The body copy is the
+          old confirm text, verbatim. */}
       {pending === 'drive' && (
         <Dialog
           title="Disconnect Google Drive"
           width="confirm"
           busy={busy}
+          error={pendingError || null}
           onClose={closePending}
           footer={
             <>

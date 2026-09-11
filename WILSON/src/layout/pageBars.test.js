@@ -26,6 +26,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { PAGE_BARS, HOME_BAR_HEIGHT, PAGES, PAGE_TITLES } from './pages'
+import { bars } from './pageBars'   // the D1b controls build a rival shape through the real generator
 
 // Resolve `min(Apx, max(Bpx, (100vh - Cpx) * S))` at a given viewport height.
 // Deliberately strict: an expression it does not recognise throws rather than
@@ -47,8 +48,9 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
-  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the light-page rows no lane
-  // owns are 120/80. The five lane-C rows stay 200/150 until each page's own
+  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the three resource-class rows
+  // no lane owns are 120/80 — Settings and Help (light) and Team Members
+  // (dark since F2). The five lane-C rows stay 200/150 until each page's own
   // conversion commit moves it (W10: "lane C sets its own pages' rows"), so
   // this list is deliberately split for now; Help was the 140/100 outlier.
   settings: [120, 80], 'team-members': [120, 80], help: [120, 80],
@@ -158,37 +160,55 @@ describe('page bar geometry', () => {
     }
   })
 
-  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the three light-page rows no
-  // lane owns. Numbers, not adjectives — each one is what the browser resolves.
-  describe('the light reading pages are 120/80 (Q8b / W10, D1b)', () => {
-    const LIGHT = ['settings', 'help', 'team-members']
-    const rest = (page) => resolveAt(PAGE_BARS[page].top, 1440) + resolveAt(PAGE_BARS[page].bottom, 1440)
+  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the three resource-class rows
+  // no lane owns — Settings and Help (light) and Team Members (dark since F2;
+  // the surface has nothing to do with it). Numbers, not adjectives — each
+  // one is what the browser resolves, and review round 1 measured every one
+  // of them live in Chromium.
+  describe('the three rows no lane owns are 120/80 (Q8b / W10, D1b)', () => {
+    const NO_LANE = ['settings', 'help', 'team-members']
+    const restAt = (page, v) => resolveAt(PAGE_BARS[page].top, v) + resolveAt(PAGE_BARS[page].bottom, v)
 
     it('Settings, Help and Team Members share ONE geometry: 120 over 80 at rest', () => {
-      for (const page of LIGHT) {
+      for (const page of NO_LANE.filter((p) => p !== 'settings')) {
         expect(PAGE_BARS[page].top, `${page}.top`).toBe(PAGE_BARS.settings.top)
         expect(PAGE_BARS[page].bottom, `${page}.bottom`).toBe(PAGE_BARS.settings.bottom)
+      }
+      for (const page of NO_LANE) {
         expect(resolveAt(PAGE_BARS[page].top, 1440), `${page}.top`).toBeCloseTo(120, 5)
         expect(resolveAt(PAGE_BARS[page].bottom, 1440), `${page}.bottom`).toBeCloseTo(80, 5)
       }
     })
 
-    it('returns 150px of field against the 200/150 class and 336px against Home', () => {
-      expect(rest('project-manager') - rest('settings')).toBeCloseTo(150, 5)
-      expect(rest('home') - rest('settings')).toBeCloseTo(336, 5)
-      // Help was the 140/100 outlier (D2 hand-off §6); it gains 40px.
-      expect(140 + 100 - rest('help')).toBeCloseTo(40, 5)
+    // The gain depends on the window: the 200/150 row only reaches its caps
+    // from 890px tall, Home from 1076px. So the headline "150px" is true on a
+    // 900px-tall Electron window (a 14-inch Air) and above; in a browser on
+    // the same machine (~860px) it is 120px; at the 700px minimum both shapes
+    // are floored by the same budget and the gain is 0.
+    it('returns 150px of field against the 200/150 class from 890px tall, 120px at 860, 0 at 700', () => {
+      expect(restAt('project-manager', 1440) - restAt('settings', 1440)).toBeCloseTo(150, 5)
+      expect(restAt('project-manager', 900) - restAt('settings', 900)).toBeCloseTo(150, 5)
+      expect(restAt('project-manager', 860) - restAt('settings', 860)).toBeCloseTo(120, 2)
+      expect(restAt('project-manager', 700) - restAt('settings', 700)).toBeCloseTo(0, 2)
+      // Against Home: 336px on a display tall enough for Home's caps, 160px
+      // at 900 where Home itself resolves to 180/180.
+      expect(restAt('home', 1440) - restAt('settings', 1440)).toBeCloseTo(336, 5)
+      expect(restAt('home', 900) - restAt('settings', 900)).toBeCloseTo(160, 5)
+      // Help was the 140/100 outlier (D2 hand-off §6); it gains 40px at rest.
+      expect(140 + 100 - restAt('help', 1440)).toBeCloseTo(40, 5)
     })
 
     // The cap wins from 740px of viewport up (540 reserve + 120 / 0.6 share),
     // which is every laptop; at Electron's 700px minimum the row gives way in
     // proportion, 96 over 64, still 3:2 and still above its 54 / 36 floors.
-    it('holds 120/80 on every laptop and collapses to 96/64 at the 700px minimum', () => {
-      for (const page of LIGHT) {
-        for (const v of VIEWPORTS.filter((x) => x >= 740)) {
+    it('holds 120/80 from the 740px knee up and collapses to 96/64 at the 700px minimum', () => {
+      for (const page of NO_LANE) {
+        for (const v of [...VIEWPORTS.filter((x) => x >= 740), 740]) {
           expect(resolveAt(PAGE_BARS[page].top, v), `${page}.top at ${v}px`).toBeCloseTo(120, 5)
           expect(resolveAt(PAGE_BARS[page].bottom, v), `${page}.bottom at ${v}px`).toBeCloseTo(80, 5)
         }
+        // One pixel under the knee the cap has not yet won.
+        expect(resolveAt(PAGE_BARS[page].top, 739), `${page}.top at 739px`).toBeCloseTo(119.4, 1)
         expect(resolveAt(PAGE_BARS[page].top, 700), `${page}.top at 700px`).toBeCloseTo(96, 5)
         expect(resolveAt(PAGE_BARS[page].bottom, 700), `${page}.bottom at 700px`).toBeCloseTo(64, 5)
       }
@@ -203,12 +223,19 @@ describe('page bar geometry', () => {
       }
     })
 
-    // The control: the same numbers written as flat pixels would break the
-    // properties above — no proportion, no floor — so the shape matters, not
-    // just the caps. `resolveAt` refuses the flat form outright.
-    it('control: a flat 120px row is not the same geometry', () => {
-      expect(() => resolveAt('120px', 700)).toThrow(/unrecognised/)
-      expect(resolveAt(PAGE_BARS.settings.top, 700)).toBeLessThan(120)
+    // CONTROLS. (a) The numbers above come from the table, not from the
+    // evaluator: the 200/150 shape resolves to a different value through the
+    // same code, so a stale table cannot pass the cases above by accident.
+    // (b) The floor is real, not decorative: one viewport below the knee
+    // where the share alone would give 48px and the 54px floor (0.45 × 120)
+    // is what resolves instead — the case review round 1 found the previous
+    // control could not see (a floor ratio up to 0.8 passed unnoticed).
+    it('controls: the 200/150 shape does not resolve to 120, and the 54px floor beats the share below the knee', () => {
+      expect(resolveAt(bars(200, 150).top, 1440)).toBeCloseTo(200, 5)
+      expect(resolveAt(bars(200, 150).top, 1440)).not.toBeCloseTo(120, 5)
+      expect((620 - 540) * 0.6).toBeCloseTo(48, 5)
+      expect(resolveAt(bars(120, 80).top, 620)).toBeCloseTo(54, 5)
+      expect(resolveAt(bars(120, 80).bottom, 620)).toBeCloseTo(36, 5)
     })
   })
 
