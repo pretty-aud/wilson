@@ -203,30 +203,47 @@ describe('the Files table — the contract lane B converges on', () => {
       expect(n.querySelector('svg.fx-name-icon'), 'every row has the icon slot').toBeTruthy()
     }
     expect(css).toMatch(/\.fx-name-icon \{\s*flex: 0 0 var\(--icon-md\);/)
-    // …and the depth indent is on the SLOT, so the icon and the name move
-    // together rather than the text sliding out from under its own glyph.
-    expect(css).toMatch(/\.fx-name \{[^}]*padding-left: calc\(var\(--fx-depth, 0\) \* 18px\);/s)
+    // …and the slot IS the column's leading edge: no depth indent survives to
+    // move it row by row, so "one x origin" is one x origin for the whole
+    // column, not one per depth.
+    expect(css).toMatch(/\.fx-name \{ display: flex; align-items: center; min-width: 0; \}/)
+    const xs = new Set(names.map(n => Math.round(n.getBoundingClientRect().x)))
+    expect(xs.size, 'every name slot starts at the same x').toBe(1)
   })
 
-  it('drops the indent once a sort has destroyed the parentage (F-R12)', async () => {
+  it('does not indent at all, and leaves every sort state reachable (F-R12)', async () => {
     await mountTable()
-    const depthOf = () => [...document.querySelectorAll('.ui-table[data-files-table] .fx-name')]
-      .map(n => n.style.getPropertyValue('--fx-depth'))
-    // The DEFAULT arrangement is tree order, and it is the one arrangement in
-    // which the indent is true — so it is also the one an earlier cut of this
-    // fix got wrong, because `sortRows` re-sorts the flattened list globally
-    // for every key INCLUDING name-ascending.
-    expect(depthOf().some(d => Number(d) > 0)).toBe(true)
+    // 🚨 THE THIRD ANSWER TO F-R12, and the first two are worth knowing about
+    // because each was green under a test that described it.
+    //
+    // `sortRows` re-sorts the FLATTENED list globally for EVERY key including
+    // name-ascending, which is the default — so the indent never described the
+    // order, on arrival or after any sort. Attempt one dropped the indent only
+    // for non-name sorts and left the default lying. Attempt two made tree
+    // order the default, which fixed the indent and left the Name header
+    // claiming `aria-sort="ascending"` over rows that were not in name order,
+    // and lost flat A-to-Z entirely.
+    //
+    // So: the ordering is untouched and the INDENT is gone.
+    const slots = [...document.querySelectorAll('.ui-table[data-files-table] .fx-name')]
+    expect(slots.length).toBeGreaterThan(1)
+    for (const n of slots) {
+      expect(n.getAttribute('style'), 'no per-row indent survives').toBeNull()
+    }
 
-    // Sort by Size: the parentage is gone, so the indent must be too.
-    fireEvent.click(screen.getByRole('button', { name: /Size/ }))
-    expect(depthOf().every(d => Number(d) === 0)).toBe(true)
+    // Every sort state is still reachable and every arrow still honest: the
+    // header claims a direction only when the rows are in it.
+    const nameTh = [...document.querySelectorAll('.ui-table[data-files-table] th')]
+      .find(t => t.textContent.trim() === 'Name')
+    expect(nameTh.getAttribute('aria-sort')).toBe('ascending')
+    const namesOf = () => [...document.querySelectorAll('.ui-table[data-files-table] .fx-name-text')]
+      .map(n => n.textContent)
+    const asc = namesOf()
+    expect(asc, 'the default IS a flat A-to-Z listing').toEqual([...asc].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1))
 
-    // Name DESCENDING is a global sort as well, not a return to tree order.
-    fireEvent.click(screen.getByRole('button', { name: /Name/ }))
-    expect(depthOf().some(d => Number(d) > 0), 'name asc is tree order').toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: /Name/ }))
-    expect(depthOf().every(d => Number(d) === 0), 'name desc is a global sort').toBe(true)
+    fireEvent.click(within(nameTh).getByRole('button'))
+    expect(nameTh.getAttribute('aria-sort')).toBe('descending')
+    expect(namesOf(), 'and descending is its exact inverse').toEqual([...asc].reverse())
   })
 
   it('keeps the sort slot reserved so the header label never shifts', async () => {
@@ -291,7 +308,11 @@ describe('the Files page — the three states are three pictures (F-R13)', () =>
   // not fail, and its three real assertions grepped the source rather than
   // the DOM. An adversarial review called it the worst test in the file and
   // was right.
-  afterEach(() => { ctx.activeProjectId = 'p1' })
+  // 🚨 BOTH fields, and in the HOOK. Two tests below swap `getAdapter` and
+  // used to put it back as their last statement — which does not run if an
+  // assertion throws, so one failure leaked a held-open adapter into every
+  // later test in the file and buried its own cause.
+  afterEach(() => { ctx.activeProjectId = 'p1'; ctx.getAdapter = REAL_ADAPTER })
 
   it('says "no project chosen" before a project is chosen', async () => {
     ctx.activeProjectId = null
@@ -320,7 +341,6 @@ describe('the Files page — the three states are three pictures (F-R13)', () =>
     release()
     // …and once it resolves the skeleton is replaced by the real thing.
     await screen.findByRole('tab', { name: 'Table' })
-    ctx.getAdapter = REAL_ADAPTER
   })
 
   it('says "nothing filed yet" for a project with no folders or files', async () => {
@@ -332,7 +352,6 @@ describe('the Files page — the three states are three pictures (F-R13)', () =>
     render(<ProjectFilesExplorer />)
     expect(await screen.findByText('Nothing filed yet')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
-    ctx.getAdapter = REAL_ADAPTER
   })
 
   it('never hands EmptyState a loading string', () => {

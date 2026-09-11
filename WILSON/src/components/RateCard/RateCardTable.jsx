@@ -269,27 +269,34 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
     )
   }
 
+  // 🚨 THE DERIVED AMOUNT IS A CHILD OF `.rc-comp`, NOT A SIBLING. It is a
+  // grid item — row 2, spanning both columns — and a span outside the grid
+  // gets none of that: `grid-column`, `grid-row` and `width: 100%` are all
+  // no-ops on an inline element whose parent is a `<td>`. An earlier cut of
+  // this file wrote the grid and left the span outside it, so the rule that
+  // exists to stop `= $1,234,567.89` truncating to `= $1,234,567…` did
+  // nothing at all, while its own comment said otherwise. Round 2 measured it.
   return (
-    <>
-      <div className="rc-comp">
-        <button
-          type="button"
-          onClick={start}
-          className="rc-cell rc-comp-value"
-          data-align="right"
-          data-numeric
-          data-readonly={readOnly || undefined}
-        >
-          {hasValue
-            ? (isPercent ? `${value}%` : formatCurrency(value, currency))
-            : (usingDeptDefault ? `dept ${deptPct}%` : '—')}
-        </button>
-        {toggle}
-      </div>
+    <div className="rc-comp">
+      <button
+        type="button"
+        onClick={start}
+        className="rc-cell rc-comp-value"
+        data-align="right"
+        data-numeric
+        data-readonly={readOnly || undefined}
+      >
+        {hasValue
+          ? (isPercent ? `${value}%` : formatCurrency(value, currency))
+          : (usingDeptDefault ? `dept ${deptPct}%` : '—')}
+      </button>
+      {toggle}
       {computedAmount > 0 && (
-        <span className="rc-comp-derived">= {formatCurrency(computedAmount, currency)}</span>
+        <span className="rc-comp-derived" title={formatCurrency(computedAmount, currency)}>
+          = {formatCurrency(computedAmount, currency)}
+        </span>
       )}
-    </>
+    </div>
   )
 }
 

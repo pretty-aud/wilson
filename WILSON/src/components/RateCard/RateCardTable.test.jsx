@@ -214,6 +214,17 @@ describe('both branches of every inline editor survive (review Risk 1)', () => {
     // nor a money figure can be truncated to make room for the other.
     expect(flat).toMatch(/\.rc-comp-value \{ grid-column: 1; grid-row: 1;/)
     expect(flat).toMatch(/\.rc-comp-derived \{[^}]*grid-column: 1 \/ -1;/)
+
+    // 🚨 AND THE SHAPE ITSELF, IN THE DOM. The four assertions above read the
+    // stylesheet as text, and every one of them passed while the derived
+    // amount was a SIBLING of `.rc-comp` rather than a child — so
+    // `grid-column`, `grid-row` and `width: 100%` were no-ops on an inline
+    // span and the money figure truncated anyway. A test that pins a
+    // declaration does not pin a shape; this is the one that does.
+    const derived = document.querySelector('.rc-comp-derived')
+    expect(derived, 'a row with a computed amount renders one').toBeTruthy()
+    expect(derived.parentElement.classList.contains('rc-comp'),
+      'the derived amount must be a CHILD of the grid, not a sibling').toBe(true)
     expect(code).not.toMatch(/opacity: 0\.45/)
     // …and the editing branch renders the SAME toggle, so the two states line
     // up rather than the toggle changing size when the cell opens.

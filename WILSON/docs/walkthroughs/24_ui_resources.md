@@ -136,32 +136,32 @@ that digits line up — and then left-aligned, which throws that away. You could
 not tell 9.8 MB from 98 MB without reading both. They are right-aligned with
 proper tabular figures now, along with both date columns.
 
-### The indentation, and one change I want you to rule on
+### The indentation is gone from the table view
 
-The table indents a file to show which folder it is in. That indent was a lie
-in every arrangement except one, and the page opened in a lying state.
+The table used to indent a file to show which folder it was in. That indent
+was never true, and I took it out.
 
-Under the hood the table was being re-sorted into a single flat alphabetical
-list of everything, at every depth — while each row kept the indent it had in
-the tree. So a file three levels down would sit indented under an unrelated
-root folder, claiming a parent it did not have. That was true when you sorted
-by Size, and it was true on arrival, because the default sort is by name.
+Under the hood the table is re-sorted into one flat list — by name, by size,
+by whatever column you click — while each row kept the indent it had in the
+folder tree. So a file three levels down would sit indented under an unrelated
+root folder, claiming a parent it did not have. And because the default sort
+is by name, that was true the moment the page opened, not just after you
+sorted something.
 
-I fixed it by making the default view show the **tree order** — each folder,
-then the things inside it — which is what the indentation has always been
-drawing, and what you asked for ("something like windows explorer"). Sort by
-any other column, or by Name descending, and the indent disappears, because at
-that point it would be describing something that is no longer true.
+I tried two other answers first and both were worse. Keeping the indent means
+making the default view show folder-by-folder order instead, which changes what
+you see on arrival and quietly removes the plain A-to-Z listing. So: **the row
+order is exactly what it always was** — every sort works the same way, every
+arrow points the right way — and the indentation, the part that was lying, is
+what goes.
 
-🚩 **This changes the order rows appear in on arrival.** They used to be one
-flat A-to-Z list; they are now folder-by-folder. I think that is right — an
-indent that does not match the order is broken either way, and losing the
-indent would lose the Explorer view you asked for. But it is a change to what
-the page shows, not just to how it looks, so **tell me if you would rather
-have the flat alphabetical list back**. If so, the indentation goes instead.
+You do not lose track of where a file lives. The **Location** column shows the
+full path on every row, and the **Columns** view next to it is the real folder
+tree, which is what you asked that view for.
 
-**What to check:** open Files, pick a project, switch to Table. Files should
-sit under their folders. Sort by Size and the indentation should flatten.
+**What to check:** sort by each column and make sure the order is what you
+expect. If you miss the indentation, say so — the honest way to have it back is
+for the table to open in folder order, and that is a one-line change.
 
 ---
 

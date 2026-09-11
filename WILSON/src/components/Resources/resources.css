@@ -161,14 +161,10 @@
      in a slot of DECLARED width now, so the text after it starts at the same
      place on every row regardless of kind.
 
-     The indent is on the SLOT, not on the text, so the icon and the name move
-     together and the column keeps one text inset per depth instead of two. */
-  .fx-name {
-    display: flex;
-    align-items: center;
-    min-width: 0;
-    padding-left: calc(var(--fx-depth, 0) * 18px);
-  }
+     The table view does not indent at all — the long note above `TableView`
+     in the component has the three attempts that got there — so the slot IS
+     the name column's leading edge, at the same width on every row. */
+  .fx-name { display: flex; align-items: center; min-width: 0; }
   .fx-name-icon {
     flex: 0 0 var(--icon-md);
     width: var(--icon-md);
@@ -269,6 +265,16 @@
   }
   .fx-col-item[data-node-kind="folder"] .fx-col-name { font-weight: 600; }
   .fx-col-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 🚨 `ink-3` measures 5.04:1 on `paper`, and 4.33 on the hover fill, 4.18 on
+     the selected fill and 3.55 on both together — under AA for 12px text, on
+     the one row the reader is actually looking at. The quiet ink steps up a
+     rung exactly there; `ink-2` measures 7.03 on the selected fill. */
+  .fx-col-item[data-selected] .fx-col-meta,
+  .fx-col-item:hover .fx-col-meta { color: var(--color-ink-2); }
+  .ui-tr[data-selected] .rc-comp-derived,
+  .ui-tr[data-interactive]:hover .rc-comp-derived,
+  .ui-tr[data-selected] .fx-path,
+  .ui-tr[data-interactive]:hover .fx-path { color: var(--color-ink-2); }
   .fx-col-meta {
     flex-shrink: 0;
     margin-left: 8px;
@@ -410,8 +416,13 @@
      a `Field` group component. Team Members' `.tm-rate-pair` is a horizontal
      pair too and has the same 16px in it.
      `src/index.css` is Foundation's, so this is scoped here. */
-  .pj-pair > .ui-field + .ui-field,
-  .pj-budget > .ui-field + .ui-field { margin-top: 0; }
+  /* …and the whole form, not just the pairs. `.pj-form-col` already supplies
+     16px of gap, so the kit's margin stacked a SECOND 16 on top of it — but
+     only between two ADJACENT Fields, and splitting "Dates" and "Budget" into
+     groups broke that adjacency in the right column and nowhere else.
+     Measured: 32px between fields down the left column, 16px down the right,
+     on the same form, side by side. */
+  .pj-form .ui-field + .ui-field { margin-top: 0; }
   /* A heading over a GROUP of fields, where a <label> would be wrong: a label
      names its first labelable descendant, so one around two inputs is a
      visible word that names nothing. The fields inside carry their own. */
@@ -419,7 +430,7 @@
   .pj-group-label {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
     letter-spacing: var(--text-label--letter-spacing);
@@ -870,12 +881,24 @@
     transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
   }
   .rc-comp-type:hover { background-color: var(--color-hover); color: var(--color-ink); }
-  /* Row 2, the full width of column 1: a derived money figure is either
-     readable or absent, never "= $1,2…". */
+  /* Row 2, spanning BOTH columns, so a derived money figure gets the whole
+     cell rather than sharing the line with the value and the toggle. At the
+     1080px table width that is 95px, which holds every figure a day rate can
+     actually produce ("= $12,345.67" measures 88px). It still ellipsises
+     rather than spilling past its cell if one ever exceeds that, and carries
+     the full figure in its `title`.
+
+     🚨 It must be a CHILD of `.rc-comp`. An earlier cut wrote these three
+     grid declarations while the span was a SIBLING, so all three were no-ops
+     on an inline element and the figure truncated anyway — under a test that
+     read this rule out of the stylesheet and passed. */
   .rc-comp-derived {
     grid-column: 1 / -1;
     grid-row: 2;
     width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--font-mono);
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);

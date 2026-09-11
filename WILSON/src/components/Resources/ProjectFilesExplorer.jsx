@@ -78,10 +78,14 @@
 //    could not tell 9.8 MB from 98 MB without reading both (F-R10). Alignment
 //    lives on the HEADERS array, so a header and its cells cannot disagree.
 //
-//  · THE INDENT STOPS LYING AFTER A SORT. `sortRows` reorders the flattened
-//    list globally while each row keeps its tree depth, so sorting by Size put
-//    a file three levels deep 54px in beneath an unrelated root folder,
-//    asserting a parentage that no longer existed (F-R12).
+//  · THE INDENT STOPS LYING, BY GOING. `sortRows` reorders the flattened list
+//    globally FOR EVERY KEY, name-ascending included, so a file three levels
+//    deep sat 54px in beneath an unrelated root folder asserting a parentage
+//    it did not have — on arrival, not only after a sort (F-R12). The row
+//    order is untouched, every sort state is still reachable and every arrow
+//    still honest; the indent is what goes, and the Location column carries
+//    the parentage instead. The long note above `TableView` has the two wrong
+//    answers that came first.
 //
 //  · LOADING AND EMPTY ARE DIFFERENT PICTURES. One `Empty` component served
 //    "choose a project", "Loading…" and "no files", so the reader could not
@@ -189,25 +193,7 @@ export default function ProjectFilesExplorer() {
   }, [projectId, getAdapter, reloads])
 
   const flat = useMemo(() => (tree ? flattenTree(tree.root) : []), [tree])
-  // 🚨 TREE ORDER IS NOT "SORTED BY NAME ASCENDING", even though it looks like
-  // it. `flattenTree` walks the tree depth-first and `buildFileTree` has
-  // already sorted each LEVEL by name, so the order is parent, then that
-  // parent's children, then the next parent. `sortRows` re-sorts the FLATTENED
-  // list globally — for every key including 'name' — which interleaves
-  // children with unrelated parents while every row keeps its tree depth.
-  //
-  // The default sort is name-ascending, so an earlier cut of this file shipped
-  // F-R12's defect in the state the page OPENS in: the one arrangement where
-  // the indent is meant to be true was the one where it was computed from a
-  // global sort. Tree order is the identity case and is left alone.
-  const sorted = sortKey === 'name' && sortDir === 'asc'
-  const tableRows = useMemo(
-    () => {
-      const rows = filterFlat(flat, query)
-      return sorted ? rows : sortRows(rows, sortKey, sortDir)
-    },
-    [flat, query, sortKey, sortDir, sorted],
-  )
+  const tableRows = useMemo(() => sortRows(filterFlat(flat, query), sortKey, sortDir), [flat, query, sortKey, sortDir])
   const cols = useMemo(() => (tree ? columnsFor(tree.root, selected) : []), [tree, selected])
 
   const onSort = useCallback((key) => {
@@ -326,7 +312,7 @@ export default function ProjectFilesExplorer() {
             <div className="fx-split">
               <div className="fx-main">
                 {view === 'table'
-                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} query={query} treeOrder={sorted} />
+                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} />
                   : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
               </div>
               <DetailsPanel node={selectedFile} />
@@ -351,27 +337,52 @@ export default function ProjectFilesExplorer() {
 // the mono, and tabular figures, together. Declaring it here rather than per
 // cell is F-R10's real fix — a header and its cells cannot disagree about
 // alignment when only one of them says anything about it.
+// 🚨 MEASURED AT 1280, NOT CHOSEN. Size and Duration were 8 percent, which at
+// Electron's minimum window is a 50px content box — and "12.4 GB" needs 55px
+// and "1:02:33" needs 55px, so both ellipsised away the part that carries the
+// meaning: the unit, and the seconds. A file size rendered "12.4 …" is worse
+// than no file size at all. The Duration HEADER did not fit its own label
+// either, at 1280 or at 1440.
+//
+// Name gives up the four points, because it is the column with slack: it
+// ellipsises a NAME, whose tail the Location column and the details panel both
+// still carry.
 const HEADERS = [
-  ['name', 'Name', { width: '30%' }],
+  ['name', 'Name', { width: '26%' }],
   ['type', 'Type', { width: '10%' }],
-  ['size', 'Size', { width: '8%', numeric: true }],
+  ['size', 'Size', { width: '10%', numeric: true }],
   ['created', 'Created', { width: '14%', numeric: true }],
   ['modified', 'Modified', { width: '14%', numeric: true }],
-  ['duration', 'Duration', { width: '8%', numeric: true }],
+  ['duration', 'Duration', { width: '10%', numeric: true }],
   ['path', 'Location', { width: '16%' }],
 ]
 
-function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query, treeOrder }) {
-  // F-R12: a sort reorders the flattened list globally while each row keeps
-  // the depth it had in the tree, so after sorting by Size the indent claims a
-  // parentage that no longer exists. A filter does the same, which is why the
-  // query case was already handled here; the sort case was not.
-  //
-  // `treeOrder` and not `sortKey !== 'name'`: name-DESCENDING is a global sort
-  // too, and so is name-ascending over the flattened list. The indent is true
-  // in exactly one arrangement — the tree's own — and that is the one it asks
-  // about.
-  const indent = (query || !treeOrder) ? 0 : 1
+// 🚨 THE TABLE VIEW DOES NOT INDENT, AND THIS TOOK THREE GOES TO GET RIGHT.
+//
+// F-R12: `sortRows` re-sorts the FLATTENED list globally, so a file three
+// levels deep lands wherever its name or its size puts it while keeping the
+// indent it had in the tree — claiming a parent it does not have. What the
+// review did not say, and what turned out to matter, is that `sortRows` runs
+// for EVERY key INCLUDING name-ascending, which is the default. So the page
+// opened in a lying state and there was never an arrangement where the indent
+// was true.
+//
+// The second attempt made the default case skip `sortRows`, so tree order WAS
+// the default. That fixed the indent and broke two other things: the Name
+// header still rendered `aria-sort="ascending"` and an up arrow over rows that
+// were not in name order, and a flat A-to-Z listing stopped being reachable at
+// all, because clicking Name then cycled tree-order against flat-Z-to-A. It
+// traded a lying indent for a lying header, and lost a state the user had.
+//
+// So the ordering is exactly what it always was — every sort state reachable,
+// every arrow honest, nothing about the view changed — and the INDENT is what
+// goes, because the indent is the part that was never true.
+//
+// Parentage is not lost with it. The Location column carries the full path on
+// every row, which is what the review itself prescribes for the flattened case
+// ("show the path in the Location column rather than silently removing
+// indentation"), and the Columns view beside it is the actual tree.
+function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
   return (
     <Table
         aria-label="Project folders and files"
@@ -393,7 +404,7 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query, 
           </Row>
         )}
       >
-        {rows.map(({ node, depth }) => {
+        {rows.map(({ node }) => {
             const isFolder = node.kind === 'folder'
             const m = node.meta || {}
             return (
@@ -410,7 +421,7 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query, 
                       one x origin at every depth and for both kinds. The
                       indent is on the SLOT, not on the text, so the two move
                       together and the column keeps one inset per depth (F11). */}
-                  <span className="fx-name" style={{ '--fx-depth': depth * indent }}>
+                  <span className="fx-name">
                     {isFolder
                       ? <Folder className="fx-name-icon" aria-hidden="true" />
                       : <FileIcon className="fx-name-icon" aria-hidden="true" />}
