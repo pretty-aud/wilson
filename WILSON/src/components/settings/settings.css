@@ -304,10 +304,19 @@
 
   /* A path, a version, a count: mono, tabular, one ink. S43 cut this surface
      from 43 `font-mono` uses to the seven that are actually data. */
+  /* 🚨 `.s-data` IS USED ON BOTH GROUNDS. It carries the light ink because
+     almost every caller is on the light page — but the currency menu is a dark
+     island, and there the two spans it styles (the symbol and the currency
+     CODE, which is the thing you search by) rendered #1c1917 on #232020:
+     1.08:1, invisible. A class that hardcodes one ground's ink has to say
+     what happens on the other. */
   .s-data {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-light);
+  }
+  [data-surface='dark'] .s-data {
+    color: var(--color-ink);
   }
   /* The version string is data, so it keeps the mono — but stacking the Label
      role on top of it gave one span mono AND bold AND uppercase AND tracking,
@@ -470,10 +479,15 @@
     background-color: var(--color-hover-light);
   }
   /* Selection reads from a 2px ink edge, not from a 1.40:1 orange hairline. */
+  /* An inset shadow, not a thicker border: widening `border-left` to 2px ate
+     1px of the content box, so the selected row's dot and label sat 1px right
+     of every other row's — and the status line below, aligned to the 1px
+     rows, was then off against the one row the eye goes to. A shadow paints
+     in the same place and moves nothing. */
   .s-adapter[data-selected='true'] {
     background-color: var(--color-well-light);
     border-color: var(--color-rule-light);
-    border-left: 2px solid var(--color-ink-light);
+    box-shadow: inset 2px 0 0 var(--color-ink-light);
   }
   .s-adapter-status {
     display: flex;
@@ -783,7 +797,9 @@
     line-height: 1.45;
     color: var(--color-ink-light);
     background-color: var(--color-well-light);
-    border-left: 2px solid var(--color-rule-light);
+    /* Ink, not rule-light: the neutral edge measured 1.50:1 and was the last
+       sub-3:1 element left on the surface. */
+    border-left: 2px solid var(--color-ink-light);
     border-radius: var(--radius-control);
   }
   /* 🚨 THE EDGE IS ALWAYS INK. Giving error and warning a #ea580c edge put
@@ -792,11 +808,20 @@
      read. The TEXT was always fine; it was the semantics that were not. With
      one ink the carrier has to be form, so those two get a heavier edge and
      the weight. */
+  /* Warning and error were byte-identical, which is a semantics failure even
+     though both now read. With one ink the only axes left are width, weight
+     and line style, so: neutral and ok are a 2px solid hairline at 400,
+     warning is 4px DASHED at 600, error is 4px SOLID at 600. */
   .s-feedback[data-tone='ok'] {
     border-left-color: var(--color-ink-light);
   }
-  .s-feedback[data-tone='error'],
   .s-feedback[data-tone='warning'] {
+    border-left-width: 4px;
+    border-left-style: dashed;
+    border-left-color: var(--color-ink-light);
+    font-weight: 600;
+  }
+  .s-feedback[data-tone='error'] {
     border-left-width: 4px;
     border-left-color: var(--color-ink-light);
     font-weight: 600;
@@ -854,15 +879,26 @@
   /* ── The two migration panels ─────────────────────────────────────────
      One contract, used by both — they are deliberately the same shape
      (Jakob's Law, per OtterMigrationPanel's own header comment). */
-  /* The page carries `wilson-light-scroll`, and its rules reach every
-     descendant, so a dark island would otherwise get the orange thumb. */
-  .s-currency-menu::-webkit-scrollbar-thumb,
-  .s-log::-webkit-scrollbar-thumb {
-    background: var(--color-scroll-thumb);
+  /* 🚨 STAMPING AN ISLAND `dark` DOES NOT UN-MATCH AN ANCESTOR-SCOPED RULE.
+     index.css scopes the placeholder, the caret and ::selection off
+     `[data-surface="light"] …` as DESCENDANT selectors, and the page root is
+     light — so they match straight through a stamped island. The stamp only
+     helps where a `[data-surface="dark"]` rule exists to win on source order,
+     and index.css has exactly one of those, for the focus ring. These three
+     are what make the rest of the stamp real. They live in `@layer
+     components`, which beats index.css's `@layer base`, so specificity does
+     not have to be fought. */
+  [data-surface='dark'] ::placeholder {
+    color: var(--color-ink-3);
+    font-style: normal;
   }
-  .s-currency-menu::-webkit-scrollbar-thumb:hover,
-  .s-log::-webkit-scrollbar-thumb:hover {
-    background: var(--color-scroll-thumb-hover);
+  [data-surface='dark'] input,
+  [data-surface='dark'] textarea,
+  [data-surface='dark'] [contenteditable='true'] {
+    caret-color: var(--color-signal);
+  }
+  [data-surface='dark'] ::selection {
+    background-color: var(--color-selection);
   }
 
   .s-log {
@@ -930,4 +966,31 @@
     text-transform: uppercase;
     color: var(--color-ink-light);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   🚨 UNLAYERED, AND THAT IS THE WHOLE POINT.
+
+   index.css's `.wilson-light-scroll *::-webkit-scrollbar-thumb` sits OUTSIDE
+   every `@layer`, and an unlayered declaration beats a layered one at any
+   specificity — so the same layer statement at the top of this file that
+   makes `@layer components` beat preflight also guarantees it can never beat
+   these. A layered override of them is an inert rule that measures orange.
+
+   So these two are unlayered as well, and they carry a second class to
+   out-specify `.wilson-light-scroll` (0,1,0) at (0,2,0). `[data-surface]` is
+   used as that second class deliberately: it makes the stamp on the three log
+   wells and the currency menu load-bearing rather than decorative.
+   ═══════════════════════════════════════════════════════════════ */
+.s-log[data-surface='dark']::-webkit-scrollbar-thumb,
+.s-currency-menu[data-surface='dark']::-webkit-scrollbar-thumb {
+  background: var(--color-scroll-thumb);
+}
+.s-log[data-surface='dark']::-webkit-scrollbar-thumb:hover,
+.s-currency-menu[data-surface='dark']::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scroll-thumb-hover);
+}
+.s-log[data-surface='dark'],
+.s-currency-menu[data-surface='dark'] {
+  scrollbar-color: var(--color-scroll-thumb) transparent;
 }

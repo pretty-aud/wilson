@@ -1037,8 +1037,15 @@ export default function SettingsPage({
                   {agentEnabled && (
                     <div className="mt-6">
                       <Group label="Scope restrictions">
-                        <Row description="Lock subjects to prevent the agent from editing them. Select a course to see its subjects." stacked>
-                          <span className="s-eyebrow mb-2">Course</span>
+                        {/* The eyebrow is the Row's LABEL, not a child: a
+                            stacked row's control slot is still a flex ROW, so
+                            as a child it rendered beside the chips and read as
+                            a fourth chip rather than as the group's name. */}
+                        <Row
+                          label="Course"
+                          description="Lock subjects to prevent the agent from editing them. Select a course to see its subjects."
+                          stacked
+                        >
                           <div className="flex gap-2 flex-wrap">
                             {softwareList.map(sw => (
                               <button
