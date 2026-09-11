@@ -1682,3 +1682,16 @@ R.A.B.B.I.T. request is served meanwhile. Would settle it: a bin file added
 from a network drive, the drive disconnected, the Bins tab opened — measure
 the freeze. Fix direction: stat and walk asynchronously (`fs.promises`) with a
 per-root deadline, or skip roots whose drive letter is not mounted.
+
+### A file dropped on any tab other than Bins may navigate the window to it
+**INFERRED** (review round 2, 2026-09-10). Nothing in `electron/main.cjs` or
+`src/App.jsx` prevents the default of an OS `drop` (no `will-navigate` guard,
+no document-level `dragover`/`drop` handler), and Chromium's default for a
+file dropped on a document is to navigate to it. The Bins tab guards every
+surface while it is mounted (`views/BinsView.jsx`, the document-level drop
+effect), so the demo path is covered; a clip dropped on Scenes, Summary or
+Tasks is not. Would settle it: drag an MP4 from Explorer onto the Summary
+tab of the dev app. Fix direction: a `will-navigate` handler in `main.cjs`
+that refuses anything but the app's own origin, plus a document-level
+`dragover`/`drop` `preventDefault` in `App.jsx` — the shell's layer, not
+the bin session's.

@@ -28,11 +28,11 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
   const [picked, setPicked] = useState(() => new Set())
   const [role, setRole] = useState('auto')
 
-  const rows = useMemo(() => ranked.filter(({ file, tier }) => {
-    if (sameSceneOnly && tier === 2) return false
-    if (types.size && !types.has(file.media_type)) return false
-    return matchesSearch(file, search)
-  }), [ranked, sameSceneOnly, types, search])
+  const matching = useMemo(() => ranked.filter(({ file }) => (!types.size || types.has(file.media_type)) && matchesSearch(file, search)), [ranked, types, search])
+  const rows = useMemo(() => matching.filter(({ tier }) => !(sameSceneOnly && tier === 2)), [matching, sameSceneOnly])
+  // How many the "same scene only" chip is hiding, said on the chip itself,
+  // so the "Everything else" tier reads as switched off, not absent.
+  const hiddenByScene = sameSceneOnly ? matching.length - rows.length : 0
   const typesPresent = useMemo(() => MEDIA_TYPES.filter(t => (files || []).some(f => f.media_type === t)), [files])
   const toggle = (id) => setPicked(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const pickAllShown = () => setPicked(new Set(rows.filter(r => !assigned.has(r.file.id)).map(r => r.file.id)))
@@ -58,7 +58,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
           {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
         </div>
-        {sceneHasFiles && <Chip active={sameSceneOnly} onClick={() => setSameSceneOnly(v => !v)} title="Only files logged to this shot or its scene"><Film className="w-3 h-3" /> same scene only</Chip>}
+        {sceneHasFiles && <Chip active={sameSceneOnly} onClick={() => setSameSceneOnly(v => !v)} title={sameSceneOnly ? `Only files logged to this shot or its scene — switch off to see the ${hiddenByScene} other${hiddenByScene === 1 ? '' : 's'} too` : 'Only files logged to this shot or its scene'} count={hiddenByScene || null}><Film className="w-3 h-3" /> same scene only{hiddenByScene ? ' · hiding' : ''}</Chip>}
         {typesPresent.map(t => <Chip key={t} active={types.has(t)} color={MEDIA_TYPE_META[t].color + 'cc'} onClick={() => setTypes(s => { const x = new Set(s); if (x.has(t)) x.delete(t); else x.add(t); return x })}>{MEDIA_TYPE_META[t].label}</Chip>)}
         <span className="ml-auto flex items-center gap-2">
           <button type="button" className="text-[10px] font-mono uppercase tracking-wider hover:text-stone-200" style={{ color: C.dim }} onClick={pickAllShown}>Tick all shown</button>

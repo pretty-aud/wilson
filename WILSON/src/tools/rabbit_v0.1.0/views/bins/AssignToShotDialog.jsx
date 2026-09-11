@@ -29,7 +29,7 @@ function statusColor(status) {
   }
 }
 
-export default function AssignToShotDialog({ files, binFiles, scenes, shots, shotTakes, thumbUrlFor, onConfirm, onCancel, busy }) {
+export default function AssignToShotDialog({ files, binFiles, scenes, shots, shotTakes, thumbUrlFor, onConfirm, onCancel, busy, error = null }) {
   const fileIds = useMemo(() => new Set((files || []).map(f => f.id)), [files])
   const liveFiles = useMemo(() => new Set((binFiles || []).map(f => f.id)), [binFiles])
   const preferSceneId = useMemo(() => commonSceneId(files), [files])
@@ -56,7 +56,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
   const totalShots = groups.reduce((n, g) => n + g.shots.length, 0)
 
   return (
-    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width={720} busy={busy}
+    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width={720} busy={busy} error={error}
       subtitle={`${totalShots} shot${totalShots === 1 ? '' : 's'} across ${groups.filter(g => g.scene).length} scene${groups.filter(g => g.scene).length === 1 ? '' : 's'}${hiddenOmitted ? ` · ${hiddenOmitted} omitted shot${hiddenOmitted === 1 ? '' : 's'} hidden` : ''}`}
       footer={<>
         <Select value={role} className="!w-auto" options={[{ value: 'auto', label: 'Automatic — primary if the shot has none, else alt' }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />

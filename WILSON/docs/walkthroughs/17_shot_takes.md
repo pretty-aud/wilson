@@ -39,22 +39,27 @@ changes; a take is a link.
    at the bottom, and an orange **Add takes…** button.
 3. Click **Add takes…**. → **Add takes to "<shot>"** lists the bin files with
    the ones logged to this shot's scene first (a **Same scene** heading, and
-   a **same scene only** chip that is on when there are any), then
-   **Everything else**. Search narrows by name, slate, notes or path; the
+   a **same scene only** chip that is on when there are any — it says how
+   many more it is hiding; switch it off and **Everything else** appears
+   below). Search narrows by name, slate, notes or path; the
    type chips (Video / Still / Audio …) narrow by type. Tick three files —
    two stills and an MP4 — and click **Assign 3 takes**.
 4. → The picker closes; the Takes dialog lists the three in the order you
    ticked them: **1** is starred and marked **Primary**, **2** and **3** are
    **Alt**. Each row shows the poster, the name, the slate line
    ("12A · T4 · A cam"), the technical line and the bin it lives in, a
-   **Why this take…** note field, a role dropdown, and buttons: up, down,
+   **Why this take…** note field, a role dropdown (greyed while a shot has a
+   single take: the only take is always its primary), and buttons: up, down,
    star (make primary), folder (show in Bins), ✕ (unassign). The header says
    "3 takes · 2 alts · primary: <name>".
 5. Click the **star** on row 3. → Row 3 becomes Primary; the old primary
    becomes Alt (the two swap roles). The header's "primary:" changes.
 6. Set row 2's dropdown to **Part**. → Its left bar turns purple and the
    header says "1 part · 1 alt". Type `sound is clean` in row 1's note and
-   press Tab → it sticks (reopen the dialog later to check).
+   press Tab → it sticks (reopen the dialog later to check). Type something
+   else in it and press **Escape** → the old text comes back and the dialog
+   stays open (Escape in any field cancels that edit; a second Escape
+   closes the dialog).
 7. Click **up** on row 3. → It moves to position 2; the numbers renumber.
 8. Click **Close**. → The row's chip now shows the three posters with the
    primary ringed in orange with a small star, and the count **3**. The

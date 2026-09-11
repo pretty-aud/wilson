@@ -217,29 +217,35 @@ import { googleDriveAdapter } from './googleDriveAdapter';
 // dialogs open in the main process; the bytes and posters are served by the
 // loopback server. Every method takes projectId first.
 //
-//   listBins(projectId)                          → { bins, binFiles (with `online`), binRoots, ffmpeg }
+//   listBins(projectId)                          → { bins, binFiles (with `online`), binRoots, shotTakes, orphanTakes, ffmpeg }
 //   createBin(projectId, bin) / updateBin(projectId, id, patch)
 //   deleteBin(projectId, id, { mode: 'move'|'remove', target })
 //                                                → { removedBins, movedFiles, removedFiles }
 //   reorderBins(projectId, [{ id, parent_bin_id, sort_order }])
 //   pickBinFiles(projectId) → { paths, canceled } ; pickBinFolder(projectId, title) → { path, canceled }
-//   prepareBinFiles(projectId, paths)            → { items, folders, truncated } (the add dialog's plan)
-//   addBinFiles(projectId, binId, items, createSubBins) → { created, bins, results }
+//   prepareBinFiles(projectId, paths)            → { items, folders, truncated, roots } (the add dialog's plan)
+//   addBinFiles(projectId, binId, items, createSubBins, roots) → { created, bins, results }
 //   updateBinFile(projectId, id, patch) ; bulkUpdateBinFiles(projectId, ids, patch) → { updated }
 //   moveBinFiles / copyBinFiles(projectId, ids, binId) ; removeBinFiles(projectId, ids) → { removed }
-//   restoreBinFiles(projectId, rows) → { restored } ; reorderBinFiles(projectId, ids)
-//   probeBinFile(projectId, id) → the row with its technical columns filled
+//   restoreBinFiles(projectId, rows) → { restored, skipped: [{ id, reason }], affectedShotIds, shotTakes, orphanTakes }
+//   probeBinFile(projectId, id)                  → the row with its technical columns filled
 //   binFileThumbnailUrl(projectId, id, rev) / binFileStreamUrl(projectId, id, { probe })  (URLs, not fetches)
 //   postBinFileThumbnail(projectId, id, base64)  (the renderer decoded a frame; no ffmpeg)
 //   binRelinkScan(projectId, folderPath?) → { offline, candidates, truncated } ; binRelinkApply(projectId, mappings)
-//   addBinRoot(projectId, path, label) / removeBinRoot(projectId, id)
+//   removeBinRoot(projectId, id)                 (roots are recorded by the pick and add routes)
+//
+// Every failure throws an Error carrying `status` and, where the route sends
+// one, `code` (offline, cross_origin, unauthorized_folder, bad_ids, …) —
+// branch on those, never on the sentence.
 //
 // Shot takes (milestone 2): bin files assigned to shots, many-to-many, ordered,
 // with a role (primary | part | alt) and notes; `bundle.shotTakes`. Every
-// mutation answers { affectedShotIds, shotTakes } — the full row set of the
-// shots it touched — because siblings are re-roled and renumbered. The rows
-// arrive with listBins (`shotTakes`, live rows only: shot and file both exist,
-// presented with positions 0..n-1 and exactly one primary per shot).
+// mutation answers { affectedShotIds, shotTakes, orphanTakes } — the full row
+// set of the shots it touched — because siblings are re-roled and renumbered.
+// The rows arrive with listBins: `shotTakes` are the LIVE rows (shot and file
+// both exist) presented with positions 0..n-1 and exactly one primary per
+// shot; `orphanTakes` are the rows whose shot or file is gone, verbatim, so
+// state keeps them for the undo that brings the shot or file back.
 //   assignShotTakes(projectId, [{ shot_id, bin_file_id, role?, notes? }]) → { created, skipped, … }
 //   updateShotTake(projectId, id, { role?, notes?, position? }) → { take, … }
 //   removeShotTakes(projectId, ids)                → { removed, … }

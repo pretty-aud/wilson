@@ -24,8 +24,12 @@
 // `Sec-Fetch-Site: same-origin` or its `Origin`, so that is the gate — the
 // S14/S17 rule ("a body-picked path would let a drive-by request point a
 // project at the user's Documents") applied to references. A request with
-// NEITHER header is refused too: a local process is not the user (the unit
-// tests send the header the renderer sends).
+// NEITHER header is refused too (a pre-Fetch-Metadata browser, a cross-origin
+// <img>); the unit tests send the header the renderer sends. What the gate is
+// NOT (review round 2): a wall against another local PROCESS — one can set
+// the header itself, and could read the files directly anyway. The second
+// wall is per path: a route only streams, probes, restores or relinks a path
+// a row already holds or one under a folder the user picked (isAuthorizedDir).
 //
 // 🚨 `fetch` resolves for every status here. Every error is a JSON body with
 // `error` and, where a caller branches on it, a `code`.
@@ -202,22 +206,38 @@ function detectSequence(dir) {
   if (entries.some(e => e.isDirectory() && !e.name.startsWith('.'))) return null;
   // A few sidecars beside the frames (Thumbs.db, a render log, an .md5) do
   // not stop the folder being a sequence (adversarial review): files whose
-  // extension is not a frame type are set aside and reported, up to a small
-  // minority. Anything more, or a second frame series, and it is a folder.
+  // extension is not a frame type are set aside and reported — up to three,
+  // or 5% of a big folder, never more than ten (review round 2: the floor was
+  // two, which refused the three sidecars this very comment names). Anything
+  // more, or a second frame series, and it is a folder.
   const files = all.filter(e => SEQUENCE_EXTS.has(extOf(e.name)));
   const sidecars = all.length - files.length;
   if (files.length < 2) return null;
-  if (sidecars > Math.max(2, Math.floor(all.length * 0.05)) || sidecars > 10) return null;
+  if (sidecars > Math.max(3, Math.floor(all.length * 0.05)) || sidecars > 10) return null;
   let prefix = null; let sep = ''; let ext = null; let width = null;
   const frames = [];
+  let padWidth = null; // the width of the zero-padded frames, if any
+  let unpaddedMin = Infinity; // the shortest unpadded number seen
   for (const f of files) {
     const m = FRAME_RE.exec(f.name);
     if (!m) return null;
     const e = m[4].toLowerCase();
     if (prefix === null) { prefix = m[1]; sep = m[2]; ext = e; width = m[3].length; }
-    else if (m[1] !== prefix || e !== ext) return null;
+    // One series: same prefix, separator and extension (review round 2:
+    // `img1.png` beside `img_0002.png` was accepted and reported as
+    // `img#.png`, a pattern matching neither file).
+    else if (m[1] !== prefix || e !== ext || m[2] !== sep) return null;
+    // And one padding rule: every zero-padded frame has the same width, and
+    // an unpadded number is never shorter than that width (a series may
+    // outgrow its padding — …0998, 0999, 1000 — but `img1` beside `img0002`
+    // is two series). Directory order is not frame order, so this is checked
+    // once every frame has been seen.
+    const padded = String(Number(m[3])) !== m[3];
+    if (padded) { if (padWidth === null) padWidth = m[3].length; else if (padWidth !== m[3].length) return null; }
+    else unpaddedMin = Math.min(unpaddedMin, m[3].length);
     frames.push({ name: f.name, n: Number(m[3]) });
   }
+  if (padWidth !== null && unpaddedMin < padWidth) return null;
   frames.sort((a, b) => a.n - b.n);
   let sizeBytes = 0;
   let mtime = 0;
@@ -292,12 +312,13 @@ function mountRabbitBins(expressApp, deps) {
 
   // ── the gate ──
   // 🚨 FAIL CLOSED (adversarial review, HIGH). The first draft allowed a
-  // request that carried neither header on the theory that only a local
-  // process could send one — but a local process is not the user (a
-  // postinstall script, an extension host, a container on host networking),
-  // and pre-Fetch-Metadata browsers send neither on a cross-origin <img>.
-  // The renderer always carries `Sec-Fetch-Site: same-origin`; that is the
-  // one caller these routes serve. Tests send that header explicitly.
+  // request that carried neither header; pre-Fetch-Metadata browsers send
+  // neither on a cross-origin <img>, so that was a hole in the one thing the
+  // gate is for — keeping BROWSER PAGES on other local origins out. The
+  // renderer always carries `Sec-Fetch-Site: same-origin`; that is the one
+  // caller these routes serve. Tests send that header explicitly. (A local
+  // process can send it too; see the header comment — the per-path
+  // authorisation below is the wall for that.)
   function isSameOrigin(req) {
     const site = req.headers['sec-fetch-site'];
     if (site) return site === 'same-origin';
@@ -354,13 +375,25 @@ function mountRabbitBins(expressApp, deps) {
       if (hit) hit.last_seen_at = now();
       return;
     }
+    // A root that covers recorded ones replaces them (review round 2: a day
+    // folder walked depth-first recorded every leaf before its parent, so
+    // one import left 31 roots, each walked by the auto-relink).
+    bundle.binRoots = bundle.binRoots.filter(r => !pathKey(r.path).startsWith(key + path.sep));
     bundle.binRoots.push({ id: crypto.randomUUID(), project_id: projectId, path: path.resolve(dir), label: label || path.basename(dir), added_at: now(), last_seen_at: now() });
   }
+  // Folders the user picked or dropped from, as the add route records them:
+  // a picked FOLDER is the root, a picked file's folder is. The pick routes
+  // and main.cjs both fill `authorized` lower-cased (review round 2: main.cjs
+  // lower-cases unconditionally while pathKey lower-cases on Windows only —
+  // one convention, so a pick made through main.cjs's dialog authorises a
+  // relink on every platform).
+  const authKey = (p) => pathKey(p).toLowerCase();
   function isAuthorizedDir(bundle, p) {
     if (!isAbs(p)) return false;
     const key = pathKey(p);
-    if (authorized.has(key)) return true;
-    for (const a of authorized) if (key.startsWith(a + path.sep)) return true;
+    const lk = authKey(p);
+    if (authorized.has(lk)) return true;
+    for (const a of authorized) if (lk.startsWith(a + path.sep)) return true;
     return bundle.binRoots.some(r => { const rk = pathKey(r.path); return key === rk || key.startsWith(rk + path.sep); });
   }
   function binDescendants(bundle, binId) {
@@ -391,6 +424,7 @@ function mountRabbitBins(expressApp, deps) {
       binFiles: bundle.binFiles.map(withOnline),
       binRoots: bundle.binRoots,
       shotTakes: presentTakes(liveTakes(bundle)),
+      orphanTakes: orphanTakes(bundle),
       ffmpeg: ffmpeg.hasFfmpeg(),
     });
   });
@@ -512,7 +546,7 @@ function mountRabbitBins(expressApp, deps) {
       title: 'Add files to the bin',
     });
     if (result.canceled) return res.json({ paths: [], canceled: true });
-    for (const p of result.filePaths) authorized.add(pathKey(path.dirname(p)));
+    for (const p of result.filePaths) authorized.add(authKey(path.dirname(p)));
     res.json({ paths: result.filePaths, canceled: false });
   });
 
@@ -525,7 +559,7 @@ function mountRabbitBins(expressApp, deps) {
       title: String(req.body?.title || 'Add a folder to the bin'),
     });
     if (result.canceled || !result.filePaths.length) return res.json({ path: null, canceled: true });
-    authorized.add(pathKey(result.filePaths[0]));
+    authorized.add(authKey(result.filePaths[0]));
     res.json({ path: result.filePaths[0], canceled: false });
   });
 
@@ -607,7 +641,12 @@ function mountRabbitBins(expressApp, deps) {
       });
       if (r.truncated) truncated = true;
     }
-    res.json({ items, folders, truncated });
+    // The folders this batch came from — a picked folder itself, a picked
+    // file's folder — for the add route to record as the known roots
+    // (review round 2: recording each added file's own folder left one
+    // root per subfolder, all walked by the auto-relink).
+    const roots = [...new Set(paths.filter(p => isFile(p) || isDir(p)).map(p => path.resolve(isDir(p) ? p : path.dirname(p))))];
+    res.json({ items, folders, truncated, roots });
   });
 
   // ── Add: confirmed items → rows (and sub-bins) ────────────────────────────
@@ -691,10 +730,15 @@ function mountRabbitBins(expressApp, deps) {
       bundle.binFiles.push(row);
       created.push(row);
       results.push({ source_path: src, status: 'added', id: row.id, bin_id: targetBin });
-      // The folder the item was added from: a file's folder, or a sequence
-      // folder's parent (the sequence folder IS the item).
-      rememberRoot(bundle, req.params.projectId, path.dirname(src));
     }
+    // Known roots: the folders the batch was picked or dropped from (`roots`,
+    // as `prepare` reported them) — but only one that actually holds an added
+    // item counts, so a body path alone records nothing (the S14 rule). An
+    // item no listed root covers falls back to its own folder (a sequence
+    // folder's parent: the sequence folder IS the item).
+    const bodyRoots = Array.isArray(req.body?.roots) ? req.body.roots.filter(p => isAbs(p) && isDir(p)).map(p => path.resolve(p)) : [];
+    const rootFor = (src) => bodyRoots.find(r => { const rk = pathKey(r); const sk = pathKey(src); return sk === rk || sk.startsWith(rk + path.sep); });
+    for (const row of created) rememberRoot(bundle, req.params.projectId, rootFor(row.source_path) || path.dirname(row.source_path));
     writeRabbitBundle(req.params.projectId, bundle);
     res.json({ created: created.map(withOnline), bins: createdBins, results });
   });
@@ -794,30 +838,32 @@ function mountRabbitBins(expressApp, deps) {
     res.json({ removed });
   });
 
+  // The undo of a removal. Every row that could not be put back is REPORTED
+  // (review round 2: a row whose bin was deleted meanwhile was dropped with a
+  // 200 and nothing said so), and a row's path must sit under a known root or
+  // a folder the user picked — the rows came from this server, but a same-
+  // origin body is not proof of that (the S14 rule): `unauthorized`.
+  // Answers { restored, skipped: [{ id, reason: invalid | bin_gone | unauthorized }] }
+  // and carries the live takes of the shots the restored files belong to, so
+  // the renderer's chips agree with the server the moment the file is back.
   expressApp.post(`${P}/bin-files/restore`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: 'rows required' });
-    const restored = [];
+    const restored = []; const skipped = [];
     for (const r of rows) {
-      if (!r || typeof r !== 'object' || !r.id || !isAbs(r.source_path)) continue;
-      if (!bundle.bins.some(b => b.id === r.bin_id)) continue;
+      if (!r || typeof r !== 'object' || !r.id || !isAbs(r.source_path)) { skipped.push({ id: r?.id ?? null, reason: 'invalid' }); continue; }
+      if (!bundle.bins.some(b => b.id === r.bin_id)) { skipped.push({ id: r.id, reason: 'bin_gone' }); continue; }
+      if (!isAuthorizedDir(bundle, path.dirname(r.source_path)) && !isAuthorizedDir(bundle, r.source_path)) { skipped.push({ id: r.id, reason: 'unauthorized' }); continue; }
       const { online: _o, ...clean } = r;
       const row = { ...clean, project_id: req.params.projectId, updated_at: now() };
       rabbitUpsertInto(bundle.binFiles, row);
       restored.push(withOnline(row));
     }
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-    res.json({ restored });
-  });
-
-  expressApp.post(`${P}/bin-files/reorder`, (req, res) => {
-    const bundle = load(req, res); if (!bundle) return;
-    const ids = idsOf(req.body);
-    if (!ids.length) return res.status(400).json({ error: 'ids required' });
-    ids.forEach((id, i) => { const f = bundle.binFiles.find(x => x.id === id); if (f) { f.sort_order = i; f.updated_at = now(); } });
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-    res.json({ ok: true });
+    if (restored.length) writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    const fileIds = new Set(restored.map(r => r.id));
+    const shotIds = [...new Set(bundle.shotTakes.filter(t => fileIds.has(t.bin_file_id)).map(t => t.shot_id))];
+    res.json({ restored, skipped, ...takeResponse(bundle, shotIds) });
   });
 
   // ── Probe: the technical columns ──────────────────────────────────────────
@@ -825,6 +871,12 @@ function mountRabbitBins(expressApp, deps) {
     const patch = {};
     const fps = Number(bundle.project?.fps) > 0 ? Number(bundle.project.fps) : 24;
     let target = row.source_path;
+    // A file re-exported to the same path has a new size and mtime; a probe
+    // (add, "Read columns again") is where the row learns that (review round
+    // 2: nothing refreshed `mtime`, so the poster key never changed either).
+    if (!row.is_sequence) {
+      try { const st = fs.statSync(row.source_path); patch.size_bytes = st.size; patch.mtime = st.mtime.toISOString(); } catch { /* offline: the route refused already */ }
+    }
     if (row.is_sequence) {
       const seq = detectSequence(row.source_path);
       if (!seq) return { probe_status: 'failed' };
@@ -883,11 +935,37 @@ function mountRabbitBins(expressApp, deps) {
   });
 
   // ── Posters ───────────────────────────────────────────────────────────────
+  // The cache key is the path plus the mtime ON DISK, read now (review round
+  // 2: the row's stored mtime is written at add and relink only, so a file
+  // re-exported to the same path kept its old poster for ever). Sequences
+  // key on their folder's mtime, which changes when a frame is added or
+  // replaced. Offline rows fall back to the stored value so a cached poster
+  // still serves while the drive is out.
+  function posterMtime(row) {
+    try { return fs.statSync(row.source_path).mtime.toISOString(); } catch { return row.mtime || ''; }
+  }
+  // A poster is written to `<key>.part` and renamed into place, and one
+  // generation per key runs at a time (review round 2: two tiles asking for
+  // the same still raced on one write, and a torn file would then have been
+  // served for ever because the GET serves on existence alone).
+  const posterInFlight = new Map();
+  function writePosterAtomically(thumbPath, buf) {
+    const part = thumbPath + '.part';
+    fs.writeFileSync(part, buf);
+    fs.renameSync(part, thumbPath);
+  }
+  function posterOnce(thumbPath, make) {
+    if (posterInFlight.has(thumbPath)) return posterInFlight.get(thumbPath);
+    const p = Promise.resolve().then(make).finally(() => posterInFlight.delete(thumbPath));
+    posterInFlight.set(thumbPath, p);
+    return p;
+  }
+
   expressApp.get(`${P}/bin-files/:id/thumbnail`, async (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const row = bundle.binFiles.find(f => f.id === req.params.id);
     if (!row) return rabbitNotFound(res, 'bin-file');
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, row.mtime));
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
     if (exists(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
     if (!(row.is_sequence ? isDir(row.source_path) : isFile(row.source_path))) {
@@ -907,8 +985,11 @@ function mountRabbitBins(expressApp, deps) {
         // cannot open a path past MAX_PATH on Windows (measured, review round
         // 2: a 268-character cache path answered "unable to open for write"
         // while the same source read fine), Node's fs can.
-        const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-        fs.writeFileSync(thumbPath, buf);
+        await posterOnce(thumbPath, async () => {
+          if (exists(thumbPath)) return;
+          const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+          writePosterAtomically(thumbPath, buf);
+        });
         res.setHeader('Content-Type', 'image/jpeg');
         return res.sendFile(thumbPath);
       } catch (err) {
@@ -942,9 +1023,9 @@ function mountRabbitBins(expressApp, deps) {
     if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
     if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
     if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, row.mtime));
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    try { fs.writeFileSync(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
+    try { writePosterAtomically(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
   });
 
@@ -1053,15 +1134,10 @@ function mountRabbitBins(expressApp, deps) {
     res.json({ updated, failed });
   });
 
-  expressApp.post(`${P}/bins/roots`, (req, res) => {
-    const bundle = load(req, res); if (!bundle) return;
-    const p = req.body?.path;
-    if (!isAbs(p) || !isDir(p)) return res.status(400).json({ error: 'path must be an existing folder' });
-    rememberRoot(bundle, req.params.projectId, p, req.body?.label);
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-    res.json({ binRoots: bundle.binRoots });
-  });
-
+  // Roots are recorded by the pick and add routes only — there is no route
+  // that takes one from a body (review round 2 removed it: nothing called
+  // it, and a body-supplied folder is not consent). Forgetting one is the
+  // relink dialog's "forget this folder".
   expressApp.delete(`${P}/bins/roots/:id`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const before = bundle.binRoots.length;
@@ -1114,6 +1190,19 @@ function mountRabbitBins(expressApp, deps) {
     const files = new Set(bundle.binFiles.map(f => f.id));
     return bundle.shotTakes.filter(t => shots.has(t.shot_id) && files.has(t.bin_file_id));
   }
+  // The rows a read does NOT present: their shot or file is gone. They ride
+  // beside `shotTakes` as `orphanTakes`, verbatim, so the renderer's state
+  // keeps them (review round 2, HIGH: every take response and every list
+  // load replaced the state's rows with live ones only, so an orphan the
+  // undo of a file removal needed was gone from state within one edit or one
+  // tab switch, and the restored file came back with no takes on screen).
+  // The renderer's selectors join through live files and shots and ignore
+  // them until their file or shot is back.
+  function orphanTakes(bundle, shotIds = null) {
+    const live = new Set(liveTakes(bundle).map(t => t.id));
+    const set = shotIds ? new Set(shotIds) : null;
+    return bundle.shotTakes.filter(t => !live.has(t.id) && (!set || set.has(t.shot_id)));
+  }
   function takesOf(bundle, shotIds) {
     const set = new Set(shotIds);
     return liveTakes(bundle).filter(t => set.has(t.shot_id)).sort(byPosition);
@@ -1122,15 +1211,28 @@ function mountRabbitBins(expressApp, deps) {
   // just promoted); otherwise the first claimant in list order, else the first
   // take. A demoted claimant becomes `alt`, never `part`: parts are a thing
   // the editor states, not something normalisation invents.
+  //
+  // While the stored primary's FILE is out (an orphan flagged primary) and no
+  // live row claims the role, nothing is materialised: the reads present the
+  // first live take as primary on their own, the stored roles stay as they
+  // are, and the original primary is primary again the moment its drive is
+  // back (review round 2, HIGH: any write to the shot meanwhile — assigning a
+  // spare, say — promoted a live take on disk and demoted the orphan for
+  // good, and no undo covered it). The orphan is demoted only once a live
+  // take is EXPLICITLY made primary: the editor's choice then wins.
   function normalizeShotTakes(bundle, shotId, preferId = null) {
     const rows = takesOf(bundle, [shotId]);
     if (!rows.length) return;
+    const orphanPrimary = bundle.shotTakes.some(t => t.shot_id === shotId && t.role === 'primary' && !rows.includes(t));
     let primary = preferId ? rows.find(r => r.id === preferId && r.role === 'primary') : null;
-    if (!primary) primary = rows.find(r => r.role === 'primary') || rows[0];
+    if (!primary) primary = rows.find(r => r.role === 'primary') || (orphanPrimary ? null : rows[0]);
     rows.forEach((r, i) => {
-      const role = r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role);
+      const role = primary
+        ? (r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role))
+        : (TAKE_ROLES.includes(r.role) && r.role !== 'primary' ? r.role : 'alt');
       if (r.position !== i || r.role !== role) { r.position = i; r.role = role; r.updated_at = now(); }
     });
+    if (!primary) return;
     // An orphan (its file removed) that still says primary would come back as
     // a second primary when the file is restored; the live take chosen
     // meanwhile wins. Orphans keep their positions: a restored take lands in
@@ -1142,12 +1244,12 @@ function mountRabbitBins(expressApp, deps) {
   }
   function takeResponse(bundle, shotIds, extra = {}) {
     const affected = [...new Set(shotIds)];
-    return { ...extra, affectedShotIds: affected, shotTakes: presentTakes(takesOf(bundle, affected)) };
+    return { ...extra, affectedShotIds: affected, shotTakes: presentTakes(takesOf(bundle, affected)), orphanTakes: orphanTakes(bundle, affected) };
   }
 
   expressApp.get(`${P}/shot-takes`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
-    res.json({ shotTakes: presentTakes(liveTakes(bundle)) });
+    res.json({ shotTakes: presentTakes(liveTakes(bundle)), orphanTakes: orphanTakes(bundle) });
   });
 
   // Assign: several files to one shot, one file to several shots, or any
@@ -1168,7 +1270,11 @@ function mountRabbitBins(expressApp, deps) {
       const existing = liveTakes(bundle).find(t => t.shot_id === a.shot_id && t.bin_file_id === a.bin_file_id);
       if (existing) { skipped.push({ shot_id: a.shot_id, bin_file_id: a.bin_file_id, reason: 'already_assigned', id: existing.id }); affected.push(a.shot_id); continue; }
       const siblings = takesOf(bundle, [a.shot_id]);
-      const hasPrimary = siblings.some(t => t.role === 'primary');
+      // A shot with any live take already HAS a primary as far as every read
+      // is concerned (the first flagged, else the first) — even while the
+      // stored primary's file is out (review round 2, HIGH: reading the raw
+      // roles said "no primary" then, and the new spare took the role).
+      const hasPrimary = siblings.length > 0;
       let role = TAKE_ROLES.includes(a.role) ? a.role : null;
       if (!hasPrimary) role = 'primary';
       else if (!role) role = 'alt';
@@ -1225,9 +1331,13 @@ function mountRabbitBins(expressApp, deps) {
     const bundle = load(req, res); if (!bundle) return;
     const ids = new Set(idsOf(req.body));
     if (!ids.size) return res.status(400).json({ error: 'ids required' });
-    const removed = bundle.shotTakes.filter(t => ids.has(t.id));
+    // Live rows only, like every other route: an orphan waits on disk for the
+    // undo that brings its shot or file back (review round 2: this was the one
+    // route reading the raw array, and it hard-deleted an orphan).
+    const removed = liveTakes(bundle).filter(t => ids.has(t.id));
     if (!removed.length) return rabbitNotFound(res, 'shot-take');
-    bundle.shotTakes = bundle.shotTakes.filter(t => !ids.has(t.id));
+    const gone = new Set(removed.map(t => t.id));
+    bundle.shotTakes = bundle.shotTakes.filter(t => !gone.has(t.id));
     const affected = [...new Set(removed.map(t => t.shot_id))];
     for (const s of affected) normalizeShotTakes(bundle, s);
     writeRabbitBundle(req.params.projectId, bundle, { touch: false });
@@ -1244,10 +1354,14 @@ function mountRabbitBins(expressApp, deps) {
     const rows = takesOf(bundle, [shotId]);
     const pos = new Map(ids.map((id, i) => [id, i]));
     const listed = rows.filter(r => pos.has(r.id)).sort((a, b) => pos.get(a.id) - pos.get(b.id));
+    // Ids that belong to another shot (or to nothing) are a caller's mistake,
+    // not an order (review round 2: they answered 200 and rewrote the shot).
+    if (!listed.length) return res.status(400).json({ error: 'none of the ids is a take of that shot', code: 'bad_ids' });
     const rest = rows.filter(r => !pos.has(r.id));
-    [...listed, ...rest].forEach((r, i) => { if (r.position !== i) { r.position = i; r.updated_at = now(); } });
+    let changed = false;
+    [...listed, ...rest].forEach((r, i) => { if (r.position !== i) { r.position = i; r.updated_at = now(); changed = true; } });
     normalizeShotTakes(bundle, shotId);
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    if (changed) writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json(takeResponse(bundle, [shotId]));
   });
 

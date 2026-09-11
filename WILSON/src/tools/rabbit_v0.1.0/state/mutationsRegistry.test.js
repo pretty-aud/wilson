@@ -17,7 +17,8 @@ import fs from 'node:fs'
 const src = fs.readFileSync(new URL('./RabbitProvider.jsx', import.meta.url), 'utf8')
 
 describe('RabbitProvider mutations registry', () => {
-  const registered = new Set([...src.matchAll(/mutationsRef\.current\.([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$]/g)].map(m => m[1]))
+  const assignments = [...src.matchAll(/mutationsRef\.current\.([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*;/g)].map(m => [m[1], m[2]])
+  const registered = new Set(assignments.map(a => a[0]))
   const called = new Set([...src.matchAll(/mutationsRef\.current\.([A-Za-z_$][\w$]*)\s*\(/g)].map(m => m[1]))
 
   it('finds both sets (the pin is only as good as its regexes)', () => {
@@ -30,5 +31,13 @@ describe('RabbitProvider mutations registry', () => {
   it('every mutator a history op calls is registered', () => {
     const missing = [...called].filter(n => !registered.has(n))
     expect(missing, `history ops call unregistered mutators: ${missing.join(', ')}`).toEqual([])
+  })
+
+  // Review round 2: `mutationsRef.current.removeBinFiles = removeShotTakes`
+  // would have registered a name and passed — a slot must hold the mutator
+  // of the same name.
+  it('every registry slot holds the mutator of its own name', () => {
+    const wrong = assignments.filter(([slot, fn]) => slot !== fn).map(([slot, fn]) => `${slot} = ${fn}`)
+    expect(wrong, `mis-assigned registry slots: ${wrong.join(', ')}`).toEqual([])
   })
 })

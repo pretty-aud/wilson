@@ -2721,9 +2721,14 @@ requests because every route takes or serves a path; the OS dialogs open in
 the main process through the same routes, and dropped files reach the
 renderer through `webUtils.getPathForFile` in the preload. Offline is a
 computed state on the list route; relink walks a picked or known folder
-(`bundle.binRoots`) and matches by name and size through the existing
-`relinkMatcher`, automatically on open for known roots. The view is
-`views/BinsView.jsx` with `views/bins/*`; the pure logic is `bins/binMedia.js`
+(`bundle.binRoots` — one root per folder picked or dropped from, recorded by
+the add route from `prepare`'s `roots`, a covering folder replacing the ones
+under it, forgettable from the relink dialog) and matches by name and size
+through the existing `relinkMatcher`, automatically on open for known roots.
+Every failure the adapter throws carries the route's `status` and `code`.
+The view is `views/BinsView.jsx` with `views/bins/*` — its keys and the OS
+drop are bound on the document while the tab is mounted, so they survive
+the focused control unmounting; the pure logic is `bins/binMedia.js`
 (the vocabulary, mirrored from the server and pinned by a parity test) and
 `bins/binSelectors.js`. **Shot takes** (milestone 2, `bundle.shotTakes`)
 assign bin files to shots many-to-many: a row per (shot, file) with a `role`
@@ -2731,8 +2736,12 @@ assign bin files to shots many-to-many: a row per (shot, file) with a `role`
 `notes`; the routes live under the gated `…/shot-takes` prefix in
 `rabbitBins.cjs` (assign, patch, remove, reorder, and `replace`, the undo
 primitive that puts a shot's rows back verbatim), invariants re-established by
-`normalizeShotTakes` after every write, orphans filtered on read and never
-pruned so undoing a shot or file deletion restores its takes. The provider's
+`normalizeShotTakes` after every write, orphans (their shot or file gone)
+never pruned and carried on every read as `orphanTakes` beside the live,
+presented `shotTakes`, so the renderer's state keeps them and undoing a shot
+or file deletion restores its takes; while the stored primary's file is out,
+reads present the first live take as primary without writing, and nothing
+materialises that until a live take is explicitly promoted. The provider's
 `assignShotTakes` / `updateShotTake` / `removeShotTakes` / `reorderShotTakes`
 push snapshot undo entries (`replaceShotTakes` both ways); every mutator a
 history op names must be in the `mutationsRef` registry, pinned by

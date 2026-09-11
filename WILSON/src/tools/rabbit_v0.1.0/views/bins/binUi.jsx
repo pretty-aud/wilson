@@ -7,7 +7,7 @@
 // labels at 10–11px, 2px radii, 1px #44403c borders — the ScenesView idiom.
 
 import { useEffect, useRef } from 'react'
-import { X, Check, Ban, Circle } from 'lucide-react'
+import { X, Check, Ban, Circle, AlertTriangle } from 'lucide-react'
 import { MEDIA_TYPE_META, COLOR_HEX, COLORS } from '../../bins/binMedia'
 
 export const C = {
@@ -138,9 +138,21 @@ export function Kbd({ children }) {
   )
 }
 
+// Open modals, bottom to top, and the count of open context menus. Escape
+// closes only the TOPMOST modal (adversarial review: the take picker over
+// the takes dialog closed both); registered once per mount so a re-render of
+// a lower modal cannot move it to the top. `overlayOpen` lets document-level
+// key handlers (the Bins keys, the preview's Space) stand down while any
+// overlay from this module is up (review round 2: Space in the add dialog's
+// list played the video behind the backdrop).
+const modalStack = []
+let openMenus = 0
+export function overlayOpen() { return modalStack.length > 0 || openMenus > 0 }
+
 /** A context menu at (x, y). items: { label, Icon, onClick, danger, disabled, divider, hint, header }. */
 export function Menu({ x, y, items, onClose, minWidth = 200 }) {
   const ref = useRef(null)
+  useEffect(() => { openMenus++; return () => { openMenus-- } }, [])
   useEffect(() => {
     const down = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose?.() }
     const key = (e) => { if (e.key === 'Escape') onClose?.() }
@@ -176,24 +188,33 @@ export function Menu({ x, y, items, onClose, minWidth = 200 }) {
   )
 }
 
-// Open modals, bottom to top. Escape closes only the TOPMOST one (adversarial
-// review: the take picker over the takes dialog closed both). Registered once
-// per mount so a re-render of a lower modal cannot move it to the top.
-const modalStack = []
-
-export function Modal({ title, children, footer, onClose, width = 640, subtitle = null, busy = false }) {
+/**
+ * A modal. `error` is shown in the footer row, INSIDE the dialog (review
+ * round 2: a failed confirm used to report into the page's notice bar, under
+ * the 72% backdrop, so the button looked dead). `onBeforeClose` may return
+ * false to keep the dialog open — Escape, the backdrop and the X all ask it
+ * (the add dialog uses it to confirm before a reviewed batch is discarded).
+ */
+export function Modal({ title, children, footer, onClose, width = 640, subtitle = null, busy = false, error = null, onBeforeClose = null }) {
   const onCloseRef = useRef(onClose); onCloseRef.current = onClose
   const busyRef = useRef(busy); busyRef.current = busy
+  const guardRef = useRef(onBeforeClose); guardRef.current = onBeforeClose
+  const tryClose = () => {
+    if (busyRef.current) return
+    if (guardRef.current && guardRef.current() === false) return
+    onCloseRef.current?.()
+  }
+  const tryCloseRef = useRef(tryClose); tryCloseRef.current = tryClose
   useEffect(() => {
     const id = {}
     modalStack.push(id)
-    const key = (e) => { if (e.key === 'Escape' && !busyRef.current && modalStack[modalStack.length - 1] === id) onCloseRef.current?.() }
+    const key = (e) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) tryCloseRef.current() }
     document.addEventListener('keydown', key)
     return () => { document.removeEventListener('keydown', key); const i = modalStack.indexOf(id); if (i >= 0) modalStack.splice(i, 1) }
   }, [])
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center" style={{ backgroundColor: 'rgba(12,10,9,0.72)' }}
-      onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose?.() }}>
+      onMouseDown={e => { if (e.target === e.currentTarget) tryClose() }}>
       <div className="rounded-sm shadow-2xl flex flex-col" style={{ width, maxWidth: '94vw', maxHeight: '88vh', backgroundColor: C.bg, border: `1px solid ${C.line}` }}
         role="dialog" aria-label={title}>
         <div className="flex items-start justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -201,12 +222,17 @@ export function Modal({ title, children, footer, onClose, width = 640, subtitle 
             <div className="text-[12px] font-mono uppercase tracking-wider" style={{ color: C.bright }}>{title}</div>
             {subtitle && <div className="text-[10.5px] font-mono mt-0.5" style={{ color: C.dim }}>{subtitle}</div>}
           </div>
-          <button type="button" onClick={onClose} disabled={busy} title="Close" className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.muted }}>
+          <button type="button" onClick={tryClose} disabled={busy} title="Close" className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.muted }}>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0" style={{ borderTop: `1px solid ${C.line}` }}>{footer}</div>}
+        {(footer || error) && (
+          <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0 flex-wrap" style={{ borderTop: `1px solid ${C.line}` }}>
+            {error && <span role="alert" className="text-[10.5px] font-mono mr-auto flex items-center gap-1.5 min-w-0" style={{ color: '#fca5a5' }}><AlertTriangle className="w-3 h-3 flex-shrink-0" /> <span className="truncate" title={String(error)}>{String(error)}</span></span>}
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -227,20 +253,44 @@ export function Field({ label, children, hint, inline = false, mixed = false }) 
 const inputStyle = { backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }
 const inputClass = 'w-full px-2 py-1 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 placeholder:text-stone-600'
 
+// Escape in a field is "cancel this edit": the value goes back to what it was
+// when the field took focus, nothing is committed, and the key stops there so
+// a modal around the field stays open (review round 2: Escape in a take's note
+// closed the takes dialog and dropped the note; in the add dialog it discarded
+// a whole reviewed batch). Enter commits through blur, as before.
+function useEscapeRevert(onChange) {
+  const initialRef = useRef(null)
+  const cancelledRef = useRef(false)
+  const onFocus = (e) => { initialRef.current = e.target.value; cancelledRef.current = false }
+  const cancel = (e) => {
+    e.stopPropagation(); e.preventDefault()
+    cancelledRef.current = true
+    if (initialRef.current != null) onChange?.(initialRef.current)
+    e.currentTarget.blur()
+  }
+  const committing = () => { if (cancelledRef.current) { cancelledRef.current = false; return false } return true }
+  return { onFocus, cancel, committing }
+}
+
 export function TextInput({ value, onChange, onCommit, placeholder, disabled, type = 'text', className = '', autoFocus = false, onKeyDown, style = {}, ...rest }) {
+  const esc = useEscapeRevert(onChange)
   return (
     <input type={type} value={value ?? ''} onChange={e => onChange?.(e.target.value)} placeholder={placeholder} disabled={disabled}
       autoFocus={autoFocus}
-      onBlur={() => onCommit?.()}
-      onKeyDown={e => { if (e.key === 'Enter' && type !== 'textarea') { e.currentTarget.blur() } onKeyDown?.(e) }}
+      onFocus={esc.onFocus}
+      onBlur={() => { if (esc.committing()) onCommit?.() }}
+      onKeyDown={e => { if (e.key === 'Enter' && type !== 'textarea') { e.currentTarget.blur() } else if (e.key === 'Escape') { esc.cancel(e); return } onKeyDown?.(e) }}
       className={`${inputClass} ${className}`} style={{ ...inputStyle, ...style }} {...rest} />
   )
 }
 
 export function TextArea({ value, onChange, onCommit, placeholder, rows = 3, disabled }) {
+  const esc = useEscapeRevert(onChange)
   return (
     <textarea value={value ?? ''} onChange={e => onChange?.(e.target.value)} placeholder={placeholder} rows={rows} disabled={disabled}
-      onBlur={() => onCommit?.()}
+      onFocus={esc.onFocus}
+      onBlur={() => { if (esc.committing()) onCommit?.() }}
+      onKeyDown={e => { if (e.key === 'Escape') esc.cancel(e) }}
       className={`${inputClass} resize-y`} style={inputStyle} />
   )
 }

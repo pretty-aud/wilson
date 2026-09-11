@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
-import { C, Btn, IconBtn, Field, TextInput, TextArea, Select, ColorPicker, MediaTag } from './binUi'
+import { C, Btn, IconBtn, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
@@ -31,13 +31,20 @@ function useDraft(value, key) {
 // right-hand action — never a button inside a button (invalid HTML; React
 // warns and browsers may split the DOM, so the inner click lands on the toggle).
 function Section({ title, children, open = true, onToggle, right = null }) {
+  // A section that cannot collapse has a plain heading, not a button that
+  // does nothing (review round 2: the Marks header was a tab stop with no action).
+  const heading = (
+    <>
+      {onToggle ? (open ? <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />) : null}
+      <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
+    </>
+  )
   return (
     <div style={{ borderBottom: `1px solid ${C.line}` }}>
       <div className="flex items-center gap-1.5 pr-2">
-        <button type="button" onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">
-          {onToggle ? (open ? <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />) : null}
-          <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
-        </button>
+        {onToggle
+          ? <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</button>
+          : <div className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</div>}
         {right}
       </div>
       {open && <div className="px-3 pb-3 flex flex-col gap-2">{children}</div>}
@@ -291,12 +298,17 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
   const mediaRef = useRef(null)
   useEffect(() => { setFailed(null); setPlaying(false) }, [row.id, streamUrl])
 
-  // Space toggles play/pause when the preview is a video or audio.
+  // Space toggles play/pause when the preview is a video or audio — and only
+  // then: never while a modal or menu is up, never when Space is a control's
+  // own activation (review round 2: it paged nothing in the add dialog's list,
+  // cancelled every button's Space, and played the clip behind the backdrop).
   useEffect(() => {
     const onKey = (e) => {
-      if (e.code !== 'Space') return
+      if (e.code !== 'Space' || e.defaultPrevented || e.repeat) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (t && typeof t.closest === 'function' && t.closest('button, a, [role="button"], [role="menuitem"], summary')) return
+      if (overlayOpen()) return
       const m = mediaRef.current
       if (!m) return
       e.preventDefault()

@@ -965,6 +965,18 @@ export default function ScenesView() {
         </div>
       )}
 
+      {/* Bins could not be loaded for the take chips (milestone 2): said here
+          on the page with a retry, not only inside a takes dialog she may
+          never open (review round 2). */}
+      {supportsBins && takesNotice && !takesShotId && !pickerShotId && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[10.5px] font-mono flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917', color: '#f59e0b' }}>
+          <span className="flex-1 truncate">{takesNotice}</span>
+          <button type="button" onClick={() => { setTakesNotice(null); ctxRef.current?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`)) }}
+            className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700" style={{ border: '1px solid #44403c', color: '#d6d3d1' }}>Retry</button>
+          <button type="button" onClick={() => setTakesNotice(null)} className="p-0.5 rounded-sm hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
       {/* ── Body ── */}
       <div className="flex-1 overflow-auto">
         {contentMode === 'shots' ? (

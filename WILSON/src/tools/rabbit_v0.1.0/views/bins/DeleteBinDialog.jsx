@@ -12,7 +12,7 @@ import { Trash2, FolderInput } from 'lucide-react'
 import { C, Btn, Modal, Select } from './binUi'
 import { descendantIds, binPathLabel } from '../../bins/binSelectors'
 
-export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel, busy }) {
+export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel, busy, error = null }) {
   const subtree = useMemo(() => descendantIds(bins, bin.id), [bins, bin.id])
   const childBins = useMemo(() => bins.filter(b => subtree.has(b.id) && b.id !== bin.id), [bins, subtree])
   const inside = useMemo(() => files.filter(f => subtree.has(f.bin_id)), [files, subtree])
@@ -28,7 +28,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
       : `Delete bin and remove ${n} file${n === 1 ? '' : 's'}`
 
   return (
-    <Modal title={`Delete "${bin.name}"`} onClose={onCancel} width={520} busy={busy}
+    <Modal title={`Delete "${bin.name}"`} onClose={onCancel} width={520} busy={busy} error={error}
       subtitle={childBins.length ? `Includes ${childBins.length} nested bin${childBins.length === 1 ? '' : 's'}: ${childBins.map(b => b.name).join(', ')}` : null}
       footer={<>
         <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>

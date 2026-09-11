@@ -96,7 +96,7 @@ export function countsByBin(bins, files) {
 }
 
 export const SORT_FIELDS = [
-  { id: 'sort_order',   label: 'Manual' },
+  { id: 'sort_order',   label: 'Added order' },
   { id: 'display_name', label: 'Name' },
   { id: 'original_name', label: 'File name' },
   { id: 'media_type',   label: 'Type' },

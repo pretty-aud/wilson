@@ -23,8 +23,9 @@ should see; if you see something else, note the step number and what you got.
 1. Open the project and look at the tab strip. → A **Bins** tab sits right
    after **Scenes**. Click it.
 2. You should see three panes: the bin tree on the left ("All files"), an
-   empty page in the middle saying **No bins yet** with five starter buttons,
-   and the inspector on the right. The footer lists the keyboard keys.
+   empty page in the middle saying **No bins yet** with the starter buttons
+   (four; five when the project already has scenes), and the inspector on
+   the right. The footer lists the keyboard keys.
 3. Click **One bin per media type**. → Six bins appear in the tree
    (Footage, Audio, Stills, Graphics, VFX, Selects), each with a colour dot,
    and a green notice "Created 6 bins." Press **Ctrl+Z** on the page. → All
@@ -34,9 +35,10 @@ should see; if you see something else, note the step number and what you got.
 
 4. Click **Footage** in the tree, then **Add ▾ → Folder…** and pick your
    footage folder. → The **Add to "Footage"** dialog lists every file it
-   found: one row per file, a folder of numbered frames as ONE row tagged
-   SEQ, subfolders in the FOLDER column, the type guessed (VID / IMG / AUD /
-   DOC …), the size, and in "From the name" the slate / take / camera it read
+   found: one row per file, a folder of numbered frames as ONE row (a
+   frame-sequence icon and the frame count beside its name), subfolders in
+   the FOLDER column, the type guessed in a dropdown per row (Video / Still /
+   Audio / Document …), the size, and in "From the name" the slate / take / camera it read
    from names like `12A_3_T4_A` or `A001C003_240612` with a tick you can
    untick. The subtitle counts what will be added and how much is referenced
    in place.
@@ -111,8 +113,10 @@ should see; if you see something else, note the step number and what you got.
     click **Summary**, then **Bins** again. → A green notice: "Relinked N
     files from the folders this project knows." (the app remembers every
     folder you added from and looked there). If instead a header count says
-    "N offline" in amber, click it → the **Relink offline files** dialog
-    lists them; click **Choose the folder they moved to…**, pick the renamed
+    "N offline" in amber (the count is this bin's), click it → the **Relink
+    offline files** dialog lists every offline file in the project, and the
+    folders it knows with a **Scan** and a **Forget** for each; click
+    **Choose the folder they moved to…**, pick the renamed
     folder → each file shows its match in green ("→ new path"); a file with
     two same-named candidates shows a chooser; click **Relink N** → "N files
     relinked." and the tiles come back online.

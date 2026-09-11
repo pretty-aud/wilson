@@ -26,7 +26,7 @@ function suggestionText(s) {
   return parts.join(' · ')
 }
 
-export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel, busy, progress }) {
+export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel, busy, progress, error = null }) {
   // A suggestion starts ticked only when the parser read an explicit marker
   // (T4, SH03, a camera clip name, a date): 'high' confidence. A bare "12A"
   // or "4K" is shown but left unticked (adversarial review: ordinary names
@@ -43,6 +43,10 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   const [createSubBins, setCreateSubBins] = useState(true)
 
   const set = (idx, patch) => setItems(list => list.map((it, i) => i === idx ? { ...it, ...patch } : it))
+  // A batch she has worked on (ticks, names, batch fields) is not thrown away
+  // by a stray Escape or a click beside the dialog (review round 2).
+  const dirty = items !== initial || !!(batch.scene_id || batch.shoot_day || batch.camera || batch.roll || batch.tags) || !createSubBins
+  const guardedCancel = () => { if (busy) return; if (!dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')) onCancel() }
   const included = items.filter(i => i.include && i.status === 'ok')
   const dupes = items.filter(i => i.duplicate).length
   const missing = items.filter(i => i.status !== 'ok').length
@@ -68,11 +72,11 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   }
 
   return (
-    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} width={860} busy={busy}
+    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width={860} busy={busy} error={error}
       subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
         {busy && progress && <span className="flex items-center gap-2 text-[10.5px] font-mono mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
-        <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>
+        <Btn onClick={guardedCancel} disabled={busy}>Cancel</Btn>
         <Btn primary onClick={confirm} disabled={busy || included.length === 0}><Check className="w-3 h-3" /> Add {included.length} {included.length === 1 ? 'item' : 'items'}</Btn>
       </>}>
       {plan?.truncated && (

@@ -178,23 +178,44 @@ describe('detectSequence tolerates a few sidecars (adversarial review)', () => {
     for (let i = 1; i <= 20; i++) fs.writeFileSync(path.join(root, 'ok', `shot.${String(i).padStart(4, '0')}.exr`), Buffer.from('x'))
     fs.writeFileSync(path.join(root, 'ok', 'Thumbs.db'), Buffer.from('x'))
     fs.writeFileSync(path.join(root, 'ok', 'render.log'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'three'))
+    for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'three', `shot.${i}.exr`), Buffer.from('x'))
+    for (let i = 1; i <= 3; i++) fs.writeFileSync(path.join(root, 'three', `note${i}.txt`), Buffer.from('x'))
     fs.mkdirSync(path.join(root, 'toomany'))
     for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'toomany', `shot.${i}.exr`), Buffer.from('x'))
-    for (let i = 1; i <= 3; i++) fs.writeFileSync(path.join(root, 'toomany', `note${i}.txt`), Buffer.from('x'))
+    for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'toomany', `note${i}.txt`), Buffer.from('x'))
     fs.mkdirSync(path.join(root, 'onedigit'))
     fs.writeFileSync(path.join(root, 'onedigit', 's.9.exr'), Buffer.from('x'))
     fs.writeFileSync(path.join(root, 'onedigit', 's.10.exr'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'mixedsep'))
+    fs.writeFileSync(path.join(root, 'mixedsep', 'img1.png'), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'mixedsep', 'img_0002.png'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'mixedpad'))
+    fs.writeFileSync(path.join(root, 'mixedpad', 'img1.png'), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'mixedpad', 'img0002.png'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'overflow'))
+    for (const n of ['0998', '0999', '1000']) fs.writeFileSync(path.join(root, 'overflow', `a.${n}.png`), Buffer.from('x'))
   })
   afterAll(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* temp */ } })
   it('two sidecars among twenty frames are set aside and reported', () => {
     const s = server.detectSequence(path.join(root, 'ok'))
     expect(s).toMatchObject({ frame_count: 20, sidecars: 2, pattern: 'shot.####.exr' })
   })
-  it('three notes beside four frames is a folder, not a sequence', () => {
+  it('three sidecars (Thumbs.db, a log, an .md5) are tolerated whatever the size; four beside four frames is a folder', () => {
+    expect(server.detectSequence(path.join(root, 'three'))).toMatchObject({ frame_count: 4, sidecars: 3 })
     expect(server.detectSequence(path.join(root, 'toomany'))).toBeNull()
   })
   it('single-digit frame numbers count', () => {
     expect(server.detectSequence(path.join(root, 'onedigit'))).toMatchObject({ frame_count: 2, first_frame: 9, last_frame: 10 })
+  })
+  // Review round 2: `img1.png` beside `img_0002.png` was accepted as one
+  // sequence and reported as `img#.png`, a pattern matching neither file.
+  it('a different separator or a different zero padding is another series, not a sequence', () => {
+    expect(server.detectSequence(path.join(root, 'mixedsep'))).toBeNull()
+    expect(server.detectSequence(path.join(root, 'mixedpad'))).toBeNull()
+  })
+  it('a padded series may outgrow its padding', () => {
+    expect(server.detectSequence(path.join(root, 'overflow'))).toMatchObject({ frame_count: 3, first_frame: 998, last_frame: 1000, pattern: 'a.####.png' })
   })
 })
 

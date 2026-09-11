@@ -106,9 +106,13 @@ export default function ShotTakesPanel({
                   <NoteInput take={take} canWrite={canWrite} onUpdate={onUpdate} />
                 </div>
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <Select value={take.role} disabled={!canWrite} className="!w-24 !py-0.5 !text-[10px]"
-                    options={TAKE_ROLES.map(r => ({ value: r, label: TAKE_ROLE_META[r].label }))}
-                    onChange={v => v && v !== take.role && onUpdate(take.id, { role: v })} />
+                  {/* A shot's only take is always its primary (the server keeps it so); the
+                      choice is offered once there is a second take (review round 2). */}
+                  <span title={list.length === 1 ? 'A shot’s only take is always its primary. Add a second take to choose roles.' : undefined}>
+                    <Select value={take.role} disabled={!canWrite || list.length === 1} className="!w-24 !py-0.5 !text-[10px]"
+                      options={TAKE_ROLES.map(r => ({ value: r, label: TAKE_ROLE_META[r].label }))}
+                      onChange={v => v && v !== take.role && onUpdate(take.id, { role: v })} />
+                  </span>
                   <div className="flex items-center gap-0.5">
                     <IconBtn Icon={ArrowUp} title="Move up" size={3} disabled={!canWrite || i === 0} onClick={() => move(i, -1)} />
                     <IconBtn Icon={ArrowDown} title="Move down" size={3} disabled={!canWrite || i === list.length - 1} onClick={() => move(i, 1)} />

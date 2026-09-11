@@ -21,12 +21,20 @@ async function jfetch(url, init) {
     const res = await fetch(url, init);
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
+      let code = null;
       try {
         const body = await res.json();
         if (body?.error) msg = body.error;
+        if (body?.code) code = String(body.code);
       } catch { /* ignore */ }
       lastError = msg;
-      throw new Error(`[localServer] ${msg}`);
+      // The status and the route's `code` ride on the error (review round 2:
+      // a caller branching on "offline" had only the sentence to read, and
+      // the sentence does not contain the word).
+      const err = new Error(`[localServer] ${msg}`);
+      err.status = res.status;
+      if (code) err.code = code;
+      throw err;
     }
     lastError  = null;
     lastSyncAt = new Date();
@@ -601,9 +609,11 @@ export function localServerAdapter() {
     prepareBinFiles: (projectId, paths, opts = {}) => jfetch(`${BASE}/projects/${projectId}/bins/prepare`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths, ...opts }),
     }),
-    addBinFiles: (projectId, binId, items, createSubBins = true) =>
+    // roots (optional): the folders the batch was picked or dropped from, as
+    // `prepare` reported them — the server records those as the known roots.
+    addBinFiles: (projectId, binId, items, createSubBins = true, roots = null) =>
       jfetch(`${BASE}/projects/${projectId}/bins/${binId}/files`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, createSubBins }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, createSubBins, ...(roots ? { roots } : {}) }),
       }),
     updateBinFile: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
@@ -621,11 +631,9 @@ export function localServerAdapter() {
     removeBinFiles: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/bin-files/remove`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
     }),
+    // → { restored, skipped: [{ id, reason }], affectedShotIds, shotTakes, orphanTakes }
     restoreBinFiles: (projectId, rows) => jfetch(`${BASE}/projects/${projectId}/bin-files/restore`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
-    }),
-    reorderBinFiles: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/bin-files/reorder`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
     }),
     probeBinFile: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/probe`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
@@ -648,9 +656,7 @@ export function localServerAdapter() {
     binRelinkApply: (projectId, mappings) => jfetch(`${BASE}/projects/${projectId}/bins/relink-apply`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings }),
     }),
-    addBinRoot: (projectId, path, label) => jfetch(`${BASE}/projects/${projectId}/bins/roots`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, label }),
-    }),
+    // Roots are recorded by the pick and add routes; this forgets one.
     removeBinRoot: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bins/roots/${id}`, { method: 'DELETE' }),
 
     // Shot takes (milestone 2): bin files assigned to shots, many-to-many.

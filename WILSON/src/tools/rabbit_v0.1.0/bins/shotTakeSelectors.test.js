@@ -81,6 +81,16 @@ describe('joins', () => {
     expect(usageCounts(takes, shots).get('f1')).toBe(2)
     expect(usageCounts(takes, shots).has('f3')).toBe(false)
   })
+  it('usageByFile with the files presents roles the way the Scenes chips do (review round 2)', () => {
+    // sh1: f1 primary, f2 alt. With f1's file gone (an optimistic removal),
+    // the chips promote f2; the inspector must say the same.
+    const files = [{ id: 'f2' }, { id: 'f3' }]
+    const u = usageByFile(takes, shots, scenes, files)
+    expect(u.has('f1')).toBe(false)
+    expect(u.get('f2').map(x => `${x.shot.id}/${x.take.role}/${x.take.position}`)).toEqual(['sh1/primary/0'])
+    // The state rows were not touched.
+    expect(takes.find(t => t.bin_file_id === 'f2' && t.shot_id === 'sh1').role).toBe('alt')
+  })
 })
 
 describe('pickers', () => {

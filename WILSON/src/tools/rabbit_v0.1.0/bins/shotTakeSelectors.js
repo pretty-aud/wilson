@@ -72,16 +72,28 @@ export function takesSummary(entries) {
   }
 }
 
-/** Map fileId → [{ take, shot, scene }] — where a bin file is used, in scene / shot order. */
-export function usageByFile(shotTakes, shots, scenes) {
+/**
+ * Map fileId → [{ take, shot, scene }] — where a bin file is used, in scene /
+ * shot order. With `binFiles` given, each shot's takes are PRESENTED first
+ * (takesByShot: live files only, one primary, positions 0..n-1) so the role
+ * chip beside a shot in the bin inspector says what the Scenes chips say
+ * (review round 2: it read the raw role, so while a removal was still
+ * optimistic the two panes disagreed about which take was primary).
+ */
+export function usageByFile(shotTakes, shots, scenes, binFiles = null) {
   const shotsById = new Map((shots || []).map(s => [s.id, s]))
   const scenesById = new Map((scenes || []).map(s => [s.id, s]))
   const out = new Map()
-  for (const take of shotTakes || []) {
+  const add = (take) => {
     const shot = shotsById.get(take.shot_id)
-    if (!shot) continue
+    if (!shot) return
     if (!out.has(take.bin_file_id)) out.set(take.bin_file_id, [])
     out.get(take.bin_file_id).push({ take, shot, scene: shot.scene_id ? scenesById.get(shot.scene_id) || null : null })
+  }
+  if (binFiles) {
+    for (const entries of takesByShot(shotTakes, binFiles).values()) for (const e of entries) add(e.take)
+  } else {
+    for (const take of shotTakes || []) add(take)
   }
   const order = (a, b) => (a.scene?.scene_number ?? 9999) - (b.scene?.scene_number ?? 9999) || (a.shot.shot_number ?? 0) - (b.shot.shot_number ?? 0)
   for (const list of out.values()) list.sort(order)

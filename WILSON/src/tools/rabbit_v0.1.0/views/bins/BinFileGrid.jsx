@@ -25,7 +25,10 @@ export default function BinFileGrid({
   return (
     <div className="flex-1 min-h-0 overflow-auto p-3" style={{ backgroundColor: C.bg }}>
       {rows.length === 0 && <div className="px-2 py-6 text-[11px] font-mono" style={{ color: C.dimmer }}>Nothing matches.</div>}
-      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tileWidth}px, 1fr))` }}>
+      {/* data-bin-grid: the keyboard handler reads the REAL column count from
+          this element's computed grid (review round 2: a formula guessed it and
+          the cursor drifted diagonally at some pane widths). */}
+      <div className="grid gap-3" data-bin-grid="" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tileWidth}px, 1fr))` }}>
         {rows.map(row => (
           <Tile key={row.id} row={row} selected={selection.has(row.id)} current={currentId === row.id}
             innerRef={currentId === row.id ? currentRef : null}
