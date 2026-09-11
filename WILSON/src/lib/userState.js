@@ -45,6 +45,7 @@
 // =============================================================================
 
 import { supabase } from '../cloud/auth/supabaseClient'
+import { devFixtures } from '../dev/devFixtures'
 import { loadPet as loadLocalPet, savePetData as saveLocalPetData,
          loadOtterSettings, saveOtterSettings,
          loadAgentSkills, saveAgentSkills } from './localData'
@@ -164,6 +165,9 @@ export function isRealPet(pet) {
 
 /** Reads the signed-in user's pet. Returns null when they have no row yet. */
 export async function fetchCloudPet() {
+  // Dev fixtures (2026-09-11, dev builds only): the "cloud" copy is the in-memory dataset.
+  const fx = import.meta.env.DEV ? devFixtures() : null
+  if (fx?.userState) return fx.userState.getPet()
   const { data, error } = await supabase
     .from(PET_TABLE).select(PET_SELECT).maybeSingle()
   if (error) throw new Error(`[supabase] ${error.message}`)
@@ -182,6 +186,8 @@ export async function fetchCloudPet() {
  * cannot file a pet against somebody else even if it tried.
  */
 export async function saveCloudPet(pet) {
+  const fx = import.meta.env.DEV ? devFixtures() : null
+  if (fx?.userState) { fx.userState.setPet(pet); return }
   const row = toPetRow(pet)
   const { data, error } = await supabase
     .from(PET_TABLE)
@@ -194,6 +200,8 @@ export async function saveCloudPet(pet) {
 }
 
 export async function fetchCloudSettings() {
+  const fx = import.meta.env.DEV ? devFixtures() : null
+  if (fx?.userState) return fx.userState.getSettings()
   const { data, error } = await supabase
     .from(SETTINGS_TABLE).select('prompts,agent_prompt_overrides').maybeSingle()
   if (error) throw new Error(`[supabase] ${error.message}`)
@@ -211,6 +219,8 @@ export async function saveCloudSettings({ prompts, agentPromptOverrides }) {
   if (prompts !== undefined) row.prompts = prompts ?? {}
   if (agentPromptOverrides !== undefined) row.agent_prompt_overrides = agentPromptOverrides ?? {}
   if (Object.keys(row).length === 0) return
+  const fx = import.meta.env.DEV ? devFixtures() : null
+  if (fx?.userState) { fx.userState.setSettings({ prompts, agentPromptOverrides }); return }
   const { data, error } = await supabase
     .from(SETTINGS_TABLE)
     .upsert(row, { onConflict: 'user_id' })

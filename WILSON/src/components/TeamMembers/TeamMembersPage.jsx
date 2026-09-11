@@ -68,6 +68,7 @@ import PermissionGate from '../../permissions/PermissionGate'
 import InviteMemberDialog from '../../cloud/auth/InviteMemberDialog'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { supabase } from '../../cloud/auth/supabaseClient'
+import { devFixtures } from '../../dev/devFixtures'
 import { adminSetActive, isMissingFunction } from '../../cloud/adminApi'
 import { loadOtterSettings } from '../../lib/localData'
 
@@ -194,10 +195,14 @@ export default function TeamMembersPage() {
     const load = async () => {
       const seq = ++assignSeqRef.current
       try {
-        const { data, error } = await supabase
-          .from('project_members')
-          .select('user_id, project_id, projects(title, deleted_at)')
-          .eq('workspace_id', wm.workspaceId)
+        // Dev fixtures (dev builds only): the dataset's roster, same row shape.
+        const fx = import.meta.env.DEV ? devFixtures() : null
+        const { data, error } = fx?.workspace
+          ? fx.workspace.listProjectMemberships()
+          : await supabase
+            .from('project_members')
+            .select('user_id, project_id, projects(title, deleted_at)')
+            .eq('workspace_id', wm.workspaceId)
         if (!assignMountedRef.current || seq !== assignSeqRef.current) return
         if (error) { setAssignments(new Map()); return }
         const map = new Map()

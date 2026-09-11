@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
+import { devFixtures } from '../../dev/devFixtures'
 
 // Only render avatar images served from OUR storage bucket. avatar_url is
 // member-writable text — an arbitrary external URL rendered to teammates
@@ -31,6 +32,9 @@ import { usePermissions } from '../../permissions/usePermissions'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const AVATAR_URL_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/user-avatars/`
 export function isOwnAvatarUrl(url) {
+  // Dev fixtures (dev builds only): the dataset's avatars are generated SVG data
+  // URIs. A data URI cannot beacon, so the tracking concern above does not apply.
+  if (import.meta.env.DEV && devFixtures() && typeof url === 'string' && url.startsWith('data:image/svg+xml')) return true
   return typeof url === 'string' && !!SUPABASE_URL && url.startsWith(AVATAR_URL_PREFIX)
 }
 
@@ -69,6 +73,12 @@ export function useWorkspaceMembers() {
     setLoading(true)
     setError(null)
     try {
+      // Dev fixtures (2026-09-11, dev builds only): the roster is the dataset's.
+      const fx = import.meta.env.DEV ? devFixtures() : null
+      if (fx?.workspace) {
+        if (mountedRef.current) setMembers(sortMembers(fx.workspace.listMembers()))
+        return
+      }
       let rows = null
       const { data, error: rpcErr } = await supabase.rpc('workspace_directory')
       if (rpcErr) {
@@ -107,13 +117,17 @@ export function useWorkspaceMembers() {
     setMembers(prev => prev.map(m => m.user_id === userId ? { ...m, ...patch } : m))
     setError(null)
     try {
-      const { data, error: updErr } = await supabase
-        .from('workspace_members')
-        .update(patch)
-        .eq('workspace_id', workspaceId)
-        .eq('user_id', userId)
-        .select()
-        .maybeSingle()
+      // Dev fixtures (dev builds only): the edit lands in memory, same answer shape.
+      const fx = import.meta.env.DEV ? devFixtures() : null
+      const { data, error: updErr } = fx?.workspace
+        ? fx.workspace.updateMember(userId, patch)
+        : await supabase
+          .from('workspace_members')
+          .update(patch)
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', userId)
+          .select()
+          .maybeSingle()
       if (updErr) throw updErr
       if (!data) throw new Error('Update was blocked — you may not have permission to edit this member.')
       if (mountedRef.current) {

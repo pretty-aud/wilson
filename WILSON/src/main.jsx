@@ -19,6 +19,7 @@ import { initSentry } from './cloud/sentry'
 // newer of the two.
 import { initUserModelPrefs } from './lib/userModelPrefs'
 import { hydrateModelSourcesFromCache } from './lib/modelSources'
+import { devFixturesConfigured } from './dev/devFixtures'
 
 initUserModelPrefs()
 hydrateModelSourcesFromCache()
@@ -36,8 +37,24 @@ initSentry().then((ready) => {
   }
 })
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
+function render() {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  )
+}
+
+// Dev fixtures (2026-09-11, dev builds only). With VITE_DEV_FIXTURES=1 in
+// .env.local the fake dataset is loaded BEFORE the first render, so that
+// RabbitProvider's boot finds it installed and selectAdapter() stays
+// synchronous. The dynamic import sits behind `import.meta.env.DEV &&`, a
+// build-time constant: `vite build` takes the else-branch only and emits no
+// chunk for src/dev/fixtures (src/dev/devFixtures.test.js greps dist/).
+if (import.meta.env.DEV && devFixturesConfigured()) {
+  import('./dev/fixtures/install.js')
+    .catch((err) => { console.error('[wilson] dev fixtures failed to load — booting without them:', err) })
+    .then(render)
+} else {
+  render()
+}

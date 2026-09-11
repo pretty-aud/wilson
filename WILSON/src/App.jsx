@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
+import DevFixturesBadge from './dev/DevFixturesBadge'
 import { PageHeader, IconButton, ToastProvider } from './ui'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
@@ -1931,6 +1932,10 @@ export default function App() {
     <ToastProvider>
     <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
+      {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —
+          `import.meta.env.DEV` is a build-time constant, so `vite build` drops
+          the element and the import with it. */}
+      {import.meta.env.DEV && <DevFixturesBadge />}
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 

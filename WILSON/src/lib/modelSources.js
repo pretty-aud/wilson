@@ -46,6 +46,7 @@
 // =============================================================================
 
 import { supabase } from '../cloud/auth/supabaseClient'
+import { devFixtures } from '../dev/devFixtures'
 import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 import { BY_KEY, isWellFormedModelId } from './aiModels'
 import { updateModelSource, markModelSourcesLoaded, setPlatformEffort } from './activeModel'
@@ -128,6 +129,9 @@ export function hydrateModelSourcesFromCache() {
  * @returns {Promise<{ok: boolean, error: string|null}>}
  */
 export async function loadModelSources() {
+  // Dev fixtures (2026-09-11, dev builds only): the cached tiers (hydrated in
+  // main.jsx) stand; no read leaves for Supabase.
+  if (import.meta.env.DEV && devFixtures()) return { ok: true, error: null }
   const results = { user: null, workspace: null, platform: null }
   let firstError = null
 

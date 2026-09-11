@@ -18,6 +18,7 @@
 import { supabaseAdapter }    from './supabaseAdapter';
 import { localServerAdapter } from './localServerAdapter';
 import { googleDriveAdapter } from './googleDriveAdapter';
+import { devFixtures } from '../../../dev/devFixtures';
 
 /**
  * @typedef {Object} ProjectIndexEntry
@@ -269,6 +270,14 @@ const ADAPTERS = {
  * @returns {RabbitAdapter}
  */
 export function selectAdapter(mode) {
+  // Dev fixtures (2026-09-11, dev builds only): with VITE_DEV_FIXTURES=1 the
+  // cloud slot is served by the in-memory fixtures adapter (src/dev/fixtures),
+  // so `adapterMode` stays 'supabase' and every `=== 'supabase'` gate in the
+  // provider, the Dashboard, the Projects page and the drawers opens onto
+  // fake data. `import.meta.env.DEV` is a build-time constant: `vite build`
+  // has no such branch (src/dev/devFixtures.test.js pins the shape).
+  const fx = import.meta.env.DEV && mode === 'supabase' ? devFixtures() : null;
+  if (fx?.rabbitAdapter) return fx.rabbitAdapter();
   const factory = ADAPTERS[mode];
   if (!factory) {
     throw new Error(
@@ -288,5 +297,6 @@ export const ADAPTER_MODES = Object.keys(ADAPTERS);
  * mutator UI when running against a read-only backend.
  */
 export function adapterSupportsWrites(mode) {
-  return mode === 'supabase' || mode === 'local_server';
+  return mode === 'supabase' || mode === 'local_server'
+    || (import.meta.env.DEV && mode === 'fixtures'); // the dev fixtures adapter reports mode 'fixtures'
 }

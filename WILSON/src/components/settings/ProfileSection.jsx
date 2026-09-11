@@ -26,6 +26,7 @@ import { loadOtterSettings } from '../../lib/localData'
 import './settings.css'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button, Input, Select } from '../../ui'
+import { devFixtures } from '../../dev/devFixtures'
 
 const AVATAR_BUCKET = 'user-avatars'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2 MB — mirrors the bucket's file_size_limit
@@ -63,6 +64,22 @@ export default function ProfileSection({ onSaved }) {
     if (!perms.userId || !perms.workspaceId) {
       // Signed out / local-only mode: nothing to load — show the no-profile
       // state instead of spinning forever.
+      setLoading(false)
+      return
+    }
+    // Dev fixtures (2026-09-11, dev builds only): the reviewer's own row and
+    // email come from the dataset; nothing is read from Supabase.
+    const fx = import.meta.env.DEV ? devFixtures() : null
+    if (fx?.workspace) {
+      const member = fx.workspace.getMember(perms.userId)
+      if (member) {
+        setRow(member)
+        setDisplayName(member.display_name || '')
+        setPronouns(member.pronouns || '')
+        setTitle(member.title || '')
+        setDepartment(member.department || '')
+      }
+      setEmail(fx.profile?.email || '')
       setLoading(false)
       return
     }

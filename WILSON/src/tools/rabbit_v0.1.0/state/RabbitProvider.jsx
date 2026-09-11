@@ -51,6 +51,7 @@ import {
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
+import { devFixtures } from '../../../dev/devFixtures';
 import { probeInBrowser } from '../bins/binProbeFallback';
 import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
 
@@ -325,7 +326,11 @@ export function RabbitProvider({ children }) {
       // Session 12: in a browser there is no local Express server and no
       // Drive bridge — supabase is the only adapter that can work, whatever
       // a carried-over settings value says.
-      const mode = !hasLocalServer()
+      // Dev fixtures (2026-09-11, dev builds only): the cloud slot is the in-memory
+      // dataset (adapters/index.js selectAdapter), whatever a carried-over
+      // settings value says — so the fixtures apply in Electron dev too.
+      const mode = (import.meta.env.DEV && devFixtures()) ? 'supabase'
+        : !hasLocalServer()
         ? 'supabase'
         : (ADAPTER_MODES.includes(settings.adapterMode) ? settings.adapterMode : DEFAULT_ADAPTER_MODE);
       if (cancelled) return;
@@ -518,7 +523,8 @@ export function RabbitProvider({ children }) {
         adapterRef.current.listProjectMembers(activeProjectId),
       ]);
       if (!rosterMountedRef.current || seq !== rosterReqSeqRef.current) return;
-      setAuthUserId(sess?.session?.user?.id ?? null);
+      // Dev fixtures (dev builds only): there is no session; the reviewer's id is the dataset's.
+      setAuthUserId(sess?.session?.user?.id ?? (import.meta.env.DEV ? (devFixtures()?.permissions?.userId ?? null) : null));
       setProjectMembers(Array.isArray(rows) ? rows : []);
     } catch {
       if (rosterMountedRef.current && seq === rosterReqSeqRef.current) setProjectMembers([]);
@@ -3481,7 +3487,9 @@ export function RabbitProvider({ children }) {
     // and for the same reason: the adapter methods exist on local_server
     // only, and the picker dialogs and dropped-file paths need the desktop.
     supportsBins:
-      adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit,
+      (adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit)
+      // Dev fixtures (dev builds only): the Bins tab opens on the dataset's bins.
+      || (import.meta.env.DEV && !!devFixtures()?.bins),
     binsInfo,
     refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
