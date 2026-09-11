@@ -229,3 +229,106 @@ describe('W9: deleting a note asks in the app, not in Windows', () => {
     expect(document.querySelector('.ui-dialog')).toBeNull()
   })
 })
+
+describe('🚨 review round 2: Escape must not write, in the case that actually hurts', () => {
+  // Round 1 found that Escape on the date field issued a PATCH. The first fix
+  // compared the incoming value against the PERSISTED one — which works only
+  // while nothing has changed. `patchNoteMeta` is optimistic, so after one
+  // real pick the persisted value has already moved and the revert sails
+  // through, writing the OLD date back over the new one. These tests change
+  // the value FIRST, which is what the round 1 test never did.
+  it('a pick followed by Escape writes ONCE — Escape does not undo the pick', () => {
+    // 🚨 The re-render is the whole point. `patchNoteMeta` is OPTIMISTIC
+    // (useNotes.js:86 updates the list before the network call), so by the
+    // time Escape reverts, the component is already showing the new date —
+    // and a guard that compares the revert against the PERSISTED value no
+    // longer matches it and lets the old value through. A test that does not
+    // re-render keeps the stale closure and passes against the broken code,
+    // which is exactly what the first cut of this test did.
+    const state = { current: note() }
+    nb.current = hook({
+      notes: [state.current],
+      patchNoteMeta: vi.fn(async (id, patch) => { state.current = { ...state.current, ...patch } }),
+    })
+    const { rerender } = render(<NotesView />)
+    fireEvent.click(screen.getByText('Fox rig notes'))
+    const date = document.querySelector('input[type="date"]')
+    nb.current.patchNoteMeta.mockClear()
+
+    fireEvent.focus(date)
+    fireEvent.change(date, { target: { value: '2026-10-02' } })   // a real pick
+    nb.current = { ...nb.current, notes: [state.current] }        // the optimistic update lands
+    rerender(<NotesView />)
+    fireEvent.keyDown(date, { key: 'Escape' })                     // dismiss the picker
+
+    const writes = nb.current.patchNoteMeta.mock.calls.map((c) => c[1].note_date)
+    expect(writes, 'the revert must not reach the database').toEqual(['2026-10-02'])
+  })
+
+  it('the same value can be sent again — a retry after a failed write is not swallowed', () => {
+    // The row and the database disagree after a failure, so the "same" value
+    // is exactly the one that needs sending (round 2, finding 2).
+    nb.current = hook({ patchNoteMeta: vi.fn(async () => { throw new Error('nope') }) })
+    render(<NotesView />)
+    fireEvent.click(screen.getByText('Fox rig notes'))
+    const date = document.querySelector('input[type="date"]')
+    nb.current.patchNoteMeta.mockClear()
+    fireEvent.change(date, { target: { value: '2026-10-02' } })
+    fireEvent.change(date, { target: { value: '2026-10-02' } })
+    expect(nb.current.patchNoteMeta).toHaveBeenCalledTimes(2)
+  })
+
+  it('any other key clears the guard, so a stray Escape cannot swallow a later pick', () => {
+    const { container } = openFirstNote()
+    const date = container.querySelector('input[type="date"]')
+    nb.current.patchNoteMeta.mockClear()
+    fireEvent.keyDown(date, { key: 'Escape' })
+    fireEvent.keyDown(date, { key: 'ArrowUp' })
+    fireEvent.change(date, { target: { value: '2026-11-01' } })
+    expect(nb.current.patchNoteMeta).toHaveBeenCalledWith('n1', { note_date: '2026-11-01' })
+  })
+
+  it('🚨 Escape on the note TITLE cancels the debounced write instead of making one', async () => {
+    vi.useFakeTimers()
+    try {
+      const { container } = openFirstNote()
+      const title = container.querySelector('.dash-note-title')
+      nb.current.patchNoteMeta.mockClear()
+      fireEvent.focus(title)
+      fireEvent.change(title, { target: { value: 'Fox rig notes v2' } })
+      fireEvent.keyDown(title, { key: 'Escape' })
+      // `onCommit` is correctly skipped on Escape, but the 500ms debounce the
+      // revert re-armed was not: it turned "nothing written" into one write.
+      vi.advanceTimersByTime(2000)
+      expect(nb.current.patchNoteMeta).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('…and a real title edit still commits after the debounce', async () => {
+    vi.useFakeTimers()
+    try {
+      const { container } = openFirstNote()
+      const title = container.querySelector('.dash-note-title')
+      nb.current.patchNoteMeta.mockClear()
+      fireEvent.change(title, { target: { value: 'Fox rig notes v2' } })
+      vi.advanceTimersByTime(600)
+      expect(nb.current.patchNoteMeta).toHaveBeenCalledWith('n1', { title: 'Fox rig notes v2' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('Escape closes the rename row from anywhere in the subjects panel, including the new-subject field', () => {
+    const { container } = mount()
+    fireEvent.click(screen.getByTitle('Manage subjects'))
+    fireEvent.click(screen.getAllByTitle('Rename')[0])
+    expect(container.querySelector('input[aria-label="Rename Rigging"]')).not.toBeNull()
+    // Round 2, finding 7: this used to be a per-row handler, so Escape in the
+    // "new subject" field closed nothing while Escape on another row's delete
+    // button closed this one.
+    fireEvent.keyDown(container.querySelector('input[aria-label="New subject"]'), { key: 'Escape' })
+    expect(container.querySelector('input[aria-label="Rename Rigging"]')).toBeNull()
+  })
+})

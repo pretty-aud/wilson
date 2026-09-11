@@ -410,8 +410,13 @@ export default function DashboardTasksView() {
 
       {/* W9, ruled 2026-09-11: "convert the four native confirm pop-ups",
           extended to every `window.confirm` in the app, each lane converting
-          its own as it passes. The copy is the confirm's, word for word, so
-          the only thing that changed is which surface asks. */}
+          its own as it passes.
+          The confirm said: 'Delete this task? (30-day trash, admins can
+          restore)'. The question is kept word for word as the title; the
+          PARENTHETICAL is expanded into a sentence, because a dialog body is
+          not a place for a parenthetical. Both of its facts survive and the
+          test pins both. (The note dialog next door really IS word for word —
+          this one is not, and an earlier comment here claimed it was.) */}
       {confirmDeleteId && (
         <Dialog
           width="confirm"

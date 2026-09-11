@@ -142,16 +142,31 @@ describe('the state extraction left no inline branch behind', () => {
     // <tr> is painted straight over and the drag target goes silent. Dropping
     // "> .ui-td" from this selector kept the looser regex green (review round
     // 1, finding 13a). The interaction half is in DashboardTasksView.test.jsx.
-    expect(code(dashboardCss)).toMatch(/\.dash-group-row\[data-dragover="true"\]\s*>\s*\.ui-td/)
-    expect(code(dashboardCss)).toMatch(/\.dash-kanban-col\[data-dragover="true"\]/)
+    // 🚨 Assert the DECLARATION, not the selector. Round 2 mutated the fill to
+    // `transparent`, and to a property nothing paints, and the old
+    // selector-only regexes stayed green with no drag feedback anywhere.
+    expect(code(dashboardCss)).toMatch(
+      /\.dash-group-row\[data-dragover="true"\]\s*>\s*\.ui-td\s*\{[^}]*background-color:\s*var\(--color-signal-tint\)/,
+    )
+    expect(code(dashboardCss)).toMatch(
+      /\.dash-kanban-col\[data-dragover="true"\]\s*\{[^}]*background-color:\s*var\(--color-signal-tint\)[^}]*box-shadow:\s*inset[^}]*var\(--color-signal\)/,
+    )
   })
 
-  it('🚨 no page rule that targets a kit element merely TIES the kit', () => {
+  it('🚨 every page rule that targets a kit element carries more than one unit', () => {
     // MEASURED in the running app: the sheet order is settings.css, then
     // dashboard.css, then index.css — so this file is emitted BEFORE the kit
     // and, both being in `@layer components`, it loses every specificity tie.
     // A page rule that only ties is a page rule that does nothing, and the
     // failure is silent (review round 1, finding 5).
+    //
+    // 🚨 THIS IS A FLOOR, NOT A PROOF OF WINNING. It counts units on the PAGE
+    // side only, so it cannot see that the kit's own hazardous rules carry
+    // pseudo-classes: `.ui-iconbtn:hover:not(:disabled)` is (0,3,0), which a
+    // three-unit page rule only ties — and a tie loses here. Round 2 found
+    // exactly that on `.dash-tb-quiet`, with this assertion green. When you
+    // add a page rule, look up the kit rule you are overriding and count that
+    // one too; the next test pins the one instance we know about.
     const weak = []
     for (const block of code(dashboardCss).split('}')) {
       const head = block.split('{')[0]
@@ -166,6 +181,16 @@ describe('the state extraction left no inline branch behind', () => {
       }
     }
     expect(weak).toEqual([])
+  })
+
+  it('🚨 the quiet format button beats the kit ON HOVER, not only at rest', () => {
+    // The specific tie round 2 found. `.ui-iconbtn:hover:not(:disabled)` is
+    // (0,3,0); the rest-state page rule was (0,3,0) too, so the kit won and
+    // Remove link stopped receding the moment the pointer reached it — the
+    // one state in which the user is about to act on it.
+    expect(code(dashboardCss)).toMatch(
+      /\.dash-format-bar\s+\.ui-iconbtn\.dash-tb-quiet:hover:not\(:disabled\)/,
+    )
   })
 })
 

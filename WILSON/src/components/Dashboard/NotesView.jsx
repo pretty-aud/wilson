@@ -69,6 +69,36 @@ const GROUPS = [
   { value: 'month', label: 'By month' },
 ]
 
+/**
+ * "Did Escape just cause this change?"
+ *
+ * 🚨 THE VALUE CANNOT ANSWER THAT QUESTION, AND AN EARLIER FIX HERE ASSUMED
+ * IT COULD. The kit's `Input` reverts by CALLING `onChange` with the value
+ * the field held ON FOCUS (Input.jsx:26,30), so on a field whose `onChange`
+ * writes, Escape is a write. Comparing the incoming value against the
+ * PERSISTED one looks like it would catch that — and it does, right up until
+ * the user actually changes something: `patchNoteMeta` is optimistic
+ * (useNotes.js:86 updates the list before the network call), so after one
+ * real pick the persisted value has already moved, the revert no longer
+ * matches it, and Escape writes the OLD value back over the new one. On a
+ * surface with no trash and no history. The same comparison also swallowed a
+ * legitimate retry after a failed write, because then the row and the
+ * database disagree and the "same" value is exactly the one that needs
+ * sending (review round 2, findings 1 and 2).
+ *
+ * The key itself is the only reliable signal. `onKeyDownCapture` goes on the
+ * Input, where it lands on the same element and React runs it before the
+ * kit's own bubble handler; any other key clears the flag, so a stray Escape
+ * elsewhere cannot swallow a later change.
+ */
+function useEscapeGuard() {
+  const hit = useRef(false)
+  return {
+    onKeyDownCapture: (e) => { hit.current = e.key === 'Escape' },
+    swallowed: () => { const was = hit.current; hit.current = false; return was },
+  }
+}
+
 function fmtDate(d) {
   if (!d) return ''
   const dt = new Date(`${d}T00:00:00`)
@@ -347,7 +377,22 @@ function SubjectManager({ nb }) {
   }, [draft, nb])
 
   return (
-    <div className="dash-subjects">
+    // 🚨 `onKeyDownCapture`, and on the PANEL rather than on each row. The
+    // kit's Input handles Escape itself, calls `stopPropagation()` and
+    // RETURNS before the caller's onKeyDown (Input.jsx:68-72), so a bubbling
+    // handler never runs. The rename row had an Escape exit before it moved
+    // to the kit Input and lost it — and it was the row's only exit besides
+    // Enter and the tick, so losing it made the row a dead end (review round
+    // 1, finding 1). It sits here rather than on each row because per-row
+    // handlers meant Escape on row three closed row one's rename while Escape
+    // in the "new subject" field closed nothing (round 2, finding 7).
+    //
+    // One press closes it, which is what it did before the kit and is
+    // therefore what C1 requires. Ruling W2 — "Escape inside a DIALOG field
+    // reverts the edit first, closes on the second press" — governs a field
+    // inside a `Dialog`; this is an inline row and neither it nor the link
+    // panel is one.
+    <div className="dash-subjects" onKeyDownCapture={e => { if (e.key === 'Escape') setRenaming(null) }}>
       <div className="dash-subjects-head">Your subjects</div>
       {nb.subjects.length === 0 && (
         <span className="dash-subjects-empty">None yet — add one below.</span>
@@ -358,8 +403,7 @@ function SubjectManager({ nb }) {
         // caller's onKeyDown (Input.jsx:68-72), so a bubbling handler here
         // never runs. The rename row had an Escape exit before it moved to the
         // kit Input and lost it — and it is the row's only exit besides Enter
-        // and the tick, so losing it made it a dead end (R1 finding 1).
-        <div key={s.id} className="dash-subject-row" onKeyDownCapture={e => { if (e.key === 'Escape') setRenaming(null) }}>
+        <div key={s.id} className="dash-subject-row">
           {renaming?.id === s.id ? (
             <>
               <Input
@@ -578,6 +622,8 @@ function NoteEditor({ note, nb, onDelete }) {
   // is sufficient.
   const [titleDraft, setTitleDraft] = useState(note.title || '')
   const titleTimerRef = useRef(null)
+  const titleEsc = useEscapeGuard()
+  const dateEsc = useEscapeGuard()
   const commitTitle = useCallback((value) => {
     if (titleTimerRef.current) { clearTimeout(titleTimerRef.current); titleTimerRef.current = null }
     if (value !== note.title) {
@@ -587,7 +633,15 @@ function NoteEditor({ note, nb, onDelete }) {
   const onTitleChange = useCallback((value) => {
     const v = value.slice(0, 200)
     setTitleDraft(v)
+    // Escape cancels a pending write as well as declining to make a new one.
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
+    // 🚨 `onCommit` is correctly skipped on Escape — but the kit's cancel
+    // path calls `onChange`, and this one SCHEDULES a write, so the PATCH
+    // arrived through the other door and the comment on `onCommit` below was
+    // asserting an invariant this field did not have. Escape turned "nothing
+    // written" into one write of the focus-time title (review round 2,
+    // finding 3). The revert is still shown; it is simply not saved.
+    if (titleEsc.swallowed()) return
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null
       nbRef.current.patchNoteMeta(note.id, { title: v }).catch(() => {})
@@ -611,6 +665,7 @@ function NoteEditor({ note, nb, onDelete }) {
         <Input
           className="dash-note-title"
           value={titleDraft}
+          onKeyDownCapture={titleEsc.onKeyDownCapture}
           onChange={onTitleChange}
           // 🚨 `onCommit`, never `onBlur`. The kit's Input handles Escape
           // itself and its cancel path calls blur() — which fires onBlur
@@ -627,10 +682,10 @@ function NoteEditor({ note, nb, onDelete }) {
         <Select
           size="sm"
           value={note.subject || ''}
-          onChange={v => {
-            if ((v || null) === (note.subject || null)) return
-            nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})
-          }}
+          // No Escape guard: `Select` has no revert path, so a guard here
+          // could only ever swallow a legitimate retry after a failed write
+          // (review round 2, finding 2).
+          onChange={v => nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})}
           placeholder="No subject"
           options={[
             ...nb.subjects.map(s => ({ value: s.label, label: s.label })),
@@ -641,20 +696,17 @@ function NoteEditor({ note, nb, onDelete }) {
           ]}
           aria-label="Note subject"
         />
-        {/* 🚨 The guard is not an optimisation. The kit's Input reverts on
-            Escape by CALLING `onChange` with the value the field had on focus
-            — and on this field `onChange` is the write, so Escape (the
-            standard gesture for dismissing an open date picker) used to issue
-            a PATCH. Skipping a change that is already the persisted value
-            suppresses exactly the revert and nothing else; a real pick still
-            commits immediately, as it did before. */}
+        {/* Escape here means "dismiss the picker", not "write the old date
+            back" — see `useEscapeGuard`. A real pick still commits
+            immediately, exactly as it did before the kit. */}
         <Input
           size="sm"
           type="date"
           className="dash-date"
           value={note.note_date || ''}
+          onKeyDownCapture={dateEsc.onKeyDownCapture}
           onChange={v => {
-            if ((v || null) === (note.note_date || null)) return
+            if (dateEsc.swallowed()) return
             nb.patchNoteMeta(note.id, { note_date: v || null }).catch(() => {})
           }}
           aria-label="Note date"

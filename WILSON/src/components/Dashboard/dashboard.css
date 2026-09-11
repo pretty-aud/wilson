@@ -591,13 +591,21 @@
   .dash-format-group { display: inline-flex; align-items: center; gap: 4px; }
   /* The one thing the kit's IconButton cannot express: Remove link is the
      only destructive-ish control in a run of constructive ones and has to
-     recede (D24). Three selectors deep so it beats `.ui-iconbtn` (0,1,0) —
-     see the note on source order above.
+     recede (D24).
+     🚨 TWO rules, because the rest state is not the hard one. At rest this
+     beats `.ui-iconbtn` (0,1,0) easily; on HOVER the kit writes
+     `.ui-iconbtn:hover:not(:disabled)`, which is (0,3,0) — exactly what a
+     three-unit page rule scores — and this file is emitted FIRST, so the kit
+     won the tie and the control stopped receding at the one moment the
+     pointer was on it. The hover form is (0,5,0). Review round 2 found it;
+     the "more than one unit" assertion did not, because it counts units on
+     the page side and cannot see the kit's pseudo-classes.
      What was here before was a 26-line re-implementation of IconButton's box,
      hover and active treatment, justified by a claim that its active state
      "comes from TipTap rather than from a prop". That is not a reason:
      `editor.isActive('bold')` is a value you pass to `active`. Review round 1. */
-  .dash-format-bar .ui-iconbtn.dash-tb-quiet { color: var(--color-ink-3); }
+  .dash-format-bar .ui-iconbtn.dash-tb-quiet,
+  .dash-format-bar .ui-iconbtn.dash-tb-quiet:hover:not(:disabled) { color: var(--color-ink-3); }
 
   .dash-link-panel { display: flex; align-items: center; gap: 8px; }
   .dash-link-panel > .ui-input { flex: 1 1 auto; min-width: 0; }
