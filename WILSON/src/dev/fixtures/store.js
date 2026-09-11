@@ -69,7 +69,10 @@ export function createStore() {
     levels: clone(LEVELS),
     experiences: clone(EXPERIENCES),
     bins: clone(BINS),
-    binFiles: clone(BIN_FILES),
+    // Posters live beside the rows, keyed by id, so a removed-then-restored row
+    // (the UI hands back the stripped row) gets its picture back (review round 1).
+    binFiles: BIN_FILES.map(({ __poster, ...f }) => clone(f)),
+    posters: new Map(BIN_FILES.map(f => [f.id, f.__poster])),
     binRoots: clone(BIN_ROOTS),
     shotTakes: clone(SHOT_TAKES),
 

@@ -26,7 +26,7 @@ import { loadOtterSettings } from '../../lib/localData'
 import './settings.css'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button, Input, Select } from '../../ui'
-import { devFixtures } from '../../dev/devFixtures'
+import { devFixtures, devWriteRefused } from '../../dev/devFixtures'
 
 const AVATAR_BUCKET = 'user-avatars'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2 MB — mirrors the bucket's file_size_limit
@@ -175,6 +175,10 @@ export default function ProfileSection({ onSaved }) {
     setBusy(true)
     setError('')
     try {
+      // Dev fixtures (dev builds only): the row lands in the in-memory store; a
+      // photo has bytes the fixtures cannot hold, so that part is refused loudly.
+      const fx = import.meta.env.DEV ? devFixtures() : null
+      if (fx?.workspace && avatarFile) throw devWriteRefused('Uploading an avatar')
       let avatarUrl = null
       if (avatarFile) {
         // Path layout {workspace_id}/{user_id}/{ts}-{name} is enforced by the
@@ -202,13 +206,15 @@ export default function ProfileSection({ onSaved }) {
       }
       if (avatarUrl) patch.avatar_url = avatarUrl
 
-      const { data, error: updErr } = await supabase
-        .from('workspace_members')
-        .update(patch)
-        .eq('workspace_id', row.workspace_id)
-        .eq('user_id', row.user_id)
-        .select()
-        .maybeSingle()
+      const { data, error: updErr } = fx?.workspace
+        ? fx.workspace.updateMember(row.user_id, patch)
+        : await supabase
+          .from('workspace_members')
+          .update(patch)
+          .eq('workspace_id', row.workspace_id)
+          .eq('user_id', row.user_id)
+          .select()
+          .maybeSingle()
       if (updErr) throw updErr
       // An RLS-refused UPDATE matches zero rows and raises NOTHING: postgrest
       // returns 200 with a null body, so `updErr` alone reports success for a
@@ -247,6 +253,13 @@ export default function ProfileSection({ onSaved }) {
     setBusy(true)
     setError('')
     try {
+      // Dev fixtures (dev builds only): clear the row in memory; there is no blob.
+      const fx = import.meta.env.DEV ? devFixtures() : null
+      if (fx?.workspace) {
+        const { data } = fx.workspace.updateMember(row.user_id, { avatar_url: null })
+        setRow(data)
+        return
+      }
       const prefix = `/storage/v1/object/public/${AVATAR_BUCKET}/`
       const i = (row.avatar_url || '').indexOf(prefix)
       if (i !== -1) {

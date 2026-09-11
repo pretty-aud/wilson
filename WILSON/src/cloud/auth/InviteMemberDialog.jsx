@@ -72,6 +72,7 @@ import { AlertTriangle } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
 import { Banner, Button, Dialog, Field, Input, Select } from '../../ui'
+import { devFixtures, devWriteRefused } from '../../dev/devFixtures'
 import { FONT_MONO, PAPER_RECESSED, RADIUS_CONTROL, RULE, TYPE } from '../../ui/tokens'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -159,6 +160,12 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
 
     setBusy(true); setError('')
     try {
+      // Dev fixtures (dev builds only): an invite is refused loudly, never sent.
+      if (import.meta.env.DEV && devFixtures()) {
+        setError(devWriteRefused('Inviting a member').message)
+        setBusy(false)
+        return
+      }
       const { data: sess } = await supabase.auth.getSession()
       const token = sess?.session?.access_token
       if (!token) {

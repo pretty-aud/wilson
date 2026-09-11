@@ -46,11 +46,11 @@ export const COURSE = {
   },
   functions: {
     categories: [
-      { name: 'Edit page', functions: [
+      { category: 'Edit page', functions: [
         { name: 'Smart Insert', syntax: 'Edit > Smart Insert (Ctrl+Shift+I)', example: 'Park the playhead between two clips and press Smart Insert to drop the source at the nearest edit.', description: 'Inserts the source clip at the nearest edit point to the playhead.' },
         { name: 'Trim mode', syntax: 'T (Trim Edit Mode)', example: 'Press T, then drag the edge of a clip to ripple or the cut point to roll.', description: 'Ripple, roll, slip and slide with one tool and the pointer position.' },
       ] },
-      { name: 'Colour page', functions: [
+      { category: 'Colour page', functions: [
         { name: 'Primary wheels', syntax: 'Color > Primaries > Wheels', example: 'Lift the shadows a touch, gain the highlights, then re-balance gamma.', description: 'Lift, gamma, gain and offset over the whole image.' },
         { name: 'Power Windows', syntax: 'Color > Window > Circle / Linear / Polygon / Curve', example: 'Draw a soft circle over the face and lift gamma inside it by 0.05.', description: 'Shapes that limit a node\'s correction to part of the frame.' },
         { name: 'Colour Warper', syntax: 'Color > Color Warper > Hue-Saturation', example: 'Drag the orange node toward red to warm the lantern without touching skin.', description: 'A hue/saturation mesh for pushing single colours around.' },

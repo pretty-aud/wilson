@@ -11,8 +11,8 @@
 // reached through ONE dynamic import in main.jsx, on a line that begins with
 // `import.meta.env.DEV &&`. `vite build` replaces `import.meta.env.DEV` with
 // `false`, so that import — and with it every fixture module — is dead code
-// the bundler drops; `src/dev/devFixtures.test.js` pins the shape and greps
-// nothing of it survives in dist/.
+// the bundler drops; `src/dev/devFixtures.test.js` pins the shape, and greps
+// a `dist/` for the fixture strings whenever one has been built.
 //
 // 🚨 EVERY function here returns its "off" answer before touching anything
 // when `import.meta.env.DEV` is false. Keep that first line; the test reads it.

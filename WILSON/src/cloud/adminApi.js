@@ -12,6 +12,7 @@
 // =============================================================================
 
 import { supabase } from './auth/supabaseClient'
+import { devFixtures, devWriteRefused } from '../dev/devFixtures'
 import { reportAppEvent } from './errorCodes'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -36,6 +37,12 @@ const FRIENDLY = {
 }
 
 async function callAdminFn(name, body) {
+  // Dev fixtures (2026-09-11, dev builds only): there is no Edge Function behind
+  // fixture data; the action is refused with a toast and the same answer shape.
+  if (import.meta.env.DEV && devFixtures()) {
+    const refused = devWriteRefused(`The admin action "${name}"`)
+    return { ok: false, status: 501, data: { error: 'dev_fixtures_refused', friendly: refused.message } }
+  }
   let token = null
   try {
     const { data } = await supabase.auth.getSession()

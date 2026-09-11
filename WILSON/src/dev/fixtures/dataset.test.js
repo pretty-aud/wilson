@@ -11,9 +11,13 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import * as Y from 'yjs'
 import { TASK_STATUSES, PRIORITIES } from '../../components/Dashboard/dashboardTaskModel'
 import { b64ToU8 } from '../../components/Dashboard/noteSync'
+import { BIN_KINDS, COLORS, REVIEW_FLAGS, MEDIA_TYPES } from '../../tools/rabbit_v0.1.0/bins/binMedia'
 import { FIXTURE_ID_PREFIX } from './ids'
 import { WORKSPACE, MEMBERS, PERMISSIONS, FIXTURE_USER } from './data/workspace'
 import {
@@ -31,7 +35,34 @@ import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS } from './data/otter'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const ids = (rows) => new Set(rows.map((r) => r.id))
 const memberIds = new Set(MEMBERS.map((m) => m.user_id))
-const ASSET_STATUSES = ['not_started', 'in_progress', 'pending_review', 'needs_revisions', 'approved', 'final', 'blocked', 'on_hold', 'omitted']
+
+// The vocabularies the VIEWS render, read from their source (the views are React
+// modules the node environment cannot import). A value not in its list renders as
+// an empty <select> — exactly what review round 1 found four times.
+const here = dirname(fileURLToPath(import.meta.url))
+const src = (rel) => readFileSync(resolve(here, '../..', rel), 'utf8')
+const quotedList = (text, name) => {
+  const m = text.match(new RegExp(`${name}\\s*=\\s*\\[([^\\]]*)\\]`))
+  if (!m) throw new Error(`no ${name} in source`)
+  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
+}
+const abbrList = (text, name) => {
+  const m = text.match(new RegExp(`${name}\\s*=\\s*\\[([\\s\\S]*?)\\n\\]`))
+  if (!m) throw new Error(`no ${name} in source`)
+  return [...m[1].matchAll(/abbr:\s*'([^']+)'/g)].map((x) => x[1])
+}
+const scenesSrc = src('tools/rabbit_v0.1.0/views/ScenesView.jsx')
+const SCENE_STATUSES = quotedList(scenesSrc, 'SCENE_STATUSES')
+const SCENE_TYPES = quotedList(scenesSrc, 'SCENE_TYPES')
+const TIME_OF_DAY = quotedList(scenesSrc, 'TIME_OF_DAY_OPTIONS')
+const FRAMING = abbrList(scenesSrc, 'FRAMING_OPTIONS')
+const CAMERA_MOVEMENT = abbrList(scenesSrc, 'CAMERA_MOVEMENT_OPTIONS')
+const assetsSrc = src('tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx')
+const ASSET_STATUSES = quotedList(assetsSrc, 'export const ASSET_STATUSES')
+const ASSET_TYPES = quotedList(assetsSrc, 'export const ASSET_TYPES')
+const BUDGET_TIERS = [...src('components/RateCard/useRateCard.js').matchAll(/value:\s*'(tier_\d)'/g)].map((x) => x[1])
+const BUDGET_SHEETS = ['crew', 'talent', 'expenses_travel']
+const PROJECT_STATUSES = quotedList(src('tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx'), 'STATUS_OPTIONS')
 
 describe('the workspace and its people', () => {
   it('one workspace, eight people, the reviewer is an admin with a real row', () => {
@@ -63,11 +94,14 @@ describe('the project', () => {
     expect(PROJECT.budget_active_version_id).toBe(BUDGET_VERSIONS.find((v) => v.is_active).id)
   })
 
-  it('fifteen assets, each in a phase, with a thumbnail and a real status', () => {
+  it('fifteen assets, each in a phase, with a thumbnail and a real status and type', () => {
     expect(ASSETS.length).toBe(15)
+    expect(ASSET_STATUSES.length).toBe(9)
+    expect(PROJECT_STATUSES).toContain(PROJECT.status)
     for (const a of ASSETS) {
       expect(ids(PHASES).has(a.phase_id)).toBe(true)
       expect(ASSET_STATUSES).toContain(a.status)
+      expect(ASSET_TYPES).toContain(a.type)
       expect(a.thumbnail_url.startsWith('data:image/svg+xml')).toBe(true)
     }
   })
@@ -76,8 +110,10 @@ describe('the project', () => {
     expect(TASKS.length).toBe(42)
     const seenStatus = new Set(TASKS.map((t) => t.status))
     for (const s of TASK_STATUSES) expect(seenStatus.has(s), s).toBe(true)
+    for (const s of seenStatus) expect(TASK_STATUSES, s).toContain(s) // both directions
     const seenPriority = new Set(TASKS.map((t) => t.priority))
     for (const p of PRIORITIES) expect(seenPriority.has(p), p).toBe(true)
+    for (const p of seenPriority) expect(PRIORITIES, p).toContain(p)
     for (const t of TASKS) {
       const asset = ASSETS.find((a) => a.id === t.asset_id)
       expect(asset, t.title).toBeTruthy()
@@ -124,16 +160,34 @@ describe('the project', () => {
 })
 
 describe('scenes, shots, bins and takes', () => {
-  it('six scenes, sixteen shots, every shot in a scene', () => {
+  it('six scenes, sixteen shots, every shot in a scene, every word in the view\'s own vocabulary', () => {
     expect(SCENES.length).toBe(6)
     expect(SHOTS.length).toBe(16)
-    for (const s of SHOTS) expect(ids(SCENES).has(s.scene_id)).toBe(true)
+    expect(SCENE_STATUSES.length).toBe(9)
+    expect(FRAMING.length).toBeGreaterThan(5)
+    expect(CAMERA_MOVEMENT.length).toBeGreaterThan(10)
     expect(new Set(SCENES.map((s) => s.scene_number)).size).toBe(6)
-    for (const s of SCENES) expect(ASSET_STATUSES).toContain(s.status)
+    for (const s of SCENES) {
+      expect(SCENE_STATUSES, s.name).toContain(s.status)
+      expect(SCENE_TYPES, s.name).toContain(s.type)
+      expect(TIME_OF_DAY, s.name).toContain(s.time_of_day)
+    }
+    for (const s of SHOTS) {
+      expect(ids(SCENES).has(s.scene_id)).toBe(true)
+      expect(SCENE_STATUSES, s.name).toContain(s.status)
+      expect(FRAMING, s.name).toContain(s.framing)
+      // null is the view's own "no movement" (the — option); a word must be one of its abbreviations
+      if (s.camera_movement !== null) expect(CAMERA_MOVEMENT, s.name).toContain(s.camera_movement)
+    }
   })
 
   it('bins nest, files sit in bins, roots exist, and takes join real shots and files with one primary each', () => {
-    for (const b of BINS) if (b.parent_bin_id) expect(ids(BINS).has(b.parent_bin_id)).toBe(true)
+    expect(BINS.length).toBe(5)
+    for (const b of BINS) {
+      if (b.parent_bin_id) expect(ids(BINS).has(b.parent_bin_id)).toBe(true)
+      expect(BIN_KINDS).toContain(b.kind)
+      if (b.color !== null) expect(COLORS).toContain(b.color)
+    }
     for (const f of BIN_FILES) {
       expect(ids(BINS).has(f.bin_id)).toBe(true)
       expect(f.probe_status).toBe('done')
@@ -141,7 +195,9 @@ describe('scenes, shots, bins and takes', () => {
       expect(f.__poster.startsWith('data:image/svg+xml')).toBe(true)
       if (f.scene_id) expect(ids(SCENES).has(f.scene_id)).toBe(true)
       if (f.shot_id) expect(ids(SHOTS).has(f.shot_id)).toBe(true)
-      expect(['unflagged', 'select', 'reject']).toContain(f.review_flag)
+      expect(REVIEW_FLAGS).toContain(f.review_flag)
+      expect(MEDIA_TYPES).toContain(f.media_type)
+      if (f.color !== null) expect(COLORS).toContain(f.color)
     }
     expect(BIN_ROOTS.length).toBeGreaterThan(0)
     const byShot = new Map()
@@ -191,9 +247,12 @@ describe('folders and files', () => {
 describe('the rate card and the budget', () => {
   it('a general and an internal card; internal entries are salaried members with a wage', () => {
     expect(RATE_CARDS.map((c) => c.type).sort()).toEqual(['general', 'internal'])
+    expect(BUDGET_TIERS.length).toBe(4)
     for (const e of RATE_CARD_ENTRIES) {
       expect(ids(RATE_CARDS).has(e.rate_card_id)).toBe(true)
       expect(e.day_rate).toBeGreaterThan(0)
+      // The Tier column is a <select> over BUDGET_TIERS; anything else renders blank.
+      if (e.project_size !== null) expect(BUDGET_TIERS, e.role_label).toContain(e.project_size)
     }
     const internal = RATE_CARD_ENTRIES.filter((e) => e.rate_card_id === RATE_CARDS[1].id)
     expect(internal.length).toBeGreaterThan(4)
@@ -205,7 +264,7 @@ describe('the rate card and the budget', () => {
   })
 
   it('crew, talent and expenses sheets; headers have no cost, members resolve, actuals join lines', () => {
-    expect(new Set(BUDGET_LINES.map((l) => l.sheet))).toEqual(new Set(['crew', 'talent', 'expenses_travel']))
+    expect(new Set(BUDGET_LINES.map((l) => l.sheet))).toEqual(new Set(BUDGET_SHEETS))
     for (const l of BUDGET_LINES) {
       if (l.is_section_header) expect(l.cost).toBeNull()
       else expect(l.cost).toBeGreaterThan(0)
@@ -264,8 +323,18 @@ describe('the O.T.T.E.R. course', () => {
       expect(lessonIds.has(slug), slug).toBe(true)
       for (const id of p.completed_lessons) expect(lessonIds.get(slug), `${slug}/${id}`).toContain(id)
     }
+    // The documents' shapes are what Otter.jsx renders: `category` on both, the
+    // shortcut's windows/mac columns, the function's syntax/example.
     expect(COURSE.hotkeys.categories.length).toBeGreaterThan(0)
+    for (const c of COURSE.hotkeys.categories) {
+      expect(typeof c.category).toBe('string')
+      for (const s of c.shortcuts) expect(Object.keys(s)).toEqual(expect.arrayContaining(['action', 'key', 'windows', 'mac']))
+    }
     expect(COURSE.functions.categories.length).toBeGreaterThan(0)
+    for (const c of COURSE.functions.categories) {
+      expect(typeof c.category).toBe('string')
+      for (const f of c.functions) expect(Object.keys(f)).toEqual(expect.arrayContaining(['name', 'syntax', 'description', 'example']))
+    }
     expect(QUIZ_ATTEMPTS.length).toBe(2)
   })
 })

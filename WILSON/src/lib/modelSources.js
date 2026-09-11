@@ -46,7 +46,7 @@
 // =============================================================================
 
 import { supabase } from '../cloud/auth/supabaseClient'
-import { devFixtures } from '../dev/devFixtures'
+import { devFixtures, devWriteRefused } from '../dev/devFixtures'
 import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 import { BY_KEY, isWellFormedModelId } from './aiModels'
 import { updateModelSource, markModelSourcesLoaded, setPlatformEffort } from './activeModel'
@@ -186,6 +186,8 @@ export async function loadModelSources() {
  * it does NOT do is invalidate an existing selection; see the header.
  */
 export async function loadApprovedModels() {
+  // Dev fixtures (dev builds only): the cached catalogue stands; nothing leaves.
+  if (import.meta.env.DEV && devFixtures()) return { models: cachedApprovedModels(), error: null }
   try {
     const { data, error } = await supabase
       .from('platform_approved_models')
@@ -262,6 +264,8 @@ async function currentIdentity() {
  */
 export async function setUserModelOverride(key, modelId) {
   if (!BY_KEY[key]) return { ok: false, error: `unknown function "${key}"` }
+  // Dev fixtures (dev builds only): a model choice is refused loudly, never sent.
+  if (import.meta.env.DEV && devFixtures()) return { ok: false, error: devWriteRefused('Saving a model choice').message }
 
   const { userId, workspaceId, error: idErr } = await currentIdentity()
   if (idErr) return { ok: false, error: idErr }
@@ -310,6 +314,7 @@ export async function setUserModelOverride(key, modelId) {
  */
 export async function setWorkspaceModelOverride(key, modelId) {
   if (!BY_KEY[key]) return { ok: false, error: `unknown function "${key}"` }
+  if (import.meta.env.DEV && devFixtures()) return { ok: false, error: devWriteRefused("Saving the company's model choice").message }
 
   const { userId, workspaceId, error: idErr } = await currentIdentity()
   if (idErr) return { ok: false, error: idErr }

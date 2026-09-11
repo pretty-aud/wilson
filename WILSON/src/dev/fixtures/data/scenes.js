@@ -1,5 +1,5 @@
 // =============================================================================
-// scenes.js — six scenes, sixteen shots, four bins, twelve bin files, eight
+// scenes.js — six scenes, sixteen shots, five bins, twelve bin files, eight
 // takes. The bin rows follow docs/BINS_DESIGN.md §4.4; `online` is the list
 // route's computed flag and is true for every fixture file (there is no disk
 // behind them — the posters are the SVG placeholders, and `probe_status` is
@@ -43,23 +43,23 @@ export const SCENES = SCENE_ROWS.map(([n, name, scene_number, status, type, time
 }))
 
 const SHOT_ROWS = [
-  // [n, scene, number, name, status, framing, camera_movement, frames, description]
-  [1,  1, 10, 'The door',            'final',          'WS',  'STATIC',   240, 'Mara in the doorway, the stair behind.'],
-  [2,  1, 20, 'The cold lamp',       'final',          'CU',  'STATIC',   120, 'Insert. Her hand on the lens housing.'],
+  // [n, scene, number, name, status, framing, camera_movement (null = no movement), frames, description]
+  [1,  1, 10, 'The door',            'final',          'WS',  null,   240, 'Mara in the doorway, the stair behind.'],
+  [2,  1, 20, 'The cold lamp',       'final',          'CU',  null,   120, 'Insert. Her hand on the lens housing.'],
   [3,  1, 30, 'Up the stair',        'final',          'MS',  'HANDHELD', 360, 'Following her up.'],
-  [4,  2, 10, 'The path, wide',      'approved',       'EWS', 'STATIC',   288, 'Cliff, sea, one figure.'],
-  [5,  2, 20, 'The compass',         'approved',       'CU',  'STATIC',   96,  'In the grass. She picks it up.'],
+  [4,  2, 10, 'The path, wide',      'approved',       'EWS', null,   288, 'Cliff, sea, one figure.'],
+  [5,  2, 20, 'The compass',         'approved',       'CU',  null,   96,  'In the grass. She picks it up.'],
   [6,  2, 30, 'Turn to the sea',     'in_progress',    'MS',  'PAN',      192, 'She reads the needle.'],
-  [7,  3, 10, 'Two-shot',            'in_progress',    'MS',  'STATIC',   720, 'The whole conversation, one angle.'],
-  [8,  3, 20, 'Her side',            'in_progress',    'MCU', 'STATIC',   480, 'Coverage.'],
-  [9,  3, 30, 'His side',            'waiting_to_start','MCU','STATIC',   480, 'Coverage.'],
-  [10, 4, 10, 'Rain on the glass',   'in_progress',    'CU',  'STATIC',   240, 'VFX: spray and rain over the lamp-room glass.'],
-  [11, 4, 20, 'The log book',        'in_progress',    'CU',  'DOLLY',    336, 'Push in on the entry.'],
-  [12, 4, 30, 'Lightning, wide',     'blocked',        'WS',  'STATIC',   96,  'Needs the interactive light rig.'],
-  [13, 5, 10, 'The boat',            'pending_review', 'WS',  'STATIC',   240, 'Dream. Sky replacement.'],
+  [7,  3, 10, 'Two-shot',            'in_progress',    'MS',  null,   720, 'The whole conversation, one angle.'],
+  [8,  3, 20, 'Her side',            'in_progress',    'MCU', null,   480, 'Coverage.'],
+  [9,  3, 30, 'His side',            'not_started',     'MCU',null,   480, 'Coverage.'],
+  [10, 4, 10, 'Rain on the glass',   'in_progress',    'CU',  null,   240, 'VFX: spray and rain over the lamp-room glass.'],
+  [11, 4, 20, 'The log book',        'in_progress',    'CU',  'PUSH IN',    336, 'Push in on the entry.'],
+  [12, 4, 30, 'Lightning, wide',     'blocked',        'WS',  null,   96,  'Needs the interactive light rig.'],
+  [13, 5, 10, 'The boat',            'pending_review', 'WS',  null,   240, 'Dream. Sky replacement.'],
   [14, 5, 20, 'Father at the tiller','pending_review', 'MS',  'HANDHELD', 192, 'He does not look at camera.'],
-  [15, 6, 10, 'The lamp lights',     'not_started',    'CU',  'STATIC',   144, 'Once.'],
-  [16, 6, 20, 'She leaves',          'not_started',    'EWS', 'STATIC',   360, 'Last shot. Dawn.'],
+  [15, 6, 10, 'The lamp lights',     'not_started',    'CU',  null,   144, 'Once.'],
+  [16, 6, 20, 'She leaves',          'not_started',    'EWS', null,   360, 'Last shot. Dawn.'],
 ]
 
 export const SHOTS = SHOT_ROWS.map(([n, scene, shot_number, name, status, framing, camera_movement, frame_count, description], i) => {

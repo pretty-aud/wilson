@@ -72,7 +72,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     const orphanTakes = store.shotTakes.filter(t => !fileIds.has(t.bin_file_id) || !shotIds.has(t.shot_id))
     return { affectedShotIds: [...new Set(affectedShotIds)], shotTakes: clone(liveTakes), orphanTakes: clone(orphanTakes), ...extra }
   }
-  const binFilesWithOnline = () => store.binFiles.map(({ __poster, ...f }) => ({ ...f, online: true }))
+  const binFilesWithOnline = () => store.binFiles.map(f => ({ ...f, online: true }))
 
   const adapter = {
     mode: 'fixtures',
@@ -162,17 +162,13 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     // ── Files ────────────────────────────────────────────────────────────────
     async uploadFile() { throw devWriteRefused('Uploading a file') },
     async listFiles(projectId) { return clone(live(store.files.filter(f => f.project_id === projectId))) },
+    // There are no file bodies. A download is refused loudly (a data URI handed
+    // to the anchor FileManager clicks would be a silent no-op — review round 1),
+    // and fileUrl answers null, which the provider documents as "this backend
+    // cannot mint a playable URL": the viewer says "preview unavailable", no toast.
     async downloadFile() { throw devWriteRefused('Downloading a file') },
-    async downloadUrl(file) {
-      const url = file?.thumbnail_url ? store.thumbnails.get(file.thumbnail_url) : null
-      if (!url) throw devWriteRefused('Downloading a file')
-      return url
-    },
-    async fileUrl(file) {
-      const url = file?.thumbnail_url ? store.thumbnails.get(file.thumbnail_url) : null
-      if (!url) throw devWriteRefused('Opening a file')
-      return url
-    },
+    async downloadUrl() { throw devWriteRefused('Downloading a file') },
+    async fileUrl() { return null },
     async thumbnailUrls(paths) {
       const out = new Map()
       for (const p of paths || []) { const u = store.thumbnails.get(p); if (u) out.set(p, u) }
@@ -429,7 +425,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         if (mode === 'move' && target) { f.bin_id = target; f.updated_at = now(); movedFiles.push(clone(f)) }
         else { removedFiles.push(clone(f)) }
       }
-      if (mode !== 'move') store.binFiles = store.binFiles.filter(f => !doomed.has(f.bin_id))
+      // A 'move' with no target is a remove (review round 1: the files must not
+      // survive orphaned on a deleted bin id).
+      if (!(mode === 'move' && target)) store.binFiles = store.binFiles.filter(f => !doomed.has(f.bin_id))
       const removedBins = store.bins.filter(b => doomed.has(b.id)).map(b => clone(b))
       store.bins = store.bins.filter(b => !doomed.has(b.id))
       return { removedBins, movedFiles, removedFiles }
@@ -442,43 +440,46 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async pickBinFolder() { throw devWriteRefused('Picking a folder from disk') },
     async prepareBinFiles() { throw devWriteRefused('Adding files from disk') },
     async addBinFiles() { throw devWriteRefused('Adding files from disk') },
-    async updateBinFile(_projectId, id, fields) { const row = patch(store.binFiles, id, fields); const { __poster, ...out } = row; return clone({ ...out, online: true }) },
+    async updateBinFile(_projectId, id, fields) { return clone({ ...patch(store.binFiles, id, fields), online: true }) },
     async bulkUpdateBinFiles(_projectId, ids, fields) {
       const updated = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { Object.assign(row, fields, { updated_at: now() }); const { __poster, ...out } = row; updated.push(clone({ ...out, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { Object.assign(row, fields, { updated_at: now() }); updated.push(clone({ ...row, online: true })) } }
       return { updated }
     },
     async moveBinFiles(_projectId, ids, binId) {
       const moved = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { row.bin_id = binId; row.updated_at = now(); const { __poster, ...out } = row; moved.push(clone({ ...out, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { row.bin_id = binId; row.updated_at = now(); moved.push(clone({ ...row, online: true })) } }
       return { moved }
     },
     async copyBinFiles(_projectId, ids, binId) {
       const created = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); const { __poster, ...out } = copy; created.push(clone({ ...out, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); store.posters.set(copy.id, store.posters.get(id) ?? null); created.push(clone({ ...copy, online: true })) } }
       return { created }
     },
     async removeBinFiles(_projectId, ids) {
       const set = new Set(ids || [])
-      const removed = store.binFiles.filter(f => set.has(f.id)).map(({ __poster, ...f }) => clone(f))
+      const removed = store.binFiles.filter(f => set.has(f.id)).map(f => clone(f))
       store.binFiles = store.binFiles.filter(f => !set.has(f.id))
       const affected = store.shotTakes.filter(t => set.has(t.bin_file_id)).map(t => t.shot_id)
       return { removed, ...takesAnswer(affected) }
     },
     async restoreBinFiles(_projectId, rows) {
-      const restored = []
+      const restored = []; const skipped = []
       for (const r of rows || []) {
-        if (findById(store.binFiles, r.id)) continue
-        store.binFiles.push({ ...r, __poster: r.__poster ?? null })
-        restored.push(clone({ ...r, online: true }))
+        if (!r?.id) { skipped.push({ id: r?.id ?? null, reason: 'bad_ids' }); continue }
+        if (findById(store.binFiles, r.id)) { skipped.push({ id: r.id, reason: 'exists' }); continue }
+        const { online, ...row } = r
+        store.binFiles.push(row) // the poster map is keyed by id and survives a remove
+        restored.push(clone({ ...row, online: true }))
       }
       const affected = restored.flatMap(r => store.shotTakes.filter(t => t.bin_file_id === r.id).map(t => t.shot_id))
       for (const s of new Set(affected)) normaliseTakes(s)
-      return { restored, skipped: [], ...takesAnswer(affected) }
+      return { restored, skipped, ...takesAnswer(affected) }
     },
-    async probeBinFile(_projectId, id) { const row = findById(store.binFiles, id); if (!row) throw notFound(id); const { __poster, ...out } = row; return clone({ ...out, online: true }) },
-    binFileThumbnailUrl(_projectId, id) { return findById(store.binFiles, id)?.__poster ?? null },
-    binFileStreamUrl(_projectId, id) { return findById(store.binFiles, id)?.__poster ?? null },
+    async probeBinFile(_projectId, id) { const row = findById(store.binFiles, id); if (!row) throw notFound(id); return clone({ ...row, online: true }) },
+    binFileThumbnailUrl(_projectId, id) { return store.posters.get(id) ?? null },
+    // No bytes to stream: the poster stands in for the frame (the panel's <img>).
+    binFileStreamUrl(_projectId, id) { return store.posters.get(id) ?? null },
     async postBinFileThumbnail() { throw devWriteRefused('Saving a decoded poster') },
     async binRelinkScan() { return { offline: [], candidates: [], truncated: false } },
     async binRelinkApply() { throw devWriteRefused('Relinking a drive') },

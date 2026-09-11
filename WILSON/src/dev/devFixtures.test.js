@@ -16,7 +16,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve, relative } from 'node:path'
 
@@ -43,6 +43,9 @@ const outsideDev = files.filter((p) => !rel(p).startsWith('dev/'))
 
 /** The seams: every production file allowed to consult the switch. */
 const SEAMS = [
+  'cloud/adminApi.js',
+  'cloud/auth/InviteMemberDialog.jsx',
+  'components/AdminTerminal/MultiInviteDialog.jsx',
   'components/TeamMembers/TeamMembersPage.jsx',
   'components/TeamMembers/useWorkspaceMembers.js',
   'components/settings/ProfileSection.jsx',
@@ -77,10 +80,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
   })
 
   it('the seams are exactly the listed files, and each consults the switch only on a line that names DEV', () => {
-    const consulting = outsideDev.filter((f) => /devFixtures(Configured)?\(\)/.test(read(f))).map(rel).sort()
+    const consulting = outsideDev.filter((f) => /devFixtures(Configured|Active)?\(\)/.test(read(f))).map(rel).sort()
     expect(consulting).toEqual(SEAMS)
     for (const f of consulting) {
-      const lines = codeLines(read(join(SRC, f))).filter((l) => /devFixtures(Configured)?\(\)/.test(l))
+      const lines = codeLines(read(join(SRC, f))).filter((l) => /devFixtures(Configured|Active)?\(\)/.test(l))
       expect(lines.length, f).toBeGreaterThan(0)
       for (const l of lines) expect(l, `${f}: ${l.trim()}`).toContain('import.meta.env.DEV')
     }
@@ -101,7 +104,9 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     const lines = main.split('\n')
     const at = lines.findIndex((l) => l.includes("import('./dev/fixtures/install.js')"))
     expect(at).toBeGreaterThan(0)
-    expect(lines[at - 1]).toMatch(/if \(import\.meta\.env\.DEV && devFixturesConfigured\(\)\) \{/)
+    // The WHOLE switch (env AND the badge's localStorage half), so a session with
+    // the badge off never loads or clones the dataset (review round 1).
+    expect(lines[at - 1]).toMatch(/if \(import\.meta\.env\.DEV && devFixturesActive\(\)\) \{/)
     // The badge is the only other src/dev module a production file imports.
     const devImporters = outsideDev
       .filter((f) => /from '[^']*\/dev\//.test(read(f)))
@@ -130,6 +135,19 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
         .filter((m) => !m.startsWith('devFixtures'))
       for (const m of external) expect(allowed, `${rel(f)} imports ${m}`).toContain(m)
+    }
+  })
+
+  it('a built dist/, when one is present, carries none of the fixture text', () => {
+    // Opt-in: CI has no dist/. Locally, `npx vite build` (or `build:dev`) then this
+    // test is the proof the header of devFixtures.js promises. Any build passes
+    // it — Vite treats every `vite build` as production and DEV is false.
+    const dist = resolve(SRC, '..', 'dist', 'assets')
+    if (!existsSync(dist)) return
+    const built = readdirSync(dist).filter((n) => /\.(js|css)$/.test(n)).map((n) => readFileSync(join(dist, n), 'utf8')).join('\n')
+    expect(built.length).toBeGreaterThan(100000)
+    for (const needle of ['VITE_DEV_FIXTURES', 'wilson.dev-fixtures', 'Lantern & Ash', 'Salt Hours', 'f1c70000-', 'DevFixturesBadge', 'dev-fixtures-badge', 'Dev fixtures', 'devFixtures', 'fixturesAdapter', 'otterFixtures']) {
+      expect(built, needle).not.toContain(needle)
     }
   })
 

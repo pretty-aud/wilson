@@ -326,11 +326,11 @@ export function RabbitProvider({ children }) {
       // Session 12: in a browser there is no local Express server and no
       // Drive bridge — supabase is the only adapter that can work, whatever
       // a carried-over settings value says.
-      // Dev fixtures (2026-09-11, dev builds only): the cloud slot is the in-memory
-      // dataset (adapters/index.js selectAdapter), whatever a carried-over
-      // settings value says — so the fixtures apply in Electron dev too.
-      const mode = (import.meta.env.DEV && devFixtures()) ? 'supabase'
-        : !hasLocalServer()
+      // (Dev fixtures need no branch here: they only exist under `vite dev`, where
+      // there is no local server and this already picks 'supabase' — the slot the
+      // fixtures adapter serves from adapters/index.js. `vite build --mode
+      // development`, which electron:dev runs, is a production build to Vite.)
+      const mode = !hasLocalServer()
         ? 'supabase'
         : (ADAPTER_MODES.includes(settings.adapterMode) ? settings.adapterMode : DEFAULT_ADAPTER_MODE);
       if (cancelled) return;

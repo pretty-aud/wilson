@@ -37,7 +37,9 @@ describe('reads', () => {
   it('the five per-course documents come back in their empty-safe shapes', () => {
     const fx = buildDevFixtures()
     expect(call(fx, `/api/software/${COURSE_ID}/hotkeys`).body.categories.length).toBeGreaterThan(0)
-    expect(call(fx, `/api/software/${COURSE_ID}/functions`).body.categories.length).toBeGreaterThan(0)
+    const fns = call(fx, `/api/software/${COURSE_ID}/functions`).body.categories
+    expect(fns.length).toBeGreaterThan(0)
+    for (const c of fns) expect(typeof c.category, 'Otter.jsx renders cat.category').toBe('string')
     expect(call(fx, `/api/software/${COURSE_ID}/nodes`).body).toEqual({ systems: [] })
     expect(call(fx, `/api/software/${COURSE_ID}/references`).body.urls.length).toBe(2)
     expect(call(fx, `/api/software/${COURSE_ID}/corrections`).body).toEqual({ corrections: [] })

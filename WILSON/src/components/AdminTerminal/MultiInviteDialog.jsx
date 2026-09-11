@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mail, Check, X, Loader2 } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { parseInviteList, USERNAME_RE } from '../../cloud/auth/inviteParsing'
+import { devFixtures, devWriteRefused } from '../../dev/devFixtures'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -112,6 +113,14 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
       return
     }
 
+    // Dev fixtures (dev builds only): invites are refused loudly, never sent.
+    if (import.meta.env.DEV && devFixtures()) {
+      const refused = devWriteRefused('Inviting members')
+      for (const target of targets) patchRow(target.email, { status: 'error', error: refused.message })
+      setBusy(false)
+      setDone(true)
+      return
+    }
     let sent = 0
     for (const target of targets) {
       if (!mountedRef.current) return

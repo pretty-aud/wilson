@@ -176,6 +176,42 @@ describe('the fixtures adapter behaves like a backend', () => {
     expect(seen[0]).toMatch(/^Dev fixtures: Uploading a file is not available/)
   })
 
+  it('there are no file bodies: download is refused loudly, a preview URL is null (a capability gap, not a refusal)', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const seen = []
+    const off = onDevWriteRefused((m) => seen.push(m))
+    const [file] = (await fx.listFiles(PROJECT_ID)).filter((f) => f.thumbnail_url)
+    await expect(fx.downloadUrl(file, file.name)).rejects.toMatchObject({ code: 'dev_fixtures_refused' })
+    await expect(fx.downloadFile(file)).rejects.toMatchObject({ code: 'dev_fixtures_refused' })
+    expect(await fx.fileUrl(file)).toBeNull()
+    off()
+    expect(seen.length).toBe(2) // the null is silent by design; the two refusals are not
+  })
+
+  it('a removed bin file comes back with its poster, and a move-delete with no target removes', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { binFiles, bins } = await fx.listBins(PROJECT_ID)
+    const file = binFiles[0]
+    expect(fx.binFileThumbnailUrl(PROJECT_ID, file.id)).toMatch(/^data:image\/svg\+xml/)
+    expect('__poster' in file).toBe(false)
+    const { removed } = await fx.removeBinFiles(PROJECT_ID, [file.id])
+    expect(removed.length).toBe(1)
+    const { restored, skipped } = await fx.restoreBinFiles(PROJECT_ID, removed)
+    expect(restored.length).toBe(1)
+    expect(skipped).toEqual([])
+    expect(fx.binFileThumbnailUrl(PROJECT_ID, file.id)).toMatch(/^data:image\/svg\+xml/)
+    const again = await fx.restoreBinFiles(PROJECT_ID, removed)
+    expect(again.skipped).toEqual([{ id: file.id, reason: 'exists' }])
+    const { created } = await fx.copyBinFiles(PROJECT_ID, [file.id], bins[0].id)
+    expect(fx.binFileThumbnailUrl(PROJECT_ID, created[0].id)).toMatch(/^data:image\/svg\+xml/)
+    const leaf = bins.find((b) => b.parent_bin_id)
+    const before = (await fx.listBins(PROJECT_ID)).binFiles.filter((f) => f.bin_id === leaf.id).length
+    expect(before).toBeGreaterThan(0)
+    const answer = await fx.deleteBin(PROJECT_ID, leaf.id, { mode: 'move', target: null })
+    expect(answer.removedFiles.length).toBe(before)
+    expect((await fx.listBins(PROJECT_ID)).binFiles.some((f) => f.bin_id === leaf.id)).toBe(false)
+  })
+
   it('thumbnails resolve by object path to generated SVG data URIs', async () => {
     const fx = buildDevFixtures().rabbitAdapter()
     const files = await fx.listFiles(PROJECT_ID)
