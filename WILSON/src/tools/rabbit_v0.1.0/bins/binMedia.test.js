@@ -15,7 +15,10 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import * as renderer from './binMedia.js'
+import * as probe from './binProbeFallback.js'
 
 const require = createRequire(import.meta.url)
 const server = require('../../../../electron/rabbitBins.cjs')
@@ -88,6 +91,46 @@ describe('formatting', () => {
   })
 })
 
+describe('isBlankFrame (renderer probe)', () => {
+  it('a uniformly black frame is blank; one lit pixel is not; an empty buffer is blank', () => {
+    const black = new Uint8ClampedArray(64 * 64 * 4)
+    expect(probe.isBlankFrame(black)).toBe(true)
+    const lit = new Uint8ClampedArray(64 * 64 * 4); for (let px = 96; px < 112; px++) lit[4 * px + 1] = 200
+    expect(probe.isBlankFrame(lit)).toBe(false)
+    const dim = new Uint8ClampedArray(16); dim.fill(5)
+    expect(probe.isBlankFrame(dim)).toBe(true)
+    expect(probe.isBlankFrame(new Uint8ClampedArray(0))).toBe(true)
+    expect(probe.isBlankFrame(null)).toBe(true)
+  })
+})
+
+describe('rowsToReprobeAfterRelink (renderer)', () => {
+  it('re-reads every relinked row that has columns or a poster to draw, never a document, never a bad row', () => {
+    const rows = [
+      { id: 'v', extension: '.mp4', media_type: 'video' },
+      { id: 'm', extension: '.mov', media_type: 'video' },
+      { id: 'a', extension: '.wav', media_type: 'audio' },
+      { id: 'i', extension: '.png', media_type: 'still' },
+      { id: 's', extension: '.png', media_type: 'sequence', is_sequence: true },
+      { id: 'd', extension: '.txt', media_type: 'document' },
+      { id: '', extension: '.mp4', media_type: 'video' },
+      null,
+    ]
+    expect(renderer.rowsToReprobeAfterRelink(rows)).toEqual(['v', 'm', 'a', 'i', 's'])
+    expect(renderer.rowsToReprobeAfterRelink(undefined)).toEqual([])
+  })
+})
+
+describe('wiring pin: the provider re-reads relinked rows (source scan, like the registry pin)', () => {
+  it('binRelinkApply hands every relinked row to probeBinFiles — both relink paths land there', () => {
+    const provider = fs.readFileSync(path.join(__dirname, '..', 'state', 'RabbitProvider.jsx'), 'utf8')
+    const body = provider.slice(provider.indexOf('const binRelinkApply = useCallback'), provider.indexOf('const removeBinRoot = useCallback'))
+    expect(body).toContain('rowsToReprobeAfterRelink(res?.updated)')
+    expect(body).toContain('probeBinFiles(reprobe)')
+    expect(body).toMatch(/\}, \[[^\]]*probeBinFiles[^\]]*\]\);/)
+  })
+})
+
 describe('parseNameSuggestions (server)', () => {
   const p = server.parseNameSuggestions
   it('12A_3_T4_A → slate 12A, shot 3, take 4, camera A', () => {
@@ -101,6 +144,15 @@ describe('parseNameSuggestions (server)', () => {
   })
   it('Scene12_Shot3_Take4_PU', () => {
     expect(p('Scene12_Shot3_Take4_PU.mov')).toMatchObject({ slate: '12', shot_hint: '3', take_number: 4, take_modifier: 'PU' })
+  })
+  it('a modifier glued to the take token: 24A_2_T3PU_B is take 3 PU of shot 2, never take 2 (walkthrough 16 run, 2026-09-10)', () => {
+    expect(p('24A_2_T3PU_B.mp4')).toMatchObject({ slate: '24A', shot_hint: '2', take_number: 3, take_modifier: 'PU', camera: 'B', confidence: 'high' })
+    expect(p('12A_3_T4SER_A.mov')).toMatchObject({ slate: '12A', shot_hint: '3', take_number: 4, take_modifier: 'SER', camera: 'A' })
+    expect(p('SC12A_SH03_TK04MOS.mp4')).toMatchObject({ slate: '12A', shot_hint: '3', take_number: 4, take_modifier: 'MOS' })
+  })
+  it('a modifier glued to a bare take after the slate: 24A-3PU is take 3 PU', () => {
+    expect(p('24A-3PU.mov')).toMatchObject({ slate: '24A', take_number: 3, take_modifier: 'PU', shot_hint: null })
+    expect(p('24A_3pu_B.mov')).toMatchObject({ slate: '24A', take_number: 3, take_modifier: 'PU', camera: 'B' })
   })
   it('camera clip names give camera and roll, never a slate', () => {
     expect(p('A001C003_240612_R1AB.mov')).toMatchObject({ camera: 'A', roll: 'A001', slate: null, take_number: null })

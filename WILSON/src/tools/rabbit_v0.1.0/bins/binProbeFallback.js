@@ -21,6 +21,21 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(t))
 }
 
+/**
+ * True when a drawn frame is uniformly (near-)black: every sampled pixel
+ * under the threshold. Pure, so the test can pin it. A real black frame
+ * (a fade-in) looks the same as a frame drawn before the decoder had one,
+ * and the caller treats both the same way: wait, and draw again.
+ */
+export function isBlankFrame(data, threshold = 8) {
+  if (!data || !data.length) return true
+  const step = Math.max(4, Math.floor(data.length / 4 / 512) * 4)
+  for (let i = 0; i < data.length; i += step) {
+    if (data[i] > threshold || data[i + 1] > threshold || data[i + 2] > threshold) return false
+  }
+  return true
+}
+
 function drawToJpeg(source, width, height) {
   if (!width || !height || typeof document === 'undefined') return null
   const scale = Math.min(1, MAX_EDGE / Math.max(width, height))
@@ -30,9 +45,31 @@ function drawToJpeg(source, width, height) {
   const ctx2d = canvas.getContext('2d')
   if (!ctx2d) return null
   ctx2d.drawImage(source, 0, 0, canvas.width, canvas.height)
+  let blank = false
+  try { blank = isBlankFrame(ctx2d.getImageData(0, 0, canvas.width, canvas.height).data) } catch { /* tainted canvas: keep the frame */ }
   const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
   const i = dataUrl.indexOf(',')
-  return i > 0 ? dataUrl.slice(i + 1) : null
+  return { jpegBase64: i > 0 ? dataUrl.slice(i + 1) : null, blank }
+}
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+/**
+ * Chromium fires `seeked` before the frame at the new position is always
+ * ready for drawImage (measured 2026-09-10: one poster in seven came out
+ * black on a colour-bar clip, while the same clip drew fine a minute
+ * earlier). Wait for a presented frame where the browser can say so, else
+ * for HAVE_CURRENT_DATA, bounded.
+ */
+function framePresented(v, ms = 1500) {
+  return new Promise((resolve) => {
+    let done = false
+    const finish = () => { if (!done) { done = true; clearTimeout(t); resolve() } }
+    const t = setTimeout(finish, ms)
+    if (typeof v.requestVideoFrameCallback === 'function') v.requestVideoFrameCallback(finish)
+    if (v.readyState >= 2) { requestAnimationFrame(finish) }
+    else v.addEventListener('loadeddata', () => requestAnimationFrame(finish), { once: true })
+  })
 }
 
 /**
@@ -66,7 +103,18 @@ export async function probeInBrowser(kind, src, { timeoutMs = 20000 } = {}) {
   try {
     const ts = Math.min(seekTimestampFor(duration), Math.max(0, (duration || 1) - 0.05))
     await withTimeout(new Promise((resolve, reject) => { v.onseeked = resolve; v.onerror = () => reject(new Error('seek failed')); v.currentTime = ts }), timeoutMs, 'video seek')
-    jpegBase64 = drawToJpeg(v, width, height)
+    await framePresented(v)
+    let drawn = drawToJpeg(v, width, height)
+    // A blank frame is drawn again after a beat, then once more a second
+    // further in (a clip that fades in from black gets its first real
+    // frame that way); a clip that is black all through keeps the frame.
+    if (drawn?.blank) { await sleep(300); drawn = drawToJpeg(v, width, height) }
+    if (drawn?.blank && duration && ts + 1 < duration - 0.05) {
+      await withTimeout(new Promise((resolve, reject) => { v.onseeked = resolve; v.onerror = () => reject(new Error('seek failed')); v.currentTime = ts + 1 }), timeoutMs, 'video seek')
+      await framePresented(v)
+      drawn = drawToJpeg(v, width, height)
+    }
+    jpegBase64 = drawn?.jpegBase64 || null
   } catch { /* the columns are still worth keeping */ }
   v.removeAttribute('src'); try { v.load() } catch { /* released */ }
   return { duration_sec: duration, width, height, jpegBase64 }

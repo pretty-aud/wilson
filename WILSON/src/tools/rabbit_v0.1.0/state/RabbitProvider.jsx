@@ -52,7 +52,7 @@ import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
 import { probeInBrowser } from '../bins/binProbeFallback';
-import { previewKindFor, needsBrowserProbe } from '../bins/binMedia';
+import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -2793,15 +2793,22 @@ export function RabbitProvider({ children }) {
   const binRelinkScan = useCallback((folderPath = null) => binsAdapter().binRelinkScan(activeProjectId, folderPath), [binsAdapter, activeProjectId]);
 
   // A repair, not an edit: no history entry. The rows come back online and
-  // their posters are re-requested by the view through the rev counter.
+  // their posters are re-requested by the view through the rev counter — and
+  // read again in the background (rowsToReprobeAfterRelink): the poster cache
+  // is keyed by path + mtime, so under the new path there is none until a
+  // probe draws it, which without a decoder on the server only the renderer's
+  // probe does. Both relink paths (the dialog's Apply and the auto-relink on
+  // open) land here. Never awaited: the header says "reading N" meanwhile.
   const binRelinkApply = useCallback(async (mappings) => {
     const a = binsAdapter();
     const pid = activeProjectId;
     const res = await a.binRelinkApply(pid, mappings);
     if (activeProjectIdRef.current !== pid) return res;
     if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    const reprobe = rowsToReprobeAfterRelink(res?.updated);
+    if (reprobe.length) probeBinFiles(reprobe).catch(() => {});
     return res;
-  }, [binsAdapter, activeProjectId]);
+  }, [binsAdapter, activeProjectId, probeBinFiles]);
 
   // Roots are recorded by the pick and add routes; this forgets one (the
   // relink dialog's "forget this folder").

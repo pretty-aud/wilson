@@ -121,7 +121,8 @@ function thumbKeyFor(sourcePath, mtime = '') {
 //   24A-3, 24A_T3      → slate 24A, take 3
 //   Scene12_Shot3_Take4
 //   A001C003_240612…   → camera A, roll A001 (ARRI / RED / Canon clip names)
-//   …_PU / _SER / _MOS → take modifier
+//   …_PU / _SER / _MOS → take modifier; glued to the take too: T3PU, 24A-3PU
+//   (a pickup take is logged as "3PU" on the slate, so the token carries it)
 //   20260612 / 2026-06-12 → shoot day
 const CAMERA_CLIP_RE = /^([A-Ha-h])(\d{3})[_-]?[Cc](\d{3,4})/;
 const DATE_RE = /(?:^|[_\-\s.])((?:19|20)\d{2})[-_]?(\d{2})[-_]?(\d{2})(?=$|[_\-\s.])/;
@@ -159,20 +160,20 @@ function parseNameSuggestions(fileName) {
   // A bare scene/setup or roll token is only read when something else in the
   // name says this is a slate: an explicit take/shot/scene marker, a camera
   // clip name, or a numeric token right after it (12A_3, 24A-3).
-  const hasMarker = tokens.some(t => /^(?:sc|scene)\d|^(?:sh|shot)\d|^(?:t|tk|take)\d{1,3}$|^(pu|ser|mos)$/i.test(t));
+  const hasMarker = tokens.some(t => /^(?:sc|scene)\d|^(?:sh|shot)\d|^(?:t|tk|take)\d{1,3}(?:pu|ser|mos)?$|^(pu|ser|mos)$/i.test(t));
   tokens.forEach((raw, i) => {
     const t = raw.toLowerCase();
     let m;
     if ((m = /^(?:sc|scene)(\d{1,4}[a-z]{0,2})$/.exec(t)) && out.scene_hint == null) { out.scene_hint = m[1].toUpperCase(); sceneIdx = i; explicit = true; return; }
     if ((m = /^(?:sh|shot)(\d{1,4})$/.exec(t)) && out.shot_hint == null) { out.shot_hint = String(Number(m[1])); explicit = true; return; }
-    if ((m = /^(?:t|tk|take)(\d{1,3})$/.exec(t)) && out.take_number == null) { out.take_number = Number(m[1]); explicitTake = true; explicit = true; return; }
+    if ((m = /^(?:t|tk|take)(\d{1,3})(pu|ser|mos)?$/.exec(t)) && out.take_number == null) { out.take_number = Number(m[1]); if (m[2] && out.take_modifier == null) out.take_modifier = m[2].toUpperCase(); explicitTake = true; explicit = true; return; }
     if (/^(pu|ser|mos)$/.test(t) && out.take_modifier == null) { out.take_modifier = t.toUpperCase(); explicit = true; return; }
     if (/^[a-h]$/.test(t) && i > 0 && out.camera == null && (hasMarker || sceneIdx >= 0)) { out.camera = t.toUpperCase(); return; }
     if (/^[a-h]\d{3}$/.test(t) && out.roll == null && !cam && hasMarker) { out.roll = t.toUpperCase(); return; }
     // A bare scene+setup token (12A) or a bare leading number (24): only when
     // a marker exists elsewhere or a numeric token follows it (12A_3, 24A-3).
     const next = tokens[i + 1];
-    const corroborated = hasMarker || (next != null && /^\d{1,3}$/.test(next));
+    const corroborated = hasMarker || (next != null && /^\d{1,3}(?:pu|ser|mos)?$/i.test(next));
     if ((m = /^(\d{1,4})([a-z]{1,2})$/.exec(t)) && out.scene_hint == null && !cam && corroborated) { out.scene_hint = (m[1] + m[2]).toUpperCase(); sceneIdx = i; return; }
     if (/^\d{1,4}$/.test(t) && out.scene_hint == null && i === 0 && !cam && !date && corroborated) { out.scene_hint = t; sceneIdx = i; return; }
   });
@@ -180,9 +181,10 @@ function parseNameSuggestions(fileName) {
   // follows (12A_3_T4), otherwise the take (24A-3).
   if (sceneIdx >= 0 && sceneIdx + 1 < tokens.length) {
     const next = tokens[sceneIdx + 1];
-    if (/^\d{1,3}$/.test(next)) {
-      if (explicitTake && out.shot_hint == null) out.shot_hint = String(Number(next));
-      else if (!explicitTake && out.take_number == null) out.take_number = Number(next);
+    const bare = /^(\d{1,3})(pu|ser|mos)?$/i.exec(next);
+    if (bare) {
+      if (explicitTake && out.shot_hint == null && !bare[2]) out.shot_hint = String(Number(bare[1]));
+      else if (!explicitTake && out.take_number == null) { out.take_number = Number(bare[1]); if (bare[2] && out.take_modifier == null) out.take_modifier = bare[2].toUpperCase(); }
     }
   }
   if (out.scene_hint) out.slate = out.scene_hint;
