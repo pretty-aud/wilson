@@ -78,9 +78,11 @@ one.
 the orange ring, press Enter, and then:
 
 1. The caret should already be in **Day rate**.
-2. Press Tab six or seven times to reach **Close** at the top right.
-3. Press Tab once more — you should land back in **Day rate**, not somewhere
-   out in the table behind.
+2. Hold Tab down through the fields and the two buttons at the bottom. After
+   the last one the ring should jump to the **X** at the top right, and then
+   back round into **Day rate** — it should never leave the panel and land on
+   something in the table behind it.
+3. Shift+Tab should go round the same loop backwards.
 4. Type a different number, press **Escape** once: the number goes back to
    what it was and the dialog stays open.
 5. Press **Escape** again: the dialog closes and the orange ring is back on
