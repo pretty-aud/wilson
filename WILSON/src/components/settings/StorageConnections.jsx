@@ -40,7 +40,7 @@ import {
 } from '../local/localDemoClient'
 import './settings.css'
 import { Section, Group, Row } from './SettingsChrome'
-import { Button } from '../../ui'
+import { Button, Dialog } from '../../ui'
 
 const SUPABASE_HOST = (() => {
   try { return new URL(import.meta.env.VITE_SUPABASE_URL).host } catch { return null }
@@ -138,6 +138,13 @@ export default function StorageConnections() {
   const [demoState, setDemoState] = useState(null)
   const [demoError, setDemoError] = useState('')
   const [confirm, setConfirm] = useState(null) // { folder, count, entries, kind, resolve }
+  // W9 (ruled 2026-09-11, "convert"): which of the card's three confirm
+  // Dialogs is open — 'drive' | 'close' | 'reset' — and the failure of ITS
+  // attempt, shown in its footer. `demoError` keeps its old job on the card
+  // unchanged; this one is cleared when a dialog opens so a stale card error
+  // never appears inside a fresh dialog.
+  const [pending, setPending] = useState(null)
+  const [pendingError, setPendingError] = useState('')
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -179,13 +186,35 @@ export default function StorageConnections() {
     if (mountedRef.current) setBusy(false)
   }, [bridge, busy, refresh, canEditMachineRoot])
 
-  const disconnectDrive = useCallback(async () => {
+  // W9 (ruled 2026-09-11, "convert"): the three native confirms on this card
+  // are the kit Dialog. Each is split into the ASK — opens the dialog, and
+  // keeps the S34 gate and the bridge check exactly where the confirm used to
+  // sit — and the DO, which runs from the dialog's own button under its busy
+  // lock. The wording is the old confirm text verbatim; the outcome is the
+  // old outcome. Where an attempt fails, the message goes to the dialog's
+  // footer (so the button never looks dead under a backdrop) AND to the card
+  // as before, so the card still says what went wrong once the dialog closes.
+  const failPending = useCallback((message) => {
+    if (!mountedRef.current) return
+    setDemoError(message)
+    setPendingError(message)
+    setBusy(false)
+  }, [])
+  const closePending = useCallback(() => { setPending(null); setPendingError('') }, [])
+
+  const disconnectDrive = useCallback(() => {
     if (!bridge?.clearGdrive || busy) return
-    if (!window.confirm('Disconnect Google Drive? Cached tokens are removed from this machine.')) return
+    setPendingError('')
+    setPending('drive')
+  }, [bridge, busy])
+  // A failure here was always swallowed ("already gone") and still is: the
+  // card refreshes on the next look. The dialog closes either way.
+  const doDisconnectDrive = useCallback(async () => {
+    if (!bridge?.clearGdrive || busy) return
     setBusy(true)
     try { await bridge.clearGdrive(); await refresh() } catch { /* already gone */ }
-    if (mountedRef.current) setBusy(false)
-  }, [bridge, busy, refresh])
+    if (mountedRef.current) { setBusy(false); closePending() }
+  }, [bridge, busy, refresh, closePending])
 
   // ── the local demo folder ────────────────────────────────────────────
   const confirmForeign = useCallback((r) => new Promise((resolve) => {
@@ -222,16 +251,20 @@ export default function StorageConnections() {
     catch (err) { finishDemo({ done: false, error: err?.message || 'the folder could not be opened' }) }
   }, [demo, busy, canEditMachineRoot, confirmForeign, finishDemo])
 
-  const closeDemoFolder = useCallback(async () => {
+  const closeDemoFolder = useCallback(() => {
     if (!canEditMachineRoot) return
     if (!demo?.close || busy) return
-    const name = folderLeaf(demoState?.active)
-    if (!window.confirm(`Close the demo folder "${name}"?\n\nNothing is deleted. WILSON goes back to the projects in this computer's app data until you open a folder again.`)) return
+    setPendingError('')
+    setPending('close')
+  }, [demo, busy, canEditMachineRoot])
+  const doCloseDemoFolder = useCallback(async () => {
+    if (!canEditMachineRoot) return
+    if (!demo?.close || busy) return
     setBusy(true)
     setDemoError('')
     try { await demo.close(); reloadApp() }
-    catch (err) { finishDemo({ done: false, error: err?.message || 'the folder could not be closed' }) }
-  }, [demo, busy, canEditMachineRoot, demoState, finishDemo])
+    catch (err) { failPending(err?.message || 'the folder could not be closed') }
+  }, [demo, busy, canEditMachineRoot, failPending])
 
   const forgetDemoFolder = useCallback(async (folder) => {
     if (!demo?.forget || busy) return
@@ -251,20 +284,25 @@ export default function StorageConnections() {
   }, [demo])
 
   // ── demo comfort (brief §3.4) ────────────────────────────────────────
-  const resetDemoFolder = useCallback(async () => {
+  const resetDemoFolder = useCallback(() => {
     if (!canEditMachineRoot) return
     if (!demo?.reset || busy || !demoState?.active) return
-    if (!window.confirm(resetConfirmText(demoState.active))) return
+    setPendingError('')
+    setPending('reset')
+  }, [demo, busy, canEditMachineRoot, demoState])
+  const doResetDemoFolder = useCallback(async () => {
+    if (!canEditMachineRoot) return
+    if (!demo?.reset || busy || !demoState?.active) return
     setBusy(true)
     setDemoError('')
     try {
       const r = await demo.reset()
-      if (!r?.ok) { setDemoError(r?.error || 'the folder could not be reset'); setBusy(false); return }
+      if (!r?.ok) { failPending(r?.error || 'the folder could not be reset'); return }
       reloadApp()
     } catch (err) {
-      finishDemo({ done: false, error: err?.message || 'the folder could not be reset' })
+      failPending(err?.message || 'the folder could not be reset')
     }
-  }, [demo, busy, canEditMachineRoot, demoState, finishDemo])
+  }, [demo, busy, canEditMachineRoot, demoState, failPending])
 
   const createDemoProject = useCallback(async () => {
     if (!canSeed || busy) return
@@ -491,6 +529,79 @@ export default function StorageConnections() {
           </div>
         </Card>
       </div>
+
+      {/* W9: the card's three confirms, one kit Dialog each at the 400px
+          'confirm' width — dark by design over the light page, as the pet
+          dialogs in SettingsPage are. Escape, the X and Cancel dismiss; the
+          one filled button runs the action under the busy lock; a failed
+          attempt reports in the footer. Reset is the destructive one (it
+          deletes two subtrees) and takes the danger variant; closing deletes
+          nothing and disconnecting is undone by reconnecting, so both take
+          the filled primary. The body copy is the old confirm text, verbatim. */}
+      {pending === 'drive' && (
+        <Dialog
+          title="Disconnect Google Drive"
+          width="confirm"
+          busy={busy}
+          onClose={closePending}
+          footer={
+            <>
+              <Button disabled={busy} onClick={closePending}>Cancel</Button>
+              <Button variant="primary" disabled={busy} onClick={doDisconnectDrive}>
+                Disconnect
+              </Button>
+            </>
+          }
+        >
+          Disconnect Google Drive? Cached tokens are removed from this machine.
+        </Dialog>
+      )}
+
+      {pending === 'close' && (
+        <Dialog
+          title="Close demo folder"
+          width="confirm"
+          busy={busy}
+          error={pendingError || null}
+          onClose={closePending}
+          footer={
+            <>
+              <Button disabled={busy} onClick={closePending}>Cancel</Button>
+              <Button variant="primary" disabled={busy} onClick={doCloseDemoFolder}>
+                Close folder
+              </Button>
+            </>
+          }
+        >
+          <p>Close the demo folder "{folderLeaf(demoState?.active)}"?</p>
+          <p className="mt-3">Nothing is deleted. WILSON goes back to the projects in this computer's app data until you open a folder again.</p>
+        </Dialog>
+      )}
+
+      {pending === 'reset' && demoState?.active && (
+        <Dialog
+          title="Reset demo folder"
+          width="confirm"
+          busy={busy}
+          error={pendingError || null}
+          onClose={closePending}
+          footer={
+            <>
+              <Button disabled={busy} onClick={closePending}>Cancel</Button>
+              <Button variant="danger" disabled={busy} onClick={doResetDemoFolder}>
+                Reset folder
+              </Button>
+            </>
+          }
+        >
+          {/* The helper's text carries its own line breaks and two indented
+              paths; pre-wrap keeps both, break-words lets a long path wrap
+              inside the 400px surface without breaking the prose mid-word.
+              Not PathLine: `.s-data` is the light ink and this surface is
+              dark (D1 hand-off §3, the currency-menu blocker). */}
+          <div className="whitespace-pre-wrap break-words">{resetConfirmText(demoState.active)}</div>
+        </Dialog>
+      )}
     </Section>
   )
 }

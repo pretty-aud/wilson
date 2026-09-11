@@ -47,10 +47,13 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
-  settings: [200, 150], 'project-manager': [200, 150], 'rate-card': [200, 150],
-  'team-members': [200, 150], 'project-files': [200, 150], dashboard: [200, 150],
-  'admin-terminal': [200, 150],
-  help: [140, 100],
+  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the light-page rows no lane
+  // owns are 120/80. The five lane-C rows stay 200/150 until each page's own
+  // conversion commit moves it (W10: "lane C sets its own pages' rows"), so
+  // this list is deliberately split for now; Help was the 140/100 outlier.
+  settings: [120, 80], 'team-members': [120, 80], help: [120, 80],
+  'project-manager': [200, 150], 'rate-card': [200, 150], 'project-files': [200, 150],
+  dashboard: [200, 150], 'admin-terminal': [200, 150],
 }
 
 describe('page bar geometry', () => {
@@ -81,9 +84,11 @@ describe('page bar geometry', () => {
   })
 
   it('the Files page takes the resource-class geometry (Q8a), not Home\'s', () => {
+    // Its twin is another lane-C row (Projects), not Settings: since D1b the
+    // light reading pages sit at 120/80 and Files waits for lane C (W10).
     for (const v of VIEWPORTS) {
-      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS.settings.top, v))
-      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS.settings.bottom, v))
+      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS['project-manager'].top, v))
+      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS['project-manager'].bottom, v))
     }
     // At rest it returns ~186px of field to the densest table (268+268 vs 200+150).
     const rest = (page) => resolveAt(PAGE_BARS[page].top, 1440) + resolveAt(PAGE_BARS[page].bottom, 1440)
@@ -143,11 +148,68 @@ describe('page bar geometry', () => {
   })
 
   it('keeps an asymmetric row in proportion all the way down', () => {
-    for (const v of VIEWPORTS) {
-      const top = resolveAt(PAGE_BARS.settings.top, v)
-      const bottom = resolveAt(PAGE_BARS.settings.bottom, v)
-      expect(top / bottom, `settings ratio at ${v}px`).toBeCloseTo(200 / 150, 3)
+    // Both shapes in the table: the 3:2 light row (D1b) and the 4:3 lane-C row.
+    for (const [page, ratio] of [['settings', 120 / 80], ['project-manager', 200 / 150]]) {
+      for (const v of VIEWPORTS) {
+        const top = resolveAt(PAGE_BARS[page].top, v)
+        const bottom = resolveAt(PAGE_BARS[page].bottom, v)
+        expect(top / bottom, `${page} ratio at ${v}px`).toBeCloseTo(ratio, 3)
+      }
     }
+  })
+
+  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the three light-page rows no
+  // lane owns. Numbers, not adjectives — each one is what the browser resolves.
+  describe('the light reading pages are 120/80 (Q8b / W10, D1b)', () => {
+    const LIGHT = ['settings', 'help', 'team-members']
+    const rest = (page) => resolveAt(PAGE_BARS[page].top, 1440) + resolveAt(PAGE_BARS[page].bottom, 1440)
+
+    it('Settings, Help and Team Members share ONE geometry: 120 over 80 at rest', () => {
+      for (const page of LIGHT) {
+        expect(PAGE_BARS[page].top, `${page}.top`).toBe(PAGE_BARS.settings.top)
+        expect(PAGE_BARS[page].bottom, `${page}.bottom`).toBe(PAGE_BARS.settings.bottom)
+        expect(resolveAt(PAGE_BARS[page].top, 1440), `${page}.top`).toBeCloseTo(120, 5)
+        expect(resolveAt(PAGE_BARS[page].bottom, 1440), `${page}.bottom`).toBeCloseTo(80, 5)
+      }
+    })
+
+    it('returns 150px of field against the 200/150 class and 336px against Home', () => {
+      expect(rest('project-manager') - rest('settings')).toBeCloseTo(150, 5)
+      expect(rest('home') - rest('settings')).toBeCloseTo(336, 5)
+      // Help was the 140/100 outlier (D2 hand-off §6); it gains 40px.
+      expect(140 + 100 - rest('help')).toBeCloseTo(40, 5)
+    })
+
+    // The cap wins from 740px of viewport up (540 reserve + 120 / 0.6 share),
+    // which is every laptop; at Electron's 700px minimum the row gives way in
+    // proportion, 96 over 64, still 3:2 and still above its 54 / 36 floors.
+    it('holds 120/80 on every laptop and collapses to 96/64 at the 700px minimum', () => {
+      for (const page of LIGHT) {
+        for (const v of VIEWPORTS.filter((x) => x >= 740)) {
+          expect(resolveAt(PAGE_BARS[page].top, v), `${page}.top at ${v}px`).toBeCloseTo(120, 5)
+          expect(resolveAt(PAGE_BARS[page].bottom, v), `${page}.bottom at ${v}px`).toBeCloseTo(80, 5)
+        }
+        expect(resolveAt(PAGE_BARS[page].top, 700), `${page}.top at 700px`).toBeCloseTo(96, 5)
+        expect(resolveAt(PAGE_BARS[page].bottom, 700), `${page}.bottom at 700px`).toBeCloseTo(64, 5)
+      }
+    })
+
+    it('Home stays 268/268 (W10: not a resource page) and the lane-C rows stay 200/150 until lane C', () => {
+      expect(resolveAt(PAGE_BARS.home.top, 1440)).toBeCloseTo(268, 5)
+      expect(resolveAt(PAGE_BARS.home.bottom, 1440)).toBeCloseTo(268, 5)
+      for (const page of ['project-manager', 'rate-card', 'project-files', 'dashboard', 'admin-terminal']) {
+        expect(resolveAt(PAGE_BARS[page].top, 1440), `${page}.top`).toBeCloseTo(200, 5)
+        expect(resolveAt(PAGE_BARS[page].bottom, 1440), `${page}.bottom`).toBeCloseTo(150, 5)
+      }
+    })
+
+    // The control: the same numbers written as flat pixels would break the
+    // properties above — no proportion, no floor — so the shape matters, not
+    // just the caps. `resolveAt` refuses the flat form outright.
+    it('control: a flat 120px row is not the same geometry', () => {
+      expect(() => resolveAt('120px', 700)).toThrow(/unrecognised/)
+      expect(resolveAt(PAGE_BARS.settings.top, 700)).toBeLessThan(120)
+    })
   })
 
   // The sign-in seam. Identity, not equality of two literals.

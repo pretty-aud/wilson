@@ -119,7 +119,14 @@ const PAGE_LIST = [
     // Q7 names. The transition title says APP SETTINGS for the same reason.
     id: 'settings',
     title: 'App settings',
-    bars: bars(200, 150),
+    // Q8(b) / W10, ruled 2026-09-11 ("if already said yes then yes"): the
+    // light reading pages drop from 200/150 to 120/80 and give 150px back
+    // to the field. UI overhaul D1b set the three rows no lane owns —
+    // Settings, Help, Team Members. The five lane-C rows below keep 200/150
+    // until each page's own conversion commit moves it (W10: "lane C sets its
+    // own pages' rows"), so the resource class is deliberately split until
+    // lane C lands. Home stays 268/268: it is not a resource page.
+    bars: bars(120, 80),
     surface: 'light',
     chrome: 'page',
     nav: 'primary',
@@ -147,7 +154,7 @@ const PAGE_LIST = [
     // caller of every component in the kit that had none.
     id: 'team-members',
     title: 'Team members',
-    bars: bars(200, 150),
+    bars: bars(120, 80), // Q8(b) / W10 (D1b): F2 left this at 200/150
     surface: 'dark',
     chrome: 'page',
     measure: 'data',
@@ -174,7 +181,7 @@ const PAGE_LIST = [
   {
     id: 'help',
     title: 'Help',
-    bars: bars(140, 100),
+    bars: bars(120, 80), // Q8(b) / W10 (D1b): was the 140/100 outlier (D2 hand-off §6)
     surface: 'light',
     chrome: 'page',
     nav: 'resources',

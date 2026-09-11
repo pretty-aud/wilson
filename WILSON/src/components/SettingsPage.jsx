@@ -1211,10 +1211,13 @@ export default function SettingsPage({
           backdrop and stamps `data-surface="dark"` so the focus ring inside
           it goes back to the signal.
 
-          ⚠️ The four `window.confirm` calls on this surface are NOT converted.
-          localDemoWiring.test.js:225 pins one of them as a demo-sprint wiring
-          guard, and converting only the other three would leave one surface
-          with two confirm idioms. Recorded in the hand-off. */}
+          W9 (ruled 2026-09-11, "convert"): the four native confirms on this
+          surface — remove a department (DepartmentRow, below), disconnect
+          Google Drive, close the demo folder, reset the demo folder (the
+          last three in StorageConnections) — are this same Dialog now, at
+          this same width, with the old wording and the old outcome.
+          localDemoWiring.test.js pins the reset one by its Dialog shape,
+          updated in the same commit (UI overhaul D1b). */}
       {petResetConfirm && (
         <Dialog
           title="Reset pet history"
@@ -1258,6 +1261,11 @@ export default function SettingsPage({
 function DepartmentRow({ name, onRename, onRemove }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(name)
+  // W9 (ruled 2026-09-11, "convert"): the native confirm is the kit Dialog.
+  // Same question, same outcome — `onRemove()` on Remove, nothing on Cancel,
+  // the X or Escape. The removal is synchronous (persistDepartments writes
+  // and forgets), so there is no busy lock to hold and no error to report.
+  const [removeConfirm, setRemoveConfirm] = useState(false)
 
   function commit() {
     setEditing(false)
@@ -1313,10 +1321,28 @@ function DepartmentRow({ name, onRename, onRemove }) {
         title="Remove department"
         aria-label={`Remove department ${name}`}
         danger
-        onClick={() => {
-          if (window.confirm(`Remove department "${name}"?`)) onRemove()
-        }}
+        onClick={() => setRemoveConfirm(true)}
       />
+      {/* The backdrop is position: fixed and nothing in settings.css sets a
+          transform or filter on an ancestor, so the Dialog can live in the
+          row it belongs to: one row, one question, no lifted state. */}
+      {removeConfirm && (
+        <Dialog
+          title="Remove department"
+          width="confirm"
+          onClose={() => setRemoveConfirm(false)}
+          footer={
+            <>
+              <Button onClick={() => setRemoveConfirm(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setRemoveConfirm(false); onRemove() }}>
+                Remove
+              </Button>
+            </>
+          }
+        >
+          Remove department "{name}"?
+        </Dialog>
+      )}
     </div>
   )
 }
