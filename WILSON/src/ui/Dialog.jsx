@@ -65,6 +65,25 @@ export function Dialog({
 
   const surfaceRef = useRef(null)
 
+  // 🚨 CAPTURED IN RENDER, NOT IN THE EFFECT. React applies a child's
+  // `autoFocus` during the COMMIT, which is before any effect runs — so an
+  // effect that reads `document.activeElement` reads the dialog's own field
+  // and "restores" focus to a node that is about to be removed. Measured in
+  // the running app on the rate dialog, which has an autoFocus field: the
+  // dialog closed and focus fell to <body>. Render runs before the commit,
+  // so this is the only phase that still sees the control the user was on.
+  const returnToRef = useRef(null)
+  if (returnToRef.current === null && typeof document !== 'undefined') {
+    returnToRef.current = document.activeElement
+  }
+  // What took focus on the FIRST mount, so a remount lands in the same place.
+  // React 18 StrictMode runs every effect mount → unmount → mount in dev, and
+  // `autoFocus` does not fire again on that second mount (the DOM node is not
+  // recreated), so without this a dev build focuses the Close button where a
+  // production build focuses the field. A kit whose keyboard behaviour differs
+  // between the two is worse than one with none.
+  const landedRef = useRef(null)
+
   // Registered ONCE per mount so a re-render of a lower dialog cannot move
   // it to the top of the stack; only the topmost dialog answers Escape — and,
   // since F3, only the topmost dialog holds the Tab key.
@@ -72,19 +91,27 @@ export function Dialog({
     const id = {}
     const unregister = pushModal(id)
     const node = surfaceRef.current
-    // Captured BEFORE focus moves, so closing can hand it back.
-    const returnTo = document.activeElement
+    const returnTo = returnToRef.current
 
     // ── Initial focus ──
     // A child that asked for focus itself keeps it: React applies `autoFocus`
     // during the commit, which is before this effect runs, so the test is
     // "is focus already inside?" and not "did a caller pass a prop?". Every
     // existing `autoFocus` call site and the two stopgaps that autofocus
-    // Cancel (C2) keep working unchanged. Otherwise the first focusable
-    // element, and the surface itself when the dialog holds none.
-    if (node && !node.contains(document.activeElement)) {
-      const first = focusableWithin(node)[0]
-      ;(first || node).focus()
+    // Cancel (C2) keep working unchanged. Otherwise the element that took it
+    // last time, then the first focusable one, then the surface itself when
+    // the dialog holds none.
+    if (node) {
+      if (node.contains(document.activeElement)) {
+        landedRef.current = document.activeElement
+      } else {
+        const remembered = landedRef.current
+        const target = (remembered && node.contains(remembered))
+          ? remembered
+          : (focusableWithin(node)[0] || node)
+        target.focus()
+        landedRef.current = target
+      }
     }
 
     const key = (e) => {
@@ -122,6 +149,11 @@ export function Dialog({
       // delete dialog was opened from is routinely gone by the time the
       // dialog closes, and `focus()` on a detached node silently drops focus
       // to <body>. `document.body` is not worth restoring to.
+      // No "is it inside this dialog?" guard here, deliberately: `returnTo`
+      // is captured during the first render, when this dialog's own DOM does
+      // not exist yet, so it can never be a node inside it. A guard that
+      // cannot fire is the inert-fix shape the reviews in this repo keep
+      // finding; the break-it pass proved this one was exactly that.
       if (returnTo && returnTo !== document.body && returnTo.isConnected) {
         returnTo.focus?.()
       }

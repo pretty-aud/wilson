@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { StrictMode } from 'react'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Dialog, DIALOG_WIDTHS } from './Dialog'
 import { overlayOpen, focusableWithin, _resetOverlaysForTests } from './overlay'
@@ -225,6 +226,70 @@ describe('Dialog', () => {
     trigger.focus()
     const { unmount } = render(<Dialog title="Confirm" onClose={() => {}}>sure?</Dialog>)
     expect(document.activeElement).not.toBe(trigger)
+    unmount()
+    expect(document.activeElement).toBe(trigger)
+    document.body.removeChild(trigger)
+  })
+
+  it('🚨 hands focus back even when a child has autoFocus — the case the app found', () => {
+    // The regression this test exists for: the effect that captured the
+    // return target ran AFTER React had already applied `autoFocus`, so it
+    // captured the dialog's own field and closing dropped focus to <body>.
+    // Measured on Team Members' rate dialog before it was fixed.
+    const trigger = document.createElement('button')
+    trigger.textContent = 'Edit rate'
+    document.body.appendChild(trigger)
+    trigger.focus()
+    const { unmount } = render(
+      <Dialog title="Set rate" onClose={() => {}} footer={<button>Save</button>}>
+        <input aria-label="Day rate" autoFocus />
+      </Dialog>,
+    )
+    // autoFocus won the open, as it should…
+    expect(document.activeElement).toBe(screen.getByLabelText('Day rate'))
+    unmount()
+    // …and the trigger still gets it back.
+    expect(document.activeElement).toBe(trigger)
+    document.body.removeChild(trigger)
+  })
+
+  it('under StrictMode the dialog still lands on the autoFocus field, not on Close', () => {
+    // React 18 StrictMode runs every effect mount -> unmount -> mount in dev,
+    // and `autoFocus` does NOT fire again on that second mount because the DOM
+    // node is not recreated. Without the remembered landing spot the second
+    // run finds focus outside (the first run's cleanup handed it back to the
+    // trigger) and focuses the first focusable control, which is Close — so a
+    // dev build would put the caret somewhere a production build does not.
+    // `src/main.jsx` wraps the app in <React.StrictMode>, so this is what the
+    // lanes actually see while they work.
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+    render(
+      <StrictMode>
+        <Dialog title="Set rate" onClose={() => {}} footer={<button>Save</button>}>
+          <input aria-label="Day rate" autoFocus />
+        </Dialog>
+      </StrictMode>,
+    )
+    expect(document.activeElement).toBe(screen.getByLabelText('Day rate'))
+    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: 'Close' }))
+    document.body.removeChild(trigger)
+  })
+
+  it('restores to the trigger even when focus was moved inside the dialog first', () => {
+    // The ordinary path: you Tab to Cancel and press it. The return target is
+    // captured in RENDER, before this dialog's DOM exists, so it is still the
+    // trigger no matter where focus travelled inside.
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+    const { unmount } = render(
+      <Dialog title="Confirm" onClose={() => {}} footer={<button>Yes</button>}>body</Dialog>,
+    )
+    const inside = screen.getByRole('button', { name: 'Yes' })
+    inside.focus()
+    expect(document.activeElement).toBe(inside)
     unmount()
     expect(document.activeElement).toBe(trigger)
     document.body.removeChild(trigger)
