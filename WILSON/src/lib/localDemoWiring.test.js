@@ -222,7 +222,15 @@ describe('the Storage card — the one way in, and every seam has its caller', (
 
 describe('demo comfort (brief §3.4) — reset names what it deletes; the seed is the shape ScenesView writes', () => {
   it('the card confirms a reset with the folder and both subtrees named, then reloads', () => {
-    expect(storageConnections).toContain('window.confirm(resetConfirmText(demoState.active))')
+    // W9 (UI overhaul D1b, 2026-09-11): the native confirm became the kit
+    // Dialog, and the pin followed it. The reset text still comes from the
+    // client helper and is the body of a 'confirm'-width Dialog whose one
+    // filled button is the danger variant; no native confirm is left on the
+    // card. (The regex form keeps a comment that names the old API from
+    // satisfying or failing this — D1 hand-off §5, trap 2.)
+    expect(storageConnections).toContain('{resetConfirmText(demoState.active)}')
+    expect(storageConnections).toMatch(/pending === 'reset'[\s\S]{0,400}<Dialog[\s\S]{0,120}width="confirm"[\s\S]{0,900}variant="danger"[^>]*onClick=\{doResetDemoFolder\}/)
+    expect(storageConnections).not.toMatch(/window\.confirm\s*\(/)
     expect(storageConnections).toContain('await demo.reset()')
     const text = resetConfirmText('D:\\Demos\\Friday')
     expect(text).toContain('"Friday"')

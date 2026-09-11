@@ -102,12 +102,16 @@ const PAGE_LIST = [
     nav: 'primary',
   },
   {
+    // Lane C2 converted this page. Its inks moved onto `paper` in the same
+    // commit as this line, which is the rule the comment above states.
     id: 'dashboard',
     title: 'Dashboard',
-    bars: bars(200, 150),
-    // Q1 lane C (C2): → 'dark' when DashboardPage's own inks move.
-    surface: 'light',
+    // Q8(b): the resource-class rows drop to 120/80, which returns about
+    // 150px of field to a view that showed roughly eight table rows.
+    bars: bars(120, 80),
+    surface: 'dark',
     chrome: 'page',
+    measure: 'data',
     nav: 'primary',
   },
   {
@@ -119,7 +123,16 @@ const PAGE_LIST = [
     // Q7 names. The transition title says APP SETTINGS for the same reason.
     id: 'settings',
     title: 'App settings',
-    bars: bars(200, 150),
+    // Q8(b) / W10, ruled 2026-09-11 ("if already said yes then yes"): the
+    // resource-class rows drop from 200/150 to 120/80 and give 150px back to
+    // the field. UI overhaul D1b set the three rows no lane owns — Settings
+    // and Help (light) and Team Members (dark since F2; W10 names it). The
+    // surface has nothing to do with it. Lane C moved its own rows in each
+    // page's conversion commit (W10: "lane C sets its own pages' rows"):
+    // Projects, Rate card and Dashboard to 120/80, Files to the tool 95/8;
+    // Admin Terminal keeps 200/150 until C3. Home stays 268/268: it is not a
+    // resource page.
+    bars: bars(120, 80),
     surface: 'light',
     chrome: 'page',
     nav: 'primary',
@@ -129,17 +142,21 @@ const PAGE_LIST = [
   {
     id: 'project-manager',
     title: 'Projects',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C1)
+    // Q8(b): the resource-class rows go to 120/80, returning about 150px of
+    // field to the pages that hold the app's densest content.
+    bars: bars(120, 80),
+    surface: 'dark', // Q1, converted by lane C (C1)
     chrome: 'page',
+    measure: 'data',
     nav: 'resources',
   },
   {
     id: 'rate-card',
     title: 'Rate card',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C1)
+    bars: bars(120, 80),
+    surface: 'dark', // Q1, converted by lane C (C1)
     chrome: 'page',
+    measure: 'data',
     nav: 'resources',
   },
   {
@@ -147,18 +164,28 @@ const PAGE_LIST = [
     // caller of every component in the kit that had none.
     id: 'team-members',
     title: 'Team members',
-    bars: bars(200, 150),
+    bars: bars(120, 80), // Q8(b) / W10 (D1b): F2 left this at 200/150
     surface: 'dark',
     chrome: 'page',
     measure: 'data',
     nav: 'resources',
   },
   {
-    // F1 gave this page the resource geometry it had been missing (Q8a).
+    // F1 gave this page the resource geometry it had been missing (Q8a). Q8(b)
+    // then took it further than its siblings: Files is a WORKING page, not a
+    // reading one, so it takes the TOOL geometry — the same bars(95, 8) D.O.G.,
+    // O.T.T.E.R. and R.A.B.B.I.T. get. Against Home's 268/268, where this page
+    // rendered for three weeks, that is 433px of field returned to the densest
+    // table in the app; against its own 200/150, a further 247px.
+    //
+    // It keeps `chrome: 'page'` — it has a plain title, not a tool wordmark —
+    // and it takes NO measure: the two views (a seven-column table and the
+    // Finder columns) fill the field edge to edge, and capping a file browser
+    // to a centred 1240px column would hand back the width Q8(b) just bought.
     id: 'project-files',
     title: 'Files',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C1)
+    bars: bars(95, 8),
+    surface: 'dark', // Q1, converted by lane C (C1)
     chrome: 'page',
     nav: 'resources',
   },
@@ -174,7 +201,7 @@ const PAGE_LIST = [
   {
     id: 'help',
     title: 'Help',
-    bars: bars(140, 100),
+    bars: bars(120, 80), // Q8(b) / W10 (D1b): was the 140/100 outlier (D2 hand-off §6)
     surface: 'light',
     chrome: 'page',
     nav: 'resources',

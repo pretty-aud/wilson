@@ -177,7 +177,17 @@ describe('FILES under RESOURCES, and the file facts (Audrey, 2026-09-11 00:50)',
     expect(files, "'project-files' is missing from the PAGES registry").toBeDefined()
     expect(files.title).toBe('Files')
     expect(files.nav).toBe('resources')
-    expect(files.bars.top).toBe(PAGE_BY_ID['team-members'].bars.top)
+    // Two pins, both kept at the D1b / C1 merge. The property itself (F-R04:
+    // Files must not render in Home's chrome) — it used to be pinned to Team
+    // Members' geometry, which D1b moved to 120/80 (Q8b / W10) and turned
+    // this red for a reason unrelated to the bug it guards, so Files ≠ Home
+    // is asserted directly. And C1's: Files took the TOOL geometry under
+    // Q8(b) — it is a working page, not a reading one — so the row it must
+    // agree with is a tool's, not a sibling resource page's.
+    // `pageBars.test.js` owns the geometry itself.
+    expect(files.bars.top).not.toBe(PAGE_BY_ID.home.bars.top)
+    expect(files.bars.bottom).not.toBe(PAGE_BY_ID.home.bars.bottom)
+    expect(files.bars.top).toBe(PAGE_BY_ID.dog.bars.top)
     // The control: the old shape really is gone, so this test cannot pass by
     // accident against a stale App.jsx that still carries the hand-kept lists.
     expect(app).not.toContain("'project-files': 'FILES',")
