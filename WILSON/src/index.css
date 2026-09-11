@@ -140,6 +140,17 @@
   --ease-response: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* 🚨 THE TITLE BAR OFFSET, in one place (plan §3.3; review "Missing coverage").
+   Electron draws WILSON's own 32px title bar fixed at the top of every screen.
+   Three surfaces hand-compensate for it in three different ways and a fourth
+   (EditHistoryDrawer) does not, so it slides UNDER the bar and loses its
+   header (TL-24). `.electron-app` is the class TitleBar already sets on <html>
+   when `window.electronAPI` exists, so this resolves to 32px in the desktop
+   app and 0 in the browser, and a drawer is written ONCE for both. Any fixed
+   overlay that must clear the bar reads this instead of a literal 32. */
+:root { --titlebar-offset: 0px; }
+.electron-app { --titlebar-offset: var(--titlebar); }
+
 @utility duration-state { transition-duration: var(--duration-state); }
 @utility duration-response { transition-duration: var(--duration-response); }
 @utility duration-panel { transition-duration: var(--duration-panel); }
@@ -1031,6 +1042,376 @@ select option {
   @keyframes ui-spin { to { transform: rotate(360deg); } }
 
   /* ═══════════════════════════════════════════════════════════════════════
+     F2 — THE SHELL AND DATA PRIMITIVES
+     Every state is a data attribute resolved here; no component writes an
+     inline style, so nothing a caller adds can beat a hover (plan §1).
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* ── Table ──────────────────────────────────────────────────────────────
+     A real <table> with `table-layout: fixed` — the DOM decision is argued in
+     Table.jsx's header. No zebra: the dividers already group the rows, and a
+     stripe is a second grouping fighting the first. */
+  .ui-table-scroll { overflow: auto; flex: 1; min-height: 0; }
+  .ui-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .ui-table[data-surface="light"] { color: var(--color-ink-light); }
+
+  .ui-th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: var(--table-head);
+    padding: 0 var(--cell-pad-x);
+    text-align: left;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    /* 🚨 OPAQUE. A sticky head with a transparent fill lets the rows scroll
+       through it and read as garbage (review R06). */
+    background-color: var(--color-paper-raised);
+    border-bottom: 1px solid var(--color-rule);
+    white-space: nowrap;
+  }
+  .ui-table[data-surface="light"] .ui-th {
+    color: var(--color-ink-light);
+    background-color: var(--color-surface-light-solid);
+    border-bottom-color: var(--color-rule-light);
+  }
+  .ui-th[data-align="right"], .ui-td[data-align="right"] { text-align: right; }
+  .ui-th[data-align="center"], .ui-td[data-align="center"] { text-align: center; }
+  .ui-th-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  .ui-th[data-align="right"] .ui-th-btn { justify-content: flex-end; }
+  .ui-th[data-align="center"] .ui-th-btn { justify-content: center; }
+  .ui-th-label { overflow: hidden; text-overflow: ellipsis; }
+  /* Always present, always this wide, sorted or not: an arrow that appears on
+     click shifts the label sideways under the pointer that just clicked it. */
+  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; }
+  .ui-th-sort[data-dir="asc"]::before { content: "\2191"; }
+  .ui-th-sort[data-dir="desc"]::before { content: "\2193"; }
+
+  .ui-td {
+    height: var(--row);
+    padding: var(--cell-pad-y) var(--cell-pad-x);
+    border-bottom: 1px solid var(--color-rule);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .ui-table[data-surface="light"] .ui-td { border-bottom-color: var(--color-rule-light); }
+  .ui-table[data-dense] .ui-td { height: var(--row-dense); padding-top: 6px; padding-bottom: 6px; }
+  /* Numerics: right-aligned, tabular, in the mono. Four money tables shipped
+     with zero tabular-nums and their columns only lined up by luck (R3-02). */
+  .ui-th[data-numeric], .ui-td[data-numeric] { font-variant-numeric: tabular-nums; }
+  .ui-td[data-numeric] {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+  }
+
+  .ui-tr { transition: background-color var(--duration-state) ease-out; }
+  .ui-tr[data-interactive] { cursor: pointer; }
+  .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-hover); }
+  .ui-table[data-surface="light"] .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-hover-light); }
+  /* One selected treatment: a fill plus a 2px signal edge on the first cell.
+     `box-shadow: inset` rather than a border, so the row height is identical
+     selected and not. */
+  .ui-tr[data-selected] > .ui-td { background-color: var(--color-signal-tint); }
+  .ui-tr[data-selected] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-signal); }
+  /* Deactivated rows take the third ink, NEVER `opacity` (plan §3.1 — opacity
+     as a state is what made "less important" mean "unreadable"). */
+  .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-3); }
+  .ui-table[data-surface="light"] .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-light); font-style: italic; }
+
+  /* ── Toolbar ────────────────────────────────────────────────────────── */
+  .ui-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--toolbar);
+    padding: 0 var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .ui-toolbar[data-surface="light"] { border-bottom-color: var(--color-rule-light); }
+  .ui-toolbar[data-wrap] { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+  .ui-toolbar-slot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .ui-toolbar-right { margin-left: auto; flex-shrink: 0; }
+  /* ONE baseline: every child is the 28px control height. Only one of the
+     three toolbars this replaces gave its controls a baseline to share. */
+  .ui-toolbar .ui-btn, .ui-toolbar .ui-iconbtn,
+  .ui-toolbar .ui-input, .ui-toolbar .ui-select, .ui-toolbar .ui-chip {
+    height: var(--control-sm);
+  }
+
+  /* ── SectionTitle ───────────────────────────────────────────────────── */
+  .ui-section { display: flex; align-items: flex-end; gap: 16px; padding-top: 16px; }
+  .ui-section[data-rule] { border-top: 1px solid var(--color-rule); }
+  .ui-section[data-rule][data-surface="light"] { border-top-color: var(--color-rule-light); }
+  .ui-section-text { min-width: 0; }
+  .ui-section-eyebrow {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    margin-bottom: 4px;
+  }
+  .ui-section[data-surface="light"] .ui-section-eyebrow { color: var(--color-ink-light); }
+  .ui-section-title {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: var(--text-h2--font-weight);
+    color: var(--color-ink);
+  }
+  .ui-section[data-surface="light"] .ui-section-title { color: var(--color-ink-light); }
+  .ui-section-desc {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    margin-top: 4px;
+    max-width: var(--measure-reading);
+  }
+  .ui-section[data-surface="light"] .ui-section-desc { color: var(--color-ink-light); }
+  .ui-section-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  /* ── Card ───────────────────────────────────────────────────────────── */
+  .ui-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .ui-card[data-surface="light"] {
+    background-color: var(--color-well-light);
+    border-color: var(--color-rule-light);
+  }
+  .ui-card[data-pad] { padding: 16px; }
+  .ui-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .ui-card-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .ui-card[data-surface="light"] .ui-card-title { color: var(--color-ink-light); }
+  .ui-card-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  /* A card that holds a table pads nothing: the cells bring their own padding
+     and the rows must reach the hairline on every side. */
+  .ui-card:not([data-pad]) { overflow: hidden; }
+  .ui-card:not([data-pad]) > .ui-card-head {
+    padding: 8px 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .ui-card:not([data-pad])[data-surface="light"] > .ui-card-head { border-bottom-color: var(--color-rule-light); }
+
+  /* ── Tabs ───────────────────────────────────────────────────────────── */
+  .ui-tabs { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
+  .ui-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-md);
+    padding: 0 10px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-weight: 400;
+    color: var(--color-ink-2);
+    background: none;
+    border: 0;
+    /* The one active treatment: a 2px signal underline, never a fill — under
+       14px text on this frame a fill has no legal ink (C6). The transparent
+       edge is always there, so nothing moves when it lights up. */
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .ui-tab:hover:not(:disabled) { color: var(--color-ink); }
+  .ui-tab[data-active] { color: var(--color-ink); font-weight: 600; border-bottom-color: var(--color-signal); }
+  .ui-tab:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .ui-tab[data-surface="light"] { color: var(--color-ink-light); }
+  .ui-tab[data-surface="light"][data-active] { color: var(--color-ink-light); border-bottom-color: var(--color-ink-light); }
+  .ui-tab-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-tab[data-surface="light"] .ui-tab-count { color: var(--color-ink-light); }
+  .ui-tabs-sep { align-self: center; width: 1px; height: 16px; margin: 0 8px; background-color: var(--color-rule); }
+  .ui-tabs[data-surface="light"] .ui-tabs-sep { background-color: var(--color-rule-light); }
+
+  /* ── Panel ──────────────────────────────────────────────────────────── */
+  .ui-panel {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    /* No fill. A panel is its hairline and its content. */
+    background: none;
+  }
+  .ui-panel[data-width="sm"] { width: var(--panel-sm); }
+  .ui-panel[data-width="md"] { width: var(--panel-md); }
+  .ui-panel[data-width="lg"] { width: var(--panel-lg); }
+  .ui-panel[data-side="left"]  { border-right: 1px solid var(--color-rule); }
+  .ui-panel[data-side="right"] { border-left: 1px solid var(--color-rule); }
+  .ui-panel[data-surface="light"][data-side="left"]  { border-right-color: var(--color-rule-light); }
+  .ui-panel[data-surface="light"][data-side="right"] { border-left-color: var(--color-rule-light); }
+  .ui-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--panel-header);
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+  .ui-panel-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-panel[data-surface="light"] .ui-panel-title { color: var(--color-ink-light); }
+  .ui-panel-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .ui-panel-body { flex: 1; min-height: 0; overflow: auto; }
+
+  /* ── Drawer ─────────────────────────────────────────────────────────────
+     🚨 `--titlebar-offset` is the whole point — see Drawer.jsx. Three surfaces
+     hand-compensate for Electron's 32px title bar in three different ways
+     today, and one of them slides under it (TL-24). */
+  .ui-drawer {
+    position: fixed;
+    top: var(--titlebar-offset);
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+  }
+  .ui-drawer[data-surface="light"] {
+    background-color: var(--color-surface-light-solid);
+    box-shadow: var(--shadow-float-light);
+  }
+  .ui-drawer[data-side="right"] {
+    right: 0;
+    border-left: 1px solid var(--color-rule);
+    animation: ui-drawer-in-right var(--duration-panel) var(--ease-response);
+  }
+  .ui-drawer[data-side="left"] {
+    left: 0;
+    border-right: 1px solid var(--color-rule);
+    animation: ui-drawer-in-left var(--duration-panel) var(--ease-response);
+  }
+  .ui-drawer[data-surface="light"][data-side="right"] { border-left-color: var(--color-rule-light); }
+  .ui-drawer[data-surface="light"][data-side="left"]  { border-right-color: var(--color-rule-light); }
+  .ui-drawer[data-width="sm"] { width: var(--panel-sm); }
+  .ui-drawer[data-width="md"] { width: var(--panel-md); }
+  .ui-drawer[data-width="lg"] { width: var(--panel-lg); }
+  .ui-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--panel-header);
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .ui-drawer[data-surface="light"] .ui-drawer-head { border-bottom-color: var(--color-rule-light); }
+  .ui-drawer-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-drawer[data-surface="light"] .ui-drawer-title { color: var(--color-ink-light); }
+  .ui-drawer-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .ui-drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+  .ui-drawer-foot { flex-shrink: 0; padding: 12px; border-top: 1px solid var(--color-rule); }
+  .ui-drawer[data-surface="light"] .ui-drawer-foot { border-top-color: var(--color-rule-light); }
+  .ui-drawer-backdrop { position: fixed; inset: 0; z-index: 59; background-color: var(--color-backdrop); }
+  @keyframes ui-drawer-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes ui-drawer-in-left  { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+  /* ── Stat ───────────────────────────────────────────────────────────── */
+  .ui-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ui-stat-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-stat[data-surface="light"] .ui-stat-label { color: var(--color-ink-light); }
+  .ui-stat-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: var(--text-h1--font-weight);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .ui-stat[data-surface="light"] .ui-stat-value { color: var(--color-ink-light); }
+  .ui-stat-delta {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--status-color, var(--color-ink-3));
+  }
+  /* On light, status colour is not drawn at all (plan §3.2: the greens and
+     reds measure 1.4-3.1:1 on #f4a261), so a delta there is the one ink. */
+  .ui-stat[data-surface="light"] .ui-stat-delta { color: var(--color-ink-light); }
+
+  /* ── HoverActions ───────────────────────────────────────────────────────
+     Reserved slot, revealed on row hover and on focus-within (Q17b). The slot
+     is always laid out — only opacity moves — so a row cannot reflow under
+     the pointer. */
+  .ui-hover-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .ui-hover-actions[data-always] { opacity: 1; }
+  :where(tr, li, .ui-hover-host):hover .ui-hover-actions,
+  :where(tr, li, .ui-hover-host):focus-within .ui-hover-actions,
+  .ui-hover-actions:focus-within { opacity: 1; }
+
+  /* ═══════════════════════════════════════════════════════════════════════
      SHELL — App.jsx's own chrome (F2). Not kit components: one app renders
      these, so they keep the `wilson-` prefix the scroll and chrome scopes
      already use. Everything here is a STATE that used to be an inline value
@@ -1113,9 +1494,11 @@ select option {
 @media (prefers-reduced-motion: reduce) {
   .ui-btn, .ui-iconbtn, .ui-input, .ui-chip, .ui-menu-item,
   .ui-switch-track, .ui-switch-knob,
+  .ui-tr, .ui-tab, .ui-hover-actions,
   .wilson-nav-item, .tm-inline-edit, .tm-row, .tm-cell-btn {
     transition-duration: 0.01ms;
   }
+  .ui-drawer { animation: none; }
   .ui-toast { animation: none; }
   .ui-dialog-backdrop { animation: none; }
   .ui-skeleton { animation: none; }

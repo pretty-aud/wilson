@@ -21,9 +21,13 @@ const files = readdirSync(here)
 const modules = files.filter((f) => /\.(js|jsx)$/.test(f) && !/\.test\.(js|jsx)$/.test(f) && f !== 'index.js')
 
 export const COMPONENTS = [
+  // F1 — tokens and primitives
   'Button', 'IconButton', 'Switch', 'Chip', 'Badge', 'StatusDot', 'StatusBadge', 'Field',
   'Input', 'TextArea', 'Select', 'Dialog', 'Menu', 'Toast', 'ToastProvider', 'Banner',
   'EmptyState', 'Loading', 'Spinner', 'Kbd',
+  // F2 — the shell and data primitives
+  'PageHeader', 'Table', 'Th', 'Td', 'Row', 'Toolbar', 'SectionTitle', 'Card',
+  'Tabs', 'Panel', 'Drawer', 'Stat', 'HoverActions',
 ]
 
 describe('src/ui inventory', () => {
@@ -33,7 +37,7 @@ describe('src/ui inventory', () => {
       const hasTest = files.includes(`${base}.test.js`) || files.includes(`${base}.test.jsx`)
       expect(hasTest, `${f} has no test`).toBe(true)
     }
-    expect(modules.length).toBeGreaterThanOrEqual(22)
+    expect(modules.length).toBeGreaterThanOrEqual(32)
   })
 
   it('every component is exported from the barrel as a component', () => {
