@@ -85,10 +85,11 @@ is the full change-password form, which is taller, so on your 900px window you
 will still scroll to it, 150px less than before.
 
 **Home is untouched** at 268/268: it is not a resource page, and its six
-buttons need the room. **The five data pages** — Projects, Rate Card, Files,
-Dashboard, Admin Terminal — are still at 200/150 for now: each moves in the
-commit that converts that page onto the dark ground (lane C), so it changes
-once, not twice.
+buttons need the room. **The data pages** moved in their own sessions, not
+this one: while this bundle ran, lane C landed Projects, Rate Card and
+Dashboard at the same 120/80 and Files at the tools' 95/8 (it is a working
+page), so on `feat/ui-overhaul` every resource page now has the short bars
+except Admin Terminal, which moves when C3 converts it.
 
 Two things move with the bars. **The pet** sits on the bottom bar, so it now
 sits 70px lower on Settings and Team Members and 20px lower on Help. That is
