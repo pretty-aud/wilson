@@ -26,6 +26,13 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
     `16346fa`. The hand-off commit(s) after it are docs only; verify the two
     refs still agree (`git ls-remote origin refs/heads/demo/local-storage
     refs/heads/feat/demo-2026-09-11`) and re-integrate if not.
+  - `cec5288` docs: this hand-off (first cut) — integrated.
+  - `f3756ae` feat(resources): FILES under RESOURCES (table + Finder
+    columns, every detail per file), files.duration_sec /
+    files.source_modified_at (migration 0081, suite 81), both uploads record
+    them — **integrated**: both refs at `f3756ae` at 01:03; CI one full run
+    green incl. pgTAP (34564328904), the twin's Playwright in progress.
+    Walkthrough `19_files_explorer.md`. NOT yet seen in a signed-in window.
   - **This session may still be running when you read this** (Audrey kept
     sending work: the Resources file explorer, §4). If `git rev-parse HEAD`
     differs from your own last push, `git fetch origin && git reset --hard
@@ -40,6 +47,8 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
 
 ## 2. State, measured
 
+- vitest at `f3756ae`: **1995 / 86 files** (`mediaMetadata.test.js` 9,
+  `fileTree.test.js` 13, three more wiring pins). Before the explorer:
 - vitest: **1970 / 84 files** at `0e0871e` / `16346fa` (previous hand-off
   1920 / 80; new `storage/localMedia.test.js` 21,
   `storage/localServerProvider.test.js` 7, `lib/localMediaWiring.test.js` 16,
@@ -223,7 +232,11 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
    the `out-private` exe or her checkout at `16346fa`+ (`git pull
    --ff-only`, `npx vite build --mode staging`, `npx electron .`).
 2a. **The Resources file explorer + file metadata (asked 00:50, §4)** —
-   whatever this session did not finish is the next item.
+   built (`f3756ae`, walkthrough 19). Her report on it, and **0081 on
+   staging** (item 1), are what is open. Not built: opening / moving /
+   deleting from the explorer (read-only tonight); a backfill of duration
+   for files added before 2026-09-11; ffmpeg-decoded durations (no ffmpeg on
+   this machine).
 3. **Two-part demo report, part 2** (Local Server + folder + bins) — she
    reported part 1 working ("Okay so its working"); part 2 not yet.
 4. Q4 seed content (`planDemoProject` is still the placeholder); Q6 machine.
