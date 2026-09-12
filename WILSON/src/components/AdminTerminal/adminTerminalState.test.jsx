@@ -31,7 +31,7 @@
 // rule actually looks at.
 // =============================================================================
 
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
 
 // The Supabase client is constructed at module load and throws
@@ -53,14 +53,20 @@ vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({
 // Function on open. It drives the SECURITY group only — never the two rate
 // card toggles this file asserts — so it resolves to a refusal, which is
 // also what the surface really gets in tester mode.
+const created = vi.hoisted(() => ({ calls: 0 }))
 vi.mock('../../cloud/adminApi', () => ({
   adminUserSecurity: async () => ({ ok: false, status: 403, data: {} }),
   adminResetPassword: async () => ({ ok: false, status: 403, data: {} }),
   adminSetActive: async () => ({ ok: false, status: 403, data: {} }),
+  adminCreateUser: async () => {
+    created.calls += 1
+    return { ok: false, status: 403, data: { friendly: 'Refused by the test.' } }
+  },
 }))
 
 const { default: UsersSection } = await import('./UsersSection')
 const { default: MultiInviteDialog } = await import('./MultiInviteDialog')
+const { default: CreateUserDialog } = await import('./CreateUserDialog')
 
 afterEach(() => cleanup())
 
@@ -200,6 +206,55 @@ describe('the rate card toggles reflect the grants they were rendered from', () 
     expect(view.getAttribute('aria-checked')).toBe('true')
     expect(view.disabled).toBe(true)
     expect(screen.getByRole('switch', { name: 'Can edit rate card' }).disabled).toBe(false)
+  })
+})
+
+describe('Enter still submits the create-user form', () => {
+  // 🚨 THE REGRESSION THIS EXISTS TO STOP, which the conversion caused and
+  // which no other test could see.
+  //
+  // The dialog used to be a <form> wrapping its own submit button, so Enter
+  // in any field submitted it. `Dialog` renders header / body / footer as
+  // siblings, so the form moved into the body and the button reaches it by
+  // `form={FORM_ID}` — which makes it the form's default button, and implicit
+  // submission available in principle. But the kit `Input` BLURS the field on
+  // Enter (its commit-on-Enter contract, which inline editors depend on), and
+  // a blurred field triggers no implicit submission. Measured in the running
+  // app: the field does blur, and Enter reached nothing.
+  //
+  // The form listens for the Enter that `Input` forwards after blurring. This
+  // asserts the keyboard path end to end, from a field that is NOT the first
+  // one — the first field would be reachable by other routes and would prove
+  // less.
+  beforeEach(() => { created.calls = 0 })
+
+  it('submits from a field other than the first, and gates on the same validation', () => {
+    render(<CreateUserDialog open onClose={vi.fn()} onCreated={vi.fn()} />)
+
+    // Invalid: the pattern's floor is two characters.
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'a' } })
+    fireEvent.keyDown(screen.getByLabelText('Display name'), { key: 'Enter' })
+
+    expect(screen.getByRole('alert').textContent).toMatch(/2-32 chars/)
+    // The gate held: nothing was sent.
+    expect(created.calls).toBe(0)
+  })
+
+  it('sends when the form is valid, from the same key', async () => {
+    render(<CreateUserDialog open onClose={vi.fn()} onCreated={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'zed' } })
+    fireEvent.keyDown(screen.getByLabelText('Display name'), { key: 'Enter' })
+
+    await screen.findByRole('alert')
+    expect(created.calls).toBe(1)
+  })
+
+  it('a textarea would keep its newline', () => {
+    // The handler exempts <textarea> by tag. This form has none today, and
+    // the exemption is there so adding one cannot silently swallow Enter.
+    render(<CreateUserDialog open onClose={vi.fn()} onCreated={vi.fn()} />)
+    expect(document.querySelector('#at-create-user-form textarea')).toBeNull()
   })
 })
 

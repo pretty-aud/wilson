@@ -19,9 +19,17 @@
 //
 // 🚨 THE FORM ELEMENT MOVED INSIDE THE DIALOG BODY and the submit button now
 // reaches it by `form={FORM_ID}`. `Dialog` renders header / body / footer as
-// siblings, so a <form> wrapping all three is not available — and an implicit
-// submit that no longer fires is the silent way to break a dialog whose only
-// keyboard path is Enter. The id is what keeps Enter working from every field.
+// siblings, so a <form> wrapping all three is not available.
+//
+// 🚨 AND THAT ALONE WAS NOT ENOUGH TO KEEP ENTER WORKING. The `form` attribute
+// does make the footer button this form's default button, so IMPLICIT
+// SUBMISSION is available in principle — but the kit `Input` blurs the field
+// on Enter (its commit-on-Enter contract, which inline editors elsewhere
+// depend on), and a blurred field never triggers it. Measured in the running
+// app: Enter from the Display name field fired no `submit` event at all, so
+// the keyboard path to "Create user" had quietly gone. `Input` forwards the
+// key after blurring rather than swallowing it, which is what makes the
+// handler below possible; the form listens for the Enter that reaches it.
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react'
@@ -116,7 +124,19 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
         </>
       )}
     >
-      <form id={FORM_ID} onSubmit={handleSubmit} className="at-form">
+      <form
+        id={FORM_ID}
+        onSubmit={handleSubmit}
+        className="at-form"
+        // Enter submits from any single-line field, as it did before the
+        // conversion. A <textarea> would want a newline instead; this form
+        // has none, and the check is here so adding one cannot break it.
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || e.target?.tagName === 'TEXTAREA') return
+          e.preventDefault()
+          handleSubmit(e)
+        }}
+      >
         {/* The hint keeps `at-hint` and its `data-invalid` rather than
             becoming a plain string: it goes amber the moment the typed
             username stops matching the pattern, which is the only feedback
