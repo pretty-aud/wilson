@@ -614,6 +614,33 @@ describe('\u{1F6A8} a state that colours descendants reaches all of them', () =>
   })
 })
 
+describe('the create-user form still submits from the keyboard', () => {
+  // The behavioural half is in `adminTerminalState.test.jsx`, which mounts
+  // the dialog. This is the half that file cannot assert: it runs in jsdom,
+  // where `import.meta.url` is an http URL and `readFileSync` refuses it.
+  //
+  // Both halves exist because the kit `Input` blurs the field on Enter, so
+  // implicit submission never fires and the form has to listen for the key
+  // itself. The `<textarea>` exemption keeps a newline a newline if one is
+  // ever added; the form has none today, so nothing else can prove the
+  // clause is still there.
+  const src = sources['CreateUserDialog.jsx'] || ''
+
+  it('the form listens for Enter itself', () => {
+    expect(src).toMatch(/onKeyDown=\{\(e\) => \{[\s\S]*?e\.key !== 'Enter'/)
+    expect(src).toMatch(/handleSubmit\(e\)/)
+  })
+
+  it('and exempts a textarea by tag', () => {
+    expect(src).toMatch(/e\.target\?\.tagName === 'TEXTAREA'/)
+  })
+
+  it('the submit button still reaches the form by id', () => {
+    expect(src).toMatch(/form=\{FORM_ID\}/)
+    expect(src).toMatch(/<form\s+id=\{FORM_ID\}/)
+  })
+})
+
 describe('C7: the 11px floor, and one scale', () => {
   // "The floor is 11px; nothing smaller ships" (plan §0 C7, §3.1). The review
   // counted 50 occurrences at 10px or smaller on this surface and named

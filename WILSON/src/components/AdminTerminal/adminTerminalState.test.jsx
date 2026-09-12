@@ -33,7 +33,6 @@
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
-import { readFileSync } from 'node:fs'
 
 // The Supabase client is constructed at module load and throws
 // 'supabaseUrl is required' without a .env.local, which is every CI run
@@ -288,11 +287,10 @@ describe('Enter still submits the create-user form', () => {
     onKeyDown({ key: 'Enter', target: { tagName: 'INPUT' } })
     expect(submitted.called).toBe(true)
 
-    // And the real form still carries the clause, so the two cannot drift.
-    const src = readFileSync(
-      new URL('./CreateUserDialog.jsx', import.meta.url), 'utf8',
-    )
-    expect(src).toMatch(/e\.target\?\.tagName === 'TEXTAREA'/)
+    // That the REAL form still carries this clause is asserted in
+    // `adminTerminalCss.test.js`, which already reads every source in this
+    // directory. It cannot be asserted here: this file runs in jsdom, where
+    // `import.meta.url` is an http URL and `readFileSync` refuses it.
   })
 })
 
