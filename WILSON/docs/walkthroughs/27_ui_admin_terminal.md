@@ -1,4 +1,4 @@
-# 27 — Admin Terminal (UI overhaul, lane C, session C3)
+# 27 — Admin Terminal (UI overhaul, lane C, sessions C3 and C3b)
 
 **Status: part one of two.** This session landed the groundwork and two real
 fixes. The visual conversion — the part you will actually recognise as "the
@@ -76,7 +76,9 @@ want to know about it.
 
 ---
 
-## What is deliberately NOT done yet
+## What was deliberately NOT done in part one
+
+(Part two below is that list, done.)
 
 Everything in the screenshots still looks the way it always has, and that is
 expected. Still to come in the next session:
@@ -106,3 +108,107 @@ the only difference from the next set will be the conversion itself.
 No decision is waiting on you for this session. If you have five minutes, the
 two things genuinely worth your eyes are the ADD PEOPLE menu copy (§2) and
 anything in §3 that stopped responding.
+
+---
+
+# Part two — the conversion (session C3b, 2026-09-12)
+
+The list above said what was still to come. This is that, done. The Admin
+terminal now looks like Team members, Files, Projects, Rate card and the
+Dashboard, because it is built out of the same pieces they are.
+
+## The one change you will notice first
+
+**The page is dark.** It was the last of the six data pages still on the
+orange ground. Home, App settings and Help stay orange — those are for
+reading and filling in forms, where one ink is enough. The six pages that
+hold tables and status and live data are on the same dark surface the three
+tools use, which is the split you approved as Option A.
+
+The orange frame is untouched. The page transition is untouched.
+
+## What else moved
+
+- **The title is drawn once.** It was in the orange bar and again in black
+  twenty pixels below it. Only the bar keeps it.
+- **About 190px of page came back**, on top of the 190 the last session
+  returned. The page used to put three separate margins between the window
+  edge and the first row.
+- **All seven sections now open with a heading.** Five of them had none at
+  all, and the two that did disagreed about what size a heading is.
+- **The left strip is grouped.** Two faint dividing lines split the seven
+  items into people, the company's settings, and what the system is doing.
+  Nothing is hidden and nothing moved: all seven are still one click away.
+- **The four tables are one table.** Same columns, same order, same data —
+  but the columns now have declared widths, so the header and the rows line
+  up and a long name no longer shoves the grid sideways. The error-code list
+  in Diagnostics finally has a header row saying what its two columns are.
+- **The four pop-ups are one pop-up.** The credentials hand-off, create user,
+  invite by email, and the confirm boxes. They all trap focus now, which
+  means Tab stays inside the dialog instead of wandering behind it, and when
+  you close one your place on the page comes back.
+- **Nine different hand-made buttons became one button**, so a Cancel is the
+  same size and shape wherever you meet it.
+- **Error messages are legible.** They were dark red on a pale red patch on
+  orange, which measured about 2.1 to 1 — under half what is readable. You
+  can see that in the "before" Logs screenshot; compare it with the "after".
+
+## The one thing that behaves differently, and why
+
+The **credentials pop-up** — the show-once screen with a new password on it —
+used to have no X and no way out with the Escape key. That was deliberate: it
+made you click the same button twice if you tried to leave without copying
+anything.
+
+It now has an X and answers Escape, because every dialog in WILSON does since
+you said yes to that. **The two-step gate still holds on all three of them.**
+If you have not copied anything, the X, Escape and the button all do the same
+thing: ask "Close without copying?" once, and only leave if you do it again
+within three seconds. Nothing can lose you a password in one action.
+
+Everything else does exactly what it did.
+
+## What is still on the old type
+
+The **Storage** section and **Change requests** are owned by two of the paused
+branches, so this session was only allowed to change their colours and swap
+in shared components — not to rewrite their layout. Their headings and body
+text are on the new colours but still on their old sizes, and Storage's card
+titles are still capitals. That is the last thing the next session picks up.
+
+## Screenshots
+
+Side by side, at both window sizes:
+
+| | Before | After |
+|---|---|---|
+| Users | `img/c3-before-admin-terminal-1440x900.png` | `img/c3b-after-admin-terminal-1440x900.png` |
+| Storage | `img/c3-before-storage-1440x900.png` | `img/c3b-after-storage-1440x900.png` |
+| Logs | `img/c3-before-logs-1440x900.png` | `img/c3b-after-logs-1440x900.png` |
+| Change requests | `img/c3-before-requests-1440x900.png` | `img/c3b-after-requests-1440x900.png` |
+
+The `1280x700` pair of each is beside it, which is the smallest window the app
+allows.
+
+🚨 **The people in these pictures are not real.** The screenshots were taken
+with the dev fixture switched on, so the roster is eight invented members.
+Logs and Storage show a permission refusal rather than data, because the
+fixture signs in without a real admin session — that refusal is genuine, and
+it is also the clearest before-and-after for the error-message change.
+
+## Two things worth your eyes, if you have ten minutes
+
+1. **The Users roster.** Click a row, then another. Exactly one row should be
+   marked at a time, and a deactivated member should read as quieter rather
+   than faded out. This is the one thing that was actually broken mid-session
+   — every row was drawing itself as selected — so it is the thing most worth
+   a second pair of eyes.
+2. **The credentials pop-up**, with a throwaway user. It is show-once: once
+   it closes there is no way to open it again and look at it, so if the
+   two-step gate feels wrong, that is the moment to say so.
+
+## Still nothing is asked of you
+
+No decision is waiting. The two questions from part one are still open and
+still not blocking: whether the ADD PEOPLE menu wording is right now that it
+is visible, and whether anything on the seven sections stopped responding.
