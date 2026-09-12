@@ -144,10 +144,18 @@
   }
   /* The reading-width sections: Company and Diagnostics are stacked cards of
      prose and controls, not tables, so they take the form measure rather than
-     stretching a label/value pair across 1240px. */
+     stretching a label/value pair across 1240px.
+
+     🚨 NO `overflow-y` HERE. `AdminTerminalPage` already gives these three
+     views a scrolling wrapper (`.at-view-scroll`), and a scroller inside a
+     scroller gives the section two scrollbars, a wheel that moves the wrong
+     one, and a keyboard PageDown that depends on which of them has focus.
+     `height: auto` is the other half: `.at-section` is `height: 100%`, which
+     inside a scroll container means "the visible height" and would cap the
+     stack rather than let the wrapper carry it. */
   .at-section-narrow {
     max-width: 640px;
-    overflow-y: auto;
+    height: auto;
     padding-bottom: 24px;
   }
   .at-logs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -448,10 +456,13 @@
   }
 
   /* ═══ MODELS ═══════════════════════════════════════════════════════════ */
+  /* Models is the one of the four whose wrapper does NOT scroll, so it keeps
+     its own scroller — one either way, never two. */
   .at-models { overflow-y: auto; max-width: 900px; padding-bottom: 24px; }
   /* Storage is a stack of cards and pickers, not a table: the form measure,
      not the data cap. */
-  .at-storage { max-width: 720px; overflow-y: auto; padding-bottom: 24px; }
+  /* Same as `.at-section-narrow`: the wrapper scrolls this one. */
+  .at-storage { max-width: 720px; height: auto; padding-bottom: 24px; }
   .at-model-group { display: flex; flex-direction: column; gap: 4px; }
   .at-model-list {
     border: 1px solid var(--color-rule);

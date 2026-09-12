@@ -131,9 +131,11 @@ The orange frame is untouched. The page transition is untouched.
 
 - **The title is drawn once.** It was in the orange bar and again in black
   twenty pixels below it. Only the bar keeps it.
-- **About 190px of page came back**, on top of the 190 the last session
-  returned. The page used to put three separate margins between the window
-  edge and the first row.
+- **More of the page is page.** The last session gave back the height, by
+  shrinking the orange bars. This one gives back the rest: the duplicate
+  title and its icon are gone, and the page's own margin, which sat inside
+  the one the app already applies, is gone with it. Three separate margins
+  used to stack between the window edge and the first row; now there is one.
 - **All seven sections now open with a heading.** Five of them had none at
   all, and the two that did disagreed about what size a heading is.
 - **The left strip is grouped.** Two faint dividing lines split the seven
