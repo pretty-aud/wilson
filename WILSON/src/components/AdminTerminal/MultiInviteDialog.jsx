@@ -94,12 +94,12 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
     setBusy(false); setProgress(null); setDone(false)
   }, [open])
 
-  useEffect(() => {
-    if (!open) return undefined
-    const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, busy, onClose])
+  // No Escape listener here: `Dialog` owns the key, gates it on `busy`
+  // exactly as this did, and answers only when it is the TOPMOST modal —
+  // which a bare `window` listener cannot check. Its sibling
+  // `CreateUserDialog` dropped the same block; leaving this one meant two
+  // handlers racing to close one dialog, harmless only for as long as
+  // nothing opens above it.
 
   if (!open) return null
 

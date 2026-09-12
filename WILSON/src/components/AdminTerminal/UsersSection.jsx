@@ -64,9 +64,17 @@ const ADD_MENU_WIDTH = 240
 // The six roster columns, declared rather than emergent. `table-layout: fixed`
 // makes the header row the grid, so these ARE the widths — AT-18's finding was
 // that no table on the surface declared one and the roster's own `truncate`
-// was therefore inert. Measured at 1280 with the 360px detail panel OPEN,
-// which is the narrowest the table ever gets.
-const COLS = ['28%', '16%', '12%', '16%', '15%', '13%']
+// was therefore inert.
+//
+// 🚨 MEASURED AGAINST THE NARROWEST CASE THE TABLE EVER SEES, which is not
+// the narrowest WINDOW. The page is capped at the data measure, so the
+// section pane saturates at about 1016px and stops growing; the detail panel
+// then takes 264 of it and leaves ~752, at 1280 and at 2560 alike. The first
+// split gave Username and Rate access the same 16% while Rate access renders
+// `--` or one short badge, and every date in Joined clipped at every window
+// size with the panel open. The budget follows the longest real string in
+// each column: `kenji.morimoto` and `May 10, 2026`.
+const COLS = ['28%', '18%', '10%', '12%', '15%', '17%']
 
 function fmtDate(iso) {
   if (!iso) return '--'
@@ -145,11 +153,20 @@ export default function UsersSection({ wm }) {
   // 🚨 THE ANCHORED-MENU DOUBLE TOGGLE. `Menu` dismisses on a document
   // mousedown outside itself, and the trigger IS outside itself, so a second
   // click on the trigger runs close-then-open and the menu never shuts from
-  // the button that opened it. The close stamp is what keeps the toggle a
-  // toggle; without it this reads as a dead button.
-  const closedAtRef = useRef(0)
+  // the button that opened it.
+  //
+  // The guard is on WHAT closed the menu, not on WHEN. A 300ms time gate also
+  // swallowed the next click after ANY dismissal — press Escape, change your
+  // mind, and ADD PEOPLE was a dead button for a third of a second, which is
+  // well inside a deliberate sequence. This flag is set only by a mousedown
+  // that landed on the trigger itself, and cleared by the click that follows
+  // it, so no other dismissal can suppress anything.
+  const swallowNextRef = useRef(false)
+  function armSwallow() {
+    if (addMenuAt) swallowNextRef.current = true
+  }
   function toggleAddMenu() {
-    if (Date.now() - closedAtRef.current < 300) return
+    if (swallowNextRef.current) { swallowNextRef.current = false; return }
     openAddMenu()
   }
 
@@ -187,6 +204,7 @@ export default function UsersSection({ wm }) {
               ref={addBtnRef}
               variant="primary"
               Icon={UserPlus}
+              onMouseDown={armSwallow}
               onClick={toggleAddMenu}
             >
               Add people <ChevronDown aria-hidden="true" />
@@ -230,7 +248,7 @@ export default function UsersSection({ wm }) {
             x={addMenuAt.x}
             y={addMenuAt.y}
             minWidth={ADD_MENU_WIDTH}
-            onClose={() => { closedAtRef.current = Date.now(); setAddMenuAt(null) }}
+            onClose={() => setAddMenuAt(null)}
             items={[
               {
                 label: 'Invite by email…',

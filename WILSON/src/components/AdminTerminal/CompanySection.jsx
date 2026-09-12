@@ -244,12 +244,18 @@ export default function CompanySection({ isActive, wm }) {
           {departments.map(d => (
             <Badge key={d} Icon={Building2} className="at-dept">
               {d}
+              {/* 🚨 NO `data-tone="chip"`. C3 used it to say "this icon button
+                  sits on a chip, not on the page", and C3b deleted the rule
+                  that read it without deleting the attribute — leaving an
+                  attribute nothing reads, which is exactly the dead-state
+                  shape the whole extraction exists to prevent. The badge
+                  mounting is `.at-dept-remove` now, and it is a rule rather
+                  than a word. */}
               <IconButton
                 size="sm"
                 Icon={X}
                 onClick={() => persistDepartments(departments.filter(x => x !== d))}
-                className="at-icon-btn at-dept-remove"
-                data-tone="chip"
+                className="at-dept-remove"
                 title={`Remove ${d}`}
               />
             </Badge>

@@ -61,18 +61,27 @@ import {
 import Button from '../../ui/Button'
 import Chip from '../../ui/Chip'
 import SectionTitle from '../../ui/SectionTitle'
+import StatusDot from '../../ui/StatusDot'
+import EmptyState from '../../ui/EmptyState'
+import Loading from '../../ui/Loading'
 
 const TABS = [
   { key: 'open',    label: 'Open' },
   { key: 'settled', label: 'Decided' },
 ]
 
-const STATUS_STYLE = {
-  open:              { color: SIGNAL, label: 'Open' },
-  changes_requested: { color: SIGNAL, label: 'Changes requested' },
-  approved:          { color: SUCCESS, label: 'Approved' },
-  rejected:          { color: DANGER, label: 'Rejected' },
-  withdrawn:         { color: INK_2, label: 'Withdrawn' },
+// 🚨 TONES, NOT COLOURS. This was the fifth private `statusColor` map in the
+// app and the plan is explicit that a status colour can never be written
+// inline again — `StatusDot` decides it from one source. The sweep had also
+// collapsed `open` and `changes_requested` onto the same value, so the two
+// states an admin most needs to tell apart looked identical: one is waiting
+// on them, the other is waiting on the proposer.
+const STATUS_TONE = {
+  open:              { tone: 'signal',  label: 'Open' },
+  changes_requested: { tone: 'warning', label: 'Changes requested' },
+  approved:          { tone: 'success', label: 'Approved' },
+  rejected:          { tone: 'danger',  label: 'Rejected' },
+  withdrawn:         { tone: 'neutral', label: 'Withdrawn' },
 }
 
 function fmt(iso) {
@@ -259,7 +268,7 @@ export default function ChangeRequestsSection({ isActive }) {
       </div>
 
       {error && (
-        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
+        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: DANGER }} />
           <span className="text-[11px] font-mono" style={{ color: DANGER }}>{error}</span>
         </div>
@@ -267,7 +276,7 @@ export default function ChangeRequestsSection({ isActive }) {
 
       {/* Peak-End: the approval's ending says what it did, in numbers. */}
       {applied && !error && (
-        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)' }}>
+        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)' }}>
           <Check className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: SUCCESS }} />
           <span className="text-[11px] font-mono" style={{ color: SUCCESS }}>
             Applied to “{applied.name}”
@@ -282,35 +291,31 @@ export default function ChangeRequestsSection({ isActive }) {
 
       <div className="flex-1 min-h-0 overflow-y-auto wilson-dark-scroll">
         {loading && rows.length === 0 ? (
-          <div className="flex items-center gap-2 py-10 justify-center">
-            <Loader2 className="w-4 h-4 animate-spin" style={{ color: INK_2 }} />
-            <span className="text-[11px] font-mono" style={{ color: INK_2 }}>Loading…</span>
-          </div>
+          <Loading rows={4} columns={3} label="Loading change requests" />
         ) : visible.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <GitPullRequestArrow className="w-7 h-7" style={{ color: INK_2 }} />
-            <span className="text-[11px] font-mono italic" style={{ color: INK_2 }}>
-              {tab === 'open'
-                ? 'No one has suggested a change to a company standard course.'
-                : 'Nothing has been decided yet.'}
-            </span>
-          </div>
+          /* The kit's empty state, at its 24px icon and Body title, rather
+             than a private one at 28px and 11px mono italic — every other
+             section on this surface already uses it. */
+          <EmptyState
+            Icon={GitPullRequestArrow}
+            title={tab === 'open' ? 'Nothing waiting on you' : 'Nothing decided yet'}
+            body={tab === 'open'
+              ? 'No one has suggested a change to a company standard course.'
+              : 'Decisions you make will be listed here.'}
+          />
         ) : (
           <ul className="space-y-2">
             {visible.map(r => {
-              const st = STATUS_STYLE[r.status] ?? STATUS_STYLE.open
+              const st = STATUS_TONE[r.status] ?? STATUS_TONE.open
               const isOpen = expandedId === r.id
               return (
-                <li key={r.id} className="rounded-sm" style={{ backgroundColor: PAPER_RAISED }}>
+                <li key={r.id} className="rounded-control" style={{ backgroundColor: PAPER_RAISED }}>
                   <button
                     type="button"
                     onClick={() => { setExpandedId(prev => (prev === r.id ? null : r.id)); setDecide(null); setNote(''); setDiff(null) }}
                     className="w-full text-left px-3 py-2 flex items-start gap-2"
                   >
-                    <span
-                      className="mt-1 w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: st.color }}
-                    />
+                    <StatusDot tone={st.tone} label={st.label} className="at-cr-dot" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[12px] font-bold" style={{ color: INK }}>
                         {r.target_name ?? 'A company standard course'}
@@ -383,7 +388,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             : ''}
                         </p>
                       ) : decide?.id === r.id && decide.action === 'approve' ? (
-                        <div className="rounded-sm p-2" style={{ backgroundColor: PAPER_RAISED }}>
+                        <div className="at-decide-panel">
                           {/* Cognitive Bias: this writes to the canonical course —
                               say exactly what will happen, then confirm. */}
                           <p className="text-[11px] mb-2" style={{ color: INK }}>
@@ -425,7 +430,7 @@ export default function ChangeRequestsSection({ isActive }) {
                           </div>
                         </div>
                       ) : decide?.id === r.id && decide.action === 'decline' ? (
-                        <div className="rounded-sm p-2" style={{ backgroundColor: PAPER_RAISED }}>
+                        <div className="at-decide-panel">
                           {/* Postel: a decline is a conversation — the note is the
                               whole point, so it is required, not optional. */}
                           <p className="text-[11px] mb-2" style={{ color: INK }}>

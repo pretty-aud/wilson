@@ -67,20 +67,23 @@ const cardStyle = {
   backgroundColor: PAPER_RAISED,
   border: `1px solid ${RULE}`,
 }
-// Every text field on this section used to carry this object, measured at
-// 3.38:1 by AT-24. It is `undefined` so the twenty call sites keep their
-// `style={lightInputStyle}` spelling — JSX Track C owns — while the well, the
-// ink, the hairline and the focus ring come from `.ui-input`.
-const lightInputStyle = undefined
-// 🚨 THE LAST OF THE FOUR PRIVATE SECONDARY BUTTONS (AT-02). The nine call
-// sites that spelled it `className={darkBtnClass} style={darkBtnStyle}` are
-// the kit's own markup now. This pair survives for the ONE site that composes
-// it into a longer class string, and it resolves to the kit rather than to a
-// private padding grid — so there is no second button on this surface, only a
-// second way of naming the first. `darkBtnStyle` carries the data attributes
-// `.ui-btn` reads, because a `style` object cannot.
+// The input well AT-24 measured at 3.38:1 was a private style object on every
+// text field here. There is no object any more: `.ui-input` carries the well,
+// the ink, the hairline and the focus ring the surface never had. Keeping the
+// name bound to `undefined` so the call sites could go on saying
+// `style={undefined}` was a worse kind of leftover than the object.
+// 🚨 THE LAST OF THE FOUR PRIVATE SECONDARY BUTTONS (AT-02) IS GONE. All ten
+// call sites write the kit's own markup. This name survives ONLY because
+// Track C owns this file's JSX and renaming ten attributes is a smaller edit
+// than rewriting ten elements; it resolves to the kit, so there is no second
+// button on this surface, only a second way of naming the first.
+//
+// `darkBtnStyle` is deleted rather than left as `undefined`. It carried
+// nothing, and the comment that used to sit here claimed it carried the data
+// attributes — which a `style` object cannot do and which the call sites
+// write inline. A binding referenced only by a comment describing it is
+// worse than no binding.
 const darkBtnClass = 'ui-btn'
-const darkBtnStyle = undefined
 
 const MODES = [
   {
@@ -608,7 +611,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       </SectionTitle>
 
       {loadError && (
-        <div className="p-3 rounded-sm mb-3"
+        <div className="p-3 rounded-control mb-3"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
           <p className="text-[11px] font-mono mb-2" style={{ color: DANGER }}>
             Storage settings could not be loaded: {loadError}. Changes are
@@ -621,7 +624,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       )}
 
       {/* ── Mode ─────────────────────────────────────────────────────── */}
-      <div className="p-4 rounded-sm mb-3" style={cardStyle}>
+      <div className="p-4 rounded-control mb-3" style={cardStyle}>
         <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: INK_2 }}>
           Storage mode
         </h3>
@@ -639,11 +642,11 @@ export default function StorageSection({ isActive, workspaceId }) {
                 data-active={String(active)}
               >
                 <Icon className="at-picker-icon" aria-hidden="true" />
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK }}>
+                <span className="at-picker-text">
+                  <span className="at-picker-label">
                     {m.label}
                   </span>
-                  <span className="text-[11px] leading-relaxed" style={{ color: INK_2 }}>
+                  <span className="at-prose">
                     {m.blurb}
                   </span>
                 </span>
@@ -667,13 +670,13 @@ export default function StorageSection({ isActive, workspaceId }) {
           usage figure that says nothing about its storage. An unreadable row
           means the mode is UNKNOWN, and the red banner above already says so. */}
       {mode === 'central' && !loadError && (
-        <div className="p-4 rounded-sm mb-3" style={cardStyle}>
+        <div className="p-4 rounded-control mb-3" style={cardStyle}>
           <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: INK_2 }}>
             Petal cloud plan
           </h3>
 
           {usagePhase === 'loading' && (
-            <p className="text-[11px] leading-relaxed" style={{ color: INK_2 }}>
+            <p className="at-prose">
               Reading how much storage this company is using&hellip;
             </p>
           )}
@@ -720,7 +723,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                   be either a divide-by-zero or a 0% reassurance. */}
               {quotaKnown && (
                 <div
-                  className="h-1.5 rounded-sm overflow-hidden mb-2"
+                  className="h-1.5 rounded-control overflow-hidden mb-2"
                   style={{ backgroundColor: PAPER_RAISED }}
                   role="progressbar"
                   aria-valuenow={Math.round(usagePct)}
@@ -731,9 +734,17 @@ export default function StorageSection({ isActive, workspaceId }) {
                     className="h-full"
                     style={{
                       width: `${usagePct}%`,
-                      // The file's own two tokens: the active accent normally,
-                      // and the warning brown once uploads are being refused.
-                      backgroundColor: (atCeiling || suspended) ? '#9a3412' : '#ea580c',
+                      // 🚨 THE ALARM STATE USED TO BE THE LEAST VISIBLE ONE.
+                      // These were two raw hexes — the last C8 violation in
+                      // the thirteen files — and a comment calling them
+                      // "the file's own two tokens", which neither was. On
+                      // the old light ground `#9a3412` was the darker, louder
+                      // half of the pair; on `paper` it measures 2.21:1
+                      // against its own track, so a bar that was FULL and
+                      // refusing uploads faded into the trough at exactly the
+                      // moment it meant something. `danger` is 8.52:1 on the
+                      // track and is already this file's word for a refusal.
+                      backgroundColor: (atCeiling || suspended) ? DANGER : SIGNAL,
                     }}
                   />
                 </div>
@@ -745,12 +756,12 @@ export default function StorageSection({ isActive, workspaceId }) {
                   colour, not a warning: a company on the free tier has done
                   nothing wrong. */}
               {!usage.hasPlan && !suspended && (
-                <p className="text-[11px] leading-relaxed" style={{ color: INK_2 }}>
+                <p className="at-prose">
                   Free allowance — contact Petal to activate a larger plan.
                 </p>
               )}
               {usage.hasPlan && !suspended && (
-                <p className="text-[11px] leading-relaxed" style={{ color: INK_2 }}>
+                <p className="at-prose">
                   Plan active — Petal manages this allowance. Contact Petal to
                   change it.
                 </p>
@@ -762,8 +773,8 @@ export default function StorageSection({ isActive, workspaceId }) {
                   one refusal with two causes and two boxes saying "uploads are
                   refused" reads as two separate faults. */}
               {suspended && (
-                <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed"
-                     style={{ backgroundColor: SIGNAL_TINT, color: SIGNAL }}>
+                <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed"
+                     style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
                   <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                   <span>
                     This company&rsquo;s Petal storage is not active yet, so new
@@ -784,8 +795,8 @@ export default function StorageSection({ isActive, workspaceId }) {
                   reason they never send the invoice that pays for the bigger
                   plan. */}
               {atCeiling && !suspended && (
-                <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed"
-                     style={{ backgroundColor: SIGNAL_TINT, color: SIGNAL }}>
+                <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed"
+                     style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
                   <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                   {/* 🚨 "until some are removed" WAS HERE AND WAS A NO-OP, found
                       by this session's own review. A cloud delete is SOFT
@@ -812,7 +823,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
       {/* ── Provider picker (byos only, S37) ─────────────────────────── */}
       {mode === 'byos' && (
-        <div className="p-4 rounded-sm mb-3" style={cardStyle}>
+        <div className="p-4 rounded-control mb-3" style={cardStyle}>
           <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: INK_2 }}>
             What you own
           </h3>
@@ -831,11 +842,11 @@ export default function StorageSection({ isActive, workspaceId }) {
                   data-active={String(active)}
                 >
                   <Icon className="at-picker-icon" aria-hidden="true" />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK }}>
+                  <span className="at-picker-text">
+                    <span className="at-picker-label">
                       {p.label}{saved ? ' · saved' : ''}
                     </span>
-                    <span className="text-[11px] leading-relaxed" style={{ color: INK_2 }}>
+                    <span className="at-prose">
                       {p.blurb}
                     </span>
                   </span>
@@ -848,7 +859,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
       {/* ── Root (byos + server/NAS only) ────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.NETWORK && (
-        <div className="p-4 rounded-sm mb-3" style={cardStyle}>
+        <div className="p-4 rounded-control mb-3" style={cardStyle}>
           <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
             Storage root
           </h3>
@@ -870,8 +881,8 @@ export default function StorageSection({ isActive, workspaceId }) {
               EXACTLY. A warning that promises the opposite of what happens is
               worse than no warning. */}
           {row?.provider === WORKSPACE_PROVIDERS.S3 && (
-            <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed mb-2"
-                 style={{ backgroundColor: SIGNAL_TINT, color: SIGNAL }}>
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-2"
+                 style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
                 This workspace stores files in an S3 bucket
@@ -898,8 +909,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               onChange={e => { setRootDraft(e.target.value); if (refusal || notice) resetRootFlow() }}
               placeholder="\\server\share\Projects"
               disabled={saving || probing || !!loadError}
-              className="ui-input at-input-grow" data-size="sm"
-              style={lightInputStyle}
+              className="ui-input at-input-grow" data-size="sm" data-surface="dark"
             />
             {bridge?.pickDirectory && (
               <button type="button" onClick={browseForRoot} disabled={saving || probing || !!loadError}
@@ -932,7 +942,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           )}
 
           {refusal && (
-            <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed mb-1"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-1"
                  style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>{refusal}</span>
@@ -942,7 +952,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           {/* Two-step local-folder confirmation. Step 1 states what will
               happen; only step 2 asks a question. */}
           {confirmStep === 1 && (
-            <div className="p-3 rounded-sm mb-1"
+            <div className="p-3 rounded-control mb-1"
                  style={{ backgroundColor: SIGNAL_TINT, border: `1px solid ${SIGNAL}` }}>
               <p className="text-[11px] leading-relaxed mb-2" style={{ color: INK }}>
                 <span className="font-mono">{pendingLocal}</span> is a folder on{' '}
@@ -957,7 +967,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                   Continue
                 </button>
                 <button type="button" onClick={resetRootFlow}
-                        className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
+                        className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-control"
                         style={{ color: INK_2 }}>
                   Cancel
                 </button>
@@ -965,7 +975,7 @@ export default function StorageSection({ isActive, workspaceId }) {
             </div>
           )}
           {confirmStep === 2 && (
-            <div className="p-3 rounded-sm mb-1"
+            <div className="p-3 rounded-control mb-1"
                  style={{ backgroundColor: SIGNAL_TINT, border: `1px solid ${SIGNAL}` }}>
               <p className="text-[11px] font-bold mb-2" style={{ color: INK }}>
                 Set this computer&rsquo;s folder anyway?
@@ -975,7 +985,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                   Set folder
                 </button>
                 <button type="button" onClick={resetRootFlow}
-                        className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
+                        className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-control"
                         style={{ color: INK_2 }}>
                   Cancel
                 </button>
@@ -987,7 +997,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
       {/* ── Bucket (byos + S3 only, S37) ──────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.S3 && (
-        <div className="p-4 rounded-sm mb-3" style={cardStyle}>
+        <div className="p-4 rounded-control mb-3" style={cardStyle}>
           <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
             Bucket
           </h3>
@@ -1004,8 +1014,8 @@ export default function StorageSection({ isActive, workspaceId }) {
           </p>
 
           {row?.root_path && (
-            <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed mb-2"
-                 style={{ backgroundColor: SIGNAL_TINT, color: SIGNAL }}>
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-2"
+                 style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
                 This workspace currently has a server root saved
@@ -1023,8 +1033,8 @@ export default function StorageSection({ isActive, workspaceId }) {
               Shown only when a real config is already saved AND the draft
               differs, so it warns about a change rather than nagging. */}
           {row?.provider === WORKSPACE_PROVIDERS.S3 && row?.provider_config && connectionEdited && (
-            <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed mb-2"
-                 style={{ backgroundColor: SIGNAL_TINT, color: SIGNAL }}>
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-2"
+                 style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
                 You are changing where this workspace&rsquo;s files are
@@ -1045,8 +1055,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      onChange={e => setS3Draft(d => ({ ...d, endpoint: e.target.value }))}
                      placeholder="https://s3.us-west-004.backblazeb2.com"
                      disabled={saving || testing || !!loadError}
-                     className="ui-input" data-size="sm"
-                     style={lightInputStyle} />
+                     className="ui-input" data-size="sm" data-surface="dark" />
             </label>
             <div className="flex gap-2 flex-wrap">
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
@@ -1055,8 +1064,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        onChange={e => setS3Draft(d => ({ ...d, region: e.target.value }))}
                        placeholder="us-east-1 · us-west-004 · auto"
                        disabled={saving || testing || !!loadError}
-                       className="ui-input" data-size="sm"
-                       style={lightInputStyle} />
+                       className="ui-input" data-size="sm" data-surface="dark" />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
                 <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>Bucket</span>
@@ -1064,8 +1072,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        onChange={e => setS3Draft(d => ({ ...d, bucket: e.target.value }))}
                        placeholder="studio-media"
                        disabled={saving || testing || !!loadError}
-                       className="ui-input" data-size="sm"
-                       style={lightInputStyle} />
+                       className="ui-input" data-size="sm" data-surface="dark" />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
                 <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>
@@ -1075,8 +1082,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        onChange={e => setS3Draft(d => ({ ...d, prefix: e.target.value }))}
                        placeholder="wilson"
                        disabled={saving || testing || !!loadError}
-                       className="ui-input" data-size="sm"
-                       style={lightInputStyle} />
+                       className="ui-input" data-size="sm" data-surface="dark" />
               </label>
             </div>
             <label className="flex flex-col gap-1">
@@ -1085,8 +1091,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      onChange={e => setS3Draft(d => ({ ...d, accessKeyId: e.target.value }))}
                      placeholder="AKIA…"
                      disabled={saving || testing || !!loadError}
-                     className="ui-input" data-size="sm"
-                     style={lightInputStyle} />
+                     className="ui-input" data-size="sm" data-surface="dark" />
             </label>
             <label className="flex items-center gap-2 text-[11px]" style={{ color: INK_2 }}>
               <input type="checkbox" checked={s3Draft.forcePathStyle}
@@ -1132,8 +1137,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      placeholder={secretHint ? 'enter a new secret to replace it' : 'the secret half of the key pair'}
                      autoComplete="off"
                      disabled={savingSecret || clearingSecret || testing || !!loadError}
-                     className="ui-input at-input-grow" data-size="sm"
-                     style={lightInputStyle} />
+                     className="ui-input at-input-grow" data-size="sm" data-surface="dark" />
               <button type="button" onClick={saveSecret}
                       disabled={savingSecret || clearingSecret || testing || !secretDraft.trim() || !!loadError}
                       className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark">
@@ -1170,7 +1174,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           </div>
 
           {s3Refusal && (
-            <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed mt-2"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mt-2"
                  style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>{s3Refusal}</span>
@@ -1180,7 +1184,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       )}
 
       {saveError && (
-        <div className="p-2 rounded-sm text-[11px] font-mono mb-2"
+        <div className="p-2 rounded-control text-[11px] font-mono mb-2"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
           {saveError}
         </div>

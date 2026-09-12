@@ -131,9 +131,10 @@
   .at-view { height: 100%; min-height: 0; }
   .at-view-scroll { overflow-y: auto; }
 
-  /* One rhythm for a section's stacked regions: 24px between MAJOR regions
-     (a title, a toolbar, a table, a card) and 8px inside a group. The page
-     had two card-stack rhythms and five unrelated gaps (AT-31). */
+  /* One rhythm for a section's stacked regions: 16px between them, 8px inside
+     a group. The page had two card-stack rhythms and five unrelated gaps
+     (AT-31). 24px is the step for two MAJOR regions stacked in one scroll,
+     which no section here has — so it is not claimed. */
   .at-section {
     display: flex;
     flex-direction: column;
@@ -157,6 +158,21 @@
      in a test — no test in this repo lays anything out. Two tabs never need
      a second line. */
   .at-section .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
+  /* 🚨 THE TOOLBAR CARRIES ITS OWN 24px GUTTER, for surfaces where it spans
+     the window. Inside `.at-section` the page has already applied that
+     gutter, so the two stacked and the one control row on each section was
+     the only thing not sharing the page's vertical line: the rule under it
+     ran 248→1255 while its contents ran 272→1230. Plan §3.3 — one page
+     gutter, and pages stop setting their own. */
+  .at-section .ui-toolbar { padding-left: 0; padding-right: 0; }
+  /* 🚨 A SMALL SELECT LOSES ITS ARROW CLEARANCE IN THE KIT.
+     `.ui-input[data-size="sm"] { padding: 0 8px }` is (0,2,0) and
+     `select.ui-input { padding-right: 28px }` is (0,1,1), so the shorthand
+     wins and the chevron sits on top of the last character — measured at
+     about 1px of clearance on "All severities" in this session's own Logs
+     screenshot. Scoped here because `src/index.css` belongs to Foundation;
+     filed as a kit request in the hand-off, with the one-line fix. */
+  .at-section select.ui-input[data-size="sm"] { padding-right: 28px; }
 
   /* ═══ SHARED TEXT ROLES ════════════════════════════════════════════════
      Five roles from the one scale (AT-07: nine sizes, an 11px body and 50
@@ -190,9 +206,22 @@
     border-bottom: 1px solid var(--color-rule);
     margin-bottom: 8px;
   }
-  /* "Nothing here" inside a cell. Italic mono at the third ink was five
-     different spellings of `--` across the surface; it is one now. */
+  /* "Nothing here" inside a cell. Five spellings of `--` across the surface,
+     three of them italic mono, become one — and it is the third ink rather
+     than a face change, because a cell holding nothing should read as quiet,
+     not as a different kind of writing. */
   .at-none { color: var(--color-ink-3); }
+  /* Body copy at the Label step, which is the one role 11px is NOT meant for
+     (plan §3.1) — it is here because Track A and Track C own these two files'
+     JSX and the type pass cannot happen until they merge. The colour and the
+     leading are right; only the size is owed. */
+  .at-prose {
+    font-size: var(--text-label);
+    line-height: 1.5;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--color-ink-2);
+  }
   .at-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .at-nowrap { white-space: nowrap; }
   .at-break { word-break: break-all; }
@@ -262,7 +291,14 @@
     color: var(--color-ink-3);
     flex-shrink: 0;
   }
-  .at-search-input { width: 260px; }
+  /* 🚨 ELEMENT-QUALIFIED ON PURPOSE. `.ui-input` sets `width: 100%` at
+     (0,1,0) in the same layer, so a bare `.at-search-input` TIES with it and
+     the bundler's file order decides — and it decided against the page: the
+     field rendered shrink-to-fit at about 204px, not 260. `input.` takes it
+     to (0,1,1). The same applies to `.at-input-grow` and, on specificity
+     rather than order, to `textarea.at-note-field` against
+     `textarea.ui-input`. */
+  input.at-search-input { width: 260px; flex: 0 0 auto; }
 
   .at-roster { min-height: 0; }
   .at-roster-scroll { flex: 1; min-height: 0; }
@@ -302,7 +338,14 @@
   /* ═══ THE MEMBER DETAIL PANEL ══════════════════════════════════════════ */
   .at-detail-panel {
     flex-shrink: 0;
-    width: var(--panel-lg);
+    /* 🚨 `--panel-md`, UNCONDITIONALLY, AND NO BREAKPOINT. `.at-page` is
+       capped at the data measure, so the section pane saturates at about
+       1016px and stops growing — while a viewport media query kept widening
+       the panel past it. A window 1px wider than 1320 therefore took 60px
+       away from the roster and never gave it back, which made the table
+       NARROWEST at the plan's own 1440x900 reference size. `panel-lg` never
+       pays for itself on a page that cannot grow. */
+    width: var(--panel-md);
     margin-left: var(--spacing-gutter);
     padding-left: var(--spacing-gutter);
     border-left: 1px solid var(--color-rule);
@@ -438,6 +481,11 @@
      carrying an accent, so five deliberate choices stand out from twenty-three
      defaults. */
   .at-model-row[data-overridden='true'] { background-color: var(--color-signal-tint); }
+  /* The third ink is 5.04:1 on bare `paper` and 4.18:1 over the tint, so ONLY
+     the deliberately-highlighted rows failed — and the failing line is the one
+     that says "using X, set by this company", which is the whole reason the
+     row is highlighted. The second ink is 6.48:1 there. */
+  .at-model-row[data-overridden='true'] .at-model-source { color: var(--color-ink-2); }
 
   /* ═══ STORAGE: THE MODE PICKERS ════════════════════════════════════════
      A card-shaped choice control the kit has no component for, so it stays
@@ -472,12 +520,42 @@
     color: var(--color-ink-3);
   }
   .at-picker[data-active='true'] .at-picker-icon { color: var(--color-signal); }
+  .at-picker-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .at-picker-label {
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+  }
+  /* 🚨 THE DISABLED BRANCH HAS TO REACH THE CHILDREN. `.at-picker:disabled`
+     colours the button, and a child with its own colour rule does not inherit
+     it — which is how the state got dropped the first time, with the colour
+     inline instead of in a class. Naming the descendants is what makes the
+     state visible rather than merely declared. */
+  .at-picker:disabled .at-picker-label,
+  .at-picker:disabled .at-prose,
+  .at-picker:disabled .at-picker-icon { color: var(--color-ink-3); }
 
   /* ═══ COMPANY ══════════════════════════════════════════════════════════ */
   .at-stat-row { display: flex; gap: 24px; }
   .at-dept-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-  .at-dept { gap: 6px; }
-  .at-dept-remove { margin-left: 2px; }
+  .at-dept { gap: 6px; padding-right: 2px; }
+  /* 🚨 THE KIT'S `sm` ICON BUTTON IS 28px AND `.ui-badge` IS 20px TALL, so the
+     kit size alone puts a 28px square control inside a 20px chip and the row
+     grows to fit it. This is the one place on the surface where a control is
+     mounted INSIDE another component rather than on the page, so it is the
+     one place that needs its own box — and the darker hover that used to
+     arrive through `data-tone="chip"` comes with it, because the generic
+     hover fill is the same family as the badge it would sit on. */
+  .at-dept-remove {
+    width: 16px;
+    height: 16px;
+    margin-left: 2px;
+    border-radius: var(--radius-control);
+  }
+  .at-dept-remove svg { width: 10px; height: 10px; }
+  .at-dept-remove:hover { background-color: var(--color-rule); }
   .at-dept-add { margin-bottom: 8px; max-width: 360px; }
 
   /* ═══ DIAGNOSTICS ══════════════════════════════════════════════════════ */
@@ -485,11 +563,19 @@
   .at-test-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .at-codes-table { min-height: 0; }
   .at-codes-scroll { max-height: 280px; }
-  /* The copy button's confirmed state. The only colour on the surface that is
-     applied to a control by a data attribute rather than a variant, because
-     "it worked" is a transient acknowledgement, not a button variant. */
-  .at-copy-btn[data-copied='true'],
-  .at-cred-copy[data-copied='true'] { color: var(--color-success); border-color: var(--color-success); }
+  /* The copy button's confirmed state — the only colour on the surface applied
+     to a control by a data attribute rather than a variant, because "it
+     worked" is a transient acknowledgement, not a button variant.
+
+     🚨 THE DOUBLED ATTRIBUTE IS LOAD-BEARING. `.ui-btn[data-variant=...]` in
+     `index.css` sets `border-color` at (0,2,0) and this rule is in the SAME
+     layer, so a single `[data-copied]` ties with it and the winner is
+     whichever stylesheet the bundler emits last — the exact ordering this
+     file's own header says cannot be relied on. Repeating the attribute takes
+     it to (0,3,0) and the tie is gone. `Table` uses the same spelling in
+     `index.css` for the same reason. */
+  .at-copy-btn[data-copied='true'][data-copied],
+  .at-cred-copy[data-copied='true'][data-copied] { color: var(--color-success); border-color: var(--color-success); }
 
   /* ═══ ICON BUTTON, THE COPY-CONFIRMED CASE ═════════════════════════════
      Kept as a data attribute on the kit's own icon button rather than as a
@@ -506,6 +592,24 @@
     font-size: var(--text-dense);
     font-weight: 600;
     color: var(--color-danger);
+  }
+
+  /* ═══ CHANGE REQUESTS ══════════════════════════════════════════════════
+     🚨 THE CONFIRM PANEL NEEDS AN EDGE, NOT A SECOND FILL. It sits INSIDE a
+     `paper-raised` row, and on the light ground it was one screen darker than
+     its parent; the token sweep sent both to the same value, so the panel
+     that says "approving applies their course — N updated, M added, nothing
+     deleted" measured 1.00:1 against the row and read as loose text rather
+     than as a surface. A hairline is what separates two regions the ink
+     ladder cannot. */
+  /* The request's own status dot sits beside a two-line summary, so it aligns
+     to the first line's baseline rather than to the block's middle. */
+  .at-cr-dot { margin-top: 3px; align-self: flex-start; }
+  .at-decide-panel {
+    padding: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
   }
 
   /* ═══ DIALOG BODIES ════════════════════════════════════════════════════ */
@@ -555,12 +659,16 @@
     user-select: all;
   }
   .at-cred-both { width: 100%; justify-content: center; margin-bottom: 12px; }
+  .at-cred-exit { display: inline-flex; }
   .at-cred-warn { margin-top: 4px; }
 
   /* ── Multi-invite ────────────────────────────────────────────────────── */
   .at-invite-paste { width: 100%; resize: vertical; }
   .at-invite-skipped { margin-top: 8px; }
-  .at-invite-list { margin-top: 12px; max-height: 38vh; overflow-y: auto; }
+  /* A px cap, not `38vh`: §3.3 has nothing in viewport units, and a list whose
+     height changed with the window changed the dialog's rhythm with it — 266px
+     at the 700px floor against 342px at 900. */
+  .at-invite-list { margin-top: 12px; max-height: 280px; overflow-y: auto; }
   .at-invite-row { border-bottom: 1px solid var(--color-rule); }
   /* A sent row is done, not disabled: the third ink says so without the
      opacity the rest of the surface used to reach for. */
@@ -593,7 +701,11 @@
      nobody having tidied the wrong object. */
   .at-invite-name[data-invalid='true'] { border-color: var(--color-danger); }
   .at-invite-role { width: 100%; }
-  .at-invite-status { justify-content: flex-end; }
+  /* `justify-content` on a content-sized inline-flex aligns the badge's own
+     CONTENTS, which is a no-op; `justify-self` is what puts the badge at the
+     right-hand end of its 108px grid track. Twenty rows of verdicts have one
+     right edge with this and none without it. */
+  .at-invite-status { justify-self: end; }
   .at-invite-error {
     padding-bottom: 6px;
     font-size: var(--text-caption);
@@ -609,18 +721,19 @@
      Track C owns this section's JSX, so C3b changed its tokens and its
      components and nothing else. These two rules exist because the sweep
      emptied two style objects the JSX still names. */
-  .at-input-grow { flex: 1; min-width: 260px; }
-  .at-note-field { width: 100%; height: 64px; resize: none; }
+  input.at-input-grow { flex: 1; min-width: 260px; }
+  textarea.at-note-field { width: 100%; height: 64px; resize: none; }
 
   /* ═══ 1280x700 ═════════════════════════════════════════════════════════
      Electron's floor is a 700px window and every size increase above makes
      tall content taller. The detail panel and the nav both give width back
      first, because the table is the thing the admin came for. */
-  @media (max-width: 1320px) {
-    .at-detail-panel { width: var(--panel-md); }
-  }
+  /* One real step, at the width where the nav's label column starts costing
+     the table more than it is worth. The previous pair did nothing: one set
+     `.at-nav` to the width it already had, and the other's `.at-search-input`
+     lost to `.ui-input`'s own `width: 100%` on a specificity tie. */
   @media (max-width: 1180px) {
-    .at-nav { width: var(--panel-sm); }
-    .at-search-input { width: 180px; }
+    .at-nav { width: 168px; }
+    input.at-search-input { width: 180px; }
   }
 }

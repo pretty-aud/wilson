@@ -110,12 +110,21 @@ export default function CredentialsPopup({ open, username, password, context = '
       onClose={() => onClose?.()}
       onBeforeClose={mayClose}
       footer={(
-        <Button
-          variant={hasCopied || armedClose ? 'primary' : 'secondary'}
-          onClick={() => { if (mayClose()) onClose?.() }}
-        >
-          {armedClose && !hasCopied ? 'Close without copying?' : "I've saved these"}
-        </Button>
+        /* 🚨 `role="status"` BECAUSE THE GATE CAN NOW BE ARMED FROM SOMEWHERE
+           ELSE. Before, arming was only reachable by clicking the button you
+           were already looking at. Escape and the X arm it too now, and the
+           only signal is a label swap on a control that may not have focus —
+           so to a screen-reader user, pressing Escape here did nothing at
+           all. The live region announces the question wherever it was
+           asked from. */
+        <span role="status" className="at-cred-exit">
+          <Button
+            variant={hasCopied || armedClose ? 'primary' : 'secondary'}
+            onClick={() => { if (mayClose()) onClose?.() }}
+          >
+            {armedClose && !hasCopied ? 'Close without copying?' : "I've saved these"}
+          </Button>
+        </span>
       )}
     >
       <CredentialRow

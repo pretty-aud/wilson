@@ -45,7 +45,11 @@ const css = readFileSync(join(here, 'adminTerminal.css'), 'utf8')
 const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
 const cssCode = stripCss(css)
 
-const jsxFiles = readdirSync(here).filter((f) => f.endsWith('.jsx'))
+// 🚨 `.test.jsx` IS EXCLUDED. Without this the scan reads ITSELF, and the
+// pairing check below — written to defeat a decoy anywhere in a component —
+// is satisfied by an element in a TEST file instead. The round-2 defect came
+// back at file granularity rather than at character granularity.
+const jsxFiles = readdirSync(here).filter((f) => f.endsWith('.jsx') && !f.includes('.test.'))
 const sources = Object.fromEntries(
   jsxFiles.map((f) => [f, readFileSync(join(here, f), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -138,14 +142,29 @@ function booleanAttrs() {
  * against a module-level `const someObject = { … }` in the same file — which
  * is exactly how the invite dialog's `fieldStyle` hid a `border` shorthand.
  */
+/**
+ * 🚨 AN UNPARSED `style=` IS NOT A PROVEN-CLEAN `style=`.
+ *
+ * This used to read exactly two spellings — an object literal and a bare
+ * identifier — and return an empty set for anything else, which the caller
+ * then skipped. So `style={copied ? { color: SUCCESS } : undefined}` or
+ * `style={makeStyle(x)}` re-admitted the whole class of defect this check
+ * exists to catch: an inline colour beating a class rule that owns the same
+ * property, which is the mechanism behind three separate findings on this
+ * surface. `UNPARSED` is the third return, and the caller fails on it.
+ */
+const UNPARSED = Symbol('unparsed style')
 function tagStyleProps(tag, src) {
   const literal = tag.match(/style=\{\{([\s\S]*?)\}\}/)
-  const body = literal
-    ? literal[1]
-    : (() => {
-        const ref = tag.match(/style=\{([A-Za-z_$][\w$]*)\}/)
-        return ref ? resolveObject(ref[1], src) : ''
-      })()
+  let body
+  if (literal) {
+    body = literal[1]
+  } else {
+    const ref = tag.match(/style=\{([A-Za-z_$][\w$]*)\}/)
+    if (ref) body = resolveObject(ref[1], src)
+    else if (/\sstyle=/.test(tag)) return UNPARSED
+    else body = ''
+  }
   return new Set([...body.matchAll(/(?:^|[{,\s])([A-Za-z][\w]*)\s*:/g)].map((m) => m[1]))
 }
 
@@ -215,6 +234,10 @@ describe('🚨 no element fights its own stylesheet', () => {
       const classes = tagClasses(tag)
       if (!classes.length) continue
       const inline = tagStyleProps(tag, src)
+      if (inline === UNPARSED) {
+        offenders.push(`${file}: .${classes[0]} carries a \`style=\` this check cannot read — spell it as an object literal or a named const`)
+        continue
+      }
       if (!inline.size) continue
       for (const c of classes) {
         for (const p of CSS_PROPS[c] || []) {
@@ -343,7 +366,9 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     [/\.at-hint\[data-invalid='true'\]\s*\{\s*color:\s*var\(--color-warning\)/, 'create-user hint invalid'],
     [/\.at-check-row\[data-dim='true'\]\s*\{[^}]*color:\s*var\(--color-ink-3\)/, 'check row dimmed by ink'],
     [/\.at-icon-btn\[data-copied='true'\]\s*\{\s*color:\s*var\(--color-success\)/, 'copy confirmed ink'],
-    [/\.at-copy-btn\[data-copied='true'\],\s*\.at-cred-copy\[data-copied='true'\]\s*\{[^}]*color:\s*var\(--color-success\)/, 'both copy buttons confirm alike'],
+    // Doubled attribute: it beats `.ui-btn[data-variant]`'s (0,2,0) on
+    // specificity rather than on which stylesheet the bundler emits last.
+    [/\.at-copy-btn\[data-copied='true'\]\[data-copied\],\s*\.at-cred-copy\[data-copied='true'\]\[data-copied\]\s*\{[^}]*color:\s*var\(--color-success\)/, 'both copy buttons confirm alike, above the variant'],
     [/\.at-toggle-row\[data-disabled='true'\] \.at-row-label\s*\{\s*color:\s*var\(--color-ink-3\)/, 'toggle row disabled ink'],
     // AT-25: named properties, a symmetric exit, and a scoped reduced-motion
     // gate. A blanket rule in index.css would kill the pet (C5).
@@ -445,6 +470,94 @@ describe('🚨 a String()-spelled attribute never meets a presence selector', ()
   })
 })
 
+describe('🚨 every state ATTRIBUTE is paired with a rule that reads it', () => {
+  // The other direction. `PAIRS` runs CSS → JSX and asserts every rule has an
+  // element; nothing ran JSX → CSS, so an attribute whose rule was DELETED
+  // passed the whole suite as long as the class kept any other rule. That is
+  // not hypothetical: `data-tone="chip"` on the department chip's remove
+  // button survived the deletion of `.at-icon-btn[data-tone='chip']:hover`
+  // and was read by nothing, in either stylesheet, for a whole commit.
+  //
+  // Attributes the KIT reads are exempt by name, because their rule is in
+  // `index.css` rather than here — and each is listed with the component that
+  // owns it so the list cannot quietly become a dumping ground.
+  const KIT_OWNED = new Set([
+    'data-active',      // Tabs, and this page's own nav and pickers
+    'data-selected', 'data-inactive', 'data-interactive', 'data-highlighted',
+    'data-numeric', 'data-dense',     // Table
+    'data-size', 'data-variant', 'data-surface', 'data-width', 'data-tone',
+    'data-pad', 'data-rule', 'data-align', 'data-compact', 'data-wrap',
+    'data-always', 'data-checked', 'data-disabled', 'data-status',
+    'data-testid',
+  ])
+
+  const WRITTEN = []
+  for (const { file, tag } of ALL_TAGS) {
+    const classes = tagClasses(tag)
+    if (!classes.length) continue
+    for (const m of tag.matchAll(/(data-[a-z-]+)=/g)) {
+      if (KIT_OWNED.has(m[1])) continue
+      WRITTEN.push({ file, attr: m[1], classes })
+    }
+  }
+
+  it('finds the attributes it is checking', () => {
+    expect(WRITTEN.length).toBeGreaterThan(4)
+  })
+
+  it('every page-owned state attribute has a selector that reads it', () => {
+    const orphans = WRITTEN
+      .filter(({ attr, classes }) => !classes.some((c) =>
+        new RegExp(`\\.${c}\\[${attr}`).test(cssCode)))
+      .map(({ file, attr, classes }) => `${file}: ${attr} on .${classes.join('.')} — no rule reads it`)
+    expect(orphans).toEqual([])
+  })
+
+  it('\u{1F6A8} no literal attribute VALUE that no selector accepts', () => {
+    // The exemption list above is by attribute NAME, which is too coarse on
+    // its own and let the original defect back in when it was tested: the
+    // kit does read `data-tone`, on `.ui-status` and `.ui-banner` — but not
+    // on `.ui-iconbtn`, and the department chip's remove button carried
+    // `data-tone="chip"`, a value that appears in no selector in either
+    // stylesheet. An attribute name can be live while the value written into
+    // it is dead, and the value is the part that carries the meaning.
+    const sheets = cssCode + '\n' + readFileSync(join(here, '../../index.css'), 'utf8')
+    const bare = new Set([...sheets.matchAll(/\[(data-[a-z-]+)\](?!=)/g)].map((m) => m[1]))
+    const valued = new Set([...sheets.matchAll(/\[(data-[a-z-]+)=["']([^"']+)["']\]/g)]
+      .map((m) => `${m[1]}=${m[2]}`))
+    // A test hook, read by the test runner rather than by a stylesheet.
+    const EXEMPT = new Set(['data-testid'])
+
+    const dead = []
+    for (const { file, tag } of ALL_TAGS) {
+      for (const m of tag.matchAll(/(data-[a-z-]+)="([^"]+)"/g)) {
+        const [, attr, value] = m
+        if (EXEMPT.has(attr) || bare.has(attr) || valued.has(`${attr}=${value}`)) continue
+        dead.push(`${file}: ${attr}="${value}" — no selector in either stylesheet accepts that value`)
+      }
+    }
+    expect(dead).toEqual([])
+  })
+
+  it('🚨 no state is written as a bare string instead of an expression', () => {
+    // `data-selected="false"` and `data-x={c ? "true" : "false"}` both defeat
+    // the String() guard AND the presence guard: one is a literal the source
+    // scan does not recognise as a state, the other is a present attribute
+    // wherever a rule keys on presence. Neither spelling appears; this is
+    // what keeps it that way.
+    const literals = []
+    for (const { file, tag } of ALL_TAGS) {
+      for (const m of tag.matchAll(/(data-[a-z-]+)="(true|false)"/g)) {
+        literals.push(`${file}: ${m[1]}="${m[2]}" is a literal, not a state`)
+      }
+      for (const m of tag.matchAll(/(data-[a-z-]+)=\{[^}]*\?[^}]*'(?:true|false)'/g)) {
+        literals.push(`${file}: ${m[1]} is a ternary over string literals`)
+      }
+    }
+    expect(literals).toEqual([])
+  })
+})
+
 describe('C7: the 11px floor, and one scale', () => {
   // "The floor is 11px; nothing smaller ships" (plan §0 C7, §3.1). The review
   // counted 50 occurrences at 10px or smaller on this surface and named
@@ -514,6 +627,28 @@ describe('C8: the sheet is tokens now, and the transcription ledger is closed', 
   it('writes no colour literal at all', () => {
     const literals = [...cssCode.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)].map((m) => m[0])
     expect(literals).toEqual([])
+  })
+
+  it('🚨 and neither does the JSX', () => {
+    // The stylesheet was the only thing this checked, and the thirteen files
+    // were not. Two raw hexes survived in `StorageSection`'s quota meter
+    // behind a comment calling them "the file's own two tokens" — and the
+    // alarm one measured 2.21:1 against its own track, so the bar faded out
+    // at exactly the moment it meant "uploads are being refused".
+    //
+    // Comments are stripped first: this file and several components discuss
+    // the old values by name, and a guard that cannot tell code from prose
+    // gets deleted by the next person who trips over it.
+    const offenders = []
+    for (const [file, src] of Object.entries(sources)) {
+      const code = src
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      for (const m of code.matchAll(/'(#[0-9a-fA-F]{3,8})'|'(rgba?\([^)]*\))'/g)) {
+        offenders.push(`${file}: ${m[1] || m[2]}`)
+      }
+    }
+    expect(offenders).toEqual([])
   })
 
   // The other half of the same claim: a sheet with no literals and no tokens

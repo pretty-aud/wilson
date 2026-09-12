@@ -49,6 +49,20 @@ vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({
   useRabbit: () => ({}),
 }))
 
+// The page gates on the role before it renders anything; the roster hook
+// mounts only for admins, deliberately, so a page-level hook does not fire a
+// workspace_directory RPC for every user at every launch.
+const perms = vi.hoisted(() => ({ current: { ready: true, role: 'admin', workspaceId: 'w-1' } }))
+vi.mock('../../permissions', () => ({ usePermissions: () => perms.current }))
+vi.mock('../TeamMembers/useWorkspaceMembers', () => ({
+  useWorkspaceMembers: () => ({
+    members: [], userId: 'u-1', ready: true, loading: false, error: null,
+    clearError: () => {}, reload: () => {}, setRole: async () => {},
+    updateMember: async () => {}, injectMember: () => {},
+  }),
+  isOwnAvatarUrl: () => false,
+}))
+
 // The detail panel lazy-loads a per-member security summary from an Edge
 // Function on open. It drives the SECURITY group only — never the two rate
 // card toggles this file asserts — so it resolves to a refusal, which is
@@ -67,6 +81,8 @@ vi.mock('../../cloud/adminApi', () => ({
 const { default: UsersSection } = await import('./UsersSection')
 const { default: MultiInviteDialog } = await import('./MultiInviteDialog')
 const { default: CreateUserDialog } = await import('./CreateUserDialog')
+const { default: CredentialsPopup } = await import('./CredentialsPopup')
+const { default: AdminTerminalPage } = await import('./AdminTerminalPage')
 
 afterEach(() => cleanup())
 
@@ -255,6 +271,116 @@ describe('Enter still submits the create-user form', () => {
     // the exemption is there so adding one cannot silently swallow Enter.
     render(<CreateUserDialog open onClose={vi.fn()} onCreated={vi.fn()} />)
     expect(document.querySelector('#at-create-user-form textarea')).toBeNull()
+  })
+})
+
+describe('the left nav marks the section you are actually on', () => {
+  // \u{1F6A8} THE MUTATION THIS CLOSES: `data-active={String(!active)}` in
+  // `AdminTerminalPage`. It keeps the `String(<expression>)` spelling the
+  // source scan requires, keeps the class/attribute pair the CSS guard
+  // requires, and highlights the six sections you are NOT on. Eleven of the
+  // fifteen state attributes on this surface still rest on the source scan
+  // alone; this is the one whose inversion an admin would meet first.
+  const nav = () => [...document.querySelectorAll('.at-nav-item')]
+  const activeLabels = () => nav().filter((b) => b.getAttribute('data-active') === 'true')
+    .map((b) => b.textContent.trim())
+
+  it('marks exactly one item, and it is Users on arrival', () => {
+    render(<AdminTerminalPage />)
+    expect(nav()).toHaveLength(7)
+    expect(activeLabels()).toEqual(['Users'])
+  })
+
+  it('the mark moves with the click and never accumulates', () => {
+    render(<AdminTerminalPage />)
+    for (const label of ['Logs', 'Storage', 'Diagnostics', 'Users']) {
+      fireEvent.click(nav().find((b) => b.textContent.trim() === label))
+      expect(activeLabels()).toEqual([label])
+    }
+  })
+
+  it('the two group separators fall between the three groups, and nowhere else', () => {
+    // AT-33's whole fix. The flag is positional, so an item inserted in the
+    // wrong place shows up here rather than as a hairline in a silly spot.
+    render(<AdminTerminalPage />)
+    expect(nav().filter((b) => b.getAttribute('data-group-start') === 'true')
+      .map((b) => b.textContent.trim())).toEqual(['Company', 'Logs'])
+  })
+
+  it('a non-admin gets the gate instead of the console', () => {
+    perms.current = { ready: true, role: 'user', workspaceId: 'w-1' }
+    render(<AdminTerminalPage />)
+    expect(document.querySelectorAll('.at-nav-item')).toHaveLength(0)
+    expect(screen.getByText('Admins only')).toBeTruthy()
+    perms.current = { ready: true, role: 'admin', workspaceId: 'w-1' }
+  })
+})
+
+describe('the show-once credentials screen cannot be left in one action', () => {
+  // 🚨 THE ONE BEHAVIOUR THIS BUNDLE CHANGED, and the reason it is safe.
+  //
+  // This screen holds a password that exists nowhere else and can never be
+  // shown again. It used to have NO X and NO Escape: leaving without copying
+  // took two taps on the same button. Q17 ruled Escape-to-close into every
+  // dialog in the app, and `Dialog` also renders an X — so the conversion
+  // gave this screen two new exits it had deliberately refused.
+  //
+  // Both are routed through the SAME gate via `onBeforeClose`. These tests
+  // are what says so: three exits, one gate, and nothing that loses a
+  // password in a single action. If a later edit drops `onBeforeClose`, the
+  // first test here fails and the walkthrough's promise to Audrey stops
+  // being true.
+  const open = (onClose) => render(
+    <CredentialsPopup open username="zed" password="hunter2" context="created" onClose={onClose} />,
+  )
+
+  it('the footer button asks once before it closes', () => {
+    const onClose = vi.fn()
+    open(onClose)
+
+    const btn = screen.getByRole('button', { name: /saved these/i })
+    fireEvent.click(btn)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /close without copying/i })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /close without copying/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape is gated the same way, and did nothing at all before', () => {
+    const onClose = vi.fn()
+    open(onClose)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('the X is gated the same way, and did not exist before', () => {
+    const onClose = vi.fn()
+    open(onClose)
+
+    const x = screen.getByRole('button', { name: 'Close' })
+    fireEvent.click(x)
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.click(x)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('one gate, not three: arming on the X lets Escape through', () => {
+    // The gate is shared state, so arming by any route arms all of them. A
+    // per-exit gate would make the second press of a DIFFERENT exit ask
+    // again, which is the shape this test rules out.
+    const onClose = vi.fn()
+    open(onClose)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 
