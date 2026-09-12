@@ -1,380 +1,619 @@
 /* ═══════════════════════════════════════════════════════════════
    ADMIN TERMINAL — the seven-section operator bench
-   UI overhaul C3 (lane C), 2026-09-11
+   UI overhaul C3 (the state extraction) and C3b (the conversion), 2026-09-12
 
    Review: `docs/design/review/admin-terminal.md` (34 findings, 12 high).
-   Plan:   `docs/design/UI_OVERHAUL_PLAN.md` §5 lane C, bundle C3.
+   Plan:   `docs/design/UI_OVERHAUL_PLAN.md` §5 lane C, bundles C3 and C3b.
 
-   ── COMMIT ONE OF TWO: THE STATE EXTRACTION ─────────────────────────────
+   ── WHAT THIS FILE WAS, AND WHAT IT IS NOW ──────────────────────────────
 
-   This file lands FIRST, in a commit with no visual change in it. Every
-   hover / active / selected / armed / copied / busy / disabled branch on the
-   thirteen Admin Terminal files moves out of an inline `style` ternary or a
-   `hover:` utility and into a `data-*` attribute resolved here, with the
-   value transcribed UNCHANGED and the line it came from named beside it.
+   C3 landed it as a TRANSCRIPTION. Every hover / active / selected / armed /
+   copied / expanded / disabled branch across the thirteen files moved out of
+   an inline `style` ternary or a `hover:` utility and into a `data-*`
+   attribute resolved here, with the value copied unchanged and the line it
+   came from named beside it. That commit had no visual change in it on
+   purpose, so this one's diff is the visual change and nothing else.
 
-   Why it has to come first (plan §1 and §5; review Risk 4): an inline
-   `style` object beats a `hover:` class at any specificity, so a class-based
-   restyle written beside a surviving inline style silently drops the state.
-   This surface already had that defect twice over — the roster table has no
-   row hover at all while the Logs table does (AT-22), and `MenuItem`'s hint
-   is painted `LIGHT_INK` on a `#1c1917` panel, which is 1.00:1 and has never
-   been visible to any human (AT-01).
+   C3b is this one. The page moved from `#f4a261` onto the dark `paper` (Q1),
+   the thirteen files moved onto the kit, and the 35 transcribed hex values
+   went to zero. What is left here is LAYOUT — where things sit — plus the
+   handful of states the kit has no component for. Every colour, size, border
+   and radius below comes from a token in `@theme`. C8: a colour that is not
+   in `@theme` does not exist.
 
-   🚨 THE HEX VALUES IN THIS COMMIT ARE DELIBERATE AND TEMPORARY. They are
-   transcriptions, so the diff of the SECOND commit is the visual change and
-   nothing else. C8 (no hex outside `@theme`) is satisfied by that second
-   commit, not by this one. `adminTerminalCss.test.js` pins every value in
-   this sheet, one by one, so neither a changed value nor a forgotten cleanup
-   can pass.
-
-   ── WHAT IS DELIBERATELY *NOT* EXTRACTED ────────────────────────────────
-
-   The line is drawn at INTERACTION state — hover, active, selected, armed,
-   copied, expanded, disabled. Three kinds of surviving inline ternary are
-   left alone on purpose, and a reviewer should read them as a boundary
-   rather than as a miss:
-
-     1. `display: section === 'x' ? 'block' : 'none'` in AdminTerminalPage.
-        That is the all-sections-mounted view switch, not a paint. Four
-        sections lazy-fetch behind a `loadedRef` on first activation, so any
-        change that alters a section's identity remounts it and refires the
-        RPCs on every nav hop (review Risk 3). It stays exactly as it is.
-     2. SEMANTIC TONE driven by data, not by the pointer: the realtime and
-        adapter dots, the MFA badge, the roster's active dot, the activity
-        chip, the deactivate button's two inks. These do not become CSS —
-        they become `StatusDot`, `StatusBadge` and `Button` variants in
-        commit two, and extracting them here only to delete them there is
-        churn that hides the real change.
-     3. POSITIONAL branches — `borderTop: i === 0 ? 'none' : …`, the
-        avatar's `fontSize: size >= 40 ? 16 : 10`. Neither is a state.
-     4. THE FOCUS RING. Seventeen `focus:ring-2 focus:ring-orange-500` pairs
-        survive across seven files. Focus IS an interaction state, so this is
-        a real exclusion and not one of the three above — it is listed
-        separately because it was found unlisted by review round 1. It stays
-        because the kit already owns focus globally (`:focus-visible`, one
-        ring, in `index.css` `@layer base`) and AT-21's fix is to delete
-        these seventeen in favour of it. That is a visual change, so it
-        belongs to the bundle commit, not to a transcription.
-
-   🚨 `@layer` IS NAMED ON THE FIRST LINE, BEFORE ANY RULE. A layer's place
-   in the cascade is fixed where it is FIRST named, not where its rules are
-   written. This sheet is imported from a component, so the bundler may emit
-   it BEFORE `src/index.css`; when that happened to D1, `components` was
-   created ahead of `base`, every rule in it fell BEHIND Tailwind's preflight
-   and the whole kit rendered unstyled while every test stayed green (D1
-   hand-off §5). Naming the four layers here is idempotent when `index.css`
-   gets there first and corrective when it does not.
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST LINE OF THIS FILE, and it has
+   to be. A layer's position in the cascade is fixed where it is FIRST named,
+   not where its rules are written. This stylesheet is imported from a
+   component, so the bundler can emit it BEFORE `src/index.css` — and when
+   that happened to D1, `components` was created ahead of `base` and every
+   rule in it, theirs and all of `src/ui/`'s, lost to Tailwind's preflight.
+   The symptom was specific: `height` survived while `padding`, `font-size`,
+   `color` and `background-color` were silently reset, and every test stayed
+   green because almost nothing in this repo mounts React. Naming the four
+   layers here is idempotent when `index.css` gets there first and corrective
+   when it does not. (D1 hand-off §5 trap 1.)
    ═══════════════════════════════════════════════════════════════ */
 
 @layer theme, base, components, utilities;
 
 @layer components {
 
-  /* ═══ THE LEFT NAV ════════════════════════════════════════════════════
-     From AdminTerminalPage.jsx:108-114. The active state is a 3px signal
-     left border plus a 10%-ish signal fill, and the INACTIVE state carries
-     an equal 3px transparent border so selecting an item does not shift the
-     label by a pixel. That fixed-width-slot discipline is the one thing this
-     surface already got right (review, "What works") — it is transcribed
-     here exactly rather than rebuilt. */
+  /* ═══ THE PAGE SHELL ═══════════════════════════════════════════════════
+     AT-29: three gutters used to stack between the window edge and the first
+     pixel of content — the shell's, the page's own `2rem 2rem`, and the nav
+     strip's `pr-4`. The page also capped itself at 1240px INSIDE its own
+     padding, so its first column started 32px in while the page title in the
+     orange bar above started at 24px. The measure is the data cap PLUS the
+     one gutter outside it, which is the arithmetic `PageHeader` does with
+     `measure="data"`, so the title sits directly above the first row. */
+  .at-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    max-width: calc(var(--width-data-max) + 2 * var(--spacing-gutter));
+    margin: 0 auto;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+  .at-page-gate { justify-content: center; }
 
+  .at-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: var(--spacing-gutter);
+  }
+
+  /* ═══ THE LEFT NAV ═════════════════════════════════════════════════════
+     Seven items at the panel width, in three hairline-separated groups
+     (AT-33). Nothing is hidden and nothing moved behind a click: the
+     separator is a border on the first item of each group, so adding an
+     eighth section would show up as an ungrouped item rather than silently
+     joining the wrong block. */
+  .at-nav {
+    flex-shrink: 0;
+    width: var(--panel-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-right: 1px solid var(--color-rule);
+    padding-right: var(--spacing-gutter);
+  }
   .at-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--control-md);
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--radius-control);
     background-color: transparent;
-    color: #1c1917;
-    border-left: 3px solid transparent;
+    /* Sentence case at the Dense step (Q2). This was an 11px bold uppercase
+       tracked label, which made a nav item, a section heading, a button, a
+       table header and a status pill the same typographic object. */
+    font-size: var(--text-dense);
+    font-weight: 400;
+    text-align: left;
+    color: var(--color-ink-2);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out,
+                color var(--duration-state) ease-out;
   }
+  .at-nav-item:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  /* The one active treatment on the page: the signal tint, a signal left
+     edge, and the full ink at 600. Inactive is weight-and-fill rather than a
+     lighter ink — C3 measured the two greys this replaced at 3.70:1 and
+     2.33:1 on the old ground, and the ink ladder carries the hierarchy now. */
   .at-nav-item[data-active='true'] {
-    background-color: rgba(234, 88, 12, 0.18);
-    color: #1c1917;
-    border-left-color: #ea580c;
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 var(--color-signal);
+    color: var(--color-ink);
+    font-weight: 600;
   }
-  /* The icon's colour was a second ternary on the same boolean
-     (AdminTerminalPage.jsx:114); one source of truth now. */
-  .at-nav-item .at-nav-icon { color: #1c1917; }
-  .at-nav-item[data-active='true'] .at-nav-icon { color: #ea580c; }
-
-  /* ═══ SEGMENTED CHIPS ═════════════════════════════════════════════════
-     One rule for three copies of the same object: the Logs tab pair
-     (LogsSection.jsx:183-185), the Requests tab pair
-     (ChangeRequestsSection.jsx:230-232) and the roster's status filter
-     (UsersSection.jsx:176-178). All three were byte-identical ternaries. */
-
-  .at-chip {
-    background-color: transparent;
-    color: #1c1917;
+  .at-nav-icon {
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    flex-shrink: 0;
+    color: currentColor;
   }
-  .at-chip[data-active='true'] {
-    background-color: #1c1917;
-    color: #f4a261;
-  }
-  /* The Requests "open" chip carries a count whose ink was a THIRD ternary on
-     the same boolean (ChangeRequestsSection.jsx:234). */
-  .at-chip .at-chip-count { color: #b45309; }
-  .at-chip[data-active='true'] .at-chip-count { color: #f4a261; }
-
-  /* ═══ ROW HOVER AND SELECTION ═════════════════════════════════════════
-     AT-22: the surface hovered with four fills, three of them LIGHTER than
-     the #f4a261 page, so hovering an element made it flash white. They are
-     transcribed one-for-one here and collapse to one screen in commit two.
-
-     AT-22 also records the affordance gap that motivates the extraction:
-     the Logs table has a row hover (LogsSection.jsx:297) and the roster
-     table has none (UsersSection.jsx:256), so the two tables teach opposite
-     things about whether a row is clickable. Both are clickable. */
-
-  .at-log-row {
-    transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
-    border-bottom: 1px solid #e7e5e4;
-  }
-  .at-log-row:hover { background-color: #f5f5f4; }  /* was hover:bg-stone-100 */
-  /* 🚨 BOTH OF THESE DECLARATIONS ARE INERT, AND THAT IS FAITHFUL. A
-     `border-bottom` on a `<tr>` does not paint when the table is
-     `border-collapse: separate`, which every table on this surface is — so
-     the Logs table has no row divider today and has never had one. The
-     pre-commit code set the identical value inline on the same `<tr>` and
-     was equally inert, so transcribing it is correct and removing it would
-     be a silent visual change in a commit that promises none.
-
-     Review round 1, finding 7 proved the inertness by screenshot rather
-     than by reasoning, and caught the comment that used to sit here
-     describing a hand-off of the divider to the JSON row that has never
-     happened. The real fix — move the divider to the `<td>`s, as the kit's
-     own Table does — is a visual change and belongs to the bundle commit.
-     The same is true of the roster's surviving inline `borderBottom`. */
-  .at-log-row[data-expanded='true'] { border-bottom: none; }
-
-  /* The roster row's two inline branches: `opacity` for a deactivated
-     member and a signal tint for the selected one (UsersSection.jsx:256). */
-  /* `transition-colors` was on this row before the extraction and was not
-     carried over, so selection snapped instead of fading (review round 1,
-     finding 4). Restated with Tailwind's own duration and curve.
-     🚨 background-color ONLY: `transition-colors` never covered `opacity`,
-     so the deactivated row's dimming did not fade before and must not now. */
-  .at-roster-row {
-    background-color: transparent;
-    opacity: 1;
-    transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .at-roster-row[data-inactive='true'] { opacity: 0.55; }
-  .at-roster-row[data-selected='true'] { background-color: rgba(234, 88, 12, 0.10); }
-
-  /* ═══ ICON BUTTONS ════════════════════════════════════════════════════
-     Three hovers at three stone values, one per file: the panel close
-     (UsersSection.jsx:408), the copy-id button (CompanySection.jsx:224) and
-     the department chip's remove (CompanySection.jsx:275). */
-
-  /* 🚨 THE REST INK IS DECLARED HERE, AND MUST BE. Review round 1, finding
-     1: the extraction moved the copy-confirmed branch to CSS and left the
-     rest branch as an inline `color`, which beats a class rule at any
-     specificity — so the green tick was painted #1c1917 and the
-     confirmation silently stopped happening. Both branches live here now,
-     and none of the three `.at-icon-btn` call sites carries an inline
-     `color` any more. */
-  .at-icon-btn { color: #1c1917; }
-  .at-icon-btn:hover { background-color: #e7e5e4; }        /* hover:bg-stone-200 */
-  .at-icon-btn[data-tone='chip']:hover { background-color: #d6d3d1; } /* stone-300 */
-
-  /* The copy buttons swap ink for 1.5s after a successful write
-     (CompanySection.jsx:225, DiagnosticsSection.jsx:133). Diagnostics spells
-     the same confirmation as a green tick INSIDE a dark button rather than a
-     recoloured icon button, so it gets its own name rather than being bent
-     into this one. */
-  .at-icon-btn[data-copied='true'] { color: #22c55e; }
-  .at-copied-glyph { color: #22c55e; }
-
-  /* ═══ THE ADD-PEOPLE MENU ═════════════════════════════════════════════
-     UsersSection.jsx:MenuItem. A DARK floating panel inside a light-page
-     file — which is the classification error AT-01 is: the hint below each
-     label is painted LIGHT_INK (#1c1917) on a #1c1917 panel, 1.00:1, and
-     the hover only lifts it to about 1.1:1. The hint's colour is extracted
-     here UNCHANGED so the defect is still present and still visible in the
-     diff; it is fixed in its own commit, on its own, because it is a defect
-     and not a refactor (review priority order, AT-01 first). */
-
-  .at-menu-item:hover { background-color: #292524; }       /* hover:bg-stone-800 */
-
-  /* 🚨 AT-01, FIXED. This was `#1c1917` — `LIGHT_INK` — on a `#1c1917` panel:
-     contrast 1.00:1, and the hover only lifted it to about 1.1:1. The two
-     strings under the menu's labels ("They set their own password" and "You
-     hand over the credentials") have never been visible to any human since
-     the menu shipped, which is why this is a defect commit and not part of
-     the restyle. Both strings were read before being made legible, as the
-     review asked: they are accurate, and they are the one thing that
-     distinguishes the two ways of adding a person.
-
-     `#b8b4b0` is the dark-surface secondary ink — `--color-ink-2`, 8.49:1 on
-     this panel. It is written as a literal only because commit one is a
-     transcription and tokenising one value out of the sheet's forty-odd would
-     make the C8 cleanup harder to read; the bundle commit takes them
-     together.
-
-     The mechanism this proves is the one the whole rework exists to stop: the
-     element was classified by the FILE it lives in (a light page) rather than
-     by the SURFACE it sits on (a dark floating panel). `lightSurface.js:22`
-     warns about exactly this in a comment, and the warning was ignored. */
-  .at-menu-item .at-menu-hint { color: #b8b4b0; }
-
-  /* ═══ THE MODE AND PROVIDER PICKERS ═══════════════════════════════════
-     StorageSection.jsx:625-627 and :819-821, byte-identical. The review
-     names these two blocks the best-composed thing on the surface and the
-     model for every binary choice in the app, so the extraction keeps their
-     geometry untouched and moves only the selected branch. */
-
-  .at-picker {
-    background-color: transparent;
-    border: 1px solid rgba(120, 70, 30, 0.3);
-  }
-  .at-picker[data-active='true'] {
-    background-color: rgba(234, 88, 12, 0.10);
-    border-color: #ea580c;
-  }
-  /* A third ternary on the same boolean, in both copies
-     (StorageSection.jsx:627 and :819). */
-  .at-picker .at-picker-icon { color: #1c1917; }
-  .at-picker[data-active='true'] .at-picker-icon { color: #ea580c; }
-
-  /* ═══ THE MODEL ROWS ══════════════════════════════════════════════════
-     ModelsSection.jsx:ModelRow. Von Restorff, and the file's header says so: a
-     row the company has actually overridden is the only one carrying an
-     accent, so five deliberate choices stand out from twenty-three
-     defaults. That intent survives the restyle because it is named here. */
-
-  .at-model-row { background-color: transparent; }
-  .at-model-row[data-overridden='true'] { background-color: rgba(234, 88, 12, 0.05); }
-
-  /* ═══ THE CREDENTIALS POPUP ═══════════════════════════════════════════
-     Two states nothing else on the surface has, both real interaction
-     design the review says to keep: the copy button's 1.5s confirmation
-     (CredentialsPopup.jsx:172-174) and the close button's ARM, which makes
-     a close-without-copying need a second press on the same target
-     (CredentialsPopup.jsx:143-145). */
-
-  .at-cred-copy {
-    background-color: transparent;
-    color: #f4a261;
-    border: 1px solid #44403c;
-  }
-  .at-cred-copy[data-copied='true'] {
-    background-color: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
-    border-color: #22c55e;
+  /* The two group separators (AT-33). 8px above the rule and 8px below keeps
+     the 4px scale; the hairline is the same one every other divider uses. */
+  .at-nav-item[data-group-start='true'] {
+    margin-top: 8px;
+    border-top: 1px solid var(--color-rule);
+    padding-top: 8px;
+    height: calc(var(--control-md) + 9px);
   }
 
-  .at-cred-close {
-    background-color: transparent;
-    color: #78716c;
-    border: 1px solid #44403c;
+  /* ═══ THE SECTION PANE ═════════════════════════════════════════════════ */
+  .at-pane { flex: 1; min-width: 0; min-height: 0; }
+  .at-view { height: 100%; min-height: 0; }
+  .at-view-scroll { overflow-y: auto; }
+
+  /* One rhythm for a section's stacked regions: 24px between MAJOR regions
+     (a title, a toolbar, a table, a card) and 8px inside a group. The page
+     had two card-stack rhythms and five unrelated gaps (AT-31). */
+  .at-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    height: 100%;
+    min-height: 0;
   }
-  .at-cred-close[data-armed='true'] {
-    background-color: #1c1917;
-    color: #f4a261;
-    border-color: #f4a261;
+  /* The reading-width sections: Company and Diagnostics are stacked cards of
+     prose and controls, not tables, so they take the form measure rather than
+     stretching a label/value pair across 1240px. */
+  .at-section-narrow {
+    max-width: 640px;
+    overflow-y: auto;
+    padding-bottom: 24px;
+  }
+  .at-logs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+  /* ═══ SHARED TEXT ROLES ════════════════════════════════════════════════
+     Five roles from the one scale (AT-07: nine sizes, an 11px body and 50
+     occurrences at 10px or smaller). Nothing below 11px survives; the floor
+     is the Label step and it is only used for labels. */
+  .at-card-desc {
+    font-size: var(--text-caption);
+    line-height: 1.4;
+    color: var(--color-ink-2);
+    margin: 0 0 12px;
+  }
+  .at-note {
+    font-size: var(--text-caption);
+    line-height: 1.4;
+    color: var(--color-ink-3);
+    margin: 0;
+  }
+  .at-note-inline {
+    margin-left: 6px;
+    font-size: var(--text-caption);
+    color: var(--color-ink-3);
+  }
+  .at-group-label {
+    display: block;
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--color-rule);
+    margin-bottom: 8px;
+  }
+  /* "Nothing here" inside a cell. Italic mono at the third ink was five
+     different spellings of `--` across the surface; it is one now. */
+  .at-none { color: var(--color-ink-3); }
+  .at-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .at-nowrap { white-space: nowrap; }
+  .at-break { word-break: break-all; }
+  .at-code {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    padding: 4px 8px;
+  }
+  /* A control and its button on one line, both at the same height. */
+  .at-field-row { display: flex; align-items: center; gap: 8px; }
+  .at-field-row > .ui-input { flex: 1; min-width: 0; }
+
+  /* ═══ LABEL / VALUE PAIRS ══════════════════════════════════════════════
+     AT-17: these were `justify-between`, which pushes a label left and a
+     value right and forms no column at all — four pairs give two ragged
+     edges facing each other. A grid with one label track means every value on
+     a panel starts on the same vertical line, which is the alignment half of
+     the brief that spacing alone cannot deliver. */
+  .at-sec-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .at-sec-row {
+    display: grid;
+    grid-template-columns: 104px 1fr;
+    gap: 12px;
+    align-items: baseline;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+  }
+  .at-sec-label {
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .at-sec-value { min-width: 0; }
+  /* The settings-row contract D1 set: label left, control right, one height. */
+  .at-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: var(--control-md);
+  }
+  .at-row-label { font-size: var(--text-dense); color: var(--color-ink); }
+  .at-row-value { font-size: var(--text-dense); color: var(--color-ink); }
+  .at-row-control { display: flex; align-items: center; gap: 8px; }
+
+  /* ═══ USERS ════════════════════════════════════════════════════════════ */
+  .at-users { display: flex; height: 100%; min-height: 0; }
+  .at-users-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+  }
+  .at-filter-group { display: flex; align-items: center; gap: 4px; }
+  .at-search-glyph {
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    flex-shrink: 0;
+  }
+  .at-search-input { width: 260px; }
+
+  .at-roster { min-height: 0; }
+  .at-roster-scroll { flex: 1; min-height: 0; }
+  /* The roster row's two states. `selected` is a real selection the user
+     made, so it is the kit's own treatment; `inactive` is the third ink
+     rather than an opacity, which is the plan's rule and also the reason a
+     deactivated member's row stays readable instead of fading toward the
+     ground. AT-22's other half — the roster had NO hover at all while the
+     Logs table did — is the kit's `interactive` now. */
+  .at-roster-row[data-selected='true'] {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 var(--color-signal);
+  }
+  .at-roster-row[data-inactive='true'] .ui-td { color: var(--color-ink-3); }
+
+  .at-member-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .at-member-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .at-grants { display: inline-flex; align-items: center; gap: 4px; }
+
+  .at-avatar {
+    border-radius: 9999px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .at-avatar-img { object-fit: cover; border: 1px solid var(--color-rule); }
+  .at-avatar-initial {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    color: var(--color-ink-2);
+    font-weight: 600;
   }
 
-  /* ═══ THE ROSTER TOGGLE ═══════════════════════════════════════════════
-     UsersSection.jsx:ToggleRow. Its track, its knob's transform and its
-     cursor were three inline branches on one boolean, plus an `opacity` on
-     the wrapper for the disabled case. The off-state track is a tint of the
-     ink rather than stone-400, which measured 1.4:1 against this page and
-     read as "missing" rather than "off" — that reasoning is in the source
-     as a comment and is carried here with the value. */
-
-  .at-toggle { background-color: rgba(28, 25, 23, 0.35); cursor: pointer; }
-  .at-toggle[data-on='true'] { background-color: #ea580c; }
-  /* 🚨 `data-disabled`, NOT `:disabled`. The button's DOM `disabled` is
-     `disabled || busy`, but the original cursor branch was keyed on the
-     `disabled` PROP alone — so a toggle that was merely mid-RPC kept its
-     pointer. `:disabled` here widened the predicate, which review round 1
-     (finding 5) caught as a behaviour change inside a transcription. */
-  .at-toggle[data-disabled='true'] { cursor: default; }
-  .at-toggle .at-toggle-knob {
-    background-color: #fff;
-    transform: translateX(0);
-    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .at-toggle[data-on='true'] .at-toggle-knob { transform: translateX(14px); }
-  .at-toggle-row[data-disabled='true'] { opacity: 0.7; }
-
-  /* ═══ DISABLED ════════════════════════════════════════════════════════
-     Twenty-four `disabled:opacity-40` and `disabled:opacity-50` sites across
-     eleven files — the same state at two strengths because two authors
-     typed different numbers (AT-02). Transcribed as two classes so the diff
-     in commit two, where both become the one disabled token (plan §3.1:
-     ink at 52 percent plus `cursor: not-allowed`, never an opacity), is
-     legible as one decision rather than twenty-four. */
-
-  .at-disable-40:disabled { opacity: 0.4; }
-  .at-disable-50:disabled { opacity: 0.5; }
-
-  /* ═══ THE INVITE ROWS ═════════════════════════════════════════════════
-     MultiInviteDialog.jsx:228 and :238. A sent row dims; a row whose
-     username fails USERNAME_RE takes a danger border ON THE FIELD, which is
-     the only place on the surface where validity is drawn on the control
-     rather than beside it. */
-
-  .at-invite-row { opacity: 1; }
-  .at-invite-row[data-sent='true'] { opacity: 0.75; }
-  /* 🚨 BOTH BRANCHES, AND THE VALID ONE FIRST. Review round 1, finding 2:
-     the extraction moved only the invalid branch here and left the valid
-     one inside the shared `fieldStyle` as a `border` SHORTHAND. A shorthand
-     sets `border-color`, and an inline declaration beats a class rule, so
-     the red edge on a bad username was deleted outright — the user was
-     blocked from sending with no marker on the control. `fieldStyle` no
-     longer carries a border for this field (`nameFieldStyle`). */
-  .at-invite-name { border: 1px solid #44403c; }
-  .at-invite-name[data-invalid='true'] { border-color: #dc2626; }
-
-  /* ═══ THE CREATE-USER HINT ════════════════════════════════════════════
-     CreateUserDialog.jsx:119. The username hint changes ink the moment what
-     you have typed stops matching the pattern — the only live validation
-     feedback in the dialog, and it was a ternary inside a `style` prop. */
-
-  .at-hint { color: #78716c; }
-  .at-hint[data-invalid='true'] { color: #fbbf24; }
-
-  /* CreateUserDialog.jsx:CheckRow. `data-dim` is deliberately NOT
-     `data-disabled`: the row dims only when the control is disabled AND has
-     no note explaining why, so "Can view rate card" stays at full strength
-     while it is disabled-because-edit-implies-it. Two different reasons for
-     one disabled attribute, which is why the branch has to survive. */
-  .at-check-row { opacity: 1; }
-  .at-check-row[data-dim='true'] { opacity: 0.6; }
-
-  /* ═══ THE DETAIL PANEL'S ENTRANCE ═════════════════════════════════════
-     UsersSection.jsx:398. AT-25: this is the only real motion on the
-     surface and it was `transition-all duration-200`, which animates the
-     border and the width along with the transform, so the hairline
-     separating the panel from the table drew ITSELF in. The properties are
-     named here, and the duration and the 24px offset are transcribed
-     unchanged. The SYMMETRIC EXIT lands in commit two.
-
-     🚨 The reduced-motion gate below is in THIS commit, not the next one,
-     and an earlier draft of this comment said otherwise (review round 1,
-     finding 6). It is a real behaviour delta in a no-visual-change commit —
-     a reduced-motion user now gets the panel instantly instead of a slide —
-     and it is kept deliberately: plan §3.4 requires every transition to
-     honour the setting, and shipping a named-property transition without
-     its gate would mean knowingly adding an ungated one.
-
-     🚨 The reduced-motion block is scoped to this class by name. It must
-     never become a blanket rule: `src/index.css` is where the otter, egg,
-     ghost, cloud and hunger keyframes live, and a universal
-     `animation: none` would stop the pet (C5, and the critic's ruling on
-     O29/AT-25). */
-
+  /* ═══ THE MEMBER DETAIL PANEL ══════════════════════════════════════════ */
   .at-detail-panel {
+    flex-shrink: 0;
+    width: var(--panel-lg);
+    margin-left: var(--spacing-gutter);
+    padding-left: var(--spacing-gutter);
+    border-left: 1px solid var(--color-rule);
+    overflow-y: auto;
+    /* AT-25: this was `transition-all`, which animates every property the
+       browser can interpolate and has no exit. Two named properties, the
+       panel duration, and a reduced-motion gate scoped to this class rather
+       than a blanket rule in `index.css` — a blanket rule would kill the pet
+       (C5). */
     opacity: 0;
-    transform: translateX(24px);
-    transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(8px);
+    transition: opacity var(--duration-panel) var(--ease-response),
+                transform var(--duration-panel) var(--ease-response);
   }
-  .at-detail-panel[data-entered='true'] {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  .at-detail-panel[data-entered='true'] { opacity: 1; transform: translateX(0); }
   @media (prefers-reduced-motion: reduce) {
-    .at-detail-panel { transition: none; }
+    .at-detail-panel { transition: none; opacity: 1; transform: none; }
+  }
+  .at-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .at-panel-head-label {
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .at-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .at-identity-text { min-width: 0; }
+  .at-identity-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-h3);
+    font-weight: 600;
+    color: var(--color-ink);
+    min-width: 0;
+  }
+  .at-identity-handle {
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .at-identity-meta { font-size: var(--text-dense); color: var(--color-ink-2); }
+  .at-identity-joined { font-size: var(--text-caption); color: var(--color-ink-3); margin-bottom: 24px; }
+
+  .at-toggle-row { margin-bottom: 4px; }
+  /* Disabled is the one token: the third ink plus `not-allowed`, never an
+     opacity (plan §3.1). The 0.7 this replaced was one of two strengths the
+     surface used for the same idea. */
+  .at-toggle-row[data-disabled='true'] .at-row-label { color: var(--color-ink-3); }
+
+  .at-danger-zone {
+    margin-top: 24px;
+    padding-top: 12px;
+    padding-bottom: 24px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .at-danger-label {
+    display: block;
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-danger);
+    margin-bottom: 8px;
+  }
+  .at-confirm-body {
+    margin: 0;
+    font-size: var(--text-body);
+    line-height: 1.5;
+    color: var(--color-ink-2);
   }
 
+  /* ═══ LOGS ═════════════════════════════════════════════════════════════ */
+  .at-log-table { min-height: 0; }
+  .at-activity-table { min-height: 0; }
+  /* The expanded row loses its own bottom rule so the context block beneath
+     reads as part of the same row rather than as a row of its own. */
+  .at-log-row[data-expanded='true'] .ui-td { border-bottom-color: transparent; }
+  .at-log-message { color: var(--color-ink); }
+  .at-log-context-row .ui-td { padding-top: 0; }
+  .at-log-context {
+    margin: 0;
+    max-height: 200px;
+    overflow: auto;
+    padding: 8px 12px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+  }
+
+  /* ═══ MODELS ═══════════════════════════════════════════════════════════ */
+  .at-models { overflow-y: auto; max-width: 900px; padding-bottom: 24px; }
+  .at-model-group { display: flex; flex-direction: column; gap: 4px; }
+  .at-model-list {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+  }
+  .at-model-row { padding: 8px 12px; border-top: 1px solid var(--color-rule); }
+  .at-model-row[data-first='true'] { border-top: none; }
+  /* AT-27: this was a wrapping flex row, so under pressure RESET dropped onto
+     its own line BELOW the select it resets — the control that undoes a choice
+     stopped sitting beside it. Three tracks mean the twenty-eight rows form
+     three columns at every width, and the reset slot is RESERVED whether or
+     not the row has one, so no row shifts when it gains or loses the control. */
+  .at-model-cells {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 190px 84px;
+    gap: 12px;
+    align-items: center;
+  }
+  .at-model-name { min-width: 0; }
+  .at-model-label { font-size: var(--text-dense); color: var(--color-ink); }
+  .at-model-source { font-size: var(--text-caption); color: var(--color-ink-3); }
+  .at-model-select { width: 100%; }
+  .at-model-reset { display: flex; justify-content: flex-end; }
+  .at-model-error { margin: 4px 0 0; font-size: var(--text-caption); color: var(--color-danger); }
+  /* Von Restorff: the rows a company has actually overridden are the only ones
+     carrying an accent, so five deliberate choices stand out from twenty-three
+     defaults. */
+  .at-model-row[data-overridden='true'] { background-color: var(--color-signal-tint); }
+
+  /* ═══ STORAGE: THE MODE PICKERS ════════════════════════════════════════
+     A card-shaped choice control the kit has no component for, so it stays
+     the page's. Two copies in this file, one rule. `at-disable-50` is gone
+     with it: disabled is the third ink plus `not-allowed`, never one of two
+     opacity strengths for the same idea (plan §3.1). */
+  .at-picker {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out,
+                border-color var(--duration-state) ease-out;
+  }
+  .at-picker:hover { background-color: var(--color-hover); }
+  .at-picker[data-active='true'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .at-picker:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .at-picker:disabled:hover { background-color: transparent; }
+  .at-picker-icon {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-ink-3);
+  }
+  .at-picker[data-active='true'] .at-picker-icon { color: var(--color-signal); }
+
+  /* ═══ COMPANY ══════════════════════════════════════════════════════════ */
+  .at-stat-row { display: flex; gap: 24px; }
+  .at-dept-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .at-dept { gap: 6px; }
+  .at-dept-remove { margin-left: 2px; }
+  .at-dept-add { margin-bottom: 8px; max-width: 360px; }
+
+  /* ═══ DIAGNOSTICS ══════════════════════════════════════════════════════ */
+  .at-status-list { display: flex; flex-direction: column; gap: 8px; }
+  .at-test-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .at-codes-table { min-height: 0; }
+  .at-codes-scroll { max-height: 280px; }
+  /* The copy button's confirmed state. The only colour on the surface that is
+     applied to a control by a data attribute rather than a variant, because
+     "it worked" is a transient acknowledgement, not a button variant. */
+  .at-copy-btn[data-copied='true'],
+  .at-cred-copy[data-copied='true'] { color: var(--color-success); border-color: var(--color-success); }
+
+  /* ═══ ICON BUTTON, THE COPY-CONFIRMED CASE ═════════════════════════════
+     Kept as a data attribute on the kit's own icon button rather than as a
+     private control: the glyph swaps in the JSX and the tone swaps here. */
+  .at-icon-btn[data-copied='true'] { color: var(--color-success); }
+
+  /* ═══ THE STAGED CONFIRM STRIP (Storage cleanup) ═══════════════════════
+     This is an IN-FLOW multi-step confirm, not a `window.confirm`, so W9
+     does not reach it and C1 forbids turning it into a dialog: the question,
+     the destructive answer and the way out sit on one line where the action
+     was. */
+  .at-confirm-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .at-confirm-question {
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-danger);
+  }
+
+  /* ═══ DIALOG BODIES ════════════════════════════════════════════════════ */
+  .at-form { display: flex; flex-direction: column; gap: 16px; }
+  .at-grant-group { display: flex; flex-direction: column; gap: 4px; }
+  /* The username hint's invalid state — the only feedback this field has
+     before submit. */
+  .at-hint[data-invalid='true'] { color: var(--color-warning); }
+  .at-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+    user-select: none;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+  }
+  .at-check-row[data-dim='true'] { color: var(--color-ink-3); cursor: not-allowed; }
+  .at-checkbox { accent-color: var(--color-signal); }
+  .at-check-label { color: inherit; }
+  .at-check-note { font-size: var(--text-caption); color: var(--color-ink-3); }
+
+  /* ── Credentials ─────────────────────────────────────────────────────── */
+  .at-cred-row { margin-bottom: 12px; }
+  .at-cred-label {
+    display: block;
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    margin-bottom: 4px;
+  }
+  .at-cred-value { display: flex; align-items: center; gap: 8px; }
+  .at-cred-code {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    font-family: var(--font-mono);
+    font-size: var(--text-body);
+    color: var(--color-ink);
+    word-break: break-all;
+    user-select: all;
+  }
+  .at-cred-both { width: 100%; justify-content: center; margin-bottom: 12px; }
+  .at-cred-warn { margin-top: 4px; }
+
+  /* ── Multi-invite ────────────────────────────────────────────────────── */
+  .at-invite-paste { width: 100%; resize: vertical; }
+  .at-invite-skipped { margin-top: 8px; }
+  .at-invite-list { margin-top: 12px; max-height: 38vh; overflow-y: auto; }
+  .at-invite-row { border-bottom: 1px solid var(--color-rule); }
+  /* A sent row is done, not disabled: the third ink says so without the
+     opacity the rest of the surface used to reach for. */
+  .at-invite-row[data-sent='true'] .at-invite-email { color: var(--color-ink-3); }
+  /* Four columns, declared. The address takes what is left; the other three
+     are fixed so twenty rows form four straight edges. */
+  .at-invite-cells {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 144px 110px 108px;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 0;
+  }
+  .at-invite-email {
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 🚨 THE RED EDGE, AND WHY IT IS SPELLED AS A BORDER-COLOUR ON A CLASS.
+     An inline `border` SHORTHAND also sets `border-color`, which no class
+     rule can beat, and C3's review round 1 found exactly that: the invalid
+     branch had moved to CSS while the valid one stayed in a shared style
+     object as a shorthand, so the red edge was deleted outright and the user
+     was blocked from sending with no marker on the control. Nothing inline
+     reaches this element any more — it is the kit `Input` — and (0,2,0) beats
+     `.ui-input`'s (0,1,0), so the rule wins on specificity rather than on
+     nobody having tidied the wrong object. */
+  .at-invite-name[data-invalid='true'] { border-color: var(--color-danger); }
+  .at-invite-role { width: 100%; }
+  .at-invite-status { justify-content: flex-end; }
+  .at-invite-error {
+    padding-bottom: 6px;
+    font-size: var(--text-caption);
+    color: var(--color-danger);
+  }
+  .at-invite-progress {
+    margin-top: 8px;
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+  }
+
+  /* ═══ STORAGE ══════════════════════════════════════════════════════════
+     Track C owns this section's JSX, so C3b changed its tokens and its
+     components and nothing else. These two rules exist because the sweep
+     emptied two style objects the JSX still names. */
+  .at-input-grow { flex: 1; min-width: 260px; }
+  .at-note-field { width: 100%; height: 64px; resize: none; }
+
+  /* ═══ 1280x700 ═════════════════════════════════════════════════════════
+     Electron's floor is a 700px window and every size increase above makes
+     tall content taller. The detail panel and the nav both give width back
+     first, because the table is the thing the admin came for. */
+  @media (max-width: 1320px) {
+    .at-detail-panel { width: var(--panel-md); }
+  }
+  @media (max-width: 1180px) {
+    .at-nav { width: var(--panel-sm); }
+    .at-search-input { width: 180px; }
+  }
 }

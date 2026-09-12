@@ -88,9 +88,15 @@ function openingTags(src) {
 
 /** The `at-*` classes named in this tag's className literal, and nowhere else. */
 function tagClasses(tag) {
-  const m = tag.match(/className=(?:"([^"]*)"|\{`([^`]*)`\})/)
-  if (!m) return []
-  return [...(m[1] ?? m[2]).matchAll(/\b(at-[a-z0-9-]+)/g)].map((x) => x[1])
+  // `Table` names its scroll container through a SECOND prop, so a rule used
+  // only there read as uncalled — a false positive that pushes the next
+  // session to delete a rule the page needs. Both spellings count, and a tag
+  // carrying both contributes both.
+  const out = []
+  for (const m of tag.matchAll(/(?:className|scrollClassName)=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+    out.push(...[...(m[1] ?? m[2]).matchAll(/\b(at-[a-z0-9-]+)/g)].map((x) => x[1]))
+  }
+  return out
 }
 
 const kebabToCamel = (p) => p.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
@@ -230,11 +236,25 @@ describe('🚨 every state rule is paired with an element that can trigger it', 
   )].map((s) => s.split(' '))
 
   it('the sheet actually declares state rules (the derivation is not empty)', () => {
-    // 19 distinct class+attribute pairs. `.at-chip[data-active]` is ONE pair
-    // serving three files, which is the deduplication the hand-written table
-    // of 21 rows did not have. A floor to be raised, never lowered: a rule
-    // that disappears takes its pair — and so its coverage — with it.
-    expect(PAIRS.length).toBeGreaterThanOrEqual(19)
+    // C3 set this floor at 19 and wrote "never lowered", because a rule that
+    // disappears takes its pair — and so its coverage — with it.
+    //
+    // 🚨 C3b LOWERS IT ON PURPOSE, AND THIS IS THE JUSTIFICATION. Five of
+    // those pairs did not disappear, they MOVED INTO THE KIT, where a
+    // component test guards each one instead:
+    //
+    //   .at-chip[data-active]        -> `Chip`      (Chip.test.jsx)
+    //   .at-picker[data-active]      -> stays here, still counted
+    //   .at-toggle[data-on]          -> `Switch`    (Switch.test.jsx)
+    //   .at-cred-copy[data-copied]   -> stays here, still counted
+    //   .at-cred-close[data-armed]   -> `Dialog`'s footer button
+    //   .at-menu-item (hover)        -> `Menu`      (Menu.test.jsx)
+    //
+    // A floor that cannot be lowered is a floor that prevents the
+    // convergence this whole lane exists to do. What it still has to do is
+    // stop a rule vanishing UNNOTICED, so the number is exact and any change
+    // to it has to be argued here, in this comment, the way this one is.
+    expect(PAIRS.length).toBe(17)
   })
 
   it.each(PAIRS)('.%s[%s] has an element carrying BOTH', (cls, attr) => {
@@ -294,54 +314,51 @@ describe('🚨 every state rule is paired with an element that can trigger it', 
 // ── The values ───────────────────────────────────────────────────────────────
 
 describe('🚨 the load-bearing values, pinned literally', () => {
-  // Round 2, finding 9: eleven pins out of ~37 declarations, and the rest
-  // rested on a hex COUNT that an 8-digit hex defeats. Every pin below ends
-  // at a boundary so `#22c55e` cannot be satisfied by `#22c55eff`.
-  const H = (hex) => `${hex}(?![0-9a-fA-F])`
+  // C3 pinned this sheet value by value because it was a TRANSCRIPTION and a
+  // changed value would otherwise be invisible. C3b replaced every value with
+  // a token, so the pins move with them: what has to hold now is that each
+  // state still resolves to the RIGHT token, not to a plausible neighbour.
+  // `--color-signal-tint` and `--color-signal` are one letter apart in a
+  // stylesheet and a whole state apart on screen.
   const DECLARATIONS = [
-    // the nav
-    [new RegExp(`\\.at-nav-item\\[data-active='true'\\]\\s*\\{[^}]*background-color:\\s*rgba\\(234, 88, 12, 0\\.18\\)`), 'nav active fill'],
-    [new RegExp(`\\.at-nav-item\\[data-active='true'\\]\\s*\\{[^}]*border-left-color:\\s*${H('#ea580c')}`), 'nav active edge'],
-    [/\.at-nav-item\s*\{[^}]*border-left:\s*3px solid transparent/, 'nav inactive slot'],
-    // the chip, one object in three files
-    [new RegExp(`\\.at-chip\\[data-active='true'\\]\\s*\\{[^}]*background-color:\\s*${H('#1c1917')}`), 'chip active fill'],
-    [new RegExp(`\\.at-chip\\[data-active='true'\\]\\s*\\{[^}]*color:\\s*${H('#f4a261')}`), 'chip active ink'],
-    // AT-01
-    [new RegExp(`\\.at-menu-item \\.at-menu-hint\\s*\\{\\s*color:\\s*${H('#b8b4b0')}`), 'AT-01 menu hint ink'],
-    // the toggle
-    [new RegExp(`\\.at-toggle\\[data-on='true'\\]\\s*\\{\\s*background-color:\\s*${H('#ea580c')}`), 'toggle on track'],
-    [/\.at-toggle\[data-on='true'\] \.at-toggle-knob\s*\{\s*transform:\s*translateX\(14px\)/, 'toggle on knob'],
-    [/\.at-toggle\[data-disabled='true'\]\s*\{\s*cursor:\s*default/, 'toggle disabled cursor'],
-    // 🚨 round 1's two HIGH fixes. Round 2, finding 3: deleting either was
-    // caught ONLY by the hex count, which commit two drives to zero.
-    [new RegExp(`\\.at-icon-btn\\s*\\{\\s*color:\\s*${H('#1c1917')}`), 'icon-button rest ink'],
-    [new RegExp(`\\.at-icon-btn\\[data-copied='true'\\]\\s*\\{\\s*color:\\s*${H('#22c55e')}`), 'copy confirmed ink'],
-    [new RegExp(`\\.at-invite-name\\s*\\{\\s*border:\\s*1px solid ${H('#44403c')}`), 'invite name valid edge'],
-    [new RegExp(`\\.at-invite-name\\[data-invalid='true'\\]\\s*\\{\\s*border-color:\\s*${H('#dc2626')}`), 'invite name invalid edge'],
-    // the roster
-    [/\.at-roster-row\[data-selected='true'\]\s*\{\s*background-color:\s*rgba\(234, 88, 12, 0\.10\)/, 'roster selected fill'],
-    [/\.at-roster-row\[data-inactive='true'\]\s*\{\s*opacity:\s*0\.55/, 'roster deactivated dim'],
-    // ── motion. Round 2, finding 7: the curve round 1 restored was unpinned,
-    //    and so was the promise that the roster's opacity must NOT fade.
-    [/\.at-roster-row\s*\{[^}]*transition:\s*background-color 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\);/, 'roster transition, colour only'],
-    [/\.at-log-row\s*\{[^}]*transition:\s*background-color 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'log row transition'],
-    [/\.at-toggle-knob\s*\{[^}]*transition:\s*transform 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'knob transition'],
-    [/\.at-detail-panel\s*\{[^}]*transform:\s*translateX\(24px\)/, 'panel entry offset'],
-    [/\.at-detail-panel\s*\{[^}]*transition:\s*opacity 200ms cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*transform 200ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'panel transition'],
-    [/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.at-detail-panel \{ transition: none; \}/, 'reduced-motion gate'],
-    // the rest of the transcription
-    [new RegExp(`\\.at-picker\\[data-active='true'\\]\\s*\\{[^}]*border-color:\\s*${H('#ea580c')}`), 'picker selected edge'],
-    [/\.at-model-row\[data-overridden='true'\]\s*\{\s*background-color:\s*rgba\(234, 88, 12, 0\.05\)/, 'overridden model row'],
-    [new RegExp(`\\.at-cred-copy\\[data-copied='true'\\]\\s*\\{[^}]*color:\\s*${H('#22c55e')}`), 'credentials copied'],
-    [new RegExp(`\\.at-cred-close\\[data-armed='true'\\]\\s*\\{[^}]*color:\\s*${H('#f4a261')}`), 'credentials armed'],
-    [/\.at-invite-row\[data-sent='true'\]\s*\{\s*opacity:\s*0\.75/, 'invite row sent'],
-    [new RegExp(`\\.at-hint\\[data-invalid='true'\\]\\s*\\{\\s*color:\\s*${H('#fbbf24')}`), 'create-user hint invalid'],
-    [/\.at-check-row\[data-dim='true'\]\s*\{\s*opacity:\s*0\.6/, 'check row dimmed'],
-    [new RegExp(`\\.at-log-row:hover\\s*\\{\\s*background-color:\\s*${H('#f5f5f4')}`), 'log row hover'],
-    [new RegExp(`\\.at-icon-btn:hover\\s*\\{\\s*background-color:\\s*${H('#e7e5e4')}`), 'icon button hover'],
-    [new RegExp(`\\.at-icon-btn\\[data-tone='chip'\\]:hover\\s*\\{\\s*background-color:\\s*${H('#d6d3d1')}`), 'chip remove hover'],
-    [/\.at-disable-40:disabled\s*\{\s*opacity:\s*0\.4/, 'disabled at 40'],
-    [/\.at-disable-50:disabled\s*\{\s*opacity:\s*0\.5/, 'disabled at 50'],
+    // the nav: one active treatment, tint plus a signal edge plus the full ink
+    [/\.at-nav-item\[data-active='true'\]\s*\{[^}]*background-color:\s*var\(--color-signal-tint\)/, 'nav active fill'],
+    [/\.at-nav-item\[data-active='true'\]\s*\{[^}]*box-shadow:\s*inset 2px 0 0 var\(--color-signal\)/, 'nav active edge'],
+    [/\.at-nav-item\[data-active='true'\]\s*\{[^}]*font-weight:\s*600/, 'nav active weight'],
+    [/\.at-nav-item\s*\{[^}]*color:\s*var\(--color-ink-2\)/, 'nav idle ink'],
+    // AT-33's two group separators, which is the whole of that finding's fix
+    [/\.at-nav-item\[data-group-start='true'\]\s*\{[^}]*border-top:\s*1px solid var\(--color-rule\)/, 'AT-33 nav group separator'],
+    // the roster: the kit's selected treatment, and the third ink rather than
+    // an opacity for a deactivated member (plan §3.1)
+    [/\.at-roster-row\[data-selected='true'\]\s*\{[^}]*background-color:\s*var\(--color-signal-tint\)/, 'roster selected fill'],
+    [/\.at-roster-row\[data-selected='true'\]\s*\{[^}]*box-shadow:\s*inset 2px 0 0 var\(--color-signal\)/, 'roster selected edge'],
+    [/\.at-roster-row\[data-inactive='true'\] \.ui-td\s*\{\s*color:\s*var\(--color-ink-3\)/, 'roster deactivated ink, not an opacity'],
+    // the expanded log row keeps its context block attached
+    [/\.at-log-row\[data-expanded='true'\] \.ui-td\s*\{\s*border-bottom-color:\s*transparent/, 'expanded log row'],
+    // AT-27: the models row is a grid with a RESERVED reset track
+    [/\.at-model-cells\s*\{[^}]*display:\s*grid/, 'AT-27 models row is a grid'],
+    [/\.at-model-cells\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 190px 84px/, 'AT-27 reserved reset track'],
+    [/\.at-model-row\[data-overridden='true'\]\s*\{\s*background-color:\s*var\(--color-signal-tint\)/, 'overridden model row'],
+    // AT-17: label/value pairs are a grid, never `justify-between`
+    [/\.at-sec-row\s*\{[^}]*display:\s*grid/, 'AT-17 label/value grid'],
+    [/\.at-sec-row\s*\{[^}]*grid-template-columns:\s*104px 1fr/, 'AT-17 one label track'],
+    // the states that survived the conversion as data attributes
+    [/\.at-invite-name\[data-invalid='true'\]\s*\{\s*border-color:\s*var\(--color-danger\)/, 'invite name invalid edge'],
+    [/\.at-invite-row\[data-sent='true'\] \.at-invite-email\s*\{\s*color:\s*var\(--color-ink-3\)/, 'invite row sent'],
+    [/\.at-hint\[data-invalid='true'\]\s*\{\s*color:\s*var\(--color-warning\)/, 'create-user hint invalid'],
+    [/\.at-check-row\[data-dim='true'\]\s*\{[^}]*color:\s*var\(--color-ink-3\)/, 'check row dimmed by ink'],
+    [/\.at-icon-btn\[data-copied='true'\]\s*\{\s*color:\s*var\(--color-success\)/, 'copy confirmed ink'],
+    [/\.at-copy-btn\[data-copied='true'\],\s*\.at-cred-copy\[data-copied='true'\]\s*\{[^}]*color:\s*var\(--color-success\)/, 'both copy buttons confirm alike'],
+    [/\.at-toggle-row\[data-disabled='true'\] \.at-row-label\s*\{\s*color:\s*var\(--color-ink-3\)/, 'toggle row disabled ink'],
+    // AT-25: named properties, a symmetric exit, and a scoped reduced-motion
+    // gate. A blanket rule in index.css would kill the pet (C5).
+    [/\.at-detail-panel\s*\{[^}]*transition:\s*opacity var\(--duration-panel\) var\(--ease-response\),\s*transform var\(--duration-panel\) var\(--ease-response\)/, 'AT-25 named-property panel motion'],
+    [/\.at-detail-panel\[data-entered='true'\]\s*\{\s*opacity:\s*1;\s*transform:\s*translateX\(0\)/, 'panel entered end state'],
+    [/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.at-detail-panel \{ transition: none;/, 'AT-25 reduced-motion gate'],
+    // AT-29: the measure is the data cap PLUS one gutter, the same arithmetic
+    // `PageHeader` does with `measure="data"` — they have to agree or the
+    // title and the first row sit on two different vertical lines.
+    [/\.at-page\s*\{[^}]*max-width:\s*calc\(var\(--width-data-max\) \+ 2 \* var\(--spacing-gutter\)\)/, 'AT-29 page measure'],
   ]
 
   it.each(DECLARATIONS)('pins %#: %s', (pattern) => {
@@ -366,38 +383,52 @@ describe('no surviving Tailwind state utility in this directory', () => {
   })
 })
 
-describe('the transcription ledger (commit one only)', () => {
-  // 🚨 THE WHOLE TRANSCRIPTION, VALUE BY VALUE, NOT A COUNT.
+describe('C8: the sheet is tokens now, and the transcription ledger is closed', () => {
+  // 🚨 THIS IS THE ASSERTION C3 WROTE THIS FILE TO REACH.
   //
-  // Round 2, finding 9: eleven pinned declarations left roughly two dozen
-  // values resting on a COUNT, which an 8-digit hex or a compensating hex
-  // elsewhere defeats. The last surviving mutant of this session's own
-  // re-run was `.at-hint { color: #78716c }` → `#ff00ff`, which changed no
-  // count and broke no pin.
+  // C3's commit was a transcription, so it carried 35 hex and rgba literals
+  // and this file pinned every one of them by value — not by count, because
+  // a count is defeated by an 8-digit hex or by a compensating change
+  // elsewhere. That ledger existed to make the SECOND commit's diff the
+  // visual change and nothing else, and to make a forgotten cleanup fail.
   //
-  // This is the ledger the C8 cleanup needs anyway — commit two replaces the
-  // whole table with `expect(literals).toEqual([])` — and as a side effect it
-  // is total coverage: no value in this sheet can change, in either
-  // direction, without saying so here.
-  const TRANSCRIBED = [
-    ['#1c1917', 8], ['#22c55e', 4], ['#292524', 1], ['#44403c', 3],
-    ['#78716c', 2], ['#b45309', 1], ['#b8b4b0', 1], ['#d6d3d1', 1],
-    ['#dc2626', 1], ['#e7e5e4', 2], ['#ea580c', 5], ['#f4a261', 5],
-    ['#f5f5f4', 1], ['#fbbf24', 1], ['#fff', 1],
-    ['rgba(120, 70, 30, 0.3)', 1], ['rgba(234, 88, 12, 0.05)', 1],
-    ['rgba(234, 88, 12, 0.10)', 2], ['rgba(234, 88, 12, 0.18)', 1],
-    ['rgba(28, 25, 23, 0.35)', 1], ['rgba(34, 197, 94, 0.15)', 1],
-  ]
-
-  it('carries exactly the transcribed colour values, each the right number of times', () => {
-    const found = {}
-    for (const m of cssCode.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)) {
-      found[m[0]] = (found[m[0]] || 0) + 1
-    }
-    expect(Object.fromEntries(TRANSCRIBED)).toEqual(found)
+  // The cleanup happened. What replaces the ledger is the rule the other
+  // page sheets carry: a colour that is not in `@theme` does not exist (C8,
+  // plan §3). An empty array is the whole assertion.
+  it('writes no colour literal at all', () => {
+    const literals = [...cssCode.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)].map((m) => m[0])
+    expect(literals).toEqual([])
   })
 
-  it('reads no design token yet, because commit one changes nothing visually', () => {
-    expect(cssCode).not.toMatch(/var\(--color-/)
+  // The other half of the same claim: a sheet with no literals and no tokens
+  // is a sheet that paints nothing, and would pass the assertion above.
+  it('reads the design tokens instead', () => {
+    const tokens = new Set([...cssCode.matchAll(/var\(--(color-[a-z0-9-]+)\)/g)].map((m) => m[1]))
+    expect(tokens.size).toBeGreaterThan(6)
+    // The three the surface cannot be correct without: the one selection, the
+    // one destructive tone, and the third ink that replaced every opacity.
+    expect(tokens.has('color-signal')).toBe(true)
+    expect(tokens.has('color-danger')).toBe(true)
+    expect(tokens.has('color-ink-3')).toBe(true)
+  })
+
+  // The light page is gone, so the tokens that only exist to survive
+  // `#f4a261` have no business here. This is the check that a later edit
+  // reaching for the old palette fails loudly rather than looking fine on a
+  // reviewer's screen.
+  it('reads no light-surface token', () => {
+    expect(cssCode).not.toMatch(/var\(--color-(ink-light|rule-light|well-light|ground-light|surface-light-solid|hover-light)\)/)
+  })
+
+  it('🚨 the thirteen files import nothing from `../lightSurface`', () => {
+    // `dashboardCss.test.js` asserts exactly this for its three files. The
+    // module still exists for the other importers; what must not survive is
+    // this directory reaching for a LIGHT token on a DARK page, which is the
+    // mechanism behind AT-01 — an element classified by the file it lives in
+    // rather than by the surface it sits on.
+    const importers = Object.entries(sources)
+      .filter(([, src]) => /from '\.\.\/lightSurface'/.test(src))
+      .map(([f]) => f)
+    expect(importers).toEqual([])
   })
 })

@@ -18,19 +18,23 @@ import { supabase } from '../../cloud/auth/supabaseClient'
 import { copyTextToClipboard } from './CredentialsPopup'
 import { loadOtterSettings, saveOtterSettings } from '../../lib/localData'
 import WorkspaceTakeout from './WorkspaceTakeout'
-import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
+import Card from '../../ui/Card'
+import Button from '../../ui/Button'
+import IconButton from '../../ui/IconButton'
+import Input from '../../ui/Input'
+import Field from '../../ui/Field'
+import Banner from '../../ui/Banner'
+import Badge from '../../ui/Badge'
+import Stat from '../../ui/Stat'
+import SectionTitle from '../../ui/SectionTitle'
 
-const lightInputStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.55)',
-  color: '#fde8d0',
-  border: 'none',
-}
-const cardStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.12)',
-  border: '1px solid rgba(120, 70, 30, 0.3)',
-}
-const darkBtnClass = 'at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors'
-const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
+// 🚨 `darkBtnClass` / `darkBtnStyle` ARE GONE FROM THIS FILE — one of the four
+// private copies AT-02 counted, already diverged three ways (two files carried
+// `at-disable-40`, two `at-disable-50`, and one added a flex row the others
+// lacked). Every caller is the kit `Button`, so the padding, the height, the
+// disabled treatment and the case come from one place. `cardStyle` goes the
+// same way: `Card` is the one bordered region this section's three blocks were
+// hand-rolling.
 
 // Same defaults SettingsPage/TeamMembersPage seed before settings load.
 const DEFAULT_DEPARTMENTS = [
@@ -160,166 +164,120 @@ export default function CompanySection({ isActive, wm }) {
   const admins = wm.members.filter(m => m.app_role === 'admin' && m.is_active).length
 
   return (
-    <div className="space-y-6 pb-8" style={{ maxWidth: '640px' }}>
+    <div className="at-section at-section-narrow">
+      <SectionTitle description="Who this workspace is, how many people are in it, and the departments they belong to.">
+        Company
+      </SectionTitle>
+
       {/* COMPANY DETAILS */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Company details
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Company details">
+        <p className="at-card-desc">
           The workspace's identity across WILSON. The name is display-only; the slug is part of sign-in.
         </p>
 
-        {wsError && (
-          <div className="mb-3 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}>
-            {wsError}
-          </div>
-        )}
+        {wsError && <Banner tone="danger">{wsError}</Banner>}
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
-          Workspace name
-        </label>
-        <div className="flex items-center gap-2 mb-4">
-          <input
-            type="text"
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value.slice(0, 80))}
-            disabled={!ws || saving}
-            className="flex-1 px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-            style={lightInputStyle}
-          />
-          <button
-            type="button"
-            onClick={saveName}
-            disabled={!ws || saving || !nameDraft.trim() || nameDraft.trim() === ws?.name}
-            className={darkBtnClass}
-            style={darkBtnStyle}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        <Field label="Workspace name">
+          <span className="at-field-row">
+            <Input
+              value={nameDraft}
+              onChange={(v) => setNameDraft(String(v).slice(0, 80))}
+              disabled={!ws || saving}
+              aria-label="Workspace name"
+            />
+            <Button
+              onClick={saveName}
+              disabled={!ws || saving || !nameDraft.trim() || nameDraft.trim() === ws?.name}
+              loading={saving}
+              loadingLabel="Saving…"
+            >
+              Save
+            </Button>
+          </span>
+        </Field>
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
-          Slug
-        </label>
-        <div className="flex items-center gap-2 mb-1">
-          <code className="px-2 py-1 text-xs font-mono rounded-sm" style={{ backgroundColor: 'rgba(0,0,0,0.08)', color: '#1c1917' }}>
-            {ws?.slug || '--'}
-          </code>
-        </div>
-        <p className="text-[10px] mb-4" style={{ color: LIGHT_INK }}>
-          Slug is permanent — it's part of sign-in.
-        </p>
+        <Field label="Slug" hint="Slug is permanent — it's part of sign-in.">
+          <code className="at-code">{ws?.slug || '--'}</code>
+        </Field>
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
-          Workspace ID
-        </label>
-        <div className="flex items-center gap-2 mb-4">
-          <code className="px-2 py-1 text-xs font-mono rounded-sm break-all" style={{ backgroundColor: 'rgba(0,0,0,0.08)', color: '#1c1917' }}>
-            {workspaceId || '--'}
-          </code>
-          <button
-            type="button"
-            onClick={copyId}
-            className="at-icon-btn p-1 rounded-sm transition-colors flex-shrink-0"
-            data-copied={String(copiedId)}
-            title="Copy workspace ID"
-          >
-            {copiedId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+        <Field label="Workspace ID">
+          <span className="at-field-row">
+            <code className="at-code at-break">{workspaceId || '--'}</code>
+            <IconButton
+              Icon={copiedId ? Check : Copy}
+              onClick={copyId}
+              className="at-icon-btn"
+              data-copied={String(copiedId)}
+              title="Copy workspace ID"
+            />
+          </span>
+        </Field>
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
-          Created
-        </label>
-        <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
-          {ws?.created_at ? new Date(ws.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '--'}
-        </span>
-      </div>
+        <Field label="Created">
+          <span className="at-mono">
+            {ws?.created_at ? new Date(ws.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '--'}
+          </span>
+        </Field>
+      </Card>
 
       {/* MEMBERS SUMMARY */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Members summary
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Members summary">
+        <p className="at-card-desc">
           Live counts from the workspace directory. Manage people in the Users section.
         </p>
-        <div className="flex gap-6">
-          <CountStat label="Total" value={total} />
-          <CountStat label="Active" value={active} color="#15803d" />
-          <CountStat label="Admins" value={admins} color="#c2410c" />
+        {/* Three tiles, one component, no per-tile colour. The old pair of
+            hand-picked greens and oranges said nothing the label did not
+            already say, and neither survives the ground flip. */}
+        <div className="at-stat-row">
+          <Stat label="Total" value={total} />
+          <Stat label="Active" value={active} />
+          <Stat label="Admins" value={admins} />
         </div>
-      </div>
+      </Card>
 
       {/* TEAMS (departments) */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Teams
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Teams">
+        <p className="at-card-desc">
           Departments used across Team Members and R.A.B.B.I.T. views.
         </p>
-        <div className="flex flex-wrap gap-1.5 mb-3">
+        <div className="at-dept-list">
           {departments.map(d => (
-            <span
-              key={d}
-              className="flex items-center gap-1 px-2 py-1 text-[11px] font-mono rounded-sm"
-              style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
-            >
-              <Building2 className="w-3 h-3" style={{ color: LIGHT_INK }} />
+            <Badge key={d} Icon={Building2} className="at-dept">
               {d}
-              <button
-                type="button"
+              <IconButton
+                size="sm"
+                Icon={X}
                 onClick={() => persistDepartments(departments.filter(x => x !== d))}
-                className="at-icon-btn p-0.5 rounded-sm transition-colors"
+                className="at-icon-btn at-dept-remove"
                 data-tone="chip"
                 title={`Remove ${d}`}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
+              />
+            </Badge>
           ))}
-          {departments.length === 0 && (
-            <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>No departments yet.</span>
-          )}
+          {departments.length === 0 && <span className="at-none">No departments yet.</span>}
         </div>
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            type="text"
+        <div className="at-field-row at-dept-add">
+          <Input
             value={newDept}
-            onChange={(e) => setNewDept(e.target.value)}
+            onChange={setNewDept}
             onKeyDown={(e) => { if (e.key === 'Enter') addDepartment() }}
-            placeholder="Add a department..."
-            className="flex-1 max-w-xs px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-            style={lightInputStyle}
+            placeholder="Add a department…"
+            aria-label="New department"
           />
-          <button
-            type="button"
+          <Button
             onClick={addDepartment}
             disabled={!newDept.trim() || departments.includes(newDept.trim())}
-            className={darkBtnClass}
-            style={darkBtnStyle}
           >
             Add
-          </button>
+          </Button>
         </div>
-        <p className="text-[10px]" style={{ color: LIGHT_INK }}>
+        <p className="at-note">
           Departments are stored on this machine (cloud parity lands with O.T.T.E.R.'s content model).
         </p>
-      </div>
+      </Card>
 
       {/* WORKSPACE TAKEOUT (Session 14, Block B) */}
       <WorkspaceTakeout workspaceId={workspaceId} slug={ws?.slug} />
-    </div>
-  )
-}
-
-function CountStat({ label, value, color = '#1c1917' }) {
-  return (
-    <div>
-      <div className="text-xl font-bold font-mono" style={{ color }}>{value}</div>
-      <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>{label}</div>
     </div>
   )
 }

@@ -22,19 +22,26 @@
 // =============================================================================
 
 import { useRef, useState } from 'react'
-import { Trash2, Loader2, Check, AlertTriangle } from 'lucide-react'
+import { Trash2, Check, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
-import { LIGHT_INK } from '../lightSurface' // §B — light page
+import Card from '../../ui/Card'
+import Button from '../../ui/Button'
+import Banner from '../../ui/Banner'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const cardStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.12)',
-  border: '1px solid rgba(120, 70, 30, 0.3)',
-}
-const darkBtnClass = 'at-disable-50 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors'
-const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
+// 🚨 TRACK C OWNS THIS FILE'S LOGIC. C3b changes tokens and components here
+// and NOTHING else — the staged `stage` gate is untouched, in place, and
+// still the only path to a destructive run. W9 does not apply: this is an
+// in-flow multi-step confirm, not a `window.confirm`, and the review calls it
+// good interaction design. Converting it to a `Dialog` would be a behaviour
+// change under C1.
+//
+// The third and fourth private `darkBtnClass` / `darkBtnStyle` pair (AT-02)
+// leaves with this edit; every button here is the kit `Button`, and the
+// destructive one takes the `danger` variant instead of a hand-written red
+// that appeared in three different values across the surface.
 
 const ERROR_MAP = {
   unauthorized: 'Session expired — sign in again.',
@@ -78,32 +85,23 @@ export default function StorageCleanupCard() {
   }
 
   return (
-    <div className="p-4 rounded-sm" style={cardStyle}>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-        Storage cleanup
-      </h2>
-      <p className="text-xs text-stone-950 mb-1 leading-relaxed">
+    <Card title="Storage cleanup">
+      <p className="at-card-desc">
         Deletes cloud file blobs whose records were purged from the 30-day
         trash, plus orphaned objects older than 24 hours and replaced-avatar
         leftovers — this workspace only.
       </p>
-      <p className="text-[10px] mb-4" style={{ color: LIGHT_INK }}>
+      <p className="at-note">
         Files still in the trash are never touched — restore keeps working
         for the full 30 days. Each run's counts land in Logs as WIL-3003
         (WIL-3004 if it fails part-way); per-blob records go to the
         disposal ledger.
       </p>
 
-      {error && (
-        <div className="mb-3 flex items-start gap-2 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}>
-          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          {error}
-        </div>
-      )}
+      {error && <Banner tone="danger" Icon={AlertTriangle}>{error}</Banner>}
 
       {stage === 'done' && counts && (
-        <div className="mb-3 flex items-start gap-2 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(21, 128, 61, 0.1)', color: '#15803d' }}>
-          <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+        <Banner tone="success" Icon={Check}>
           <span>
             Removed {counts.queue_deleted + counts.orphans_deleted + counts.avatar_orphans_deleted} blob(s)
             — {counts.queue_deleted} purged-file, {counts.orphans_deleted} orphaned, {counts.avatar_orphans_deleted} avatar.
@@ -114,33 +112,28 @@ export default function StorageCleanupCard() {
             {counts.certify_failed > 0 && <> {counts.certify_failed} ledger write(s) FAILED — counts above are still accurate.</>}
             {counts.truncated && <> Large bucket — the scan was capped this run.</>}
           </span>
-        </div>
+        </Banner>
       )}
 
       {stage === 'confirm' ? (
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#dc2626' }}>
+        <div className="at-confirm-strip">
+          <span className="at-confirm-question">
             Permanently delete unreferenced blobs?
           </span>
-          <button type="button" onClick={run} className={darkBtnClass} style={{ backgroundColor: '#dc2626', color: '#fff' }}>
-            <Trash2 className="w-3.5 h-3.5" /> Yes, clean up
-          </button>
-          <button type="button" onClick={() => setStage('idle')} className={darkBtnClass} style={darkBtnStyle}>
-            Cancel
-          </button>
+          <Button variant="danger" Icon={Trash2} onClick={run}>Yes, clean up</Button>
+          <Button onClick={() => setStage('idle')}>Cancel</Button>
         </div>
       ) : (
-        <button
-          type="button"
+        <Button
+          Icon={Trash2}
           onClick={() => setStage('confirm')}
           disabled={stage === 'running'}
-          className={darkBtnClass}
-          style={darkBtnStyle}
+          loading={stage === 'running'}
+          loadingLabel="Cleaning up…"
         >
-          {stage === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-          {stage === 'running' ? 'Cleaning up…' : 'Run storage cleanup'}
-        </button>
+          Run storage cleanup
+        </Button>
       )}
-    </div>
+    </Card>
   )
 }

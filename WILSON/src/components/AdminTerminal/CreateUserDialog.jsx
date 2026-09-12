@@ -8,20 +8,38 @@
 //   Postel's Law — inputs normalize as you type (lowercase, length caps),
 //     never block keystrokes; validation only gates submit.
 //   Jakob's Law — same dark-modal shape and flow as the existing dialogs.
+//
+// ── UI overhaul C3b (AT-16, AT-34, AT-21) ───────────────────────────────────
+//
+// The second of the four private modal shells to become the kit `Dialog`.
+// Everything the flow did, it still does: Escape closes unless busy, the
+// backdrop closes unless busy (`dismissOnBackdrop`), the submit is gated on
+// the same two validations, and the show-once password still goes straight
+// to the parent and is never held here.
+//
+// 🚨 THE FORM ELEMENT MOVED INSIDE THE DIALOG BODY and the submit button now
+// reaches it by `form={FORM_ID}`. `Dialog` renders header / body / footer as
+// siblings, so a <form> wrapping all three is not available — and an implicit
+// submit that no longer fires is the silent way to break a dialog whose only
+// keyboard path is Enter. The id is what keeps Enter working from every field.
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react'
-import { UserPlus } from 'lucide-react'
 import { adminCreateUser } from '../../cloud/adminApi'
 import { USERNAME_RE, EMAIL_RE } from '../../cloud/auth/inviteParsing'
+import Dialog from '../../ui/Dialog'
+import Button from '../../ui/Button'
+import Field from '../../ui/Field'
+import Input from '../../ui/Input'
+import Select from '../../ui/Select'
 
-const fieldStyle = {
-  width: '100%', padding: '7px 9px', fontSize: 12,
-  backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261',
-  border: '1px solid #44403c', borderRadius: 3,
-}
-const labelClass = 'block text-[10px] font-bold uppercase tracking-wider mb-1'
-const hintClass = 'text-[10px] mt-1 leading-relaxed'
+const FORM_ID = 'at-create-user-form'
+
+const ROLE_OPTIONS = [
+  { value: 'user', label: 'User' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'admin', label: 'Admin' },
+]
 
 export default function CreateUserDialog({ open, onClose, onCreated }) {
   const [username, setUsername] = useState('')
@@ -43,13 +61,6 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
     const t = setTimeout(() => usernameRef.current?.focus(), 50)
     return () => clearTimeout(t)
   }, [open])
-
-  useEffect(() => {
-    if (!open) return undefined
-    const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, busy, onClose])
 
   if (!open) return null
 
@@ -83,90 +94,87 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.6)' }}
-      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose?.() }}
+    <Dialog
+      title="Create with password"
+      width="form"
+      busy={busy}
+      error={error || null}
+      dismissOnBackdrop
+      onClose={() => onClose?.()}
+      footer={(
+        <>
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button
+            type="submit"
+            form={FORM_ID}
+            variant="primary"
+            loading={busy}
+            loadingLabel="Creating…"
+          >
+            Create user
+          </Button>
+        </>
+      )}
     >
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px',
-          padding: '20px 22px', width: 'min(440px, 92vw)', color: '#f4a261',
-        }}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <UserPlus className="w-4 h-4" style={{ color: '#ea580c' }} />
-          <h2 className="font-mono uppercase text-sm tracking-widest" style={{ color: '#ea580c' }}>
-            Create with password
-          </h2>
-        </div>
-
-        <div className="mb-3">
-          <label className={labelClass} style={{ color: '#a8a29e' }}>Username</label>
-          <input
+      <form id={FORM_ID} onSubmit={handleSubmit} className="at-form">
+        {/* The hint keeps `at-hint` and its `data-invalid` rather than
+            becoming a plain string: it goes amber the moment the typed
+            username stops matching the pattern, which is the only feedback
+            this field has before submit. C3 extracted that branch; dropping
+            the attribute here would leave the rule dead. */}
+        <Field
+          label="Username"
+          hint={(
+            <span className="at-hint" data-invalid={String(!!username && !usernameValid)}>
+              Lowercase letters, digits, ._- — 2-32 chars. Scoped to this workspace.
+            </span>
+          )}
+        >
+          <Input
             ref={usernameRef}
-            type="text"
             autoComplete="off"
             value={username}
             // Live normalize, never block: lowercase + length cap on the fly.
-            onChange={(e) => setUsername(e.target.value.toLowerCase().slice(0, 32))}
+            onChange={(v) => setUsername(String(v).toLowerCase().slice(0, 32))}
             disabled={busy}
-            style={fieldStyle}
             aria-label="Username"
           />
-          <div className={`at-hint ${hintClass}`} data-invalid={String(!!username && !usernameValid)}>
-            Lowercase letters, digits, ._- — 2-32 chars. Scoped to this workspace.
-          </div>
-        </div>
+        </Field>
 
-        <div className="mb-3">
-          <label className={labelClass} style={{ color: '#a8a29e' }}>Display name</label>
-          <input
-            type="text"
+        <Field label="Display name">
+          <Input
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value.slice(0, 80))}
+            onChange={(v) => setDisplayName(String(v).slice(0, 80))}
             disabled={busy}
-            style={fieldStyle}
             aria-label="Display name"
           />
-        </div>
+        </Field>
 
-        <div className="mb-3">
-          <label className={labelClass} style={{ color: '#a8a29e' }}>Role</label>
-          <select
+        <Field label="Role">
+          <Select
             value={appRole}
-            onChange={(e) => setAppRole(e.target.value)}
+            onChange={(v) => setAppRole(v)}
+            options={ROLE_OPTIONS}
             disabled={busy}
-            style={fieldStyle}
             aria-label="Role"
-          >
-            <option value="user">User</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
+          />
+        </Field>
 
-        <div className="mb-3">
-          <label className={labelClass} style={{ color: '#a8a29e' }}>Email (optional)</label>
-          <input
-            type="text"
+        <Field
+          label="Email (optional)"
+          hint="Optional. Without an email they can't self-reset; admins reset instead."
+        >
+          <Input
             autoComplete="off"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(v) => setEmail(v)}
             disabled={busy}
-            style={fieldStyle}
             aria-label="Email"
           />
-          <div className={hintClass} style={{ color: '#78716c' }}>
-            Optional. Without an email they can't self-reset; admins reset instead.
-          </div>
-        </div>
+        </Field>
 
-        <div className="mb-4">
-          <label className={labelClass} style={{ color: '#a8a29e' }}>Rate-card access</label>
+        <div className="at-grant-group">
+          <span className="at-group-label">Rate-card access</span>
           <CheckRow
             checked={grantEdit || grantView}
             disabled={busy || grantEdit}
@@ -181,44 +189,15 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
             label="Can edit rate card"
           />
         </div>
-
-        {error && (
-          <div
-            className="mb-3 text-xs font-mono px-3 py-2 rounded-sm"
-            style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}
-          >
-            {error}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={{ backgroundColor: '#ea580c', color: '#fff' }}
-          >
-            {busy ? 'Creating…' : 'Create user'}
-          </button>
-        </div>
       </form>
-    </div>
+    </Dialog>
   )
 }
 
 function CheckRow({ checked, disabled, onToggle, label, note }) {
   return (
     <label
-      className="at-check-row flex items-center gap-2 py-1 cursor-pointer select-none"
+      className="at-check-row"
       data-dim={String(!!disabled && !note)}
     >
       <input
@@ -226,10 +205,10 @@ function CheckRow({ checked, disabled, onToggle, label, note }) {
         checked={checked}
         disabled={disabled}
         onChange={onToggle}
-        className="accent-orange-600"
+        className="at-checkbox"
       />
-      <span className="text-xs font-mono" style={{ color: '#fde8d0' }}>{label}</span>
-      {note && <span className="text-[10px]" style={{ color: '#78716c' }}>{note}</span>}
+      <span className="at-check-label">{label}</span>
+      {note && <span className="at-check-note">{note}</span>}
     </label>
   )
 }

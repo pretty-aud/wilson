@@ -19,19 +19,22 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { ERROR_CODES, reportAppEvent } from '../../cloud/errorCodes'
 import { copyTextToClipboard } from './CredentialsPopup'
 import StorageCleanupCard from './StorageCleanupCard'
-import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
+import Card from '../../ui/Card'
+import Button from '../../ui/Button'
+import Badge from '../../ui/Badge'
+import Table, { Th, Td, Row } from '../../ui/Table'
+import StatusDot from '../../ui/StatusDot'
+import SectionTitle from '../../ui/SectionTitle'
 
-const cardStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.12)',
-  border: '1px solid rgba(120, 70, 30, 0.3)',
-}
-const darkBtnClass = 'at-disable-50 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors'
-const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
+// The second of the four private `darkBtnClass` pairs (AT-02) — this one at
+// `at-disable-50` where CompanySection's was at `at-disable-40`, which is the
+// divergence the finding is about. Both are the kit `Button` now.
 
-const REALTIME_DOT = {
-  // `off` was stone-400 — 1.4:1 on this page, so the dot meaning "not
-  // connected" was invisible against it. A tint of the ink reads as inert.
-  live: '#22c55e', connecting: '#fbbf24', error: '#ef4444', off: 'rgba(28, 25, 23, 0.45)',
+// Four connection states, four TONES, no hex. `off` was stone-400 at 1.4:1 on
+// the old orange ground, so the dot meaning "not connected" was the one you
+// could not see; a tone resolves per surface instead of being re-picked.
+const REALTIME_TONE = {
+  live: 'success', connecting: 'warning', error: 'danger', off: 'neutral',
 }
 
 function supabaseHost() {
@@ -112,119 +115,97 @@ export default function DiagnosticsSection() {
   }
 
   return (
-    <div className="space-y-6 pb-8" style={{ maxWidth: '640px' }}>
+    <div className="at-section at-section-narrow">
+      <SectionTitle description="What this install is running, whether it is connected, and the tools to prove it.">
+        Diagnostics
+      </SectionTitle>
+
       {/* BUILD & ENVIRONMENT */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Build &amp; environment
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Build and environment">
+        <p className="at-card-desc">
           What this install is running and where it points. Paste the block into bug reports.
         </p>
-        <div className="space-y-1.5 mb-4">
+        {/* A grid, not `justify-between` (AT-17): eight pairs pushed apart gave
+            two ragged edges and no column. */}
+        <div className="at-sec-group">
           {envRows.map(([k, v]) => (
-            <div key={k} className="flex items-baseline justify-between gap-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: LIGHT_INK }}>{k}</span>
-              <span className="text-xs font-mono break-all text-right" style={{ color: '#1c1917' }}>{v}</span>
+            <div key={k} className="at-sec-row">
+              <span className="at-sec-label">{k}</span>
+              <span className="at-sec-value at-mono at-break">{v}</span>
             </div>
           ))}
         </div>
-        <button type="button" onClick={copyDiagnostics} className={darkBtnClass} style={darkBtnStyle}>
-          {copied ? <Check className="at-copied-glyph w-3 h-3" /> : <Copy className="w-3 h-3" />}
+        <Button
+          Icon={copied ? Check : Copy}
+          onClick={copyDiagnostics}
+          className="at-copy-btn"
+          data-copied={String(copied)}
+        >
           {copied ? 'Copied ✓' : 'Copy diagnostics'}
-        </button>
-      </div>
+        </Button>
+      </Card>
 
       {/* LIVE STATUS */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Live status
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Live status">
+        <p className="at-card-desc">
           Current storage adapter and workspace realtime channel.
         </p>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: rabbit?.adapterStatus?.online ? '#22c55e' : '#ef4444' }}
-            />
-            <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
-              Adapter: {rabbit?.adapterMode || '--'} — {rabbit?.adapterStatus?.online ? 'connected' : 'offline'}
-              {rabbit?.adapterStatus?.error ? ` (${rabbit.adapterStatus.error})` : ''}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: REALTIME_DOT[realtimeStatus] || 'rgba(28, 25, 23, 0.45)' }}
-            />
-            <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
-              Workspace realtime: {realtimeStatus}
-            </span>
-          </div>
+        <div className="at-status-list">
+          <StatusDot
+            tone={rabbit?.adapterStatus?.online ? 'success' : 'danger'}
+            label={`Adapter: ${rabbit?.adapterMode || '--'} — ${rabbit?.adapterStatus?.online ? 'connected' : 'offline'}${rabbit?.adapterStatus?.error ? ` (${rabbit.adapterStatus.error})` : ''}`}
+          />
+          <StatusDot
+            tone={REALTIME_TONE[realtimeStatus] || 'neutral'}
+            label={`Workspace realtime: ${realtimeStatus}`}
+          />
         </div>
-      </div>
+      </Card>
 
       {/* ERROR CODES */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Error codes
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Error codes">
+        <p className="at-card-desc">
           Users can quote these codes when reporting issues.
         </p>
-        <div className="overflow-auto wilson-light-scroll rounded-sm" style={{ maxHeight: '280px', border: '1px solid #d6d3d1' }}>
-          <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-            <tbody>
-              {Object.entries(ERROR_CODES).map(([code, desc]) => (
-                <tr key={code} style={{ borderBottom: '1px solid #e7e5e4' }}>
-                  <td className="px-3 py-1.5 align-middle" style={{ width: '110px' }}>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)', color: '#1c1917' }}>
-                      {code}
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5 align-middle">
-                    <span className="text-xs" style={{ color: '#1c1917' }}>{desc}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        {/* The fourth table on the surface, and the one that had no header row
+            at all — two columns with nothing naming them. It is the kit
+            `Table` now, with the header it was missing and a declared grid. */}
+        <Table
+          className="at-codes-table"
+          dense
+          scrollClassName="at-codes-scroll"
+          head={(
+            <Row>
+              <Th width="110px">Code</Th>
+              <Th>What it means</Th>
+            </Row>
+          )}
+        >
+          {Object.entries(ERROR_CODES).map(([code, desc]) => (
+            <Row key={code}>
+              <Td><Badge>{code}</Badge></Td>
+              <Td>{desc}</Td>
+            </Row>
+          ))}
+        </Table>
+      </Card>
 
       {/* TEST TOOLS */}
-      <div className="p-4 rounded-sm" style={cardStyle}>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Test tools
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <Card title="Test tools">
+        <p className="at-card-desc">
           Verify the reporting pipelines end to end.
         </p>
-        <div className="flex items-center gap-3 mb-2">
-          <button type="button" onClick={sendTestEvent} className={darkBtnClass} style={darkBtnStyle}>
-            <Send className="w-3 h-3" /> Send test event
-          </button>
-          {testEventState === 'sent' && (
-            <span className="text-[11px] font-mono" style={{ color: '#15803d' }}>Sent — check the Logs tab.</span>
-          )}
-          {testEventState === 'failed' && (
-            <span className="text-[11px] font-mono" style={{ color: '#dc2626' }}>Could not send.</span>
-          )}
+        <div className="at-test-row">
+          <Button Icon={Send} onClick={sendTestEvent}>Send test event</Button>
+          {testEventState === 'sent' && <StatusDot tone="success" label="Sent — check the Logs tab." />}
+          {testEventState === 'failed' && <StatusDot tone="danger" label="Could not send." />}
         </div>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={sendSentryTest} className={darkBtnClass} style={darkBtnStyle}>
-            <Activity className="w-3 h-3" /> Send Sentry test
-          </button>
-          {sentryState === 'sent' && (
-            <span className="text-[11px] font-mono" style={{ color: '#15803d' }}>Test exception sent.</span>
-          )}
-          {sentryState === 'missing' && (
-            <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>Sentry test hook not available in this build.</span>
-          )}
+        <div className="at-test-row">
+          <Button Icon={Activity} onClick={sendSentryTest}>Send Sentry test</Button>
+          {sentryState === 'sent' && <StatusDot tone="success" label="Test exception sent." />}
+          {sentryState === 'missing' && <StatusDot tone="neutral" label="Sentry test hook not available in this build." />}
         </div>
-      </div>
+      </Card>
 
       {/* STORAGE CLEANUP (Session 14, Block E) */}
       <StorageCleanupCard />

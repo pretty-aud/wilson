@@ -52,7 +52,14 @@ import {
   ExternalLink, Archive,
 } from 'lucide-react'
 import { otterFetch } from '../../tools/otter_v0.3.1/adapters'
-import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
+// UI overhaul C3b — the tokens come from `@theme` through `src/ui/tokens`
+// now, not from the light-page alias module. Track A owns this file's JSX;
+// this edit is colours and the two private button copies, nothing else.
+import {
+  INK, INK_2, RULE, PAPER_RAISED, SIGNAL, SUCCESS, DANGER,
+} from '../../ui/tokens'
+import Button from '../../ui/Button'
+import Chip from '../../ui/Chip'
 
 const TABS = [
   { key: 'open',    label: 'Open' },
@@ -60,11 +67,11 @@ const TABS = [
 ]
 
 const STATUS_STYLE = {
-  open:              { color: '#b45309', label: 'Open' },
-  changes_requested: { color: '#9a3412', label: 'Changes requested' },
-  approved:          { color: '#166534', label: 'Approved' },
-  rejected:          { color: '#991b1b', label: 'Rejected' },
-  withdrawn:         { color: LIGHT_INK, label: 'Withdrawn' },
+  open:              { color: SIGNAL, label: 'Open' },
+  changes_requested: { color: SIGNAL, label: 'Changes requested' },
+  approved:          { color: SUCCESS, label: 'Approved' },
+  rejected:          { color: DANGER, label: 'Rejected' },
+  withdrawn:         { color: INK_2, label: 'Withdrawn' },
 }
 
 function fmt(iso) {
@@ -220,22 +227,16 @@ export default function ChangeRequestsSection({ isActive }) {
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="flex items-center gap-2 mb-4">
-        <div className="flex items-center gap-1 rounded-sm p-0.5" style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)' }}>
+        <div className="at-filter-group">
           {TABS.map(t => (
-            <button
+            <Chip
               key={t.key}
-              type="button"
+              active={tab === t.key}
               onClick={() => setTab(t.key)}
-              className="at-chip px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              data-active={String(tab === t.key)}
+              count={t.key === 'open' && open.length > 0 ? open.length : null}
             >
               {t.label}
-              {t.key === 'open' && open.length > 0 && (
-                <span className="at-chip-count ml-1.5">
-                  {open.length}
-                </span>
-              )}
-            </button>
+            </Chip>
           ))}
         </div>
         <div className="flex-1" />
@@ -243,8 +244,7 @@ export default function ChangeRequestsSection({ isActive }) {
           type="button"
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors at-disable-50"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
+          className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark"
         >
           {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
           Refresh
@@ -252,37 +252,37 @@ export default function ChangeRequestsSection({ isActive }) {
       </div>
 
       {error && (
-        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(153,27,27,0.10)' }}>
-          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#991b1b' }} />
-          <span className="text-[11px] font-mono" style={{ color: '#991b1b' }}>{error}</span>
+        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: DANGER }} />
+          <span className="text-[11px] font-mono" style={{ color: DANGER }}>{error}</span>
         </div>
       )}
 
       {/* Peak-End: the approval's ending says what it did, in numbers. */}
       {applied && !error && (
-        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(22,101,52,0.10)' }}>
-          <Check className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#166534' }} />
-          <span className="text-[11px] font-mono" style={{ color: '#166534' }}>
+        <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)' }}>
+          <Check className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: SUCCESS }} />
+          <span className="text-[11px] font-mono" style={{ color: SUCCESS }}>
             Applied to “{applied.name}”
             {applied.updates != null ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added` : ''}.
             A pre-change archive was kept in your O.T.T.E.R. library.
           </span>
           <button type="button" onClick={() => setApplied(null)} className="ml-auto flex-shrink-0" aria-label="Dismiss">
-            <X className="w-3 h-3" style={{ color: '#166534' }} />
+            <X className="w-3 h-3" style={{ color: SUCCESS }} />
           </button>
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto wilson-light-scroll">
+      <div className="flex-1 min-h-0 overflow-y-auto wilson-dark-scroll">
         {loading && rows.length === 0 ? (
           <div className="flex items-center gap-2 py-10 justify-center">
-            <Loader2 className="w-4 h-4 animate-spin" style={{ color: LIGHT_INK }} />
-            <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>Loading…</span>
+            <Loader2 className="w-4 h-4 animate-spin" style={{ color: INK_2 }} />
+            <span className="text-[11px] font-mono" style={{ color: INK_2 }}>Loading…</span>
           </div>
         ) : visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <GitPullRequestArrow className="w-7 h-7" style={{ color: LIGHT_INK }} />
-            <span className="text-[11px] font-mono italic" style={{ color: LIGHT_INK }}>
+            <GitPullRequestArrow className="w-7 h-7" style={{ color: INK_2 }} />
+            <span className="text-[11px] font-mono italic" style={{ color: INK_2 }}>
               {tab === 'open'
                 ? 'No one has suggested a change to a company standard course.'
                 : 'Nothing has been decided yet.'}
@@ -294,7 +294,7 @@ export default function ChangeRequestsSection({ isActive }) {
               const st = STATUS_STYLE[r.status] ?? STATUS_STYLE.open
               const isOpen = expandedId === r.id
               return (
-                <li key={r.id} className="rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.08)' }}>
+                <li key={r.id} className="rounded-sm" style={{ backgroundColor: PAPER_RAISED }}>
                   <button
                     type="button"
                     onClick={() => { setExpandedId(prev => (prev === r.id ? null : r.id)); setDecide(null); setNote(''); setDiff(null) }}
@@ -305,10 +305,10 @@ export default function ChangeRequestsSection({ isActive }) {
                       style={{ backgroundColor: st.color }}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[12px] font-bold" style={{ color: '#1c1917' }}>
+                      <span className="block text-[12px] font-bold" style={{ color: INK }}>
                         {r.target_name ?? 'A company standard course'}
                       </span>
-                      <span className="block text-[11px] font-mono truncate" style={{ color: LIGHT_INK }}>
+                      <span className="block text-[11px] font-mono truncate" style={{ color: INK_2 }}>
                         {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                         {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                       </span>
@@ -322,18 +322,18 @@ export default function ChangeRequestsSection({ isActive }) {
                   </button>
 
                   {isOpen && (
-                    <div className="px-3 pb-3 pt-1" style={{ borderTop: '1px solid rgba(120,70,30,0.15)' }}>
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>
+                    <div className="px-3 pb-3 pt-1" style={{ borderTop: `1px solid ${RULE}` }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
                         What they changed, and why
                       </p>
-                      <p className="text-[12px] whitespace-pre-wrap mb-3" style={{ color: '#1c1917' }}>
+                      <p className="text-[12px] whitespace-pre-wrap mb-3" style={{ color: INK }}>
                         {r.summary}
                       </p>
 
                       {/* The review window: readable while the request is live. */}
                       {(r.status === 'open' || r.status === 'changes_requested') && (
                         r.source_readable ? (
-                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: LIGHT_INK }}>
+                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
                             <Eye className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>
                               Submitting shared their copy with reviewers for as long as this
@@ -342,14 +342,14 @@ export default function ChangeRequestsSection({ isActive }) {
                                 type="button"
                                 onClick={() => openTheirCourse(r)}
                                 className="underline font-bold inline-flex items-center gap-0.5"
-                                style={{ color: '#9a3412' }}
+                                style={{ color: SIGNAL }}
                               >
                                 Open their course <ExternalLink className="w-2.5 h-2.5" />
                               </button>
                             </span>
                           </p>
                         ) : (
-                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: LIGHT_INK }}>
+                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
                             <EyeOff className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                           </p>
@@ -357,14 +357,14 @@ export default function ChangeRequestsSection({ isActive }) {
                       )}
 
                       {r.status === 'changes_requested' ? (
-                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: LIGHT_INK }}>
+                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: INK_2 }}>
                           <Lock className="w-3 h-3 flex-shrink-0" />
                           Changes requested by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}.
                           Waiting on {r.proposer_label ?? 'the proposer'} to revise or accept.
                         </p>
                       ) : r.status !== 'open' ? (
-                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: LIGHT_INK }}>
+                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: INK_2 }}>
                           <Lock className="w-3 h-3 flex-shrink-0" />
                           {st.label} by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}
@@ -376,10 +376,10 @@ export default function ChangeRequestsSection({ isActive }) {
                             : ''}
                         </p>
                       ) : decide?.id === r.id && decide.action === 'approve' ? (
-                        <div className="rounded-sm p-2" style={{ backgroundColor: 'rgba(120,70,30,0.12)' }}>
+                        <div className="rounded-sm p-2" style={{ backgroundColor: PAPER_RAISED }}>
                           {/* Cognitive Bias: this writes to the canonical course —
                               say exactly what will happen, then confirm. */}
-                          <p className="text-[11px] mb-2" style={{ color: '#1c1917' }}>
+                          <p className="text-[11px] mb-2" style={{ color: INK }}>
                             {diff?.loading ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <Loader2 className="w-3 h-3 animate-spin" /> Comparing their course with the standard…
@@ -397,32 +397,31 @@ export default function ChangeRequestsSection({ isActive }) {
                             private archive owned by you.
                           </p>
                           <div className="flex gap-2 mt-2">
-                            <button
-                              type="button"
+                            <Button
+                              size="sm"
                               onClick={() => { setDecide(null); setDiff(null) }}
                               disabled={busy}
-                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
-                              style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
                             >
                               Cancel
-                            </button>
-                            <button
-                              type="button"
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              Icon={Archive}
                               onClick={() => approve(r)}
                               disabled={busy || diff?.loading}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
-                              style={{ backgroundColor: '#166534', color: '#fff' }}
+                              loading={busy}
+                              loadingLabel="Applying…"
                             >
-                              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
                               Archive, then apply
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       ) : decide?.id === r.id && decide.action === 'decline' ? (
-                        <div className="rounded-sm p-2" style={{ backgroundColor: 'rgba(120,70,30,0.12)' }}>
+                        <div className="rounded-sm p-2" style={{ backgroundColor: PAPER_RAISED }}>
                           {/* Postel: a decline is a conversation — the note is the
                               whole point, so it is required, not optional. */}
-                          <p className="text-[11px] mb-2" style={{ color: '#1c1917' }}>
+                          <p className="text-[11px] mb-2" style={{ color: INK }}>
                             Your note goes back to {r.proposer_label ?? 'the proposer'}. They can
                             make the changes and resubmit, or accept the decision.
                           </p>
@@ -430,32 +429,29 @@ export default function ChangeRequestsSection({ isActive }) {
                             value={note}
                             onChange={(e) => setNote(e.target.value)}
                             placeholder="What should change before you would approve this?"
-                            className="w-full h-16 px-2 py-1.5 text-[11px] font-mono rounded-sm resize-none focus:ring-2 focus:ring-orange-500"
-                            style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
+                            className="ui-input at-note-field"
                           />
                           <div className="flex gap-2 mt-2">
-                            <button
-                              type="button"
+                            <Button
+                              size="sm"
                               onClick={() => { setDecide(null); setNote('') }}
                               disabled={busy}
-                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
-                              style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
                             >
                               Cancel
-                            </button>
-                            <button
-                              type="button"
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="primary"
                               onClick={() => decline(r)}
                               disabled={busy || !note.trim()}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
-                              style={{ backgroundColor: '#9a3412', color: '#fff' }}
+                              loading={busy}
+                              loadingLabel="Sending…"
                             >
-                              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                               Send it back
-                            </button>
+                            </Button>
                           </div>
                           {!note.trim() && (
-                            <p className="text-[10px] mt-1" style={{ color: LIGHT_INK }}>
+                            <p className="text-[10px] mt-1" style={{ color: INK_2 }}>
                               A note is required — the proposer needs to know what to change.
                             </p>
                           )}
@@ -466,8 +462,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             type="button"
                             onClick={() => { setDecide({ id: r.id, action: 'approve' }); setNote(''); loadDiff(r) }}
                             disabled={!r.source_readable}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50 disabled:cursor-not-allowed"
-                            style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
+                            className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark"
                             title={r.source_readable ? undefined : 'Their course no longer exists — there is nothing to apply'}
                           >
                             <Check className="w-3 h-3" /> Approve
@@ -476,7 +471,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             type="button"
                             onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}
                             className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm"
-                            style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
+                            style={{ backgroundColor: PAPER_RAISED, color: INK }}
                           >
                             <X className="w-3 h-3" /> Decline
                           </button>

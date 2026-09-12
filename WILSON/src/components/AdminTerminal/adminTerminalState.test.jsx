@@ -137,9 +137,17 @@ describe('the roster row reflects the member it was rendered from', () => {
 })
 
 describe('the rate card toggles reflect the grants they were rendered from', () => {
-  // data-on — ToggleRow is private to UsersSection, so it is reached the way
-  // an admin reaches it: click a roster row, the detail panel opens, the two
-  // grant toggles are in the ACCESS group.
+  // aria-checked — ToggleRow is private to UsersSection, so it is reached the
+  // way an admin reaches it: click a roster row, the detail panel opens, the
+  // two grant toggles are in the ACCESS group.
+  //
+  // 🚨 THE ASSERTION IS `aria-checked`, NOT `data-on`, and deliberately so.
+  // C3's extraction wrote `data-on`; C3b's conversion replaced the whole
+  // hand-rolled track with the kit `Switch`, which has its own state
+  // spelling. `aria-checked` is the one attribute BOTH spellings carried, so
+  // this guard proved the boolean before the swap and proves it after —
+  // which is the only reason a state test written against the old markup was
+  // worth writing at all.
   function openPanelFor(name) {
     fireEvent.click(rosterRow(name))
     return screen.getByRole('switch', { name: 'Can view rate card' })
@@ -149,16 +157,16 @@ describe('the rate card toggles reflect the grants they were rendered from', () 
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
     openPanelFor('Ada Lovelace')
 
-    expect(screen.getByRole('switch', { name: 'Can view rate card' }).getAttribute('data-on')).toBe('true')
-    expect(screen.getByRole('switch', { name: 'Can edit rate card' }).getAttribute('data-on')).toBe('true')
+    expect(screen.getByRole('switch', { name: 'Can view rate card' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('switch', { name: 'Can edit rate card' }).getAttribute('aria-checked')).toBe('true')
   })
 
   it('renders both toggles off for a member holding neither grant', () => {
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
     openPanelFor('Grace Hopper')
 
-    expect(screen.getByRole('switch', { name: 'Can view rate card' }).getAttribute('data-on')).toBe('false')
-    expect(screen.getByRole('switch', { name: 'Can edit rate card' }).getAttribute('data-on')).toBe('false')
+    expect(screen.getByRole('switch', { name: 'Can view rate card' }).getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByRole('switch', { name: 'Can edit rate card' }).getAttribute('aria-checked')).toBe('false')
   })
 
   // View is on when EITHER grant is held, because edit includes view — a
@@ -171,9 +179,9 @@ describe('the rate card toggles reflect the grants they were rendered from', () 
     openPanelFor('Grace Hopper')
 
     const view = screen.getByRole('switch', { name: 'Can view rate card' })
-    expect(view.getAttribute('data-on')).toBe('true')
-    expect(view.getAttribute('data-disabled')).toBe('true')
-    expect(screen.getByRole('switch', { name: 'Can edit rate card' }).getAttribute('data-disabled')).toBe('false')
+    expect(view.getAttribute('aria-checked')).toBe('true')
+    expect(view.disabled).toBe(true)
+    expect(screen.getByRole('switch', { name: 'Can edit rate card' }).disabled).toBe(false)
   })
 })
 

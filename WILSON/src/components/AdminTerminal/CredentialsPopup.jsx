@@ -4,16 +4,35 @@
 // UX laws embodied:
 //   Peak-End Rule — this is THE moment of the create/reset flows; big mono
 //     rows, instant copy feedback, and a deliberate exit make it land well.
-//   Doherty Threshold — "COPIED ✓" swap renders synchronously (<400ms).
+//   Doherty Threshold — "Copied ✓" swap renders synchronously (<400ms).
 //   Fitts's Law — one large COPY BOTH primary; the only exit is one button.
 //
 // The password exists ONLY in this component's props while it is open — it
 // is never stored, logged, or echoed anywhere else (show-once contract with
 // the admin-create-user / admin-reset-password Edge Functions).
+//
+// ── UI overhaul C3b (AT-16, AT-34) ──────────────────────────────────────────
+//
+// One of four private modal shells on this surface, each with its own
+// backdrop, z-index and radius. All four are now the kit `Dialog`, which
+// brings the modal stack, the busy lock and — new here — a focus trap and a
+// focus return (AT-34: no dialog on the surface trapped focus).
+//
+// 🚨 THE DELIBERATE EXIT SURVIVES THE MOVE, and it is the reason this file
+// passes `onBeforeClose` rather than plain `onClose`. Closing before copying
+// anything still takes two taps ("Close without copying?"), and the guard now
+// covers the X and Escape as well as the button, so the three exits cannot
+// disagree. Before this, Escape did nothing here and there was no X at all;
+// Q17 ruled Escape-to-close in kit-wide, and routing it through the SAME gate
+// is what keeps that ruling from quietly punching a hole in a show-once
+// screen. The backdrop stays inert (`dismissOnBackdrop` is not passed).
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react'
-import { Copy, Check, KeyRound, AlertTriangle } from 'lucide-react'
+import { Copy, Check, AlertTriangle } from 'lucide-react'
+import Dialog from '../../ui/Dialog'
+import Button from '../../ui/Button'
+import Banner from '../../ui/Banner'
 
 // Clipboard write with a legacy fallback — Electron's renderer supports
 // navigator.clipboard, but it can reject when the window loses focus
@@ -70,108 +89,81 @@ export default function CredentialsPopup({ open, username, password, context = '
     revertTimer.current = setTimeout(() => setCopied(null), 1500)
   }
 
-  // Deliberate exit: no backdrop click, no X, no Escape. Closing without a
-  // copy needs a second tap on the same button ("Close without copying?").
-  function handleClose() {
-    if (hasCopied || armedClose) {
-      onClose?.()
-      return
-    }
+  // The one gate, shared by the footer button, the X and Escape. Returns
+  // false the first time, which is what tells `Dialog` not to close; the
+  // second call inside the 3s window returns true and the dialog goes.
+  function mayClose() {
+    if (hasCopied || armedClose) return true
     setArmedClose(true)
     if (armTimer.current) clearTimeout(armTimer.current)
     armTimer.current = setTimeout(() => setArmedClose(false), 3000)
+    return false
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 90, backgroundColor: 'rgba(0,0,0,0.65)' }}
-    >
-      <div
-        style={{
-          backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px',
-          padding: '22px 24px', width: 'min(460px, 92vw)', color: '#f4a261',
-        }}
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <KeyRound className="w-4 h-4" style={{ color: '#ea580c' }} />
-          <h2 className="font-mono uppercase text-sm tracking-widest" style={{ color: '#ea580c' }}>
-            Credentials ready
-          </h2>
-        </div>
-        <p className="text-xs mb-4" style={{ color: '#a8a29e' }}>
-          {context === 'reset'
-            ? 'New password generated. Hand these to the member directly.'
-            : 'Account created. Hand these to the member directly.'}
-        </p>
-
-        <CredentialRow
-          label="Username"
-          value={username}
-          copied={copied === 'username'}
-          onCopy={() => doCopy('username', username)}
-        />
-        <CredentialRow
-          label="Password"
-          value={password}
-          copied={copied === 'password'}
-          onCopy={() => doCopy('password', password)}
-        />
-
-        <button
-          type="button"
-          onClick={() => doCopy('both', `Username: ${username}\nPassword: ${password}`)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 mt-1 mb-3 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+    <Dialog
+      title="Credentials ready"
+      subtitle={context === 'reset'
+        ? 'New password generated. Hand these to the member directly.'
+        : 'Account created. Hand these to the member directly.'}
+      width="form"
+      onClose={() => onClose?.()}
+      onBeforeClose={mayClose}
+      footer={(
+        <Button
+          variant={hasCopied || armedClose ? 'primary' : 'secondary'}
+          onClick={() => { if (mayClose()) onClose?.() }}
         >
-          {copied === 'both' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied === 'both' ? 'Copied ✓' : 'Copy both'}
-        </button>
+          {armedClose && !hasCopied ? 'Close without copying?' : "I've saved these"}
+        </Button>
+      )}
+    >
+      <CredentialRow
+        label="Username"
+        value={username}
+        copied={copied === 'username'}
+        onCopy={() => doCopy('username', username)}
+      />
+      <CredentialRow
+        label="Password"
+        value={password}
+        copied={copied === 'password'}
+        onCopy={() => doCopy('password', password)}
+      />
 
-        <div className="flex items-start gap-2 mb-4 text-[11px] leading-relaxed" style={{ color: '#fbbf24' }}>
-          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          <span>This password is shown ONCE. It cannot be retrieved later — only reset.</span>
-        </div>
+      {/* The one primary in the dialog body: copying BOTH is the action the
+          screen exists for, and it stays the largest target (Fitts). */}
+      <Button
+        variant="primary"
+        Icon={copied === 'both' ? Check : Copy}
+        onClick={() => doCopy('both', `Username: ${username}\nPassword: ${password}`)}
+        className="at-cred-both"
+      >
+        {copied === 'both' ? 'Copied ✓' : 'Copy both'}
+      </Button>
 
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="at-cred-close px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            data-armed={String(hasCopied || armedClose)}
-          >
-            {armedClose && !hasCopied ? 'Close without copying?' : "I've saved these"}
-          </button>
-        </div>
-      </div>
-    </div>
+      <Banner tone="warning" Icon={AlertTriangle} className="at-cred-warn">
+        This password is shown once. It cannot be retrieved later — only reset.
+      </Banner>
+    </Dialog>
   )
 }
 
 function CredentialRow({ label, value, copied, onCopy }) {
   return (
-    <div className="mb-3">
-      <span className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
-        {label}
-      </span>
-      <div className="flex items-center gap-2">
-        <code
-          className="flex-1 px-3 py-2.5 text-sm font-mono rounded-sm break-all select-all"
-          style={{ backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#fde8d0', border: '1px solid #44403c' }}
-        >
-          {value}
-        </code>
-        <button
-          type="button"
+    <div className="at-cred-row">
+      <span className="at-cred-label">{label}</span>
+      <div className="at-cred-value">
+        <code className="at-cred-code">{value}</code>
+        <Button
+          size="sm"
+          Icon={copied ? Check : Copy}
           onClick={onCopy}
-          className="at-cred-copy flex items-center gap-1 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors flex-shrink-0"
+          className="at-cred-copy"
           data-copied={String(!!copied)}
         >
-          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
           {copied ? 'Copied ✓' : 'Copy'}
-        </button>
+        </Button>
       </div>
     </div>
   )

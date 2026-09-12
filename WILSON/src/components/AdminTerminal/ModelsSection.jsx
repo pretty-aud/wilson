@@ -48,7 +48,9 @@ import {
   loadApprovedModels, cachedApprovedModels,
   setWorkspaceModelOverride, loadModelSources,
 } from '../../lib/modelSources'
-import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
+import Button from '../../ui/Button'
+import Banner from '../../ui/Banner'
+import SectionTitle from '../../ui/SectionTitle'
 
 export default function ModelsSection({ isActive }) {
   const [models, setModels] = useState(() => cachedApprovedModels())
@@ -105,51 +107,38 @@ export default function ModelsSection({ isActive }) {
   const overriddenCount = REGISTRY.filter((e) => overrides[e.key]).length
 
   return (
-    <div className="pb-8 overflow-y-auto wilson-light-scroll h-full" style={{ maxWidth: '900px' }}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
-            AI models
-          </h2>
-          <p className="text-xs leading-relaxed" style={{ color: LIGHT_INK }}>
-            Which model each function uses for everyone in this company.
-            Individuals can still choose their own in SYSTEM SETTINGS.
-          </p>
-        </div>
-        <button
-          onClick={reload}
-          disabled={loading}
-          className="at-disable-40 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
-        >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
-        </button>
-      </div>
+    <div className="at-section at-models wilson-dark-scroll">
+      <SectionTitle
+        description="Which model each function uses for everyone in this company. Individuals can still choose their own in App settings."
+        actions={(
+          <Button size="sm" Icon={RefreshCw} onClick={reload} disabled={loading} loading={loading} loadingLabel="Refreshing">
+            Refresh
+          </Button>
+        )}
+      >
+        AI models
+      </SectionTitle>
 
-      {error && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
-          {error}
-        </p>
-      )}
+      {error && <Banner tone="danger">{error}</Banner>}
 
       {models.length === 0 && !loading && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: LIGHT_INK }}>
+        <Banner tone="info">
           No models have been approved for your account yet, so there is nothing
           to choose from. Every function still runs on its default. Ask your
           WILSON operator to approve one.
-        </p>
+        </Banner>
       )}
 
-      <p className="text-[11px] mb-4" style={{ color: LIGHT_INK }}>
+      <p className="at-note">
         {overriddenCount === 0
           ? 'Nothing overridden — every function follows the platform default.'
           : `${overriddenCount} of ${REGISTRY.length} functions overridden by this company.`}
       </p>
 
       {[...registryByTool().entries()].map(([tool, entries]) => (
-        <div key={tool} className="mb-4">
-          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>{tool}</div>
-          <div className="rounded-sm" style={{ border: '1px solid #d6d3d1' }}>
+        <div key={tool} className="at-model-group">
+          <div className="at-group-label">{tool}</div>
+          <div className="at-model-list">
             {entries.map((entry, i) => {
               const chosen = overrides[entry.key] ?? ''
               const busy = busyKey === entry.key
@@ -159,16 +148,24 @@ export default function ModelsSection({ isActive }) {
               const inherited = platform[entry.key] ?? BUILTIN[entry.tier]
               const inheritedFrom = platform[entry.key] ? 'platform default' : 'built-in'
               return (
+                /* 🚨 A GRID, NOT A WRAPPING FLEX ROW (AT-27). Under pressure
+                   the old row wrapped and dropped RESET onto its own line
+                   BELOW the select it resets, so the control that undoes a
+                   choice stopped sitting beside it. Three fixed tracks — name,
+                   picker, reset — mean the twenty-eight rows form three
+                   columns at every width, and the reset slot is reserved
+                   whether or not the row has one, so no row shifts when it
+                   gains or loses the control. */
                 <div
                   key={entry.key}
-                  className="at-model-row px-3 py-2"
+                  className="at-model-row"
                   data-overridden={String(!!chosen)}
-                  style={{ borderTop: i === 0 ? 'none' : '1px solid #e7e5e4' }}
+                  data-first={String(i === 0)}
                 >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex-1 min-w-0" style={{ minWidth: '200px' }}>
-                      <div className="text-[11px]" style={{ color: '#1c1917' }}>{entry.label}</div>
-                      <div className="text-[10px]" style={{ color: LIGHT_INK }}>
+                  <div className="at-model-cells">
+                    <div className="at-model-name">
+                      <div className="at-model-label">{entry.label}</div>
+                      <div className="at-model-source">
                         {chosen
                           ? `using ${labelFor(chosen)} — set by this company`
                           : `using ${labelFor(inherited)} — ${inheritedFrom}`}
@@ -180,8 +177,8 @@ export default function ModelsSection({ isActive }) {
                       disabled={busy || models.length === 0}
                       onChange={(e) => apply(entry.key, e.target.value)}
                       title={entry.hint || entry.label}
-                      className="at-disable-40 px-2 py-1 text-[11px] rounded-sm focus:ring-2 focus:ring-orange-500"
-                      style={{ border: '1px solid #d6d3d1', color: '#1c1917', minWidth: '190px' }}
+                      className="ui-input at-model-select"
+                      data-size="sm"
                     >
                       <option value="">Inherit ({labelFor(inherited)})</option>
                       {models.map((m) => (
@@ -194,22 +191,22 @@ export default function ModelsSection({ isActive }) {
                       )}
                     </select>
 
-                    {chosen && (
-                      <button
-                        type="button"
-                        onClick={() => apply(entry.key, '')}
-                        disabled={busy}
-                        className="at-disable-40 flex items-center gap-1 text-[10px]"
-                        style={{ color: '#ea580c' }}
-                      >
-                        <RotateCcw size={11} /> Reset
-                      </button>
-                    )}
+                    <span className="at-model-reset">
+                      {chosen && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          Icon={RotateCcw}
+                          onClick={() => apply(entry.key, '')}
+                          disabled={busy}
+                        >
+                          Reset
+                        </Button>
+                      )}
+                    </span>
                   </div>
 
-                  {err && (
-                    <p className="text-[10px] mt-1" style={{ color: '#991b1b' }}>{err}</p>
-                  )}
+                  {err && <p className="at-model-error" role="alert">{err}</p>}
                 </div>
               )
             })}

@@ -10,13 +10,32 @@
 //     the moment each request settles.
 //   Peak-End Rule — end-state summary ("5 invited · 2 failed") with failed
 //     rows kept editable behind RETRY FAILED.
+//
+// ── UI overhaul C3b (AT-16, AT-34, AT-26, AT-30) ────────────────────────────
+//
+// The third private modal shell to become the kit `Dialog`: same flow, same
+// two-button footer, same backdrop dismissal while idle, plus the focus trap
+// and focus return the surface had nowhere (AT-34). It takes the `reading`
+// width because the row is four columns — address, username, role, verdict —
+// and the `form` width squeezes the address to nothing.
+//
+// The five per-row verdicts were five hand-written spans in four colours,
+// two of them reds that disagree; they are one `StatusBadge` now, so the
+// status is a dot plus its own word rather than colour alone (AT-30).
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react'
-import { Mail, Check, X, Loader2 } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { parseInviteList, USERNAME_RE } from '../../cloud/auth/inviteParsing'
 import { devFixtures, devWriteRefused } from '../../dev/devFixtures'
+import Dialog from '../../ui/Dialog'
+import Button from '../../ui/Button'
+import TextArea from '../../ui/TextArea'
+import Input from '../../ui/Input'
+import Select from '../../ui/Select'
+import Spinner from '../../ui/Spinner'
+import StatusBadge from '../../ui/StatusBadge'
+import Banner from '../../ui/Banner'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -35,27 +54,24 @@ const ERROR_MAP = {
   mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
 }
 
-// 🚨 THE DERIVATION RUNS THIS WAY ROUND ON PURPOSE, and the order is the
-// point rather than the comment. The username field's edge is a STATE — it
-// goes red the moment the name stops matching USERNAME_RE — so it belongs in
-// CSS (`.at-invite-name`), and it must not reach this element inline: an
-// inline `border` SHORTHAND sets `border-color`, which no class rule can
-// beat. Review round 1, finding 2: the extraction moved the invalid branch to
-// CSS and left the valid one in a shared style object as a shorthand, which
-// deleted the red edge outright and blocked the user from sending with no
-// marker on the control.
-//
-// Written as `nameFieldStyle` first and `fieldStyle` as the one that ADDS the
-// static edge, a careless tidy of `fieldStyle` cannot silently take the
-// border away from the two elements that do want it (review round 2, finding
-// 13: the previous spelling annotated `fieldStyle` with a comment saying its
-// border "must NOT be in this object", directly above an object containing
-// one). It also removes the unused `_fieldBorder` binding.
-const nameFieldStyle = {
-  backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261', borderRadius: 3,
-}
-// The textarea and the role select take the same field with a STATIC edge.
-const fieldStyle = { ...nameFieldStyle, border: '1px solid #44403c' }
+// 🚨 THE TWO FIELD STYLE OBJECTS ARE GONE, and the trap they were written to
+// avoid is gone with them. Every field here is now `Input` / `TextArea` /
+// `Select`, which carry no inline style at all: the well, the ink and the
+// edge come from `.ui-input`. That matters because of what C3's review round
+// 1 found — an inline `border` SHORTHAND also sets `border-color`, which no
+// class rule can beat, so the username field's red invalid edge was deleted
+// outright by a shared style object and the user was blocked from sending
+// with no marker on the control. `.at-invite-name[data-invalid='true']`
+// (0,2,0) now beats `.ui-input` (0,1,0) on specificity with nothing inline in
+// the way, which is the structural fix rather than the careful-ordering one.
+
+// One list, three call sites on this surface (here, CreateUserDialog and the
+// roster's role picker), in the order the role matrix ranks them.
+const ROLE_OPTIONS = [
+  { value: 'user', label: 'User' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'admin', label: 'Admin' },
+]
 
 export default function MultiInviteDialog({ open, onClose, onInvited }) {
   const [text, setText] = useState('')
@@ -184,78 +200,86 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.6)' }}
-      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose?.() }}
+    <Dialog
+      title="Invite by email"
+      width="reading"
+      busy={busy}
+      dismissOnBackdrop
+      onClose={() => onClose?.()}
+      footer={(
+        <>
+          <Button onClick={onClose} disabled={busy}>
+            {done && okCount > 0 ? 'Done' : 'Cancel'}
+          </Button>
+          {done && failCount > 0 ? (
+            <Button
+              variant="primary"
+              onClick={() => send(rows.filter(r => r.status === 'failed'))}
+              disabled={busy || badUsernames}
+            >
+              Retry failed ({failCount})
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={() => send(pending)}
+              disabled={busy || pending.length === 0 || badUsernames}
+              loading={busy}
+              loadingLabel="Sending…"
+              title={badUsernames ? 'Fix the flagged usernames first.' : undefined}
+            >
+              {`Send ${pending.length} invite${pending.length === 1 ? '' : 's'}`}
+            </Button>
+          )}
+        </>
+      )}
     >
-      <div
-        className="flex flex-col"
-        style={{
-          backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px',
-          padding: '20px 22px', width: 'min(620px, 94vw)', maxHeight: '86vh', color: '#f4a261',
-        }}
-      >
-        <div className="flex items-center gap-2 mb-3">
-          <Mail className="w-4 h-4" style={{ color: '#ea580c' }} />
-          <h2 className="font-mono uppercase text-sm tracking-widest" style={{ color: '#ea580c' }}>
-            Invite by email
-          </h2>
-        </div>
-
-        <textarea
+        <TextArea
           value={text}
-          onChange={(e) => handleText(e.target.value)}
+          onChange={handleText}
           disabled={busy}
           rows={3}
           placeholder="Paste emails — commas, spaces or new lines"
-          className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
-          style={fieldStyle}
+          className="at-invite-paste"
         />
         {invalid.length > 0 && (
-          <div className="mt-1.5 text-[11px] font-mono" style={{ color: '#fbbf24' }}>
+          <Banner tone="warning" className="at-invite-skipped">
             Skipped (not emails): {invalid.slice(0, 6).join(', ')}{invalid.length > 6 ? ` +${invalid.length - 6} more` : ''}
-          </div>
+          </Banner>
         )}
 
         {rows.length > 0 && (
-          <div className="mt-3 overflow-y-auto wilson-light-scroll" style={{ maxHeight: '38vh' }}>
+          <div className="at-invite-list wilson-dark-scroll">
             {rows.map(row => {
               const usernameOk = USERNAME_RE.test(row.username)
               return (
-                <div key={row.email} className="at-invite-row" data-sent={String(row.status === 'ok')} style={{ borderBottom: '1px solid #292524' }}>
-                <div className="flex items-center gap-2 py-1.5">
-                  <span className="flex-1 text-xs font-mono truncate" style={{ color: '#fde8d0' }} title={row.email}>
+                <div key={row.email} className="at-invite-row" data-sent={String(row.status === 'ok')}>
+                <div className="at-invite-cells">
+                  <span className="at-invite-email" title={row.email}>
                     {row.email}
                   </span>
-                  <input
-                    type="text"
+                  <Input
+                    size="sm"
                     value={row.username}
                     disabled={busy || row.status === 'ok'}
-                    onChange={(e) => patchRow(row.email, { username: e.target.value.toLowerCase().slice(0, 32), status: row.status === 'failed' ? 'queued' : row.status, error: null })}
-                    className="at-invite-name w-36 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+                    onChange={(v) => patchRow(row.email, { username: String(v).toLowerCase().slice(0, 32), status: row.status === 'failed' ? 'queued' : row.status, error: null })}
+                    className="at-invite-name"
                     data-invalid={String(!usernameOk)}
-                    style={nameFieldStyle}
                     aria-label={`Username for ${row.email}`}
                   />
-                  <select
+                  <Select
+                    size="sm"
                     value={row.role}
                     disabled={busy || row.status === 'ok'}
-                    onChange={(e) => patchRow(row.email, { role: e.target.value })}
-                    className="px-1.5 py-1 text-[11px] font-mono rounded-sm cursor-pointer"
-                    style={fieldStyle}
+                    onChange={(v) => patchRow(row.email, { role: v })}
+                    options={ROLE_OPTIONS}
+                    className="at-invite-role"
                     aria-label={`Role for ${row.email}`}
-                  >
-                    <option value="user">User</option>
-                    <option value="manager">Manager</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  />
                   <RowStatus row={row} usernameOk={usernameOk} />
                 </div>
                 {row.status === 'failed' && row.error && (
-                  <div className="pb-1.5 text-[11px] font-mono" style={{ color: '#ef4444' }}>
+                  <div className="at-invite-error">
                     {row.error}
                   </div>
                 )}
@@ -266,71 +290,36 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
         )}
 
         {progress && (
-          <div className="mt-2 text-[11px] font-mono" style={{ color: '#a8a29e' }}>
+          <div className="at-invite-progress">
             {busy
               ? `${progress.sent} of ${progress.total} sent`
               : done && `${okCount} invited · ${failCount} failed`}
           </div>
         )}
-
-        <div className="flex justify-end gap-2 mt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
-          >
-            {done && okCount > 0 ? 'Done' : 'Cancel'}
-          </button>
-          {done && failCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => send(rows.filter(r => r.status === 'failed'))}
-              disabled={busy || badUsernames}
-              className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              style={{ backgroundColor: '#ea580c', color: '#fff' }}
-            >
-              Retry failed ({failCount})
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => send(pending)}
-              disabled={busy || pending.length === 0 || badUsernames}
-              className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              style={{ backgroundColor: '#ea580c', color: '#fff' }}
-              title={badUsernames ? 'Fix the flagged usernames first.' : undefined}
-            >
-              {busy ? 'Sending…' : `Send ${pending.length} invite${pending.length === 1 ? '' : 's'}`}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    </Dialog>
   )
 }
 
+/**
+ * The row's verdict. Five states, one component, one fixed-width slot so the
+ * three editable cells to its left never shift as a row resolves.
+ *
+ * `sending` is the one state that is not a verdict — it is the wait — so it
+ * stays a spinner rather than borrowing a status tone that would read as an
+ * outcome.
+ */
 function RowStatus({ row, usernameOk }) {
   if (!usernameOk) {
-    return <span className="w-20 text-[10px] font-bold uppercase text-right" style={{ color: '#dc2626' }}>Bad name</span>
+    return <StatusBadge tone="danger" label="Bad name" className="at-invite-status" />
   }
   if (row.status === 'sending') {
-    return <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" style={{ color: '#f4a261' }} />
+    return <Spinner size="sm" label="Sending" className="at-invite-status" />
   }
   if (row.status === 'ok') {
-    return (
-      <span className="w-20 flex items-center justify-end gap-1 text-[10px] font-bold uppercase" style={{ color: '#22c55e' }}>
-        <Check className="w-3 h-3" /> Invited
-      </span>
-    )
+    return <StatusBadge tone="success" label="Invited" className="at-invite-status" />
   }
   if (row.status === 'failed') {
-    return (
-      <span className="w-20 flex items-center justify-end gap-1 text-[10px] font-bold uppercase" style={{ color: '#ef4444' }} title={row.error || 'Failed'}>
-        <X className="w-3 h-3" /> Failed
-      </span>
-    )
+    return <StatusBadge tone="danger" label="Failed" title={row.error || 'Failed'} className="at-invite-status" />
   }
-  return <span className="w-20 text-[10px] font-mono uppercase text-right" style={{ color: '#78716c' }}>Queued</span>
+  return <StatusBadge tone="neutral" label="Queued" className="at-invite-status" />
 }

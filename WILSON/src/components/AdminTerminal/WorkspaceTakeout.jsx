@@ -23,10 +23,12 @@
 // =============================================================================
 
 import { useRef, useState } from 'react'
-import { Archive, Loader2, Check } from 'lucide-react'
+import { Archive, Check } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { toCsv, downloadBlob, exportDateStamp } from '../../lib/csvExport'
-import { LIGHT_INK } from '../lightSurface' // §B — light page
+import Card from '../../ui/Card'
+import Button from '../../ui/Button'
+import Banner from '../../ui/Banner'
 
 // Every cloud table an admin's RLS lets them read, in dependency-ish order.
 // otter_* and notes are EXCLUDED — see header.
@@ -53,11 +55,6 @@ const MAX_ROWS_PER_TABLE = 200000 // backstop; overflow is recorded in the manif
 const ORDER_KEYS = {
   workspace_members: ['workspace_id', 'user_id'],
   project_members:   ['project_id', 'user_id'],
-}
-
-const cardStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.12)',
-  border: '1px solid rgba(120, 70, 30, 0.3)',
 }
 
 export default function WorkspaceTakeout({ workspaceId, slug }) {
@@ -153,51 +150,40 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
   }
 
   return (
-    <div className="p-4 rounded-sm" style={cardStyle}>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-        Workspace takeout
-      </h2>
-      <p className="text-xs text-stone-950 mb-1 leading-relaxed">
+    <Card title="Workspace takeout">
+      <p className="at-card-desc">
         Download everything this workspace holds in the cloud as one CSV per
         table, zipped, with a manifest. Built from your own reads — it can
         only contain what your role can already see.
       </p>
-      <p className="text-[10px] mb-4" style={{ color: LIGHT_INK }}>
+      <p className="at-note">
         Excluded by design: O.T.T.E.R. courses (personal content is private
         even from admins) and Notes. File rows are metadata — the blobs stay
         in your storage provider.
       </p>
 
-      {error && (
-        <div className="mb-3 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}>
-          {error}
-        </div>
-      )}
+      {error && <Banner tone="danger">{error}</Banner>}
 
       {result && (
-        <div className="mb-3 flex items-start gap-2 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(21, 128, 61, 0.1)', color: '#15803d' }}>
-          <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+        <Banner tone="success" Icon={Check}>
           <span>
             Exported {result.rows.toLocaleString()} rows across {result.tables} tables.
             {result.truncated.length > 0 && (
               <> Truncated at {MAX_ROWS_PER_TABLE.toLocaleString()} rows: {result.truncated.join(', ')} (see manifest.json).</>
             )}
           </span>
-        </div>
+        </Banner>
       )}
 
-      <button
-        type="button"
+      <Button
+        Icon={Archive}
         onClick={runTakeout}
         disabled={running || !workspaceId}
-        className="at-disable-40 flex items-center gap-2 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-        style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
+        loading={running}
+        loadingLabel={progress ? `Exporting ${progress.table} (${progress.done + 1}/${progress.total})…` : 'Preparing…'}
       >
-        {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
-        {running
-          ? (progress ? `Exporting ${progress.table} (${progress.done + 1}/${progress.total})…` : 'Preparing…')
-          : 'Download takeout (.zip)'}
-      </button>
-    </div>
+        Download takeout (.zip)
+      </Button>
+    </Card>
   )
 }

@@ -138,7 +138,7 @@ describe('nav columns', () => {
 })
 
 describe('surface and chrome say what the page PAINTS today', () => {
-  it('the three tools and the four converted data pages are dark; the rest are light', () => {
+  it('the three tools and all six data pages are dark; only the three reading pages are light', () => {
     const dark = PAGES.filter((p) => p.surface === 'dark').map((p) => p.id)
     // Q1 ruled the six data pages onto `paper`. They flip ONE AT A TIME, in
     // the commit that converts the page's own inks — F2 does Team Members
@@ -152,15 +152,18 @@ describe('surface and chrome say what the page PAINTS today', () => {
       'project-manager', 'rate-card',
       'team-members',
       'project-files',
+      // lane C, C3b: the last of the six, and the one that took two sessions
+      'admin-terminal',
     ])
-    const stillLight = ['admin-terminal']
-    for (const id of stillLight) {
-      expect(PAGE_BY_ID[id].surface, `${id} is lane C's to convert`).toBe('light')
-    }
-    // Home, Settings and Help stay light forever (Q1: reading and form pages).
-    for (const id of ['home', 'settings', 'help']) {
-      expect(PAGE_BY_ID[id].surface).toBe('light')
-    }
+    // 🚨 THE `stillLight` LIST IS EMPTY NOW AND IS NOT KEPT AS AN EMPTY
+    // ARRAY. C3b converted the last of the six data pages, so a `for` loop
+    // over nothing would pass forever and prove nothing — C1's hand-off §10
+    // asked for the assertion to be REWRITTEN at this moment rather than
+    // emptied. What is true from here is the closed statement: exactly three
+    // pages are light, they are the three READING and FORM pages Q1 named,
+    // and a fourth appearing is the regression worth catching.
+    expect(PAGES.filter((p) => p.surface === 'light').map((p) => p.id))
+      .toEqual(['home', 'settings', 'help'])
   })
 
   it('only the three tools take the tool chrome, and only Home takes none', () => {

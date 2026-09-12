@@ -202,14 +202,21 @@ const PAGE_LIST = [
     // sub-views. The bars stay orange and stay animated; only the resting
     // heights change.
     bars: bars(120, 80),
-    // 🚨 STILL LIGHT, DELIBERATELY. The comment at the top of this file is a
-    // rule, not a note: `surface` says what the page PAINTS TODAY, and it
-    // flips in the same commit as the page's own inks or it renders black
-    // text on black. C3's bundle commit does both together. The bar heights
-    // have no such coupling — they are geometry, not colour — which is why
-    // they can land first and give the field back now.
-    surface: 'light', // Q1 lane C (C3) — flips with the inks, not before
+    // Q1, lane C, bundle C3b. This flip lands in the SAME COMMIT as the
+    // thirteen files' inks, which is what the rule at the top of this file
+    // demands: `surface` says what the page PAINTS TODAY. C3 measured the bar
+    // heights separately and shipped them first because geometry has no such
+    // coupling; colour does, so this line and the page's stylesheet move
+    // together or the page renders black text on black.
+    surface: 'dark',
     chrome: 'page',
+    // The seven sections run two scrolling tables, a 360px detail panel and a
+    // 28-row model list. `measure: 'data'` is the 1240px cap the page was
+    // already applying to ITSELF, inside its own padding — set here now, so
+    // the page's content and the title in the bar above it share one edge
+    // (AT-29). The registry comment asks for the page and its header to be set
+    // together, and this is the pair.
+    measure: 'data',
     nav: 'resources',
     adminOnly: true,
   },
