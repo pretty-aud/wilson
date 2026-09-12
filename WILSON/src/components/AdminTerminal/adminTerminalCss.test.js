@@ -445,6 +445,48 @@ describe('🚨 a String()-spelled attribute never meets a presence selector', ()
   })
 })
 
+describe('C7: the 11px floor, and one scale', () => {
+  // "The floor is 11px; nothing smaller ships" (plan §0 C7, §3.1). The review
+  // counted 50 occurrences at 10px or smaller on this surface and named
+  // `text-[9px]` for deletion outright. Eleven of the thirteen files carry no
+  // hand-written size at all now; the two that do are the ones Track A and
+  // Track C own, where this session was scoped to tokens and kit components
+  // and could not restructure the JSX. A class swap IS a token change, so the
+  // floor applies to them too.
+  const SIZES = Object.entries(sources).flatMap(([file, src]) =>
+    [...src.matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)].map((m) => ({ file, px: Number(m[1]) })),
+  )
+
+  it('finds the sizes it is checking (the scan is not empty)', () => {
+    // The two files that still spell a size are StorageSection and
+    // ChangeRequestsSection. If this ever reaches zero the floor check below
+    // passes while checking nothing — and it will reach zero legitimately,
+    // when the type pass finishes those two, so raise this to a
+    // `toEqual([])` on the whole list at that point rather than deleting it.
+    expect(SIZES.length).toBeGreaterThan(0)
+  })
+
+  it('🚨 writes no size below the 11px floor', () => {
+    expect(SIZES.filter((s) => s.px < 11)).toEqual([])
+  })
+
+  it('writes no size that is not a step on the scale', () => {
+    // 20 / 16 / 14 / 13 / 12 / 11 (plan §3.1). 14 appears twice on the scale
+    // — Body and H3 — which is deliberate, not a duplicate.
+    const STEPS = new Set([20, 16, 14, 13, 12, 11])
+    expect(SIZES.filter((s) => !STEPS.has(s.px))).toEqual([])
+  })
+
+  it('🚨 the page stylesheet reads the scale rather than spelling a size', () => {
+    // The sheet's own type comes from `--text-*`; a raw `font-size: 12px`
+    // there is a scale invented in a second place.
+    const raw = [...cssCode.matchAll(/font-size:\s*([^;]+);/g)]
+      .map((m) => m[1].trim())
+      .filter((v) => !v.startsWith('var(--text-'))
+    expect(raw).toEqual([])
+  })
+})
+
 describe('no surviving Tailwind state utility in this directory', () => {
   it('🚨 no `hover:` utility of any kind', () => {
     expect(jsx).not.toMatch(/(^|\s|")hover:/)

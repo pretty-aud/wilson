@@ -321,7 +321,7 @@ export default function ChangeRequestsSection({ isActive }) {
                       </span>
                     </span>
                     <span
-                      className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0"
+                      className="text-[11px] font-bold uppercase tracking-wider flex-shrink-0"
                       style={{ color: st.color }}
                     >
                       {st.label}
@@ -330,7 +330,7 @@ export default function ChangeRequestsSection({ isActive }) {
 
                   {isOpen && (
                     <div className="px-3 pb-3 pt-1" style={{ borderTop: `1px solid ${RULE}` }}>
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
+                      <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
                         What they changed, and why
                       </p>
                       <p className="text-[12px] whitespace-pre-wrap mb-3" style={{ color: INK }}>
@@ -458,7 +458,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             </Button>
                           </div>
                           {!note.trim() && (
-                            <p className="text-[10px] mt-1" style={{ color: INK_2 }}>
+                            <p className="text-[11px] mt-1" style={{ color: INK_2 }}>
                               A note is required — the proposer needs to know what to change.
                             </p>
                           )}
@@ -477,8 +477,7 @@ export default function ChangeRequestsSection({ isActive }) {
                           <button
                             type="button"
                             onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm"
-                            style={{ backgroundColor: PAPER_RAISED, color: INK }}
+                            className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark"
                           >
                             <X className="w-3 h-3" /> Decline
                           </button>
