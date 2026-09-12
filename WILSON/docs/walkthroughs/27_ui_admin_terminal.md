@@ -46,6 +46,10 @@ never been reviewed by anyone, because nobody has ever seen them.
 
 ### 3. Everything else should look **identical**
 
+> Part one only. Part two below is the session that changed how the page
+> looks, so this section describes what was true in September's first pass,
+> not what is on your screen now.
+
 This is the part worth checking carefully, because it is the claim most
 likely to be wrong. The largest commit here moved every hover, selected,
 active, disabled and confirmation state out of the JavaScript and into a
