@@ -60,6 +60,7 @@ import {
 } from '../../ui/tokens'
 import Button from '../../ui/Button'
 import Chip from '../../ui/Chip'
+import SectionTitle from '../../ui/SectionTitle'
 
 const TABS = [
   { key: 'open',    label: 'Open' },
@@ -225,7 +226,13 @@ export default function ChangeRequestsSection({ isActive }) {
   const visible = tab === 'open' ? open : settled
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div className="at-section">
+      {/* AT-10: this section opened with no heading at all — the tab chips
+          were the first thing on it, and nothing said what the page was
+          showing. */}
+      <SectionTitle description="Course changes proposed by your team, waiting on an admin's decision.">
+        Change requests
+      </SectionTitle>
       <div className="flex items-center gap-2 mb-4">
         <div className="at-filter-group">
           {TABS.map(t => (

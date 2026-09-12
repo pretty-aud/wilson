@@ -16,10 +16,19 @@
 // prop that is supposed to drive it, both ways round, so an inverted or
 // swapped expression fails here even though the source scan still passes.
 //
-// Deliberately the *state* attributes, not the styling: this file must keep
-// passing unchanged through the whole C3b conversion. If a later edit makes
-// it fail, the conversion inverted a state — which is exactly the thing
-// nobody would otherwise see until a customer was in it.
+// Deliberately the *state*, not the styling. The intent was that this file
+// pass unchanged through the C3b conversion, and it very nearly did: the
+// toggle assertions moved from `data-on` to `aria-checked` because the
+// hand-rolled track became the kit `Switch`, and `aria-checked` is the
+// attribute BOTH spellings carried.
+//
+// The roster assertions changed for a harder reason, recorded here because
+// it is the lesson rather than a detail. They asserted `data-selected` was
+// the string "false", and they PASSED while every row on the page painted as
+// selected: the kit keys that rule on the attribute's PRESENCE, so "false"
+// is present and paints. A state test that checks a value the stylesheet
+// does not read proves nothing. These now assert absence, which is what the
+// rule actually looks at.
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
@@ -105,33 +114,42 @@ function rosterRow(name) {
 }
 
 describe('the roster row reflects the member it was rendered from', () => {
-  // data-selected — C3 moved `backgroundColor: selected ? 'rgba(234,88,12,0.1)' : …`
-  // out of the row's inline style. Nothing but a click sets it, so a
-  // constant-true or inverted expression would paint every row selected.
-  it('marks only the clicked row data-selected, and marks none before a click', () => {
+  // 🚨 ABSENT, NOT "false". The kit `Row` writes
+  // `data-selected={selected || undefined}` and `index.css` keys on the
+  // attribute's PRESENCE (`.ui-tr[data-selected]`), so "false" is a present
+  // attribute and paints. C3b shipped exactly that for one commit — every
+  // roster row rendered selected AND deactivated at once, with every `<td>`
+  // measuring the signal tint while its row reported `data-selected="false"`.
+  //
+  // These assertions therefore check the CONTRACT THAT PAINTS, not the
+  // spelling. `toBeNull()` is the half that would have caught it.
+
+  // Nothing but a click sets the selection, so a constant-true or inverted
+  // expression would mark every row.
+  it('marks only the clicked row selected, and marks none before a click', () => {
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
 
-    expect(rosterRow('Ada Lovelace').getAttribute('data-selected')).toBe('false')
-    expect(rosterRow('Grace Hopper').getAttribute('data-selected')).toBe('false')
+    expect(rosterRow('Ada Lovelace').getAttribute('data-selected')).toBeNull()
+    expect(rosterRow('Grace Hopper').getAttribute('data-selected')).toBeNull()
 
     fireEvent.click(rosterRow('Ada Lovelace'))
     expect(rosterRow('Ada Lovelace').getAttribute('data-selected')).toBe('true')
-    expect(rosterRow('Grace Hopper').getAttribute('data-selected')).toBe('false')
+    expect(rosterRow('Grace Hopper').getAttribute('data-selected')).toBeNull()
 
     // The selection MOVES rather than accumulating — the one thing a
     // single-selection table must not get wrong.
     fireEvent.click(rosterRow('Grace Hopper'))
-    expect(rosterRow('Ada Lovelace').getAttribute('data-selected')).toBe('false')
+    expect(rosterRow('Ada Lovelace').getAttribute('data-selected')).toBeNull()
     expect(rosterRow('Grace Hopper').getAttribute('data-selected')).toBe('true')
   })
 
-  // data-inactive — the deactivated treatment. It is the NEGATION of
-  // `is_active`, which is the single likeliest expression to ship inverted,
-  // and inverted it would grey out every working account on the page.
-  it('marks the deactivated member data-inactive and the active one not', () => {
+  // The deactivated treatment is the NEGATION of `is_active`, the single
+  // likeliest expression to ship inverted; inverted it would grey out every
+  // working account on the page.
+  it('marks the deactivated member inactive and the active one not', () => {
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
 
-    expect(rosterRow('Ada Lovelace').getAttribute('data-inactive')).toBe('false')
+    expect(rosterRow('Ada Lovelace').getAttribute('data-inactive')).toBeNull()
     expect(rosterRow('Grace Hopper').getAttribute('data-inactive')).toBe('true')
   })
 })

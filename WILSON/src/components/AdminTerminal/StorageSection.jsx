@@ -61,6 +61,7 @@ import { WORKSPACE_PROVIDERS } from '../../tools/rabbit_v0.1.0/storage'
 import {
   INK, INK_2, RULE, PAPER_RAISED, SIGNAL, SIGNAL_TINT, SUCCESS, DANGER,
 } from '../../ui/tokens'
+import SectionTitle from '../../ui/SectionTitle'
 
 const cardStyle = {
   backgroundColor: PAPER_RAISED,
@@ -598,14 +599,13 @@ export default function StorageSection({ isActive, workspaceId }) {
     : null
 
   return (
-    <div style={{ maxWidth: '720px' }}>
-      <h2 className="text-sm font-bold uppercase tracking-widest mb-1" style={{ color: INK }}>
+    <div className="at-section at-storage">
+      {/* AT-10: seven sections, five of which opened with no heading at all
+          and two of which used different levels. One `SectionTitle`, sentence
+          case (Q2), with the hairline above rather than a filled bar. */}
+      <SectionTitle description="Where this company's media lives. Only workspace admins can change these settings.">
         Storage
-      </h2>
-      <p className="text-xs leading-relaxed mb-4" style={{ color: INK_2 }}>
-        Where this company&rsquo;s media lives. Only workspace admins can
-        change these settings.
-      </p>
+      </SectionTitle>
 
       {loadError && (
         <div className="p-3 rounded-sm mb-3"

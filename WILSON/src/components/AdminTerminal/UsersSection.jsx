@@ -284,13 +284,31 @@ export default function UsersSection({ wm }) {
             )}
           >
             {filtered.map(m => (
+              /* 🚨 `selected` AND `inactive` ARE THE KIT'S PROPS, NOT
+                 `data-*` ATTRIBUTES WRITTEN BY HAND, and the difference is a
+                 defect rather than a style. `Row` writes
+                 `data-selected={selected || undefined}` so the attribute is
+                 ABSENT when false, and `index.css` keys on its PRESENCE
+                 (`.ui-tr[data-selected]`). C3's extraction spelled these
+                 `String(...)`, which renders `data-selected="false"` — an
+                 attribute that is present. Passed straight through, every row
+                 in the roster painted as selected AND deactivated at once,
+                 and it did: caught in the running app, not by reading, with
+                 every `<td>` measuring `rgba(234, 88, 12, 0.16)` while its
+                 row reported `data-selected="false"`.
+
+                 The page keeps no rule of its own for either state now. The
+                 kit owns the one selected treatment and the one deactivated
+                 ink, which is the convergence this bundle is for — and
+                 `adminTerminalCss.test.js` has a guard so no `.at-*` element
+                 can hand a String()-spelled attribute to a kit selector that
+                 keys on presence again. */
               <Row
                 key={m.user_id}
                 onClick={() => setSelectedId(m.user_id)}
                 interactive
-                className="at-roster-row"
-                data-selected={String(selectedId === m.user_id)}
-                data-inactive={String(!m.is_active)}
+                selected={selectedId === m.user_id}
+                inactive={!m.is_active}
               >
                 <Td>
                   <span className="at-member-cell">

@@ -254,7 +254,7 @@ describe('🚨 every state rule is paired with an element that can trigger it', 
     // convergence this whole lane exists to do. What it still has to do is
     // stop a rule vanishing UNNOTICED, so the number is exact and any change
     // to it has to be argued here, in this comment, the way this one is.
-    expect(PAIRS.length).toBe(17)
+    expect(PAIRS.length).toBe(15)
   })
 
   it.each(PAIRS)('.%s[%s] has an element carrying BOTH', (cls, attr) => {
@@ -328,11 +328,6 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     [/\.at-nav-item\s*\{[^}]*color:\s*var\(--color-ink-2\)/, 'nav idle ink'],
     // AT-33's two group separators, which is the whole of that finding's fix
     [/\.at-nav-item\[data-group-start='true'\]\s*\{[^}]*border-top:\s*1px solid var\(--color-rule\)/, 'AT-33 nav group separator'],
-    // the roster: the kit's selected treatment, and the third ink rather than
-    // an opacity for a deactivated member (plan §3.1)
-    [/\.at-roster-row\[data-selected='true'\]\s*\{[^}]*background-color:\s*var\(--color-signal-tint\)/, 'roster selected fill'],
-    [/\.at-roster-row\[data-selected='true'\]\s*\{[^}]*box-shadow:\s*inset 2px 0 0 var\(--color-signal\)/, 'roster selected edge'],
-    [/\.at-roster-row\[data-inactive='true'\] \.ui-td\s*\{\s*color:\s*var\(--color-ink-3\)/, 'roster deactivated ink, not an opacity'],
     // the expanded log row keeps its context block attached
     [/\.at-log-row\[data-expanded='true'\] \.ui-td\s*\{\s*border-bottom-color:\s*transparent/, 'expanded log row'],
     // AT-27: the models row is a grid with a RESERVED reset track
@@ -368,6 +363,85 @@ describe('🚨 the load-bearing values, pinned literally', () => {
   it('🚨 no state rule sets a border via the `border` shorthand', () => {
     const stateRules = [...cssCode.matchAll(/\.at-[a-z0-9-]+\[data-[a-z-]+='[^']*'\][^{]*\{([^}]*)\}/g)]
     expect(stateRules.map((m) => m[1]).filter((b) => /(^|;)\s*border:\s/.test(b))).toEqual([])
+  })
+})
+
+describe('🚨 a String()-spelled attribute never meets a presence selector', () => {
+  // THE DEFECT THIS EXISTS TO PREVENT, because it shipped for the length of
+  // one commit and only the running app showed it.
+  //
+  // C3's extraction spells every state `data-x={String(<expr>)}`, which is
+  // what makes the value assertable and is right for a rule this page owns:
+  // `.at-log-row[data-expanded='true']` reads the VALUE, so "false" simply
+  // does not match. The kit does the opposite. `Row` writes
+  // `data-selected={selected || undefined}` and `index.css` keys on the
+  // attribute's PRESENCE — `.ui-tr[data-selected]` — so an attribute spelled
+  // `String(false)` is present and the rule fires.
+  //
+  // Handing `data-selected={String(...)}` and `data-inactive={String(...)}`
+  // straight to `<Row>` therefore painted EVERY roster row as selected and
+  // deactivated at once. Every `<td>` measured `rgba(234, 88, 12, 0.16)`
+  // while its own row reported `data-selected="false"`, and every test in
+  // this file passed, because the source scan checks the spelling and the
+  // render tests check the value. Neither can see a paint.
+  //
+  // The fix is to pass the kit's PROPS. The rule is that the two spellings
+  // must never meet, and this is where that is enforced.
+  const PRESENCE = [...new Set(
+    [...readFileSync(join(here, '../../index.css'), 'utf8')
+      .matchAll(/\.ui-[a-z-]+\[(data-[a-z-]+)\](?!=)/g)].map((m) => m[1]),
+  )]
+
+  /**
+   * Every component name this directory imports from the kit, in all three
+   * import shapes it actually uses:
+   *
+   *   import Button from '../../ui/Button'
+   *   import { Th, Td, Row } from '../../ui/Table'
+   *   import Table, { Th, Td, Row } from '../../ui/Table'
+   *
+   * A pattern that reads only the third shape finds neither `Button` nor
+   * `Table`, and the guard below then scans nothing while passing — which is
+   * what it did on the first attempt, and is why the check after it exists.
+   */
+  const kitComponents = new Set(
+    Object.values(sources).flatMap((src) =>
+      [...src.matchAll(/import\s+([\w\s,{}]+?)\s+from\s+'\.\.\/\.\.\/ui\/\w+'/g)]
+        .flatMap((m) => m[1].split(/[,{}]/).map((n) => n.trim()).filter(Boolean)),
+    ),
+  )
+
+  it('the derivations can see the things they are meant to check', () => {
+    // Two derivations deep — the presence list from `index.css`, the
+    // component list from the imports — and either going empty makes the
+    // guard pass while checking nothing.
+    expect(PRESENCE).toContain('data-selected')
+    expect(PRESENCE).toContain('data-inactive')
+    expect(kitComponents.has('Table')).toBe(true)
+    expect(kitComponents.has('Row')).toBe(true)
+    expect(kitComponents.has('Button')).toBe(true)
+    expect(ALL_TAGS.some(({ tag }) => /^<\s*Row\b/.test(tag))).toBe(true)
+  })
+
+  it('no KIT element in this directory is handed one as String(<expression>)', () => {
+    // Scoped to kit elements, and only to kit elements. `.at-nav-item` and
+    // `.at-picker` both carry `data-active={String(…)}` and both are correct:
+    // `index.css` keys `data-active` on presence for `.ui-tab`, and neither
+    // of those is a `.ui-tab`. The page's own rules read the VALUE
+    // (`[data-active='true']`), where "false" simply does not match. The
+    // collision exists only where a String()-spelled attribute is handed to a
+    // KIT component, which is exactly where it was found.
+    const offenders = []
+    for (const { file, tag } of ALL_TAGS) {
+      const name = (tag.match(/^<\s*([A-Za-z][\w.]*)/) || [])[1]
+      if (!name || !kitComponents.has(name)) continue
+      for (const attr of PRESENCE) {
+        if (new RegExp(`${attr}=\\{String\\(`).test(tag)) {
+          offenders.push(`${file}: <${name}> is handed ${attr}={String(…)}, which index.css matches by presence — pass the component's own prop instead`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })
 

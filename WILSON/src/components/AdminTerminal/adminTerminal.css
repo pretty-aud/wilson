@@ -150,6 +150,13 @@
     padding-bottom: 24px;
   }
   .at-logs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  /* 🚨 `.ui-tabs` is `flex-wrap: wrap`, which is right for R.A.B.B.I.T.'s
+     eleven-tab strip and wrong inside a `Toolbar`: the slot is
+     `min-width: 0`, so two tabs stacked vertically beside the filters and
+     the toolbar stopped having one baseline. Caught in the screenshot, not
+     in a test — no test in this repo lays anything out. Two tabs never need
+     a second line. */
+  .at-section .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
 
   /* ═══ SHARED TEXT ROLES ════════════════════════════════════════════════
      Five roles from the one scale (AT-07: nine sizes, an 11px body and 50
@@ -259,17 +266,14 @@
 
   .at-roster { min-height: 0; }
   .at-roster-scroll { flex: 1; min-height: 0; }
-  /* The roster row's two states. `selected` is a real selection the user
-     made, so it is the kit's own treatment; `inactive` is the third ink
-     rather than an opacity, which is the plan's rule and also the reason a
-     deactivated member's row stays readable instead of fading toward the
-     ground. AT-22's other half — the roster had NO hover at all while the
-     Logs table did — is the kit's `interactive` now. */
-  .at-roster-row[data-selected='true'] {
-    background-color: var(--color-signal-tint);
-    box-shadow: inset 2px 0 0 var(--color-signal);
-  }
-  .at-roster-row[data-inactive='true'] .ui-td { color: var(--color-ink-3); }
+  /* 🚨 THE ROSTER ROW'S TWO STATES HAVE NO RULE HERE, ON PURPOSE. `selected`
+     and `inactive` are the kit `Row`'s own props and `index.css` paints them:
+     the one selected treatment (tint plus a 2px signal edge) and the third
+     ink for a deactivated member, never an opacity. A page copy would be a
+     second answer to a question the kit already answers, which is the
+     divergence this lane exists to remove — and AT-22's other half, the
+     roster having NO hover at all while the Logs table had one, is the kit's
+     `interactive` now. */
 
   .at-member-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .at-member-name {
@@ -402,6 +406,9 @@
 
   /* ═══ MODELS ═══════════════════════════════════════════════════════════ */
   .at-models { overflow-y: auto; max-width: 900px; padding-bottom: 24px; }
+  /* Storage is a stack of cards and pickers, not a table: the form measure,
+     not the data cap. */
+  .at-storage { max-width: 720px; overflow-y: auto; padding-bottom: 24px; }
   .at-model-group { display: flex; flex-direction: column; gap: 4px; }
   .at-model-list {
     border: 1px solid var(--color-rule);
