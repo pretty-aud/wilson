@@ -270,7 +270,7 @@ export default function ChangeRequestsSection({ isActive }) {
       {error && (
         <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: DANGER }} />
-          <span className="text-[11px] font-mono" style={{ color: DANGER }}>{error}</span>
+          <span className="text-[11px]" style={{ color: DANGER }}>{error}</span>
         </div>
       )}
 
@@ -278,7 +278,7 @@ export default function ChangeRequestsSection({ isActive }) {
       {applied && !error && (
         <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)' }}>
           <Check className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: SUCCESS }} />
-          <span className="text-[11px] font-mono" style={{ color: SUCCESS }}>
+          <span className="text-[11px]" style={{ color: SUCCESS }}>
             Applied to “{applied.name}”
             {applied.updates != null ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added` : ''}.
             A pre-change archive was kept in your O.T.T.E.R. library.
@@ -320,7 +320,7 @@ export default function ChangeRequestsSection({ isActive }) {
                       <span className="block text-[12px] font-bold" style={{ color: INK }}>
                         {r.target_name ?? 'A company standard course'}
                       </span>
-                      <span className="block text-[11px] font-mono truncate" style={{ color: INK_2 }}>
+                      <span className="block text-[11px] truncate" style={{ color: INK_2 }}>
                         {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                         {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                       </span>
@@ -345,7 +345,7 @@ export default function ChangeRequestsSection({ isActive }) {
                       {/* The review window: readable while the request is live. */}
                       {(r.status === 'open' || r.status === 'changes_requested') && (
                         r.source_readable ? (
-                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
+                          <p className="text-[11px] mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
                             <Eye className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>
                               Submitting shared their copy with reviewers for as long as this
@@ -361,7 +361,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             </span>
                           </p>
                         ) : (
-                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
+                          <p className="text-[11px] mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
                             <EyeOff className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                           </p>
@@ -369,14 +369,14 @@ export default function ChangeRequestsSection({ isActive }) {
                       )}
 
                       {r.status === 'changes_requested' ? (
-                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: INK_2 }}>
+                        <p className="text-[11px] flex items-center gap-1.5" style={{ color: INK_2 }}>
                           <Lock className="w-3 h-3 flex-shrink-0" />
                           Changes requested by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}.
                           Waiting on {r.proposer_label ?? 'the proposer'} to revise or accept.
                         </p>
                       ) : r.status !== 'open' ? (
-                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: INK_2 }}>
+                        <p className="text-[11px] flex items-center gap-1.5" style={{ color: INK_2 }}>
                           <Lock className="w-3 h-3 flex-shrink-0" />
                           {st.label} by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}

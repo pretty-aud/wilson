@@ -613,7 +613,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {loadError && (
         <div className="p-3 rounded-control mb-3"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
-          <p className="text-[11px] font-mono mb-2" style={{ color: DANGER }}>
+          <p className="text-[11px] mb-2" style={{ color: DANGER }}>
             Storage settings could not be loaded: {loadError}. Changes are
             disabled so a root you cannot see is not overwritten.
           </p>
@@ -936,7 +936,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           )}
 
           {probeSummary && !refusal && confirmStep === 0 && (
-            <div className="flex items-center gap-1.5 text-[11px] font-mono mb-1" style={{ color: SUCCESS }}>
+            <div className="flex items-center gap-1.5 text-[11px] mb-1" style={{ color: SUCCESS }}>
               <CheckCircle2 className="w-3.5 h-3.5" /> {probeSummary}
             </div>
           )}
@@ -1167,7 +1167,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               </span>
             </div>
             {testResult && !s3Refusal && (
-              <div className="flex items-center gap-1.5 text-[11px] font-mono mt-2" style={{ color: SUCCESS }}>
+              <div className="flex items-center gap-1.5 text-[11px] mt-2" style={{ color: SUCCESS }}>
                 <CheckCircle2 className="w-3.5 h-3.5" /> {testResult}
               </div>
             )}
@@ -1184,13 +1184,13 @@ export default function StorageSection({ isActive, workspaceId }) {
       )}
 
       {saveError && (
-        <div className="p-2 rounded-control text-[11px] font-mono mb-2"
+        <div className="p-2 rounded-control text-[11px] mb-2"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
           {saveError}
         </div>
       )}
       {notice && !saveError && (
-        <div className="flex items-center gap-1.5 text-[11px] font-mono mb-2" style={{ color: SUCCESS }}>
+        <div className="flex items-center gap-1.5 text-[11px] mb-2" style={{ color: SUCCESS }}>
           <CheckCircle2 className="w-3.5 h-3.5" /> {notice}
         </div>
       )}

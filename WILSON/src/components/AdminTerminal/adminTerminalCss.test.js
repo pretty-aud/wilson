@@ -590,6 +590,31 @@ describe('C7: the 11px floor, and one scale', () => {
     expect(SIZES.filter((s) => !STEPS.has(s.px))).toEqual([])
   })
 
+  it('🚨 Q4: the mono is on data, never on prose', () => {
+    // "Data only: numerics in tables, sizes, durations, budgets, counts, ids,
+    // file paths, timecode, keyboard keys, code blocks, the version footer. It
+    // leaves every label, heading, button, tab, chip and paragraph."
+    //
+    // The two spellings separate cleanly in this directory, and the separation
+    // IS the rule: a BARE `font-mono` on an inline span is always wrapping a
+    // value — a UNC path, a bucket name, a drive letter, a root path — and is
+    // correct. `font-mono` beside a SIZE class is always a whole message or
+    // paragraph, and is not. Twelve of those shipped: two error strings, two
+    // success strings, a row subtitle and seven explanatory paragraphs, all
+    // set in the browser's fallback monospace — which is the face the plan's
+    // own diagnosis blames for the app reading as dated in the first place.
+    const prose = []
+    for (const [file, src] of Object.entries(sources)) {
+      for (const m of src.matchAll(/className="([^"]*font-mono[^"]*)"/g)) {
+        if (/text-\[|text-(xs|sm|base|lg|xl)\b/.test(m[1])) {
+          const line = src.slice(0, m.index).split('\n').length
+          prose.push(`${file}:${line} — \`${m[1]}\`: sized like a block, so it is prose, not data`)
+        }
+      }
+    }
+    expect(prose).toEqual([])
+  })
+
   it('🚨 the page stylesheet reads the scale rather than spelling a size', () => {
     // The sheet's own type comes from `--text-*`; a raw `font-size: 12px`
     // there is a scale invented in a second place.
