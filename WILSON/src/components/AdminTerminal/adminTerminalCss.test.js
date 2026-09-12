@@ -232,12 +232,18 @@ describe('🚨 no element fights its own stylesheet', () => {
     const offenders = []
     for (const { file, tag, src } of ALL_TAGS) {
       const classes = tagClasses(tag)
-      if (!classes.length) continue
+      // 🚨 THE UNREADABLE-STYLE CHECK RUNS BEFORE THE CLASS FILTER. It used to
+      // sit after it, so any element WITHOUT an `at-*` class was invisible —
+      // which is the exact shape of the defect being guarded: the Storage
+      // pickers' disabled state was killed by inline colours on Tailwind-
+      // classed CHILDREN, not on the `.at-picker` itself. Round two reverted
+      // that whole fix and the check stayed green.
       const inline = tagStyleProps(tag, src)
       if (inline === UNPARSED) {
-        offenders.push(`${file}: .${classes[0]} carries a \`style=\` this check cannot read — spell it as an object literal or a named const`)
+        offenders.push(`${file}: <${(tag.match(/^<\s*([\w.]+)/) || [])[1]}> carries a \`style=\` this check cannot read — spell it as an object literal or a named const`)
         continue
       }
+      if (!classes.length) continue
       if (!inline.size) continue
       for (const c of classes) {
         for (const p of CSS_PROPS[c] || []) {
@@ -528,10 +534,16 @@ describe('🚨 every state ATTRIBUTE is paired with a rule that reads it', () =>
     // A test hook, read by the test runner rather than by a stylesheet.
     const EXEMPT = new Set(['data-testid'])
 
+    // 🚨 ALL THREE JSX SPELLINGS OF A LITERAL. `data-x="v"`, `data-x='v'` —
+    // which is what a single-quote lint rule produces — and `data-x={'v'}`.
+    // Round two reintroduced the dead `data-tone="chip"` in the second and
+    // third spellings and the check stayed green in both.
+    const LITERAL = /(data-[a-z-]+)=(?:"([^"]+)"|'([^']+)'|\{\s*['"]([^'"]+)['"]\s*\})/g
     const dead = []
     for (const { file, tag } of ALL_TAGS) {
-      for (const m of tag.matchAll(/(data-[a-z-]+)="([^"]+)"/g)) {
-        const [, attr, value] = m
+      for (const m of tag.matchAll(LITERAL)) {
+        const attr = m[1]
+        const value = m[2] ?? m[3] ?? m[4]
         if (EXEMPT.has(attr) || bare.has(attr) || valued.has(`${attr}=${value}`)) continue
         dead.push(`${file}: ${attr}="${value}" — no selector in either stylesheet accepts that value`)
       }
@@ -555,6 +567,50 @@ describe('🚨 every state ATTRIBUTE is paired with a rule that reads it', () =>
       }
     }
     expect(literals).toEqual([])
+  })
+})
+
+describe('\u{1F6A8} a state that colours descendants reaches all of them', () => {
+  // THE HOLE ROUND TWO FOUND IN THE PREVIOUS GUARD, stated precisely.
+  //
+  // `.at-picker:disabled` colours three named descendants, because a
+  // container's colour does not inherit into a child that sets its own. The
+  // inline-style check cannot see a child with no `at-*` class, and the
+  // orphan-rule check cannot see a PARTIAL revert — round two swapped two of
+  // the five `.at-prose` spans back to Tailwind classes with inline colours,
+  // the class kept three other callers, and every guard stayed green while
+  // the disabled pickers rendered at full strength again.
+  //
+  // What is actually invariant is countable: there are exactly two pickers on
+  // this surface, each with a label, a blurb and an icon, and the disabled
+  // rule names all three classes. If a span loses its class the count drops,
+  // whether one span or five.
+  const storage = sources['StorageSection.jsx'] || ''
+  const count = (cls) => (storage.match(new RegExp(`className=\"[^\"]*\\b${cls}\\b`, 'g')) || []).length
+
+  it('the disabled rule still names all three', () => {
+    for (const cls of ['at-picker-label', 'at-prose', 'at-picker-icon']) {
+      expect(cssCode).toMatch(new RegExp(`\\.at-picker:disabled[^{]*\\.${cls}`))
+    }
+  })
+
+  it('both pickers carry a classed label, blurb and icon', () => {
+    // Two pickers, two of each. `at-prose` is also the class for three plain
+    // paragraphs elsewhere in the file, so its floor is five, not two.
+    expect(count('at-picker-label')).toBe(2)
+    expect(count('at-picker-icon')).toBe(2)
+    expect(count('at-prose')).toBe(5)
+  })
+
+  it('no picker descendant sets a colour inline', () => {
+    // The direct statement of the rule, for the one container whose state
+    // depends on it. An inline colour here beats the class at any
+    // specificity, which is how the state was lost the first time.
+    const offenders = []
+    for (const m of storage.matchAll(/<span className="(at-picker-label|at-prose|at-picker-text)"[^>]*>/g)) {
+      if (/\sstyle=/.test(m[0])) offenders.push(m[0].slice(0, 80))
+    }
+    expect(offenders).toEqual([])
   })
 })
 
@@ -664,13 +720,27 @@ describe('C8: the sheet is tokens now, and the transcription ledger is closed', 
     // Comments are stripped first: this file and several components discuss
     // the old values by name, and a guard that cannot tell code from prose
     // gets deleted by the next person who trips over it.
+    // 🚨 A FLAT SCAN, NOT A QUOTE-PAIRING ONE, AND THAT IS THE SECOND
+    // ATTEMPT. The first spelling matched a hex only as the ENTIRE contents
+    // of a single-quoted token, so round two put both hexes back as
+    // `"#9a3412"` and the check stayed green. The obvious repair — pair the
+    // quotes properly and look inside — was ALSO green against the same
+    // mutation: these files are CRLF and full of apostrophes in JSX prose
+    // ("this company's media"), so a quote-pairing matcher mispairs almost
+    // immediately and every offset after it is fiction.
+    //
+    // There is no legitimate colour literal in these thirteen files, so the
+    // honest check is the simplest one: strip comments, then a hex or an
+    // rgb() ANYWHERE in what is left is a finding. Nothing to evade by
+    // changing quotes, by concatenating, or by hiding it in a longer string.
     const offenders = []
     for (const [file, src] of Object.entries(sources)) {
       const code = src
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/(^|[^:])\/\/.*$/gm, '$1')
-      for (const m of code.matchAll(/'(#[0-9a-fA-F]{3,8})'|'(rgba?\([^)]*\))'/g)) {
-        offenders.push(`${file}: ${m[1] || m[2]}`)
+      for (const m of code.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)) {
+        const line = code.slice(0, m.index).split('\n').length
+        offenders.push(`${file}:~${line} writes ${m[0]} — colours come from @theme (C8)`)
       }
     }
     expect(offenders).toEqual([])

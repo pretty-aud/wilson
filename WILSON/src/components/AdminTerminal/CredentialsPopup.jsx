@@ -61,7 +61,13 @@ export async function copyTextToClipboard(text) {
 
 export default function CredentialsPopup({ open, username, password, context = 'created', onClose }) {
   const [copied, setCopied] = useState(null)     // 'username' | 'password' | 'both' | null
-  const [hasCopied, setHasCopied] = useState(false)
+  // 🚨 THE PASSWORD, NOT ANY COPY. This was `hasCopied`, set by every copy
+  // button including the USERNAME row — which is the top row and the natural
+  // first click. Copy the username, press Escape once, and the password was
+  // gone forever, because the gate had already opened. The walkthrough
+  // promises Audrey that nothing can lose a password in one action, and for
+  // one commit that sentence was false.
+  const [savedPassword, setSavedPassword] = useState(false)
   const [armedClose, setArmedClose] = useState(false)
   const revertTimer = useRef(null)
   const armTimer = useRef(null)
@@ -70,7 +76,7 @@ export default function CredentialsPopup({ open, username, password, context = '
   useEffect(() => {
     if (!open) return undefined
     setCopied(null)
-    setHasCopied(false)
+    setSavedPassword(false)
     setArmedClose(false)
     return () => {
       if (revertTimer.current) clearTimeout(revertTimer.current)
@@ -83,7 +89,9 @@ export default function CredentialsPopup({ open, username, password, context = '
   async function doCopy(key, text) {
     const ok = await copyTextToClipboard(text)
     if (!ok) return
-    setHasCopied(true)
+    // Only a copy that actually took the password counts. `both` does; the
+    // username row does not, however reasonable clicking it first feels.
+    if (key === 'password' || key === 'both') setSavedPassword(true)
     setCopied(key)
     if (revertTimer.current) clearTimeout(revertTimer.current)
     revertTimer.current = setTimeout(() => setCopied(null), 1500)
@@ -93,7 +101,7 @@ export default function CredentialsPopup({ open, username, password, context = '
   // false the first time, which is what tells `Dialog` not to close; the
   // second call inside the 3s window returns true and the dialog goes.
   function mayClose() {
-    if (hasCopied || armedClose) return true
+    if (savedPassword || armedClose) return true
     setArmedClose(true)
     if (armTimer.current) clearTimeout(armTimer.current)
     armTimer.current = setTimeout(() => setArmedClose(false), 3000)
@@ -119,10 +127,10 @@ export default function CredentialsPopup({ open, username, password, context = '
            asked from. */
         <span role="status" className="at-cred-exit">
           <Button
-            variant={hasCopied || armedClose ? 'primary' : 'secondary'}
+            variant={savedPassword || armedClose ? 'primary' : 'secondary'}
             onClick={() => { if (mayClose()) onClose?.() }}
           >
-            {armedClose && !hasCopied ? 'Close without copying?' : "I've saved these"}
+            {armedClose && !savedPassword ? 'Close without copying?' : "I've saved these"}
           </Button>
         </span>
       )}

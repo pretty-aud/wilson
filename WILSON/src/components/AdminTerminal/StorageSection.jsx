@@ -59,7 +59,7 @@ import { WORKSPACE_PROVIDERS } from '../../tools/rabbit_v0.1.0/storage'
 // the input well, and nothing else. The eleven conditional branches this file
 // carries (review Risk 1) are untouched in shape.
 import {
-  INK, INK_2, RULE, PAPER_RAISED, SIGNAL, SIGNAL_TINT, SUCCESS, DANGER,
+  INK, INK_2, RULE, PAPER_RAISED, PAPER_RECESSED, SIGNAL, SIGNAL_TINT, SUCCESS, DANGER,
 } from '../../ui/tokens'
 import SectionTitle from '../../ui/SectionTitle'
 
@@ -721,10 +721,14 @@ export default function StorageSection({ isActive, workspaceId }) {
               {/* The bar renders ONLY on a known quota. quotaKnown is false for
                   a zero or missing ceiling, and a bar drawn against one would
                   be either a divide-by-zero or a 0% reassurance. */}
+              {/* The trough was `paper-raised`, the same value as the card it
+                  sits in — 1.00:1, so at 40 percent you saw an orange dash and
+                  nothing telling you what the whole was. A meter whose track
+                  is invisible is a meter with no scale. */}
               {quotaKnown && (
                 <div
                   className="h-1.5 rounded-control overflow-hidden mb-2"
-                  style={{ backgroundColor: PAPER_RAISED }}
+                  style={{ backgroundColor: PAPER_RECESSED }}
                   role="progressbar"
                   aria-valuenow={Math.round(usagePct)}
                   aria-valuemin={0}

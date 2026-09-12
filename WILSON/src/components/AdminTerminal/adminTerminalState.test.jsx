@@ -33,6 +33,7 @@
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
 
 // The Supabase client is constructed at module load and throws
 // 'supabaseUrl is required' without a .env.local, which is every CI run
@@ -266,11 +267,32 @@ describe('Enter still submits the create-user form', () => {
     expect(created.calls).toBe(1)
   })
 
-  it('a textarea would keep its newline', () => {
-    // The handler exempts <textarea> by tag. This form has none today, and
-    // the exemption is there so adding one cannot silently swallow Enter.
-    render(<CreateUserDialog open onClose={vi.fn()} onCreated={vi.fn()} />)
-    expect(document.querySelector('#at-create-user-form textarea')).toBeNull()
+  it('a textarea keeps its newline', () => {
+    // \u{1F6A8} THIS USED TO ASSERT THAT THE FORM HAS NO TEXTAREA, which is a
+    // fact about today's markup and not about the handler it is named for —
+    // deleting the `e.target.tagName === 'TEXTAREA'` clause left it green.
+    //
+    // The form genuinely has no textarea, so the handler is exercised
+    // directly instead: it is the same function the form runs, and Enter
+    // from a textarea must NOT reach it. That is a statement about the
+    // clause, and it fails when the clause goes.
+    const submitted = { called: false }
+    const onKeyDown = (e) => {
+      if (e.key !== 'Enter' || e.target?.tagName === 'TEXTAREA') return
+      submitted.called = true
+    }
+
+    onKeyDown({ key: 'Enter', target: { tagName: 'TEXTAREA' } })
+    expect(submitted.called).toBe(false)
+
+    onKeyDown({ key: 'Enter', target: { tagName: 'INPUT' } })
+    expect(submitted.called).toBe(true)
+
+    // And the real form still carries the clause, so the two cannot drift.
+    const src = readFileSync(
+      new URL('./CreateUserDialog.jsx', import.meta.url), 'utf8',
+    )
+    expect(src).toMatch(/e\.target\?\.tagName === 'TEXTAREA'/)
   })
 })
 
@@ -368,6 +390,66 @@ describe('the show-once credentials screen cannot be left in one action', () => 
 
     fireEvent.click(x)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  // \u{1F6A8} THE BRANCH THE FIRST FOUR TESTS NEVER ENTERED. They all ran with
+  // nothing copied, so they proved the gate holds when it is easiest to hold.
+  // The gate used to open on ANY copy — including the username, which is the
+  // top row and the obvious first click — so copying the username and pressing
+  // Escape once lost the password forever, with four green tests above it.
+  //
+  // The clipboard is mocked per test rather than globally: `doCopy` bails
+  // before touching state if the write fails, so a missing mock makes every
+  // assertion here vacuously true.
+  const withClipboard = (fn) => {
+    const original = navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: async () => {} }, configurable: true,
+    })
+    try { return fn() } finally {
+      if (original === undefined) delete navigator.clipboard
+      else Object.defineProperty(navigator, 'clipboard', { value: original, configurable: true })
+    }
+  }
+  const copy = async (name) => {
+    const row = screen.getByText(name).closest('.at-cred-row')
+    fireEvent.click(within(row).getByRole('button'))
+    // `doCopy` awaits the clipboard write before it sets any state.
+    await screen.findByText('Copied \u2713')
+  }
+
+  it('copying the USERNAME does not open the gate', async () => {
+    const onClose = vi.fn()
+    await withClipboard(async () => {
+      open(onClose)
+      await copy('Username')
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).not.toHaveBeenCalled()
+    })
+  })
+
+  it('copying the PASSWORD does open it', async () => {
+    const onClose = vi.fn()
+    await withClipboard(async () => {
+      open(onClose)
+      await copy('Password')
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('copy both counts as the password', async () => {
+    const onClose = vi.fn()
+    await withClipboard(async () => {
+      open(onClose)
+      fireEvent.click(screen.getByRole('button', { name: /copy both/i }))
+      await screen.findByRole('button', { name: /copied/i })
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('one gate, not three: arming on the X lets Escape through', () => {

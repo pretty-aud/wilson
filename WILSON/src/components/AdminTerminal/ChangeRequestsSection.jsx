@@ -291,7 +291,10 @@ export default function ChangeRequestsSection({ isActive }) {
 
       <div className="flex-1 min-h-0 overflow-y-auto wilson-dark-scroll">
         {loading && rows.length === 0 ? (
-          <Loading rows={4} columns={3} label="Loading change requests" />
+          /* One column, not three: the list below is a stack of full-width
+             cards, and the skeleton's contract is that the real rows land
+             where the ghosts were. */
+          <Loading rows={4} columns={1} label="Loading change requests" />
         ) : visible.length === 0 ? (
           /* The kit's empty state, at its 24px icon and Body title, rather
              than a private one at 28px and 11px mono italic — every other

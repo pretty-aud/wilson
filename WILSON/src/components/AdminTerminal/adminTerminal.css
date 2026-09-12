@@ -283,7 +283,18 @@
   .at-row-control { display: flex; align-items: center; gap: 8px; }
 
   /* ═══ USERS ════════════════════════════════════════════════════════════ */
-  .at-users { display: flex; height: 100%; min-height: 0; }
+  /* 🚨 `at-section` TOO. Users was the only one of the seven whose root was
+     not `.at-section`, so every rule scoped to `.at-section` — the toolbar's
+     gutter reset among them — missed the section an admin actually lands on.
+     It is a two-column layout rather than a stack, so it overrides the
+     column direction rather than skipping the class. */
+  .at-users {
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    height: 100%;
+    min-height: 0;
+  }
   .at-users-main {
     flex: 1;
     min-width: 0;
@@ -308,7 +319,10 @@
      `textarea.ui-input`. */
   input.at-search-input { width: 260px; flex: 0 0 auto; }
 
-  .at-roster { min-height: 0; }
+  /* The width below which the roster stops fitting and starts scrolling.
+     Derived, not chosen: the six columns' longest real strings plus their
+     cell padding. See the note on `COLS` in `UsersSection.jsx`. */
+  .at-roster { min-height: 0; min-width: 860px; }
   .at-roster-scroll { flex: 1; min-height: 0; }
   /* 🚨 THE ROSTER ROW'S TWO STATES HAVE NO RULE HERE, ON PURPOSE. `selected`
      and `inactive` are the kit `Row`'s own props and `index.css` paints them:
@@ -547,6 +561,14 @@
   .at-picker:disabled .at-picker-label,
   .at-picker:disabled .at-prose,
   .at-picker:disabled .at-picker-icon { color: var(--color-ink-3); }
+  /* The third ink is 4.66:1 on `paper` and 3.88:1 over the signal tint, so a
+     disabled ACTIVE picker — which is the shipped state whenever storage
+     fails to load — put its only explanation of the two modes under the bar.
+     The second ink is 6.54:1 there. Disabled still reads as disabled: it is
+     one step quieter than the enabled ink either way. */
+  .at-picker[data-active='true']:disabled .at-picker-label,
+  .at-picker[data-active='true']:disabled .at-prose,
+  .at-picker[data-active='true']:disabled .at-picker-icon { color: var(--color-ink-2); }
 
   /* ═══ COMPANY ══════════════════════════════════════════════════════════ */
   .at-stat-row { display: flex; gap: 24px; }
@@ -618,7 +640,13 @@
   .at-cr-dot { margin-top: 3px; align-self: flex-start; }
   .at-decide-panel {
     padding: 8px;
+    /* The hairline is 1.51:1 against the row and the recessed ground is
+       1.22:1 — both real improvements on the 1.00:1 this replaced, and both
+       still under 3:1. What actually separates the panel is the signal edge
+       on the side it opens from: a confirmation is a state, and the surface
+       already uses that edge for exactly that. */
     border: 1px solid var(--color-rule);
+    border-left: 2px solid var(--color-signal);
     border-radius: var(--radius-control);
     background-color: var(--color-paper-recessed);
   }

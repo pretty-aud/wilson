@@ -168,9 +168,15 @@ anything.
 
 It now has an X and answers Escape, because every dialog in WILSON does since
 you said yes to that. **The two-step gate still holds on all three of them.**
-If you have not copied anything, the X, Escape and the button all do the same
-thing: ask "Close without copying?" once, and only leave if you do it again
-within three seconds. Nothing can lose you a password in one action.
+Until you have copied the password, the X, Escape and the button all do the
+same thing: ask "Close without copying?" once, and only leave if you do it
+again within three seconds.
+
+The gate is keyed to the **password** specifically, which matters more than it
+sounds. For a few hours during this session it opened as soon as you copied
+*anything* — and the username is the top row, so copying it first and pressing
+Escape once lost the password for good. That is fixed, and there are now three
+tests whose only job is to keep it fixed.
 
 Everything else does exactly what it did.
 

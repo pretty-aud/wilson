@@ -66,15 +66,23 @@ const ADD_MENU_WIDTH = 240
 // that no table on the surface declared one and the roster's own `truncate`
 // was therefore inert.
 //
-// 🚨 MEASURED AGAINST THE NARROWEST CASE THE TABLE EVER SEES, which is not
-// the narrowest WINDOW. The page is capped at the data measure, so the
-// section pane saturates at about 1016px and stops growing; the detail panel
-// then takes 264 of it and leaves ~752, at 1280 and at 2560 alike. The first
-// split gave Username and Rate access the same 16% while Rate access renders
-// `--` or one short badge, and every date in Joined clipped at every window
-// size with the panel open. The budget follows the longest real string in
-// each column: `kenji.morimoto` and `May 10, 2026`.
-const COLS = ['28%', '18%', '10%', '12%', '15%', '17%']
+// 🚨 PERCENTAGES ALONE CANNOT SATISFY SIX COLUMNS HERE, and two rounds of
+// rebalancing them proved it rather than fixing it. The page is capped at the
+// data measure, so the section pane saturates near 1016px whatever the window
+// does; with the detail panel open the table gets about 752. Measured against
+// the longest real string in each column — `Mara Okonkwo` plus its YOU badge,
+// `kenji.morimoto`, `Manager`, the RATE ACCESS header, `Deactivated`,
+// `May 10, 2026` — the six minimums sum to about 101 percent of 752. There is
+// no split that fits; the first one clipped Joined, the second clipped Role,
+// the Rate access header and Status instead.
+//
+// So the table declares a FLOOR and the kit's scroller does the rest:
+// `.ui-table-scroll` is `overflow: auto`, so below `--at-roster-min` the
+// roster scrolls sideways instead of slicing words in half. `Deactivated` is
+// the string that sets the floor — it is a real status with its own filter
+// tab, and `.ui-badge` is `white-space: nowrap`, so a short column does not
+// ellipsise it, it cuts the pill.
+const COLS = ['31%', '16%', '10%', '12%', '16%', '15%']
 
 function fmtDate(iso) {
   if (!iso) return '--'
@@ -162,8 +170,18 @@ export default function UsersSection({ wm }) {
   // that landed on the trigger itself, and cleared by the click that follows
   // it, so no other dismissal can suppress anything.
   const swallowNextRef = useRef(false)
+  // 🚨 THE FLAG IS CLEARED BY THE NEXT CLICK ANYWHERE, not by the next click
+  // on the trigger. A mousedown on a button is not a promise of a click on
+  // it: press-and-slide-off is the universal way to cancel a click, and with
+  // the flag waiting only for its own trigger it stayed armed indefinitely —
+  // through a section hop and back, because this component never unmounts.
+  // The first real click on ADD PEOPLE then did nothing. That is worse than
+  // the 300ms guard it replaced, on exactly the gesture people use to change
+  // their mind.
   function armSwallow() {
-    if (addMenuAt) swallowNextRef.current = true
+    if (!addMenuAt) return
+    swallowNextRef.current = true
+    document.addEventListener('click', () => { swallowNextRef.current = false }, { once: true })
   }
   function toggleAddMenu() {
     if (swallowNextRef.current) { swallowNextRef.current = false; return }
@@ -195,7 +213,7 @@ export default function UsersSection({ wm }) {
   }
 
   return (
-    <div className="at-users">
+    <div className="at-section at-users">
       <div className="at-users-main">
         <SectionTitle
           description="Everyone with an account in this workspace. Select a row to open their detail panel."
@@ -331,7 +349,9 @@ export default function UsersSection({ wm }) {
                 <Td>
                   <span className="at-member-cell">
                     <Avatar member={m} />
-                    <span className="at-member-name">
+                    {/* The one column allowed to truncate, so it carries the
+                        full value in a tooltip. */}
+                    <span className="at-member-name" title={m.display_name || m.username || undefined}>
                       {m.display_name || m.username || '--'}
                     </span>
                     {m.user_id === wm.userId && <Badge>You</Badge>}
