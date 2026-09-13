@@ -1544,6 +1544,19 @@ select option {
     height: var(--control-sm);
   }
 
+  /* ...and a tab STRIP inside a toolbar does not wrap. `.ui-tabs` is
+     `flex-wrap: wrap` because R.A.B.B.I.T.’s eleven-tab ViewTabs needs it,
+     and a two-tab toolbar must not have it: the strip breaks to a second
+     line and takes the 44px row with it (C3b kit request 1). The rule is
+     contextual rather than a `wrap={false}` prop because Toolbar’s contract
+     already says NEVER WRAPS in its own header — a prop would make callers
+     opt in to something the container already promises, and every caller
+     is in a lane’s finished file. `flex-shrink: 0` comes with it so the
+     strip keeps its width against a long right slot, which is what both
+     page-local copies carried. Retires `.at-section .ui-toolbar .ui-tabs`
+     and `.rs-page .ui-toolbar .ui-tabs`. */
+  .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
+
   /* ── SectionTitle ───────────────────────────────────────────────────── */
   .ui-section { display: flex; align-items: flex-end; gap: 16px; padding-top: 16px; }
   .ui-section[data-rule="true"] { border-top: 1px solid var(--color-rule); }
