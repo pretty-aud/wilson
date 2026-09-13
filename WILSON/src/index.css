@@ -128,6 +128,7 @@
   --measure-prose-max: 72ch;
 
   /* ── Density (§3.3) ────────────────────────────────────────────────── */
+  --control-xs: 16px;
   --control-sm: 28px;
   --control-md: 36px;
   --row: 36px;
@@ -140,6 +141,7 @@
   --panel-header: 32px;
   --shortcut-bar: 34px;
   --titlebar: 32px;
+  --icon-xs: 10px;
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 24px;
@@ -754,6 +756,16 @@ select option {
   .ui-iconbtn[data-size="sm"] { width: var(--control-sm); height: var(--control-sm); }
   .ui-iconbtn > svg { width: var(--icon-md); height: var(--icon-md); }
   .ui-iconbtn[data-size="sm"] > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  /* `xs` is the IN-COMPONENT size, and the only one: a control mounted
+     INSIDE another component rather than on the page. `.ui-badge` is 20px
+     and the smallest icon button was 28px, so a remove control put inside
+     a badge grew the row and the department chips had to give it a
+     private 16px box of their own (C3b request 3). 16/10 is what that box
+     measured. It is deliberately NOT a third page-control height — §3.3
+     has two, 28 and 36, and a 16px target on a page would be wrong. The
+     badge is the affordance; this is its glyph. */
+  .ui-iconbtn[data-size="xs"] { width: var(--control-xs); height: var(--control-xs); }
+  .ui-iconbtn[data-size="xs"] > svg { width: var(--icon-xs); height: var(--icon-xs); }
   .ui-iconbtn:hover:not(:disabled) { background-color: var(--color-hover); color: var(--color-ink); }
   .ui-iconbtn[data-active="true"] {
     color: var(--color-ink);
