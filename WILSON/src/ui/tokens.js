@@ -83,6 +83,7 @@ export const THEME = Object.freeze({
   'measure-reading': '66ch',
   'measure-prose-max': '72ch',
   // density
+  'control-xs': '16px',
   'control-sm': '28px',
   'control-md': '36px',
   'row': '36px',
@@ -95,6 +96,7 @@ export const THEME = Object.freeze({
   'panel-header': '32px',
   'shortcut-bar': '34px',
   'titlebar': '32px',
+  'icon-xs': '10px',
   'icon-sm': '14px',
   'icon-md': '16px',
   'icon-lg': '24px',
@@ -191,6 +193,7 @@ export const SHADOW_FLOAT_LIGHT = THEME['shadow-float-light']
 export const GUTTER = px('spacing-gutter')
 export const WIDTH_READING = px('width-reading')
 export const WIDTH_DATA_MAX = px('width-data-max')
+export const CONTROL_XS = px('control-xs')
 export const CONTROL_SM = px('control-sm')
 export const CONTROL_MD = px('control-md')
 export const ROW = px('row')
@@ -201,7 +204,7 @@ export const PAGE_HEADER = px('page-header')
 export const PANEL_HEADER = px('panel-header')
 export const SHORTCUT_BAR = px('shortcut-bar')
 export const TITLEBAR = px('titlebar')
-export const ICON = Object.freeze({ sm: px('icon-sm'), md: px('icon-md'), lg: px('icon-lg') })
+export const ICON = Object.freeze({ xs: px('icon-xs'), sm: px('icon-sm'), md: px('icon-md'), lg: px('icon-lg') })
 export const PANEL = Object.freeze({ sm: px('panel-sm'), md: px('panel-md'), lg: px('panel-lg') })
 export const DIALOG = Object.freeze({
   confirm: px('dialog-confirm'),

@@ -1928,8 +1928,15 @@ export default function App() {
     {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
         manager, replacing five systems in five screen positions). It lives
         here so a page never mounts a second one; F2's worked example is its
-        first caller and the four tool systems fold in with their lanes. */}
-    <ToastProvider>
+        first caller and the four tool systems fold in with their lanes.
+
+        `bar` is the current page’s bottom-bar height, so the stack sits 24px
+        above the BAR rather than 24px off the window (F4, D1b §7: two toasts
+        straddled the light pages’ 80px bar). Same `PAGE_BARS` read the pet’s
+        `petBottomOffset` takes, and the RESTING value rather than the
+        compressed one, for the same reason the pet uses it — a toast must not
+        slide during the page transition. */}
+    <ToastProvider bar={pageBars.bottom}>
     <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
       {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —

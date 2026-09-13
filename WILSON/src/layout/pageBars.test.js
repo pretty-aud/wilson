@@ -25,6 +25,9 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { PAGE_BARS, HOME_BAR_HEIGHT, PAGES, PAGE_TITLES } from './pages'
 import { bars } from './pageBars'   // the D1b controls build a rival shape through the real generator
 
@@ -53,8 +56,8 @@ const RESTING = {
   // because it is a working page, not a reading one. UI overhaul D1b
   // (W10, 2026-09-11) moved the three rows no lane owns — Settings and Help
   // (light; Help was the 140/100 outlier) and Team Members (dark since F2).
-  // The one row still at 200/150 is the one whose lane has not run yet:
-  // C3's Admin Terminal.
+  // C3 has since moved Admin Terminal too, so no row is at 200/150 any more
+  // and `OLD_RESOURCE` below is the only 200/150 shape left in the project.
   'project-manager': [120, 80], 'rate-card': [120, 80], dashboard: [120, 80],
   settings: [120, 80], 'team-members': [120, 80], help: [120, 80],
   'project-files': [95, 8],
@@ -333,5 +336,92 @@ describe('page bar geometry', () => {
       expect(() => resolveAt('268px', 900)).toThrow(/unrecognised/)
       expect(() => resolveAt('calc(50vh - 20px)', 900)).toThrow(/unrecognised/)
     })
+  })
+})
+
+// ── F4 (D1b's note to Foundation): the header comment is now executable ─────
+//
+// D1b found two claims in `pageBars.js`'s header that had gone false — the
+// worked example named a row that no longer exists, and property 1 said every
+// non-Home row is capped at every window size, which was never true. A comment
+// nobody can run goes stale silently, and this one had gone stale twice, so
+// the numbers in it are asserted here against the real generator.
+describe('the numbers written in pageBars.js are the numbers it computes', () => {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), './pageBars.js'), 'utf8')
+
+  // Smallest viewport at which BOTH sides sit at their resting height.
+  const capFrom = (shape) => {
+    for (let v = 400; v < 3000; v++) {
+      const top = /min\((-?[\d.]+)px/.exec(shape.top)[1]
+      const bottom = /min\((-?[\d.]+)px/.exec(shape.bottom)[1]
+      if (resolveAt(shape.top, v) >= Number(top) && resolveAt(shape.bottom, v) >= Number(bottom)) return v
+    }
+    throw new Error('never reaches its cap')
+  }
+  // Largest viewport at which BOTH sides are pinned at their floor.
+  const floorTo = (shape) => {
+    for (let v = 2999; v >= 300; v--) {
+      const tf = Number(/max\((-?[\d.]+)px/.exec(shape.top)[1])
+      const bf = Number(/max\((-?[\d.]+)px/.exec(shape.bottom)[1])
+      if (resolveAt(shape.top, v) <= tf + 1e-9 && resolveAt(shape.bottom, v) <= bf + 1e-9) return v
+    }
+    throw new Error('never reaches its floor')
+  }
+
+  // The distinct shapes in the live table, derived — so a new row that the
+  // header does not mention fails here rather than going unnoticed.
+  const DISTINCT = [...new Set(Object.values(RESTING).map((r) => r.join(',')))]
+    .map((k) => k.split(',').map(Number))
+
+  it('documents every distinct row and invents none', () => {
+    expect(DISTINCT.length, 'the header lists three rows').toBe(3)
+    for (const [top, bottom] of DISTINCT) {
+      expect(source, `bars(${top}, ${bottom}) is in the table but not in the header`)
+        .toContain(`bars(${top}, ${bottom})`)
+    }
+  })
+
+  it('states each row’s cap crossover correctly', () => {
+    for (const [top, bottom] of DISTINCT) {
+      const at = capFrom(bars(top, bottom))
+      expect(source, `bars(${top}, ${bottom}) caps from ${at}px and the header does not say so`)
+        .toMatch(new RegExp(`bars\\(${top}, ${bottom}\\)[^\\n]*\\n?[^\\n]*cap from\\s+${at}px`))
+      // The control: the row really is NOT at rest one pixel lower, so the
+      // crossover is a crossover and not just "some size where it happens to
+      // be capped".
+      const cap = Number(/min\((-?[\d.]+)px/.exec(bars(top, bottom).top)[1])
+      expect(resolveAt(bars(top, bottom).top, at - 1)).toBeLessThan(cap)
+    }
+  })
+
+  it('states each row’s floor crossover correctly, and they are not all one number', () => {
+    const seen = new Set()
+    for (const [top, bottom] of DISTINCT) {
+      const at = floorTo(bars(top, bottom))
+      seen.add(at)
+      expect(source, `bars(${top}, ${bottom}) floors at ${at}px and the header does not say so`)
+        .toContain(`${at}px`)
+    }
+    // The claim the old note made — one ~740px for every row — is false, and
+    // this is what makes it false.
+    expect(seen.size, 'three rows, three different floor crossovers').toBe(3)
+    expect(source).not.toContain('Below ~740px the floors take over')
+  })
+
+  it('only the tool rows are capped at every window Electron can open', () => {
+    const MIN_WINDOW = 700
+    const capped = DISTINCT.filter(([t, b]) => capFrom(bars(t, b)) <= MIN_WINDOW)
+    expect(capped).toEqual([[95, 8]])
+    // Which is the correction itself: Home AND the 120/80 rows both move
+    // inside Electron's range, where property 1 used to say only Home did.
+    expect(capFrom(bars(120, 80))).toBeGreaterThan(MIN_WINDOW)
+    expect(capFrom(bars(268, 268))).toBeGreaterThan(MIN_WINDOW)
+  })
+
+  it('Settings is the 3:2 row the worked example now names', () => {
+    expect(RESTING.settings).toEqual([120, 80])
+    expect(source).toContain('Settings is 120/80 and stays 3:2')
+    // …and the row the example USED to name is gone from the table entirely.
+    expect(Object.values(RESTING).some((r) => r[0] === 200 && r[1] === 150)).toBe(false)
   })
 })

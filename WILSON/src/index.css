@@ -128,6 +128,7 @@
   --measure-prose-max: 72ch;
 
   /* ── Density (§3.3) ────────────────────────────────────────────────── */
+  --control-xs: 16px;
   --control-sm: 28px;
   --control-md: 36px;
   --row: 36px;
@@ -140,6 +141,7 @@
   --panel-header: 32px;
   --shortcut-bar: 34px;
   --titlebar: 32px;
+  --icon-xs: 10px;
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 24px;
@@ -754,6 +756,16 @@ select option {
   .ui-iconbtn[data-size="sm"] { width: var(--control-sm); height: var(--control-sm); }
   .ui-iconbtn > svg { width: var(--icon-md); height: var(--icon-md); }
   .ui-iconbtn[data-size="sm"] > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  /* `xs` is the IN-COMPONENT size, and the only one: a control mounted
+     INSIDE another component rather than on the page. `.ui-badge` is 20px
+     and the smallest icon button was 28px, so a remove control put inside
+     a badge grew the row and the department chips had to give it a
+     private 16px box of their own (C3b request 3). 16/10 is what that box
+     measured. It is deliberately NOT a third page-control height — §3.3
+     has two, 28 and 36, and a 16px target on a page would be wrong. The
+     badge is the affordance; this is its glyph. */
+  .ui-iconbtn[data-size="xs"] { width: var(--control-xs); height: var(--control-xs); }
+  .ui-iconbtn[data-size="xs"] > svg { width: var(--icon-xs); height: var(--icon-xs); }
   .ui-iconbtn:hover:not(:disabled) { background-color: var(--color-hover); color: var(--color-ink); }
   .ui-iconbtn[data-active="true"] {
     color: var(--color-ink);
@@ -812,6 +824,15 @@ select option {
   .ui-input[data-surface="light"]:disabled { color: var(--color-ink-light); background-color: transparent; }
   textarea.ui-input { height: auto; padding: 8px 12px; resize: vertical; }
   select.ui-input { padding-right: 28px; }
+  /* 🚨 …and the SMALL one needs saying twice, because the line above loses.
+     `.ui-input[data-size="sm"] { padding: 0 8px }` is (0,2,0) and
+     `select.ui-input` is (0,1,1), so the shorthand wins and resets
+     padding-right to 8px — about 1px of clearance between the chevron and
+     the last character of "All severities" (C3b request 5). (0,2,1) here
+     beats both, and beats them by specificity rather than by source order,
+     so it survives being moved. Retires
+     `.at-section select.ui-input[data-size="sm"]`. */
+  select.ui-input[data-size="sm"] { padding-right: 28px; }
 
   /* ── Field: Label role + control, 4px inside / 16px between ────────── */
   .ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -1233,7 +1254,14 @@ select option {
   .ui-toast-stack {
     position: fixed;
     left: 50%;
-    bottom: 24px;
+    /* 24px above the page’s BOTTOM BAR, not 24px off the window. `--toast-bar`
+       is set inline by ToastProvider from PAGE_BARS — the same source the
+       pet’s bottomOffset reads — and the bars are viewport-relative since
+       Phase 4, so no constant can stand in for them. At 0px this is the old
+       flat 24px, which is right only on a surface with no bar (D1b §7: one
+       toast topped out at 64.84px inside the light pages’ 80px bar, two at
+       113.69px straddled its edge). */
+    bottom: calc(var(--toast-bar, 0px) + 24px);
     z-index: 90;
     display: flex;
     flex-direction: column;
@@ -1416,10 +1444,36 @@ select option {
   }
   .ui-th[data-align="right"] .ui-th-btn { justify-content: flex-end; }
   .ui-th[data-align="center"] .ui-th-btn { justify-content: center; }
-  .ui-th-label { overflow: hidden; text-overflow: ellipsis; }
+  /* 🚨 `overflow: hidden; text-overflow: ellipsis` does NOTHING on a
+     non-replaced INLINE box, and this span was inline in both of the two
+     places it renders — which is why a clipped header was cut mid-word and
+     read as a rendering fault rather than as a narrow column (C3b request 4,
+     where `RATE ACCESS` presented exactly that). The two places fail
+     differently and both are fixed here:
+
+       · with no `onSort` the label is an inline span inside the <th>, a
+         table-cell — `inline-block` is what makes the two properties apply;
+       · with `onSort` it is a flex item inside `.ui-th-btn`, where they DO
+         apply but the item will not shrink below its content, because a
+         flex item's `min-width` is `auto`. Hence `min-width: 0`.
+
+     `max-width` holds back the sort slot's 10px so the arrow is never the
+     thing that gets clipped, and `vertical-align` keeps the two spans on one
+     line when they are inline rather than flex. */
+  .ui-th-label {
+    display: inline-block;
+    max-width: calc(100% - 10px);
+    min-width: 0;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   /* Always present, always this wide, sorted or not: an arrow that appears on
-     click shifts the label sideways under the pointer that just clicked it. */
-  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; }
+     click shifts the label sideways under the pointer that just clicked it.
+     `inline-block` so that promise holds in a plain <th> too — `width` does
+     not apply to an inline box, so outside `.ui-th-btn` the slot reserved
+     nothing and the label moved the moment a column was sorted. */
+  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; display: inline-block; vertical-align: middle; }
   .ui-th-sort[data-dir="asc"]::before { content: "\2191"; }
   .ui-th-sort[data-dir="desc"]::before { content: "\2193"; }
 
@@ -1433,19 +1487,19 @@ select option {
     vertical-align: middle;
   }
   .ui-table[data-surface="light"] .ui-td { border-bottom-color: var(--color-rule-light); }
-  .ui-table[data-dense] .ui-td { height: var(--row-dense); padding-top: 6px; padding-bottom: 6px; }
+  .ui-table[data-dense="true"] .ui-td { height: var(--row-dense); padding-top: 6px; padding-bottom: 6px; }
   /* Numerics: right-aligned, tabular, in the mono. Four money tables shipped
      with zero tabular-nums and their columns only lined up by luck (R3-02). */
-  .ui-th[data-numeric], .ui-td[data-numeric] { font-variant-numeric: tabular-nums; }
-  .ui-td[data-numeric] {
+  .ui-th[data-numeric="true"], .ui-td[data-numeric="true"] { font-variant-numeric: tabular-nums; }
+  .ui-td[data-numeric="true"] {
     font-family: var(--font-mono);
     font-size: calc(var(--text-dense) * var(--mono-size-adjust));
   }
 
   .ui-tr { transition: background-color var(--duration-state) ease-out; }
-  .ui-tr[data-interactive] { cursor: pointer; }
-  .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-hover); }
-  .ui-table[data-surface="light"] .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-hover-light); }
+  .ui-tr[data-interactive="true"] { cursor: pointer; }
+  .ui-tr[data-interactive="true"]:hover > .ui-td { background-color: var(--color-hover); }
+  .ui-table[data-surface="light"] .ui-tr[data-interactive="true"]:hover > .ui-td { background-color: var(--color-hover-light); }
   /* One selected treatment: a fill plus a 2px signal edge on the first cell.
      `box-shadow: inset` rather than a border, so the row height is identical
      selected and not. */
@@ -1454,12 +1508,12 @@ select option {
      the selection the moment the pointer crosses the selected row. It was
      (0,3,0) against hover's (0,4,0); the doubled attribute makes it (0,4,0)
      and later in the sheet, so it wins both ways. */
-  .ui-tr[data-selected][data-selected] > .ui-td { background-color: var(--color-signal-tint); }
+  .ui-tr[data-selected="true"][data-selected="true"] > .ui-td { background-color: var(--color-signal-tint); }
   /* 🚨 …and on light the hover rule is (0,6,0), because it is scoped through
      the table. The selected rule has to be scoped the same way or the three
      light data pages lose their selection under the pointer exactly as the
      dark ones did. */
-  .ui-table[data-surface="light"] .ui-tr[data-selected][data-selected] > .ui-td { background-color: var(--color-signal-tint); }
+  .ui-table[data-surface="light"] .ui-tr[data-selected="true"][data-selected="true"] > .ui-td { background-color: var(--color-signal-tint); }
 
   /* `highlighted` is NOT selection: it marks a row carrying a standing role (a
      producer, a director) rather than a choice the user made.
@@ -1470,18 +1524,18 @@ select option {
      transient state, and reads as a different thing from the selection edge
      because it is a different colour. Selected is declared after it at equal
      specificity, so a row that is both shows the selection. */
-  .ui-tr[data-highlighted] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-ink-3); }
-  .ui-tr[data-selected] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-signal); }
+  .ui-tr[data-highlighted="true"] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-ink-3); }
+  .ui-tr[data-selected="true"] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-signal); }
   /* Deactivated rows take the third ink, NEVER `opacity` (plan §3.1 — opacity
      as a state is what made "less important" mean "unreadable"). */
-  .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-3); }
-  .ui-table[data-surface="light"] .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-light); font-style: italic; }
+  .ui-tr[data-inactive="true"] > .ui-td { color: var(--color-ink-3); }
+  .ui-table[data-surface="light"] .ui-tr[data-inactive="true"] > .ui-td { color: var(--color-ink-light); font-style: italic; }
 
   /* ── tfoot: the summary ────────────────────────────────────────────────
      The mirror of the sticky head, and opaque for the same reason (R06): a
      transparent sticky band lets the rows scroll through it.
      ⚠️ There is no `selected` treatment turned OFF here, and saying so would
-     be a claim this file does not back: `.ui-tr[data-selected][data-selected]
+     be a claim this file does not back: `.ui-tr[data-selected="true"][data-selected="true"]
      > .ui-td` is (0,4,0) and out-specifies everything below, so a caller that
      passed `selected` on a footer Row would get the signal tint. No caller
      does, and a total is not a row you can pick. */
@@ -1526,7 +1580,7 @@ select option {
     flex-shrink: 0;
   }
   .ui-toolbar[data-surface="light"] { border-bottom-color: var(--color-rule-light); }
-  .ui-toolbar[data-wrap] { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+  .ui-toolbar[data-wrap="true"] { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
   .ui-toolbar-slot { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .ui-toolbar-right { margin-left: auto; flex-shrink: 0; }
   /* ONE baseline: every child is the 28px control height. Only one of the
@@ -1544,10 +1598,23 @@ select option {
     height: var(--control-sm);
   }
 
+  /* ...and a tab STRIP inside a toolbar does not wrap. `.ui-tabs` is
+     `flex-wrap: wrap` because R.A.B.B.I.T.’s eleven-tab ViewTabs needs it,
+     and a two-tab toolbar must not have it: the strip breaks to a second
+     line and takes the 44px row with it (C3b kit request 1). The rule is
+     contextual rather than a `wrap={false}` prop because Toolbar’s contract
+     already says NEVER WRAPS in its own header — a prop would make callers
+     opt in to something the container already promises, and every caller
+     is in a lane’s finished file. `flex-shrink: 0` comes with it so the
+     strip keeps its width against a long right slot, which is what both
+     page-local copies carried. Retires `.at-section .ui-toolbar .ui-tabs`
+     and `.rs-page .ui-toolbar .ui-tabs`. */
+  .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
+
   /* ── SectionTitle ───────────────────────────────────────────────────── */
   .ui-section { display: flex; align-items: flex-end; gap: 16px; padding-top: 16px; }
-  .ui-section[data-rule] { border-top: 1px solid var(--color-rule); }
-  .ui-section[data-rule][data-surface="light"] { border-top-color: var(--color-rule-light); }
+  .ui-section[data-rule="true"] { border-top: 1px solid var(--color-rule); }
+  .ui-section[data-rule="true"][data-surface="light"] { border-top-color: var(--color-rule-light); }
   .ui-section-text { min-width: 0; }
   .ui-section-eyebrow {
     font-size: var(--text-label);
@@ -1589,7 +1656,7 @@ select option {
     background-color: var(--color-well-light);
     border-color: var(--color-rule-light);
   }
-  .ui-card[data-pad] { padding: 16px; }
+  .ui-card[data-pad="true"] { padding: 16px; }
   .ui-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .ui-card-title {
     font-size: var(--text-h3);
@@ -1632,7 +1699,7 @@ select option {
     transition: color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
   }
   .ui-tab:hover:not(:disabled) { color: var(--color-ink); }
-  .ui-tab[data-active] { color: var(--color-ink); font-weight: 600; border-bottom-color: var(--color-signal); }
+  .ui-tab[data-active="true"] { color: var(--color-ink); font-weight: 600; border-bottom-color: var(--color-signal); }
   .ui-tab:disabled { color: var(--color-ink-3); cursor: not-allowed; }
   .ui-tab[data-surface="light"] { color: var(--color-ink-light); }
   .ui-tab[data-surface="light"][data-active] { color: var(--color-ink-light); border-bottom-color: var(--color-ink-light); }
@@ -1793,7 +1860,7 @@ select option {
     opacity: 0;
     transition: opacity var(--duration-state) ease-out;
   }
-  .ui-hover-actions[data-always] { opacity: 1; }
+  .ui-hover-actions[data-always="true"] { opacity: 1; }
   :where(tr, li, .ui-hover-host):hover .ui-hover-actions,
   :where(tr, li, .ui-hover-host):focus-within .ui-hover-actions,
   .ui-hover-actions:focus-within { opacity: 1; }
@@ -1943,7 +2010,7 @@ select option {
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out;
   }
-  .ui-td[data-numeric] .tm-cell-btn { text-align: right; }
+  .ui-td[data-numeric="true"] .tm-cell-btn { text-align: right; }
   .tm-inline-edit:hover, .tm-cell-btn:hover { background-color: var(--color-hover); }
   [data-surface="light"] .tm-inline-edit:hover,
   [data-surface="light"] .tm-cell-btn:hover { background-color: var(--color-hover-light); }

@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { Toolbar } from './Toolbar'
+import { Tabs } from './Tabs'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -82,5 +83,56 @@ describe('Toolbar: every child is 28px, including a tab bar', () => {
     const winner = css.match(/(\.ui-toolbar \.ui-tab) \{/)
     expect(winner, 'the toolbar tab rule is not its own selector any more').not.toBeNull()
     expect(units(winner[1])).toBeGreaterThan(units('.ui-tab'))
+  })
+})
+
+// ── F4: the strip itself must not break to a second line (C3b request 1) ────
+describe('Toolbar: a tab strip inside it does not wrap', () => {
+  // `.ui-tabs` is `flex-wrap: wrap` because R.A.B.B.I.T.'s eleven-tab ViewTabs
+  // needs it. Inside a 44px toolbar that is wrong: two tabs and a long right
+  // slot and the strip breaks to a second line, taking the row with it. Admin
+  // and the Resources pages each scoped it locally; this is the one rule that
+  // retires both.
+  it('turns off .ui-tabs wrapping inside a toolbar', () => {
+    const base = css.match(/\n {2}\.ui-tabs \{([^}]*)\}/)
+    expect(base, 'no .ui-tabs block in index.css').not.toBeNull()
+    // The control: the default really is `wrap`, so the override below is
+    // load-bearing and not a restatement of something already true.
+    expect(base[1]).toContain('flex-wrap: wrap')
+
+    const scoped = css.match(/\n {2}\.ui-toolbar \.ui-tabs \{([^}]*)\}/)
+    expect(scoped, 'no .ui-toolbar .ui-tabs rule in index.css').not.toBeNull()
+    expect(scoped[1]).toContain('flex-wrap: nowrap')
+    // Both page-local copies carried this. Without it the strip shrinks
+    // against a long right slot instead of wrapping, which is the same defect
+    // one layer down.
+    expect(scoped[1]).toContain('flex-shrink: 0')
+  })
+
+  it('beats the .ui-tabs default on specificity, not on source order', () => {
+    const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
+    expect(units('.ui-toolbar .ui-tabs')).toBeGreaterThan(units('.ui-tabs'))
+  })
+
+  it('renders a real Tabs inside a real Toolbar for the rule to reach', () => {
+    // The selector is a DESCENDANT combinator, so it only bites if Toolbar
+    // really puts the tablist in its subtree — Toolbar wraps children in a
+    // `.ui-toolbar-slot` in between. Asserted with `matches` against the
+    // rendered node rather than by reading class names back.
+    const { container } = render(
+      <Toolbar right={<button type="button">Export</button>}>
+        <Tabs panelId="p" value="a" items={[{ id: 'a', label: 'All' }, { id: 'b', label: 'Mine' }]} />
+      </Toolbar>,
+    )
+    const tabs = container.querySelector('.ui-tabs')
+    expect(tabs).not.toBeNull()
+    expect(tabs.matches('.ui-toolbar .ui-tabs')).toBe(true)
+  })
+
+  it('leaves a tab bar outside a toolbar wrapping, which ViewTabs needs', () => {
+    const { container } = render(
+      <Tabs panelId="p" value="a" items={[{ id: 'a', label: 'All' }]} />,
+    )
+    expect(container.querySelector('.ui-tabs').matches('.ui-toolbar .ui-tabs')).toBe(false)
   })
 })

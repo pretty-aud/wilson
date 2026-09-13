@@ -34,10 +34,21 @@
 // Three properties matter, and each one is load-bearing:
 //
 //  1. THE CAP IS THE OLD NUMBER, so a tall display is byte-for-byte unchanged.
-//     Home resolves to exactly 268px on any viewport >= 1076px. Every other row
-//     is small enough that its cap wins at every window size the app can be
-//     opened at (Electron's minimum is 700px), so Home is the only page whose
-//     geometry actually moves.
+//     Home resolves to exactly 268px on any viewport >= 1076px.
+//
+//     ⚠️ It is NOT true that every other row is capped at every size the app
+//     can be opened at, which this note used to say. Measured 2026-09-13
+//     against the three rows that now exist (F4):
+//
+//       bars(268, 268)   Home (1 page)                          cap from 1076px
+//       bars(120, 80)    the seven data and reading pages        cap from  740px
+//       bars(95, 8)      the four tool pages, Files included     cap from  644px
+//
+//     Electron's minimum is 700px, so only the tool rows are genuinely at
+//     their resting height at every window the app can open at. A 700-739px
+//     window collapses the 120/80 rows as well, and Home moves anywhere
+//     below 1076px. The 200/150 row this note was written against no longer
+//     exists: Team Members was the last one and C3 moved it to 120/80.
 //
 //  2. THE ORDER IS min(cap, max(floor, …)), NOT max(floor, min(cap, …)).
 //     🚨 The outermost function is the one that wins. With `min` outermost the
@@ -55,12 +66,19 @@
 //     give way at genuinely tiny windows.
 //
 //  3. BOTH SIDES SHARE ONE BUDGET, so an asymmetric row keeps its ratio.
-//     Settings is 200/150 and stays 4:3 the whole way down.
+//     Settings is 120/80 and stays 3:2 the whole way down (D1b moved it;
+//     the shares are 0.6 and 0.4 exactly, so that ratio is held to the pixel
+//     rather than to the 4-decimal rounding the other rows take).
 //
-// ⚠️ Below ~740px the floors take over and content drops under 540px. Home
-// then scrolls internally — `justify-content: safe center` plus `overflow-y:
-// auto` on its own column, which already handles this. That is the documented
-// degradation, not a second bug.
+// ⚠️ Below the floor crossover the bars stop shrinking and content drops under
+// 540px. That happens at a DIFFERENT height per row, not at one ~740px for all
+// of them (measured 2026-09-13, F4): Home at 781px, the 120/80 rows at 630px,
+// the tool rows at 586px. Home is therefore the only one that degrades inside
+// Electron's range at all — at the 700px minimum it has 458.8px of content
+// against the 444px its button stack needs. It then scrolls internally —
+// `justify-content: safe center` plus `overflow-y: auto` on its own column,
+// which already handles this. That is the documented degradation, not a
+// second bug.
 // =============================================================================
 
 // Content the bars must never eat into. Home's 444px stack + the content

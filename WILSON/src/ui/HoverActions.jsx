@@ -25,7 +25,7 @@ export function HoverActions({ children, always = false, className = '', ...rest
   return (
     <span
       className={`ui-hover-actions ${className}`.trim()}
-      data-always={always || undefined}
+      data-always={always ? 'true' : undefined}
       {...rest}
     >
       {children}

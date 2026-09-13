@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { X } from 'lucide-react'
 import { IconButton } from './IconButton'
+import { Badge } from './Badge'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -44,6 +45,62 @@ describe('IconButton', () => {
   it('an explicit aria-label wins over the title for the accessible name', () => {
     render(<IconButton icon={X} title="Remove file" aria-label="Remove report.pdf" />)
     expect(screen.getByRole('button', { name: 'Remove report.pdf' })).toBeTruthy()
+  })
+})
+
+// ── F4 (C3b request 3): the size that fits inside a Badge ───────────────────
+describe('IconButton: the xs size a Badge can host', () => {
+  const block = (sel) => {
+    const at = css.indexOf(sel + ' {')
+    expect(at, `no "${sel}" rule in index.css`).toBeGreaterThan(-1)
+    return css.slice(at + sel.length, css.indexOf('}', at))
+  }
+
+  it('is 16px with a 10px glyph, both from the scale', () => {
+    expect(block('.ui-iconbtn[data-size="xs"]')).toContain('width: var(--control-xs)')
+    expect(block('.ui-iconbtn[data-size="xs"]')).toContain('height: var(--control-xs)')
+    expect(block('.ui-iconbtn[data-size="xs"] > svg')).toContain('width: var(--icon-xs)')
+    expect(css).toMatch(/--control-xs:\s*16px/)
+    expect(css).toMatch(/--icon-xs:\s*10px/)
+  })
+
+  it('fits inside a Badge without growing it — the whole point', () => {
+    // The control AND the measurement: `.ui-badge` is 20px, so 16 fits and
+    // the 28px `sm` does not. If the badge height ever changes this says so.
+    const badge = block('.ui-badge')
+    expect(badge).toContain('height: 20px')
+    const px = (name) => Number(css.match(new RegExp(`--${name}:\\s*(\\d+)px`))[1])
+    expect(px('control-xs')).toBeLessThan(20)
+    expect(px('control-sm')).toBeGreaterThan(20)
+  })
+
+  it('renders as a real button inside a real Badge', () => {
+    render(
+      <Badge>
+        Camera
+        <IconButton icon={X} size="xs" title="Remove Camera" />
+      </Badge>,
+    )
+    const b = screen.getByRole('button', { name: 'Remove Camera' })
+    expect(b.dataset.size).toBe('xs')
+    expect(b.closest('.ui-badge')).not.toBeNull()
+  })
+
+  it('falls back to md and says so, rather than silently taking the default', () => {
+    // An unrecognised size used to reach `data-size` verbatim, match no rule,
+    // and leave the button at 36px with nothing said — Panel and Drawer fixed
+    // the same shape for `data-width="220px"`.
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<IconButton icon={X} title="Odd" size="tiny" />)
+    expect(screen.getByRole('button', { name: 'Odd' }).dataset.size).toBe('md')
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('unknown size "tiny"'))
+    err.mockRestore()
+  })
+
+  it('still reads a numeric size as sm, which Bins passes', () => {
+    // The fallback must not eat binUi's compatibility path.
+    render(<IconButton Icon={X} title="Pin" size={3.5} />)
+    expect(screen.getByRole('button', { name: 'Pin' }).dataset.size).toBe('sm')
   })
 })
 
