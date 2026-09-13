@@ -812,6 +812,15 @@ select option {
   .ui-input[data-surface="light"]:disabled { color: var(--color-ink-light); background-color: transparent; }
   textarea.ui-input { height: auto; padding: 8px 12px; resize: vertical; }
   select.ui-input { padding-right: 28px; }
+  /* 🚨 …and the SMALL one needs saying twice, because the line above loses.
+     `.ui-input[data-size="sm"] { padding: 0 8px }` is (0,2,0) and
+     `select.ui-input` is (0,1,1), so the shorthand wins and resets
+     padding-right to 8px — about 1px of clearance between the chevron and
+     the last character of "All severities" (C3b request 5). (0,2,1) here
+     beats both, and beats them by specificity rather than by source order,
+     so it survives being moved. Retires
+     `.at-section select.ui-input[data-size="sm"]`. */
+  select.ui-input[data-size="sm"] { padding-right: 28px; }
 
   /* ── Field: Label role + control, 4px inside / 16px between ────────── */
   .ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
