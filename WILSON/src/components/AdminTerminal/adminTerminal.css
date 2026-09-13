@@ -159,13 +159,12 @@
     padding-bottom: 24px;
   }
   .at-logs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  /* 🚨 `.ui-tabs` is `flex-wrap: wrap`, which is right for R.A.B.B.I.T.'s
-     eleven-tab strip and wrong inside a `Toolbar`: the slot is
-     `min-width: 0`, so two tabs stacked vertically beside the filters and
-     the toolbar stopped having one baseline. Caught in the screenshot, not
-     in a test — no test in this repo lays anything out. Two tabs never need
-     a second line. */
-  .at-section .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
+  /* C3c: `.at-section .ui-toolbar .ui-tabs { flex-wrap: nowrap;
+     flex-shrink: 0 }` lived here and is GONE, because F4 took it into the
+     kit as `.ui-toolbar .ui-tabs` — contextual rather than a `wrap` prop,
+     since Toolbar's contract already promises it never wraps. The kit rule
+     names this copy for retirement in its own comment. Logs re-checked at
+     1440x900 and 1280x700: System and Activity on one line. */
   /* 🚨 THE TOOLBAR CARRIES ITS OWN 24px GUTTER, for surfaces where it spans
      the window. Inside `.at-section` the page has already applied that
      gutter, so the two stacked and the one control row on each section was
@@ -173,14 +172,9 @@
      ran 248→1255 while its contents ran 272→1230. Plan §3.3 — one page
      gutter, and pages stop setting their own. */
   .at-section .ui-toolbar { padding-left: 0; padding-right: 0; }
-  /* 🚨 A SMALL SELECT LOSES ITS ARROW CLEARANCE IN THE KIT.
-     `.ui-input[data-size="sm"] { padding: 0 8px }` is (0,2,0) and
-     `select.ui-input { padding-right: 28px }` is (0,1,1), so the shorthand
-     wins and the chevron sits on top of the last character — measured at
-     about 1px of clearance on "All severities" in this session's own Logs
-     screenshot. Scoped here because `src/index.css` belongs to Foundation;
-     filed as a kit request in the hand-off, with the one-line fix. */
-  .at-section select.ui-input[data-size="sm"] { padding-right: 28px; }
+  /* C3c: `.at-section select.ui-input[data-size="sm"]` lived here and is
+     GONE — F4 landed the one-line kit fix C3b's hand-off asked for,
+     verbatim, and names this copy in its own comment. */
 
   /* ═══ SHARED TEXT ROLES ════════════════════════════════════════════════
      Five roles from the one scale (AT-07: nine sizes, an 11px body and 50
