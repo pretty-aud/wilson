@@ -224,3 +224,121 @@ it is also the clearest before-and-after for the error-message change.
 No decision is waiting. The two questions from part one are still open and
 still not blocking: whether the ADD PEOPLE menu wording is right now that it
 is visible, and whether anything on the seven sections stopped responding.
+
+---
+
+# Part three — the type pass finished (session C3c, 2026-09-13)
+
+Part two ended with a caveat. It said:
+
+> The **Storage** section and **Change requests** are owned by two of the
+> paused branches, so this session was only allowed to change their colours
+> and swap in shared components — not to rewrite their layout. Their headings
+> and body text are on the new colours but still on their old sizes, and
+> Storage's card titles are still capitals.
+
+That is done. **There is no caveat left.** The Admin terminal is now built out
+of the same pieces as Team members, Files, Projects, Rate card and the
+Dashboard, and it is also now *set* the same way they are.
+
+## What you will notice
+
+**Storage stopped shouting.** Every card on it used to open with a heading in
+small bold capitals — STORAGE MODE, WHAT YOU OWN, PETAL CLOUD PLAN, STORAGE
+ROOT, BUCKET — and so did the two names inside each picker, PETAL CLOUD and
+YOUR OWN STORAGE. All seven are ordinary sentence case now, and bigger. The
+only capitals left on the whole section are the five field labels above the
+bucket form (ENDPOINT, REGION, BUCKET, PREFIX, ACCESS KEY ID), which is the
+one job capitals have here: naming the box underneath them.
+
+**And it got readable.** The explanations — what each storage mode means, what
+happens when you change a bucket, why deleting files does not free space
+straight away — were all at the *smallest size in the app*, the one meant for
+column headers. There were 52 of them. They are two steps larger now, which is
+the same size the rest of WILSON uses for a sentence. Nothing was reworded;
+the words are just no longer in the small print.
+
+Compare `img/c3b-after-storage-1440x900.png` with
+`img/c3c-after-storage-1440x900.png` — same page, same data, same day apart.
+
+**Change requests reads as a list of requests.** Each row's course name is now
+a title rather than another line of body text, the proposer and date under it
+have stepped back to the size WILSON uses for timestamps everywhere, and the
+proposal itself — the paragraph the person wrote explaining what they changed
+— is at reading size instead of label size. The status word on the right
+(OPEN, APPROVED, CHANGES REQUESTED) keeps its capitals, because that is a
+badge and badges are where capitals belong.
+
+**Twelve icons were the wrong size and nobody could have seen why.** Eleven
+were 12px and one was 10px, against a house rule of three sizes — 14, 16, 24.
+They sat inside buttons that had *already* been told to draw their icons at
+14px; the instruction on the icon itself was simply winning. They are all
+14px now, which is why the Refresh, Approve and Decline buttons look slightly
+less cramped than they did.
+
+**And two buttons finally match the ones beside them.** The Cancel next to
+"Continue" and the one next to "Set folder", in the two-step warning you get
+when you point storage at a folder on your own computer, were the last two
+hand-made buttons in the console. They are the shared button now, at the same
+height and in the same case as the button they sit next to.
+
+## One thing that went wrong mid-session, and how it was caught
+
+Making the explanations bigger made the picker titles above them *smaller than
+the text they were titling* — "Petal cloud" at label size sitting on top of a
+full-size sentence. Every test stayed green, because each change was correct
+on its own line; it was only wrong as a pair. It was found by opening the page
+and looking at it, and it is fixed: the picker titles are card titles now,
+same treatment as the five card headings around them.
+
+That is the second time on this page that the only thing which found a real
+defect was looking at it. Worth knowing.
+
+## What is still not done here, and why
+
+- **The S3 card is still one long card.** The plan wants it in three labelled
+  blocks — Connection, Credentials, Verify. That moves things around on the
+  page rather than restyling them, and this section belongs to a branch that
+  has thirty-seven commits of unmerged work sitting on it. It waits for that
+  merge.
+- **One small misalignment on that same card.** "PREFIX (optional folder
+  inside the bucket)" is too long for its column, so it wraps onto two lines
+  and its box sits about fifteen pixels lower than Region's and Bucket's. That
+  was true before this session too — it is not new — and straightening it
+  means moving the label, which is the same blocked change as above.
+
+## Screenshots
+
+| | Before (C3b) | After (C3c) |
+|---|---|---|
+| Storage | `img/c3b-after-storage-1440x900.png` | `img/c3c-after-storage-1440x900.png` |
+| Change requests | `img/c3b-after-requests-1440x900.png` | `img/c3c-after-requests-1440x900.png` |
+
+The `1280x700` pair of each is beside it, which is the smallest window the app
+allows.
+
+🚨 **The Change requests pair shows an empty page, and you should know that
+before you open it.** Nobody has ever filed a change request in the dev
+fixture, so both the before and the after show "Nothing waiting on you" — the
+only difference visible in that pair is the Refresh button's icon, which you
+would have to zoom in to see. Everything this session did to that section
+happens on a *row*, and there are no rows.
+
+So there is a third image: `img/c3c-after-requests-seeded-1440x900.png`, with
+four invented requests put into the page by hand so the work can be looked at.
+**None of it is real** — not the courses, not the people, not the dates. It
+exists only so the row title, the timestamp line, the status badge, the
+proposer's paragraph and the two decision panels can be seen at all.
+
+🚨 **The people and the courses in these pictures are not real** — the dev
+fixture again. On the Storage shots the section shows a permission refusal
+rather than real settings, because the fixture signs in without a real admin
+session; that refusal is genuine, and it is the same state part two
+photographed, so the before and after are comparable.
+
+## Still nothing is asked of you
+
+No decision is waiting. If you have five minutes, the useful look is the
+**Storage** section side by side with its "before" — that is the whole point
+of this session in one image. The two questions from part one are still open
+and still not blocking.
