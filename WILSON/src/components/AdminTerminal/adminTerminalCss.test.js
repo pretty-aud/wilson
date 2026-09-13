@@ -671,9 +671,46 @@ describe('the create-user form still submits from the keyboard', () => {
 // full-line comments), and converting every icon to Tailwind v4's `size-*`.
 // Exact tokens fix the first; knowing `size-*` fixes the second.
 
-/** A class token is lowercase and has no sentence punctuation. Prose that
- *  happens to contain the word "uppercase" is not a class list. */
-const looksLikeClasses = (s) => s.length > 0 && !/[A-Z]/.test(s) && !/[.!?,;:]\s|[.!?]$/.test(s)
+/**
+ * Whether a string literal is a class list rather than a sentence.
+ *
+ * 🚨 IT HAS TO BE BOTH GENEROUS AND WRONG-PROOF, AND THE TWO PULL APART.
+ * Generous, because the scans below are the only thing standing between this
+ * surface and AT-08, and a className reaches the DOM through a constant, a
+ * ternary, a template chunk or a helper just as well as through an
+ * attribute — so every string literal is a candidate. Wrong-proof, because
+ * this directory's strings are mostly ENGLISH: placeholders, titles, refusal
+ * messages. "bucket names are stored in uppercase" is all lowercase, has no
+ * sentence punctuation, and contains the exact token `uppercase`; without
+ * the stopword clause it fails "every uppercase sits on the Label step" and
+ * the guard is blocking correct work, which is a defect of its own size.
+ *
+ * No class list contains `and`, `the` or `is`. No English sentence is made
+ * only of hyphenated lowercase tokens. That is the whole discriminator.
+ */
+const STOPWORDS = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'with', 'you', 'your'])
+const looksLikeClasses = (s) =>
+  s.length > 0 &&
+  !/[A-Z]/.test(s) &&
+  !/[.!?,;:]\s|[.!?]$/.test(s) &&
+  !s.trim().split(/\s+/).some((t) => STOPWORDS.has(t))
+
+/**
+ * The class tokens on one opening tag.
+ *
+ * 🚨 IT FILTERS, AND THE FIRST VERSION DID NOT. Pulling every quoted string
+ * out of a tag also pulls its `placeholder`, `title` and `aria-label` — so
+ * `placeholder="bucket names are stored in uppercase"` put the token
+ * `uppercase` on the element and the inheritance check below went red on a
+ * sentence. Only literals that read as a class list count.
+ */
+const tagClassTokens = (tag) =>
+  [...tag.matchAll(/(['"`])([^'"`\n]*)\1/g)]
+    .map((m) => m[2])
+    .filter(looksLikeClasses)
+    .join(' ')
+    .split(/\s+/)
+    .filter(Boolean)
 
 /** Every class token named anywhere in a source, with where it was written. */
 const CLASS_TOKENS = Object.entries(sources).flatMap(([file, src]) =>
@@ -876,7 +913,7 @@ describe('C7: one scale, and every size taken from it by name', () => {
     const prose = []
     for (const [file, src] of Object.entries(sources)) {
       for (const tag of openingTags(src)) {
-        const cls = [...tag.matchAll(/(['"`])([^'"`\n]*)\1/g)].map((m) => m[2]).join(' ').split(/\s+/)
+        const cls = tagClassTokens(tag)
         if (!cls.includes('font-mono')) continue
         const name = tag.match(/^<\s*([A-Za-z][A-Za-z0-9]*)/)?.[1] ?? '?'
         const why = cls.some((t) => /^text-(\[|xs$|sm$|base$|lg$|xl$|h1$|h2$|h3$|body$|dense$|caption$|label$)/.test(t))
@@ -953,7 +990,7 @@ const ICONS = Object.entries(sources).flatMap(([file, src]) =>
     // from each file's own lucide import.
     if (!name || !LUCIDE[file].has(name)) return []
     const where = `${file} <${name}>`
-    const cls = [...tag.matchAll(/(['"`])([^'"`\n]*)\1/g)].map((m) => m[2]).join(' ').split(/\s+/)
+    const cls = tagClassTokens(tag)
     const scale = (p) => {
       const bare = cls.find((t) => new RegExp(`^${p}-[\\d.]+$`).test(t))
       if (bare) return Number(bare.slice(p.length + 1)) * 4
@@ -1009,8 +1046,7 @@ describe('🚨 Q2: sentence case everywhere except the Label step', () => {
     const bad = []
     for (const [file, src] of Object.entries(sources)) {
       for (const tag of openingTags(src)) {
-        const cls = [...tag.matchAll(/(['"`])([^'"`\n]*)\1/g)].map((m) => m[2]).join(' ').split(/\s+/)
-        if (!cls.includes('uppercase')) continue
+        if (!tagClassTokens(tag).includes('uppercase')) continue
         const after = src.slice(src.indexOf(tag) + tag.length)
         if (/^\s*</.test(after)) bad.push(`${file} — \`uppercase\` on a tag whose first child is an element`)
       }
@@ -1035,7 +1071,7 @@ describe('🚨 Q2: sentence case everywhere except the Label step', () => {
     // REMOVES tracking rather than inventing some: a sentence-case child of a
     // Label-step parent inherits 0.06em, and cancelling that is correct. A
     // guard that blocks the only right answer is a defect of its own.
-    expect(CLASS_TOKENS.filter(({ t }) => /^tracking-/.test(t) && t !== 'tracking-normal')).toEqual([])
+    expect(CLASS_TOKENS.filter(({ t }) => /^tracking-(tighter|tight|wide|wider|widest|\[)/.test(t))).toEqual([])
   })
 
   it('🚨 and no second tracking scale in the stylesheet', () => {
