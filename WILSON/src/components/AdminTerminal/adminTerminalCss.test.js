@@ -774,6 +774,73 @@ describe('C7: one scale, and every size taken from it by name', () => {
       .filter((v) => !v.startsWith('var(--text-'))
     expect(raw).toEqual([])
   })
+
+  it('🚨 `.at-prose` is prose, and prose is the one thing 11px is not for', () => {
+    // Pinned by value, and the check above is exactly why it has to be.
+    // That one asks only that a size reads SOME `--text-*`, which a revert
+    // to `--text-label` satisfies — and `--text-label` is where these five
+    // strings started. C3b introduced this class holding the Label step
+    // DELIBERATELY, as a placeholder with a comment saying the next session
+    // raises it, so that the five picker and plan sentences behind it would
+    // move in one edit rather than five. This is that edit; without a pinned
+    // value there is nothing to stop it sliding back.
+    const rule = cssCode.match(/\.at-prose\s*\{([^}]*)\}/)
+    expect(rule).not.toBeNull()
+    expect(rule[1]).toMatch(/font-size:\s*var\(--text-dense\)/)
+    // And its leading comes from the step too, so an `.at-prose` span and a
+    // `text-dense` span beside it are the same object rather than two things
+    // that happen to agree about the size.
+    expect(rule[1]).toMatch(/line-height:\s*var\(--text-dense--line-height\)/)
+  })
+})
+
+describe('🚨 Q2: sentence case everywhere except the Label step', () => {
+  // "Uppercase appears only in the Label step and the transition title, both
+  // tracked; everything else is sentence case with zero tracking" (§3.1), and
+  // Q2 ruled the same thing. AT-08 counted 91 `uppercase` and 86 letterspaced
+  // elements across these thirteen files: a nav item, a section title, a card
+  // title, a field label, a table header, a button label, a status chip, a
+  // group heading and a danger-zone warning were one typographic object, so
+  // nothing could be scanned because nothing differed.
+  //
+  // 🚨 THIS WHOLE DESCRIBE IS C3c's, AND IT EXISTS BECAUSE A MUTANT WALKED
+  // THROUGH. C3c's first set of guards held the SIZE half of its own pass and
+  // had no opinion at all about the CASE half: putting `uppercase
+  // tracking-wider` back onto a card title — the exact AT-08 shape, and one
+  // of the fourteen this session removed — kept all 74 tests green.
+  const upper = Object.entries(sources).flatMap(([file, src]) =>
+    [...src.matchAll(/className="([^"]*\buppercase\b[^"]*)"/g)].map((m) => {
+      const line = src.slice(0, m.index).split('\n').length
+      return { where: `${file}:${line}`, cls: m[1] }
+    }),
+  )
+
+  it('finds the uppercase runs it is checking (the scan is not empty)', () => {
+    // Seven: five field labels in StorageSection, and a status badge and an
+    // eyebrow in ChangeRequestsSection. If this reaches zero the check below
+    // passes while reading nothing (trap 8).
+    expect(upper.length).toBeGreaterThan(0)
+  })
+
+  it('🚨 every `uppercase` sits on the Label step', () => {
+    // Capitals are a ROLE here, not an emphasis: they say "this is a label
+    // for the thing below it". On any other step they are just loud.
+    expect(upper.filter((u) => !/(?<![-\w])text-label\b/.test(u.cls))).toEqual([])
+  })
+
+  it('🚨 no `tracking-*` utility: the Label token carries its own 0.06em', () => {
+    // All fourteen of these were `tracking-wider`, which is 0.05em against
+    // the token's 0.06em — a second tracking scale, one step out, sitting on
+    // top of the one the theme already applies. Wrong AND redundant.
+    expect(jsx).not.toMatch(/(^|\s|")tracking-/)
+  })
+
+  it('🚨 no `font-bold`: the weight axis is 400 and 600', () => {
+    // §3: "Weights: 2 (400, 600)". `font-bold` is 700 and there is no 700 —
+    // and on the Label and H3 steps the theme is already emitting 600, so a
+    // `font-bold` beside either was overriding the scale to leave it.
+    expect(jsx).not.toMatch(/(^|\s|")font-bold\b/)
+  })
 })
 
 describe('no surviving Tailwind state utility in this directory', () => {
