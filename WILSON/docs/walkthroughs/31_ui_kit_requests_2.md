@@ -59,9 +59,9 @@ now, so it is fixed everywhere, and R.A.B.B.I.T.'s eleven tabs still wrap.
 Same row as above — **All types** and **All severities**.
 
 The small size of a field sets its padding in one shorthand, and that shorthand
-was quietly cancelling the extra space a dropdown reserves for its arrow. The
-result was about one pixel between the last letter of "All severities" and the
-chevron.
+was quietly cancelling the extra space a dropdown reserves for its arrow.
+Measured: the space held back for the chevron was 8 pixels where it should have
+been 28, so on the longest option the arrow sat almost on the last letter.
 
 Look at the same before/after pair as item 2: in the "before" the arrow is
 almost touching the word, and in the "after" there is a proper gap. This is the
