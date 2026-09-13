@@ -649,25 +649,180 @@ describe('the create-user form still submits from the keyboard', () => {
   })
 })
 
-describe('C7: the 11px floor, and one scale', () => {
+// ── Type and case ────────────────────────────────────────────────────────────
+//
+// 🚨 EVERY SCAN BELOW IS TOKEN-BASED AND READS BOTH SIDES OF THE SURFACE.
+// The first two versions of this block were position-based (`/(^|\s|")font-
+// bold\b/`), attribute-based (`/className="([^"]*)"/`) and JSX-only. Two
+// adversarial reviews ran 59 mutations at them; 34 stayed green. The four
+// families that got through, and what replaced each:
+//
+//   1. A className that is not a double-quoted literal. `className={'text-h3
+//      uppercase'}`, a template literal, a ternary, and `className={darkBtn
+//      Class}` where the constant is a plain string — all reach the DOM, none
+//      is a `className="…"`. → every STRING LITERAL in the file is scanned,
+//      wherever it sits. A literal with no class token in it is ignored.
+//   2. A different spelling of the same property. `font-black`, `font-[700]`,
+//      `h-3 w-3`, `w-3 shrink-0 h-3`, `size-3`, `size={9}`, `width={9}`,
+//      `text-[0.5rem]`, `text-[length:9px]`. → tokens are compared EXACTLY
+//      against the whole family, not matched as a prefix at a boundary.
+//   3. The stylesheet. Eleven of the thirteen files carry their type in
+//      `.at-*` rules, so a JSX-only scan is silent over most of the surface —
+//      `text-transform: uppercase` on `.at-picker-label` put AT-08 back on
+//      the exact class the previous commit exists to fix, and every test
+//      stayed green. → each check has a sheet half.
+//   4. An inline `style`. `fontWeight: 700`, `letterSpacing: '0.05em'`,
+//      `textTransform: 'uppercase'`, `fontSize: '9px'`. → banned outright.
+//
+// And two went RED on CORRECT code, which is a defect of the same size:
+// a trailing `//` comment quoting `tracking-wider` (the fixture strips only
+// full-line comments), and converting every icon to Tailwind v4's `size-*`.
+// Exact tokens fix the first; knowing `size-*` fixes the second.
+
+/**
+ * Whether a string literal is a class list rather than a sentence.
+ *
+ * 🚨 IT HAS TO BE BOTH GENEROUS AND WRONG-PROOF, AND THE TWO PULL APART.
+ * Generous, because the scans below are the only thing standing between this
+ * surface and AT-08, and a className reaches the DOM through a constant, a
+ * ternary, a template chunk or a helper just as well as through an
+ * attribute — so every string literal is a candidate. Wrong-proof, because
+ * this directory's strings are mostly ENGLISH: placeholders, titles, refusal
+ * messages. "bucket names are stored in uppercase" is all lowercase, has no
+ * sentence punctuation, and contains the exact token `uppercase`; without
+ * the stopword clause it fails "every uppercase sits on the Label step" and
+ * the guard is blocking correct work, which is a defect of its own size.
+ *
+ * No class list contains `and`, `the` or `is`. No English sentence is made
+ * only of hyphenated lowercase tokens. That is the whole discriminator.
+ */
+const STOPWORDS = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'with', 'you', 'your'])
+const looksLikeClasses = (s) =>
+  s.length > 0 &&
+  !/[A-Z]/.test(s) &&
+  !/[.!?,;:]\s|[.!?]$/.test(s) &&
+  !s.trim().split(/\s+/).some((t) => STOPWORDS.has(t))
+
+/**
+ * The class tokens on one opening tag.
+ *
+ * 🚨 IT FILTERS, AND THE FIRST VERSION DID NOT. Pulling every quoted string
+ * out of a tag also pulls its `placeholder`, `title` and `aria-label` — so
+ * `placeholder="bucket names are stored in uppercase"` put the token
+ * `uppercase` on the element and the inheritance check below went red on a
+ * sentence. Only literals that read as a class list count.
+ */
+const tagClassTokens = (tag) =>
+  [...tag.matchAll(/(['"`])([^'"`\n]*)\1/g)]
+    .map((m) => m[2])
+    .filter(looksLikeClasses)
+    .join(' ')
+    .split(/\s+/)
+    .filter(Boolean)
+
+/** Every class token named anywhere in a source, with where it was written. */
+const CLASS_TOKENS = Object.entries(sources).flatMap(([file, src]) =>
+  [...src.matchAll(/(['"`])([^'"`\n]*)\1/g)]
+    .filter((m) => looksLikeClasses(m[2]))
+    .flatMap((m) => {
+      const where = `${file}:${src.slice(0, m.index).split('\n').length}`
+      return m[2].trim().split(/\s+/).filter(Boolean).map((t) => ({ where, cls: m[2], t }))
+    }),
+)
+
+const STEP_PX = { h1: 20, h2: 16, h3: 14, body: 14, dense: 13, caption: 12, label: 11 }
+const STEPS = new Set([20, 16, 14, 13, 12, 11])
+const TO_PX = { px: 1, pt: 4 / 3, rem: 16, em: 16 }
+
+/** Every `.at-*` class the sheet gives a `font-size`. An element wearing one
+ *  is sized, even though it names no utility — which is how eleven of the
+ *  thirteen files are written. */
+const SIZED_AT = new Set(
+  [...cssCode.matchAll(/([^{};]+)\{([^}]*)\}/g)]
+    .filter((m) => /font-size:/.test(m[2]))
+    .flatMap((m) => [...m[1].matchAll(/\.(at-[a-z0-9-]+)/g)].map((x) => x[1])),
+)
+
+describe('C7: one scale, and every size taken from it by name', () => {
   // "The floor is 11px; nothing smaller ships" (plan §0 C7, §3.1). The review
   // counted 50 occurrences at 10px or smaller on this surface and named
-  // `text-[9px]` for deletion outright. Eleven of the thirteen files carry no
-  // hand-written size at all now; the two that do are the ones Track A and
-  // Track C own, where this session was scoped to tokens and kit components
-  // and could not restructure the JSX. A class swap IS a token change, so the
-  // floor applies to them too.
-  const SIZES = Object.entries(sources).flatMap(([file, src]) =>
-    [...src.matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)].map((m) => ({ file, px: Number(m[1]) })),
-  )
+  // `text-[9px]` for deletion outright.
 
-  it('finds the sizes it is checking (the scan is not empty)', () => {
-    // The two files that still spell a size are StorageSection and
-    // ChangeRequestsSection. If this ever reaches zero the floor check below
-    // passes while checking nothing — and it will reach zero legitimately,
-    // when the type pass finishes those two, so raise this to a
-    // `toEqual([])` on the whole list at that point rather than deleting it.
-    expect(SIZES.length).toBeGreaterThan(0)
+  /** A size spelled as an arbitrary value, in any unit and either syntax. */
+  const RAW = CLASS_TOKENS.flatMap(({ where, t }) => {
+    const m = t.match(/^text-\[(?:length:)?([\d.]+)(px|rem|em|pt)\]$/)
+    return m ? [{ where, t, px: Number(m[1]) * TO_PX[m[2]] }] : []
+  })
+
+  /** A size taken from the scale by name. */
+  const NAMED = CLASS_TOKENS.flatMap(({ where, t }) => {
+    const m = t.match(/^text-(h1|h2|h3|body|dense|caption|label)$/)
+    return m ? [{ where, t, px: STEP_PX[m[1]] }] : []
+  })
+
+  /**
+   * A size set from JS. AT-07's own named evidence was an inline `fontSize`
+   * and one is still live (`UsersSection.jsx`, the avatar).
+   *
+   * 🚨 AN EXPRESSION IT CANNOT PARSE IS RECORDED, NOT SKIPPED — C3b's round
+   * two found that treating an unparsed `style=` as clean re-admitted the
+   * whole inline-beats-class family in one token. The live expression is a
+   * ternary whose CONDITION is `size >= 40`, and 40 is a threshold rather
+   * than a size, so the two branches are read and the condition is not.
+   */
+  const INLINE = []
+  const UNPARSED = []
+  for (const [file, src] of Object.entries(sources)) {
+    for (const m of src.matchAll(/fontSize:\s*([^,}\n]+)/g)) {
+      const where = `${file}:${src.slice(0, m.index).split('\n').length}`
+      const v = m[1].trim()
+      if (/^'?var\(--text-[a-z0-9-]+\)'?$/.test(v)) continue
+      const ternary = v.match(/\?\s*'?([\d.]+)(?:px)?'?\s*:\s*'?([\d.]+)(?:px)?'?$/)
+      const bare = v.match(/^'?([\d.]+)(?:px)?'?$/)
+      if (ternary) INLINE.push({ where, t: v, px: Number(ternary[1]) }, { where, t: v, px: Number(ternary[2]) })
+      else if (bare) INLINE.push({ where, t: v, px: Number(bare[1]) })
+      else UNPARSED.push(`${where} — \`fontSize: ${v}\` is a shape this scan cannot read`)
+    }
+  }
+
+  /** And the sizes the page stylesheet sets, mapped back onto the scale. */
+  const CSS_SIZES = [...cssCode.matchAll(/font-size:\s*([^;]+);/g)].map((m) => {
+    const v = m[1].trim()
+    const named = v.match(/^var\(--text-(h1|h2|h3|body|dense|caption|label)\)$/)
+    const px = v.match(/^([\d.]+)px$/)
+    return { where: 'adminTerminal.css', t: v, px: named ? STEP_PX[named[1]] : px ? Number(px[1]) : NaN }
+  })
+
+  // 🚨 FOUR SOURCES, AND THAT IS THE POINT. C3b's version scanned
+  // `text-[Npx]` alone and left a note saying the scan would reach zero when
+  // the type pass finished — it did, and C3c's first repair pointed the floor
+  // and scale checks at the NAMED steps instead. A review then observed that
+  // every value in `STEP_PX` is ≥ 11 and every value is in `STEPS`, so both
+  // assertions had become incapable of failing: populated and inert, which is
+  // C3b trap 8 one level up. Arbitrary values, inline `fontSize` and the
+  // sheet's own declarations can each carry an off-scale number.
+  const SIZES = [...RAW, ...NAMED, ...INLINE, ...CSS_SIZES]
+
+  it('finds the sizes it is checking (the scans are not empty)', () => {
+    // 🚨 THESE READ THREE INDEPENDENT SOURCES BECAUSE ANY ONE OF THEM MAY
+    // LEGITIMATELY EMPTY. A review pointed out that moving the last
+    // `text-label uppercase` spans into `.at-*` rules — which is the
+    // direction this directory is already travelling, and which the previous
+    // commit moved `.at-picker-label` in — would have turned a
+    // utilities-only companion red on correct work.
+    expect(CSS_SIZES.length).toBeGreaterThan(0)
+    expect(INLINE.length).toBeGreaterThan(0)
+    expect(NAMED.length + [...SIZED_AT].length).toBeGreaterThan(0)
+  })
+
+  it('🚨 reads every inline `fontSize` it finds, or says it cannot', () => {
+    expect(UNPARSED).toEqual([])
+  })
+
+  it('🚨 writes no size as an arbitrary value — every size is a named step', () => {
+    // The point of a scale is that a size has a NAME. `text-[13px]` is the
+    // right number and the wrong statement.
+    expect(RAW).toEqual([])
   })
 
   it('🚨 writes no size below the 11px floor', () => {
@@ -677,33 +832,99 @@ describe('C7: the 11px floor, and one scale', () => {
   it('writes no size that is not a step on the scale', () => {
     // 20 / 16 / 14 / 13 / 12 / 11 (plan §3.1). 14 appears twice on the scale
     // — Body and H3 — which is deliberate, not a duplicate.
-    const STEPS = new Set([20, 16, 14, 13, 12, 11])
     expect(SIZES.filter((s) => !STEPS.has(s.px))).toEqual([])
   })
 
-  it('🚨 Q4: the mono is on data, never on prose', () => {
-    // "Data only: numerics in tables, sizes, durations, budgets, counts, ids,
-    // file paths, timecode, keyboard keys, code blocks, the version footer. It
-    // leaves every label, heading, button, tab, chip and paragraph."
-    //
-    // The two spellings separate cleanly in this directory, and the separation
-    // IS the rule: a BARE `font-mono` on an inline span is always wrapping a
-    // value — a UNC path, a bucket name, a drive letter, a root path — and is
-    // correct. `font-mono` beside a SIZE class is always a whole message or
-    // paragraph, and is not. Twelve of those shipped: two error strings, two
-    // success strings, a row subtitle and seven explanatory paragraphs, all
-    // set in the browser's fallback monospace — which is the face the plan's
-    // own diagnosis blames for the app reading as dated in the first place.
-    const prose = []
+  it("🚨 no second scale: Tailwind's own size utilities are not used", () => {
+    // `text-xs` is 12px and `text-sm` is 14px, so both LOOK like steps and
+    // neither is one — they come from Tailwind's scale, not WILSON's, and
+    // drift the moment a step changes in `@theme`. The review counted 64
+    // `text-xs` on this surface before the conversion.
+    expect(CLASS_TOKENS.filter(({ t }) => /^text-(xs|sm|base|lg|xl|[2-9]xl)$/.test(t))).toEqual([])
+  })
+
+  it('🚨 no `leading-*` utility: the step carries its own leading', () => {
+    // 15 `leading-relaxed` were deleted on exactly this reasoning, which only
+    // holds if nothing may put one back — `leading-none` on a Dense paragraph
+    // is 13px text on a 13px line, and no size check would notice.
+    expect(CLASS_TOKENS.filter(({ t }) => /^leading-/.test(t))).toEqual([])
+  })
+
+  it('🚨 no type property is set from an inline style', () => {
+    // Every one of these was a live evasion in review: `fontWeight: 700`,
+    // `letterSpacing: '0.05em'`, `textTransform: 'uppercase'`, `fontSize:
+    // '9px'`. The existing inline-beats-class guard only reaches elements
+    // that wear an `.at-*` class; type is set on Tailwind-classed elements
+    // here, so it needs its own flat rule. `fontSize` is exempt because the
+    // scan above READS it — one live site, the avatar, both branches on the
+    // scale.
+    const bad = []
     for (const [file, src] of Object.entries(sources)) {
-      for (const m of src.matchAll(/className="([^"]*font-mono[^"]*)"/g)) {
-        if (/text-\[|text-(xs|sm|base|lg|xl)\b/.test(m[1])) {
-          const line = src.slice(0, m.index).split('\n').length
-          prose.push(`${file}:${line} — \`${m[1]}\`: sized like a block, so it is prose, not data`)
-        }
+      for (const m of src.matchAll(/\b(fontWeight|letterSpacing|textTransform)\s*:/g)) {
+        bad.push(`${file}:${src.slice(0, m.index).split('\n').length} — inline \`${m[1]}\``)
       }
     }
-    expect(prose).toEqual([])
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 and no element is told its size twice', () => {
+    // 🚨 MUTANT 35, AND IT RE-ADMITTED THIS SESSION'S OWN FIXED DEFECT.
+    // `fontSize` is exempt from the ban above because the scan READS it — but
+    // reading it only proves the number is on the scale, and 11 is on the
+    // scale. `<h3 className="text-h3" style={{ fontSize: 11 }}>` put a card
+    // title at 11px above its own 13px body copy, which is verbatim what
+    // `1b0d4ae` exists to fix, and all 89 tests stayed green.
+    // An element that has been told its size by a step must not be re-told
+    // inline. The one legitimate inline size on the surface — the avatar —
+    // carries no step class, so it is exempt by construction rather than by
+    // name.
+    const bad = []
+    for (const [file, src] of Object.entries(sources)) {
+      for (const tag of openingTags(src)) {
+        if (!/fontSize\s*:/.test(tag)) continue
+        const step = tagClassTokens(tag).find((t) => /^text-(h1|h2|h3|body|dense|caption|label)$/.test(t))
+        if (step) bad.push(`${file} — \`${step}\` and an inline \`fontSize\` on one element`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 `.at-label-aside` keeps the two declarations that are its whole job', () => {
+    // 🚨 CORRECTION 2 HAD NO GUARD AT ALL, and a reviewer deleted its two
+    // load-bearing declarations with the suite at 89/89. Measured damage:
+    // "(optional folder inside the bucket)" goes 168.2px → 199.9px, stops
+    // fitting its 223.6px column, wraps to two lines, and drops the Prefix
+    // input 15px below Region's and Bucket's. `font-weight` is not pinned
+    // here because losing it is visible without being a layout fault.
+    const rule = [...cssCode.matchAll(/\.at-label-aside\s*\{([^}]*)\}/g)].map((m) => m[1])
+    expect(rule.length).toBe(1)
+    expect(rule[0]).toMatch(/text-transform:\s*none/)
+    expect(rule[0]).toMatch(/letter-spacing:\s*0/)
+    // Two parentheticals, two callers — a countable invariant, because a
+    // partial revert of a paired edit is the shape that slipped past a
+    // class-based check in C3b's round two.
+    expect(jsx.match(/at-label-aside/g)?.length).toBe(2)
+  })
+
+  it('🚨 `.at-prose` is prose, and prose is the one thing 11px is not for', () => {
+    // Pinned by value, and the sheet-wide check is exactly why it has to be:
+    // that one asks only that a size reads SOME `--text-*`, which a revert to
+    // `--text-label` — where these five strings started — satisfies.
+    //
+    // 🚨 EVERY `.at-prose` RULE, AND THE LAST DECLARATION IN EACH. A review
+    // beat the first version twice: `match()` without `/g` reads only the
+    // first rule, so a second `.at-prose { font-size: var(--text-label) }`
+    // appended to the sheet won; and `toMatch` is satisfied by the FIRST
+    // `font-size`, so a second declaration inside the same rule won.
+    // Last-wins is what the cascade does, so last-wins is what this reads.
+    const bodies = [...cssCode.matchAll(/\.at-prose\s*\{([^}]*)\}/g)].map((m) => m[1])
+    expect(bodies.length).toBeGreaterThan(0)
+    const decls = bodies.flatMap((b) => [...b.matchAll(/(font-size|line-height):\s*([^;]+);/g)])
+    const last = (prop) => decls.filter((d) => d[1] === prop).at(-1)?.[2].trim()
+    expect(last('font-size')).toBe('var(--text-dense)')
+    // And its leading comes from the step too, so an `.at-prose` span and a
+    // `text-dense` span beside it agree by construction rather than by luck.
+    expect(last('line-height')).toBe('var(--text-dense--line-height)')
   })
 
   it('🚨 the page stylesheet reads the scale rather than spelling a size', () => {
@@ -713,6 +934,243 @@ describe('C7: the 11px floor, and one scale', () => {
       .map((m) => m[1].trim())
       .filter((v) => !v.startsWith('var(--text-'))
     expect(raw).toEqual([])
+  })
+
+  it('🚨 and the `font` shorthand is not used to smuggle one past it', () => {
+    // `font: 600 9px/1.2 var(--font-sans)` sets a size, a weight and a
+    // leading in one declaration that the three longhand scans above cannot
+    // see. A review put 9px on a live class that way and every test stayed
+    // green. This sheet has no legitimate use for the shorthand.
+    expect(cssCode).not.toMatch(/(^|[;{\s])font:\s/)
+  })
+
+  it('🚨 Q4: the mono is on data, never on prose', () => {
+    // "Data only: numerics in tables, sizes, durations, budgets, counts, ids,
+    // file paths, timecode, keyboard keys, code blocks, the version footer.
+    // It leaves every label, heading, button, tab, chip and paragraph."
+    //
+    // A BARE `font-mono` on an inline span is always wrapping a value — a UNC
+    // path, a bucket name, a drive letter — and is correct. Three things make
+    // it prose: a size utility beside it, an `.at-*` class the sheet sizes,
+    // or a block-level tag. 🚨 The last two are the repair: the detector knew
+    // a size only as `text-[Npx]` or a Tailwind default, and this session
+    // converted the last of both, so `<p className="font-mono">` and
+    // `<span className="font-mono at-row-value">` — the spelling the other
+    // eleven files use — both walked through a green guard.
+    const prose = []
+    for (const [file, src] of Object.entries(sources)) {
+      for (const tag of openingTags(src)) {
+        const cls = tagClassTokens(tag)
+        if (!cls.includes('font-mono')) continue
+        const name = tag.match(/^<\s*([A-Za-z][A-Za-z0-9]*)/)?.[1] ?? '?'
+        const why = cls.some((t) => /^text-(\[|xs$|sm$|base$|lg$|xl$|h1$|h2$|h3$|body$|dense$|caption$|label$)/.test(t))
+          ? 'a size utility'
+          : cls.some((t) => SIZED_AT.has(t))
+            ? 'an `.at-*` class the sheet sizes'
+            : /^(p|h[1-6]|li|blockquote)$/.test(name)
+              ? 'a block-level tag'
+              : /fontSize:/.test(tag)
+                ? 'an inline fontSize'
+                : null
+        if (why) prose.push(`${file} <${name}> — \`font-mono\` with ${why}, so it is prose, not data`)
+      }
+    }
+    expect(prose).toEqual([])
+  })
+
+  it('finds the icons it is checking (the scan is not empty)', () => {
+    // 🚨 ITS OWN `it`. When this lived inside the assertion below, emptying
+    // the scan reported "three icon sizes, not eleven" — the opposite of what
+    // had happened — and a review hit exactly that by converting every icon
+    // to `size-*`, which is correct code.
+    expect(ICONS.length).toBeGreaterThan(0)
+    // And the set it filters against is real: a regex that matched no import
+    // would scan an empty glyph list and pass everything (C3b trap 8, which
+    // this file has already been bitten by twice).
+    expect(Object.values(LUCIDE).reduce((n, s) => n + s.size, 0)).toBeGreaterThan(20)
+  })
+
+  it('🚨 §3.3: three icon sizes, not eleven', () => {
+    // "Icons 14 inside dense controls, 16 in rows and buttons, 24 in empty
+    // states. Three icon sizes, not eleven."
+    //
+    // 🚨 A UTILITY BEATS THE KIT HERE, WHICH IS WHY IT SURVIVED SO LONG.
+    // `.ui-btn[data-size="sm"] > svg` is 14px and lives in `@layer
+    // components`; `w-3 h-3` lives in `@layer utilities`, declared LATER, so
+    // eleven icons inside kit buttons really did render at 12px with the
+    // kit's own rule losing silently. The fix is to drop the utility, not to
+    // restate the kit's number on top of it.
+    expect(ICONS.filter((i) => i.w !== i.h || !new Set([14, 16, 24]).has(i.w))).toEqual([])
+  })
+})
+
+/**
+ * Every sized glyph in the directory. Reads whole tags via the brace-aware
+ * `openingTags()`, not a character window.
+ *
+ * 🚨 NINE SPELLINGS OF A 12px ICON WALKED PAST THE FIRST VERSION: `h-3 w-3`
+ * (wrong order), `w-3 shrink-0 h-3` (not adjacent), `w-3  h-3` (two spaces),
+ * `w-[9px] h-[9px]`, `size-3` (Tailwind v4's square utility, and the spelling
+ * a future session is likeliest to reach for), `size={9}` (lucide's own
+ * prop), `width={9} height={9}` (SVG attributes), a template literal, and a
+ * className more than 120 characters into the tag.
+ */
+const LUCIDE = Object.fromEntries(
+  Object.entries(sources).map(([file, src]) => [
+    file,
+    new Set(
+      [...src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'lucide-react'/g)]
+        .flatMap((m) => m[1].split(',').map((n) => n.trim().split(/\s+as\s+/).pop()))
+        .filter(Boolean),
+    ),
+  ]),
+)
+
+const ICONS = Object.entries(sources).flatMap(([file, src]) =>
+  openingTags(src).flatMap((tag) => {
+    const name = tag.match(/^<\s*([A-Z][A-Za-z0-9]*)/)?.[1]
+    // 🚨 LUCIDE GLYPHS ONLY, AND THAT IS NOT FUSSINESS. The first version
+    // read `size=`/`width=` off any capitalised tag and went red on two
+    // correct elements: `<Table width={110}>`, a COLUMN width, and
+    // `<Avatar size={40}>`, which has a scale of its own. §3.3 is about
+    // icons — "Icons stay lucide-react; no emoji" — so the set is derived
+    // from each file's own lucide import.
+    if (!name || !LUCIDE[file].has(name)) return []
+    const where = `${file} <${name}>`
+    const cls = tagClassTokens(tag)
+    const scale = (p) => {
+      const bare = cls.find((t) => new RegExp(`^${p}-[\\d.]+$`).test(t))
+      if (bare) return Number(bare.slice(p.length + 1)) * 4
+      const arb = cls.find((t) => new RegExp(`^${p}-\\[[\\d.]+px\\]$`).test(t))
+      return arb ? Number(arb.match(/[\d.]+/)[0]) : null
+    }
+    const prop = (p) => {
+      const m = tag.match(new RegExp(`\\b${p}=\\{?\\s*"?([\\d.]+)"?\\s*\\}?`))
+      return m ? Number(m[1]) : null
+    }
+    const sq = scale('size') ?? prop('size')
+    const w = sq ?? scale('w') ?? prop('width')
+    const h = sq ?? scale('h') ?? prop('height')
+    return w === null && h === null ? [] : [{ where, w, h }]
+  }),
+)
+
+describe('🚨 Q2: sentence case everywhere except the Label step', () => {
+  // "Uppercase appears only in the Label step and the transition title, both
+  // tracked; everything else is sentence case with zero tracking" (§3.1), and
+  // Q2 ruled the same thing. AT-08 counted 91 `uppercase` and 86 letterspaced
+  // elements across these thirteen files: a nav item, a section title, a card
+  // title, a field label, a table header, a button label, a status chip, a
+  // group heading and a danger-zone warning were one typographic object, so
+  // nothing could be scanned because nothing differed.
+  const UPPER_CLASS = CLASS_TOKENS.filter(({ t }) => t === 'uppercase')
+  const UPPER_CSS = [...cssCode.matchAll(/([^{};]+)\{([^}]*)\}/g)]
+    .filter((m) => /text-transform:\s*uppercase/.test(m[2]))
+    .map((m) => ({ sel: m[1].trim(), body: m[2] }))
+
+  it('finds the uppercase runs it is checking (the scans are not empty)', () => {
+    // 🚨 IT COUNTS BOTH SIDES. Seven `text-label uppercase` spans in the two
+    // converted files and five `text-transform: uppercase` rules in the
+    // sheet. A review noted that a utilities-only companion goes red on
+    // correct work the day someone moves those seven spans into `.at-*`
+    // rules, which is the direction this directory is already travelling.
+    expect(UPPER_CLASS.length + UPPER_CSS.length).toBeGreaterThan(0)
+  })
+
+  it('🚨 every `uppercase` utility sits on the Label step', () => {
+    // Capitals are a ROLE here, not an emphasis: they say "this is a label
+    // for the thing below it". On any other step they are just loud.
+    expect(UPPER_CLASS.filter(({ cls }) => !cls.split(/\s+/).includes('text-label'))).toEqual([])
+  })
+
+  it('🚨 and no `uppercase` is handed down to a child that is not', () => {
+    // The subtlest evasion either review found: `uppercase` on a WRAPPER that
+    // also carries `text-label` satisfies the check above, while the
+    // `text-h3` title and `text-caption` subtitle nested inside it render in
+    // capitals at 14 and 12px with the parent's 0.06em inherited — no step
+    // resets `letter-spacing`. A tag carrying `uppercase` has to be the thing
+    // that holds the words.
+    const bad = []
+    for (const [file, src] of Object.entries(sources)) {
+      for (const tag of openingTags(src)) {
+        if (!tagClassTokens(tag).includes('uppercase')) continue
+        const after = src.slice(src.indexOf(tag) + tag.length)
+        if (/^\s*</.test(after)) bad.push(`${file} — \`uppercase\` on a tag whose first child is an element`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 and so does every `text-transform: uppercase` in the stylesheet', () => {
+    // 🚨 THE JSX SCAN CANNOT SEE A RULE, AND ELEVEN OF THE THIRTEEN FILES
+    // CARRY THEIR TYPE IN RULES. A review put `text-transform: uppercase`
+    // back on `.at-picker-label` — the one class the previous commit exists
+    // to fix — and all 79 tests stayed green.
+    expect(UPPER_CSS.filter((r) => !/font-size:\s*var\(--text-label\)/.test(r.body)).map((r) => r.sel)).toEqual([])
+  })
+
+  it('🚨 no `tracking-*` utility: the Label token carries its own 0.06em', () => {
+    // All fourteen of these were `tracking-wider`, which is 0.05em against
+    // the token's 0.06em — a second tracking scale, one step out, on top of
+    // the one the theme already applies.
+    //
+    // `tracking-normal` is exempt BY NAME because it is the one utility that
+    // REMOVES tracking rather than inventing some: a sentence-case child of a
+    // Label-step parent inherits 0.06em, and cancelling that is correct. A
+    // guard that blocks the only right answer is a defect of its own.
+    expect(CLASS_TOKENS.filter(({ t }) => /^tracking-(tighter|tight|wide|wider|widest|\[)/.test(t))).toEqual([])
+  })
+
+  it('🚨 and no second tracking scale in the stylesheet', () => {
+    const bad = [...cssCode.matchAll(/letter-spacing:\s*([^;]+);/g)]
+      .map((m) => m[1].trim())
+      .filter((v) => !['0', 'normal', '0.06em', 'var(--text-label--letter-spacing)'].includes(v))
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 the weight axis is 400 and 600, and nothing else', () => {
+    // §3: "Weights: 2 (400, 600)". `font-bold` is 700 and there is no 700 —
+    // and on the Label and H3 steps the theme already emits 600, so a
+    // `font-bold` beside either was overriding the scale to LEAVE it.
+    // `font-semibold` and `font-normal` are the two legal spellings; the
+    // first version named `font-bold` alone and `font-black`, `font-medium`,
+    // `font-extrabold` and `font-[700]` all walked past it.
+    expect(
+      CLASS_TOKENS.filter(({ t }) => /^font-(bold|extrabold|black|medium|light|thin|extralight|\[)/.test(t)),
+    ).toEqual([])
+  })
+
+  it('🚨 and the stylesheet stays on it too', () => {
+    const ALLOWED = new Set([
+      '400', '600', 'inherit',
+      'var(--text-h1--font-weight)', 'var(--text-h2--font-weight)',
+      'var(--text-h3--font-weight)', 'var(--text-label--font-weight)',
+    ])
+    const bad = [...cssCode.matchAll(/font-weight:\s*([^;]+);/g)]
+      .map((m) => m[1].trim())
+      .filter((v) => !ALLOWED.has(v))
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 §3.3 reaches the stylesheet too', () => {
+    // One survivor, named here rather than left invisible: a 10px glyph in a
+    // 16px box inside a 20px `.ui-badge`, which exists only because the kit
+    // has no badge below its default and no icon button below 28px — the
+    // request is open in the hand-off's §6. Naming it is the difference
+    // between a known exemption and a rule nobody is keeping.
+    const EXEMPT = new Set(['.at-dept-remove svg'])
+    const bad = []
+    for (const m of cssCode.matchAll(/([^{};]+)\{([^}]*)\}/g)) {
+      const sel = m[1].trim()
+      if (!/svg\s*$/.test(sel) || EXEMPT.has(sel)) continue
+      for (const d of m[2].matchAll(/(?:width|height):\s*([^;]+);/g)) {
+        const v = d[1].trim()
+        if (/^var\(--icon-(sm|md|lg)\)$/.test(v)) continue
+        const px = v.match(/^([\d.]+)px$/)
+        if (!px || ![14, 16, 24].includes(Number(px[1]))) bad.push(`${sel} — ${v}`)
+      }
+    }
+    expect(bad).toEqual([])
   })
 })
 

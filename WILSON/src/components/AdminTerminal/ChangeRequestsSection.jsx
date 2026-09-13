@@ -262,7 +262,7 @@ export default function ChangeRequestsSection({ isActive }) {
           disabled={loading}
           className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark"
         >
-          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
           Refresh
         </button>
       </div>
@@ -270,7 +270,7 @@ export default function ChangeRequestsSection({ isActive }) {
       {error && (
         <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: DANGER }} />
-          <span className="text-[11px]" style={{ color: DANGER }}>{error}</span>
+          <span className="text-dense" style={{ color: DANGER }}>{error}</span>
         </div>
       )}
 
@@ -278,13 +278,13 @@ export default function ChangeRequestsSection({ isActive }) {
       {applied && !error && (
         <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)' }}>
           <Check className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: SUCCESS }} />
-          <span className="text-[11px]" style={{ color: SUCCESS }}>
+          <span className="text-dense" style={{ color: SUCCESS }}>
             Applied to “{applied.name}”
             {applied.updates != null ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added` : ''}.
             A pre-change archive was kept in your O.T.T.E.R. library.
           </span>
           <button type="button" onClick={() => setApplied(null)} className="ml-auto flex-shrink-0" aria-label="Dismiss">
-            <X className="w-3 h-3" style={{ color: SUCCESS }} />
+            <X className="w-3.5 h-3.5" style={{ color: SUCCESS }} />
           </button>
         </div>
       )}
@@ -320,16 +320,16 @@ export default function ChangeRequestsSection({ isActive }) {
                   >
                     <StatusDot tone={st.tone} label={st.label} className="at-cr-dot" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[12px] font-bold" style={{ color: INK }}>
+                      <span className="block text-h3" style={{ color: INK }}>
                         {r.target_name ?? 'A company standard course'}
                       </span>
-                      <span className="block text-[11px] truncate" style={{ color: INK_2 }}>
+                      <span className="block text-caption truncate" style={{ color: INK_2 }}>
                         {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                         {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                       </span>
                     </span>
                     <span
-                      className="text-[11px] font-bold uppercase tracking-wider flex-shrink-0"
+                      className="text-label uppercase flex-shrink-0"
                       style={{ color: st.color }}
                     >
                       {st.label}
@@ -338,49 +338,49 @@ export default function ChangeRequestsSection({ isActive }) {
 
                   {isOpen && (
                     <div className="px-3 pb-3 pt-1" style={{ borderTop: `1px solid ${RULE}` }}>
-                      <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
+                      <p className="text-label uppercase mb-1" style={{ color: INK_2 }}>
                         What they changed, and why
                       </p>
-                      <p className="text-[12px] whitespace-pre-wrap mb-3" style={{ color: INK }}>
+                      <p className="text-dense whitespace-pre-wrap mb-3" style={{ color: INK }}>
                         {r.summary}
                       </p>
 
                       {/* The review window: readable while the request is live. */}
                       {(r.status === 'open' || r.status === 'changes_requested') && (
                         r.source_readable ? (
-                          <p className="text-[11px] mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
-                            <Eye className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <p className="text-dense mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
+                            <Eye className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                             <span>
                               Submitting shared their copy with reviewers for as long as this
                               request is open.{' '}
                               <button
                                 type="button"
                                 onClick={() => openTheirCourse(r)}
-                                className="underline font-bold inline-flex items-center gap-0.5"
+                                className="underline font-semibold inline-flex items-center gap-0.5"
                                 style={{ color: SIGNAL }}
                               >
-                                Open their course <ExternalLink className="w-2.5 h-2.5" />
+                                Open their course <ExternalLink className="w-3.5 h-3.5" />
                               </button>
                             </span>
                           </p>
                         ) : (
-                          <p className="text-[11px] mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
-                            <EyeOff className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <p className="text-dense mb-3 flex items-start gap-1.5" style={{ color: INK_2 }}>
+                            <EyeOff className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                             <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                           </p>
                         )
                       )}
 
                       {r.status === 'changes_requested' ? (
-                        <p className="text-[11px] flex items-center gap-1.5" style={{ color: INK_2 }}>
-                          <Lock className="w-3 h-3 flex-shrink-0" />
+                        <p className="text-dense flex items-center gap-1.5" style={{ color: INK_2 }}>
+                          <Lock className="w-3.5 h-3.5 flex-shrink-0" />
                           Changes requested by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}.
                           Waiting on {r.proposer_label ?? 'the proposer'} to revise or accept.
                         </p>
                       ) : r.status !== 'open' ? (
-                        <p className="text-[11px] flex items-center gap-1.5" style={{ color: INK_2 }}>
-                          <Lock className="w-3 h-3 flex-shrink-0" />
+                        <p className="text-dense flex items-center gap-1.5" style={{ color: INK_2 }}>
+                          <Lock className="w-3.5 h-3.5 flex-shrink-0" />
                           {st.label} by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}
                           {r.status === 'approved' && r.applied_at
@@ -394,10 +394,10 @@ export default function ChangeRequestsSection({ isActive }) {
                         <div className="at-decide-panel">
                           {/* Cognitive Bias: this writes to the canonical course —
                               say exactly what will happen, then confirm. */}
-                          <p className="text-[11px] mb-2" style={{ color: INK }}>
+                          <p className="text-dense mb-2" style={{ color: INK }}>
                             {diff?.loading ? (
                               <span className="inline-flex items-center gap-1.5">
-                                <Loader2 className="w-3 h-3 animate-spin" /> Comparing their course with the standard…
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Comparing their course with the standard…
                               </span>
                             ) : diff?.error ? (
                               <>Could not compare the two courses ({diff.error}) — approving will
@@ -436,7 +436,7 @@ export default function ChangeRequestsSection({ isActive }) {
                         <div className="at-decide-panel">
                           {/* Postel: a decline is a conversation — the note is the
                               whole point, so it is required, not optional. */}
-                          <p className="text-[11px] mb-2" style={{ color: INK }}>
+                          <p className="text-dense mb-2" style={{ color: INK }}>
                             Your note goes back to {r.proposer_label ?? 'the proposer'}. They can
                             make the changes and resubmit, or accept the decision.
                           </p>
@@ -466,7 +466,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             </Button>
                           </div>
                           {!note.trim() && (
-                            <p className="text-[11px] mt-1" style={{ color: INK_2 }}>
+                            <p className="text-caption mt-1" style={{ color: INK_2 }}>
                               A note is required — the proposer needs to know what to change.
                             </p>
                           )}
@@ -480,14 +480,14 @@ export default function ChangeRequestsSection({ isActive }) {
                             className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark"
                             title={r.source_readable ? undefined : 'Their course no longer exists — there is nothing to apply'}
                           >
-                            <Check className="w-3 h-3" /> Approve
+                            <Check /> Approve
                           </button>
                           <button
                             type="button"
                             onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}
                             className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark"
                           >
-                            <X className="w-3 h-3" /> Decline
+                            <X /> Decline
                           </button>
                         </div>
                       )}
