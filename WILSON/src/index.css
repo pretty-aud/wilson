@@ -818,9 +818,8 @@ select option {
      padding-right to 8px — about 1px of clearance between the chevron and
      the last character of "All severities" (C3b request 5). (0,2,1) here
      beats both, and beats them by specificity rather than by source order,
-     so it survives being moved. ⚠️ `.at-section select.ui-input[data-size=
-     "sm"]` is SUPERSEDED but NOT yet deleted, for the same reason as the
-     tab-strip rule below — hand-off ui-f4-2026-09-13 §7. */
+     so it survives being moved. `.at-section select.ui-input[data-size=
+     "sm"]` was the page-local copy and C3c retired it once this landed. */
   select.ui-input[data-size="sm"] { padding-right: 28px; }
 
   /* ── Field: Label role + control, 4px inside / 16px between ────────── */
@@ -1613,10 +1612,10 @@ select option {
      which is exactly why C1 scoped this rule locally on that page.
      `flex-shrink: 0` comes with it so the
      strip keeps its width against a long right slot, which is what both
-     page-local copies carried. Retired `.rs-page .ui-toolbar .ui-tabs` (F4).
-     ⚠️ `.at-section .ui-toolbar .ui-tabs` is SUPERSEDED but NOT yet deleted:
-     a C3c session held that file while this landed. Deletion owed by the
-     Admin lane — hand-off ui-f4-2026-09-13 §7. */
+     page-local copies carried. Both are retired: `.rs-page .ui-toolbar
+     .ui-tabs` by F4, and `.at-section .ui-toolbar .ui-tabs` by C3c, which
+     was live in that file while this landed and took its own copy out when
+     this rule reached it. */
   .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
 
   /* ── SectionTitle ───────────────────────────────────────────────────── */
