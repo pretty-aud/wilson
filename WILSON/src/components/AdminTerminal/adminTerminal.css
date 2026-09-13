@@ -219,13 +219,16 @@
      than a face change, because a cell holding nothing should read as quiet,
      not as a different kind of writing. */
   .at-none { color: var(--color-ink-3); }
-  /* Body copy at the Label step, which is the one role 11px is NOT meant for
-     (plan §3.1) — it is here because Track A and Track C own these two files'
-     JSX and the type pass cannot happen until they merge. The colour and the
-     leading are right; only the size is owed. */
+  /* Body copy: the two picker blurbs, and the three plain sentences the
+     Petal-cloud card uses to say what the allowance is. C3b introduced this
+     class holding the Label step deliberately, so that the size owed by the
+     type pass would be ONE change rather than five — this is that change.
+     Both the size and the leading come from the Dense step now, so an
+     `.at-prose` span and a `text-dense` span beside it are the same object,
+     which is the whole point of one scale. */
   .at-prose {
-    font-size: var(--text-label);
-    line-height: 1.5;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
     text-transform: none;
     letter-spacing: 0;
     color: var(--color-ink-2);

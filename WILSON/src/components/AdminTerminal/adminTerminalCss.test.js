@@ -641,25 +641,51 @@ describe('the create-user form still submits from the keyboard', () => {
   })
 })
 
-describe('C7: the 11px floor, and one scale', () => {
+describe('C7: one scale, and every size taken from it by name', () => {
   // "The floor is 11px; nothing smaller ships" (plan §0 C7, §3.1). The review
   // counted 50 occurrences at 10px or smaller on this surface and named
-  // `text-[9px]` for deletion outright. Eleven of the thirteen files carry no
-  // hand-written size at all now; the two that do are the ones Track A and
-  // Track C own, where this session was scoped to tokens and kit components
-  // and could not restructure the JSX. A class swap IS a token change, so the
-  // floor applies to them too.
-  const SIZES = Object.entries(sources).flatMap(([file, src]) =>
-    [...src.matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)].map((m) => ({ file, px: Number(m[1]) })),
+  // `text-[9px]` for deletion outright.
+  //
+  // 🚨 THIS BLOCK CHANGED SHAPE IN C3c, AND NOT BECAUSE COVERAGE WAS DROPPED.
+  // C3b's version scanned `text-[Npx]` only, and left a note saying the scan
+  // "will reach zero legitimately, when the type pass finishes those two, so
+  // raise this to a `toEqual([])` on the whole list at that point rather than
+  // deleting it." C3c finished the type pass on StorageSection and
+  // ChangeRequestsSection and the scan reached zero, exactly as predicted —
+  // so an arbitrary size is now a failure in itself, and the floor and scale
+  // checks read the NAMED steps instead, where they still have something to
+  // measure. A guard whose input is empty proves nothing (round 1, finding 8).
+  const STEP_PX = { h1: 20, h2: 16, h3: 14, body: 14, dense: 13, caption: 12, label: 11 }
+
+  // A size spelled as an arbitrary value: `text-[13px]`. None should survive.
+  const RAW = Object.entries(sources).flatMap(([file, src]) =>
+    [...src.matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)].map((m) => ({ file, cls: m[0], px: Number(m[1]) })),
   )
 
+  // A size taken from the scale by name: `text-dense`. The lookbehind is load
+  // -bearing — without it `\b` matches inside `var(--text-dense)`, and the
+  // scan would count the token definition as a use.
+  const NAMED = Object.entries(sources).flatMap(([file, src]) =>
+    [...src.matchAll(/(?<![-\w])text-(h1|h2|h3|body|dense|caption|label)\b/g)]
+      .map((m) => ({ file, cls: m[0], px: STEP_PX[m[1]] })),
+  )
+
+  const SIZES = [...RAW, ...NAMED]
+
   it('finds the sizes it is checking (the scan is not empty)', () => {
-    // The two files that still spell a size are StorageSection and
-    // ChangeRequestsSection. If this ever reaches zero the floor check below
-    // passes while checking nothing — and it will reach zero legitimately,
-    // when the type pass finishes those two, so raise this to a
-    // `toEqual([])` on the whole list at that point rather than deleting it.
+    // Trap 8 from the C3b hand-off: every derived list needs a companion
+    // assertion that it is populated. 47 named steps across the two files
+    // the type pass converted; if this reaches zero the two checks below
+    // pass while reading nothing.
     expect(SIZES.length).toBeGreaterThan(0)
+  })
+
+  it('🚨 writes no size as an arbitrary value — every size is a named step', () => {
+    // The whole point of a scale is that a size has a NAME. `text-[13px]` is
+    // the right number and the wrong statement: it says "thirteen" where
+    // `text-dense` says "the dense step", and the next person to want dense
+    // has to know the number rather than the role.
+    expect(RAW).toEqual([])
   })
 
   it('🚨 writes no size below the 11px floor', () => {
@@ -671,6 +697,41 @@ describe('C7: the 11px floor, and one scale', () => {
     // — Body and H3 — which is deliberate, not a duplicate.
     const STEPS = new Set([20, 16, 14, 13, 12, 11])
     expect(SIZES.filter((s) => !STEPS.has(s.px))).toEqual([])
+  })
+
+  it("🚨 no second scale: Tailwind's own size utilities are not used", () => {
+    // `text-xs` is 12px and `text-sm` is 14px, so both LOOK like steps and
+    // neither is one — they come from Tailwind's scale, not WILSON's, and
+    // they drift the moment a step's value changes in `@theme`. The review
+    // counted 64 `text-xs` on this surface before the conversion.
+    const second = Object.entries(sources).flatMap(([file, src]) =>
+      [...src.matchAll(/(?<![-\w])text-(xs|sm|base|lg|xl|[2-9]xl)\b/g)].map((m) => `${file} — ${m[0]}`),
+    )
+    expect(second).toEqual([])
+  })
+
+  it('🚨 §3.3: three icon sizes, not eleven', () => {
+    // "Icons 14 inside dense controls, 16 in rows and buttons, 24 in empty
+    // states. Three icon sizes, not eleven." Scoped to elements whose tag is
+    // capitalised, which on this surface is always a lucide glyph — a future
+    // square div that is not an icon is not this rule's business.
+    //
+    // 🚨 A UTILITY BEATS THE KIT HERE, WHICH IS WHY IT SURVIVED SO LONG.
+    // `.ui-btn[data-size="sm"] > svg` is 14px and lives in `@layer
+    // components`; `w-3 h-3` lives in `@layer utilities`, which is declared
+    // LATER, so eleven icons inside kit buttons really did render at 12px
+    // with the kit's own rule losing silently. The fix is to drop the
+    // utility, not to restate the kit's number on top of it.
+    const ALLOWED = new Set([14, 16, 24])
+    const icons = []
+    for (const [file, src] of Object.entries(sources)) {
+      for (const m of src.matchAll(/<([A-Z][A-Za-z0-9]*)[^>]{0,120}?className="([^"]*?)w-([\d.]+) h-([\d.]+)/g)) {
+        const line = src.slice(0, m.index).split('\n').length
+        icons.push({ where: `${file}:${line} <${m[1]}>`, w: Number(m[3]) * 4, h: Number(m[4]) * 4 })
+      }
+    }
+    expect(icons.length).toBeGreaterThan(0)
+    expect(icons.filter((i) => i.w !== i.h || !ALLOWED.has(i.w))).toEqual([])
   })
 
   it('🚨 Q4: the mono is on data, never on prose', () => {
@@ -686,10 +747,17 @@ describe('C7: the 11px floor, and one scale', () => {
     // success strings, a row subtitle and seven explanatory paragraphs, all
     // set in the browser's fallback monospace — which is the face the plan's
     // own diagnosis blames for the app reading as dated in the first place.
+    //
+    // 🚨 C3c: THE DETECTOR NOW KNOWS THE NAMED STEPS TOO. It recognised a
+    // size only as `text-[Npx]` or as a Tailwind default, and this session
+    // converted the last of both — so a `className="font-mono text-dense"`
+    // paragraph, the exact defect this test is named for, would have walked
+    // straight through a guard that was still green. A pass that removes the
+    // last input to a guard has disarmed it.
     const prose = []
     for (const [file, src] of Object.entries(sources)) {
       for (const m of src.matchAll(/className="([^"]*font-mono[^"]*)"/g)) {
-        if (/text-\[|text-(xs|sm|base|lg|xl)\b/.test(m[1])) {
+        if (/text-\[|(?<![-\w])text-(xs|sm|base|lg|xl|h1|h2|h3|body|dense|caption|label)\b/.test(m[1])) {
           const line = src.slice(0, m.index).split('\n').length
           prose.push(`${file}:${line} — \`${m[1]}\`: sized like a block, so it is prose, not data`)
         }

@@ -613,7 +613,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {loadError && (
         <div className="p-3 rounded-control mb-3"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
-          <p className="text-[11px] mb-2" style={{ color: DANGER }}>
+          <p className="text-dense mb-2" style={{ color: DANGER }}>
             Storage settings could not be loaded: {loadError}. Changes are
             disabled so a root you cannot see is not overwritten.
           </p>
@@ -625,7 +625,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
       {/* ── Mode ─────────────────────────────────────────────────────── */}
       <div className="p-4 rounded-control mb-3" style={cardStyle}>
-        <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: INK_2 }}>
+        <h3 className="text-h3 mb-2" style={{ color: INK_2 }}>
           Storage mode
         </h3>
         <div className="flex flex-col gap-2">
@@ -671,7 +671,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           means the mode is UNKNOWN, and the red banner above already says so. */}
       {mode === 'central' && !loadError && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-2" style={{ color: INK_2 }}>
             Petal cloud plan
           </h3>
 
@@ -689,7 +689,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               treatment as the secret-status check above, for the same reason. */}
           {usagePhase === 'error' && (
             <div>
-              <p className="text-[11px] leading-relaxed mb-2" style={{ color: SIGNAL }}>
+              <p className="text-dense mb-2" style={{ color: SIGNAL }}>
                 This company&rsquo;s storage usage could not be read just now,
                 so the figure is unknown. Nothing about the plan has changed —
                 try again in a moment.
@@ -702,7 +702,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
           {usagePhase === 'ready' && usage && (
             <>
-              <p className="text-[11px] leading-relaxed mb-2" style={{ color: INK_2 }}>
+              <p className="text-dense mb-2" style={{ color: INK_2 }}>
                 <span className="font-mono" style={{ color: INK }}>
                   {formatBytes(usage.usedBytes)}
                 </span>
@@ -777,7 +777,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                   one refusal with two causes and two boxes saying "uploads are
                   refused" reads as two separate faults. */}
               {suspended && (
-                <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed"
+                <div className="flex items-start gap-1.5 p-2 rounded-control text-dense"
                      style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
                   <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                   <span>
@@ -799,7 +799,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                   reason they never send the invoice that pays for the bigger
                   plan. */}
               {atCeiling && !suspended && (
-                <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed"
+                <div className="flex items-start gap-1.5 p-2 rounded-control text-dense"
                      style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
                   <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                   {/* 🚨 "until some are removed" WAS HERE AND WAS A NO-OP, found
@@ -828,7 +828,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Provider picker (byos only, S37) ─────────────────────────── */}
       {mode === 'byos' && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-2" style={{ color: INK_2 }}>
             What you own
           </h3>
           <div className="flex flex-col gap-2">
@@ -864,10 +864,10 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Root (byos + server/NAS only) ────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.NETWORK && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-1" style={{ color: INK_2 }}>
             Storage root
           </h3>
-          <p className="text-[11px] leading-relaxed mb-2" style={{ color: INK_2 }}>
+          <p className="text-dense mb-2" style={{ color: INK_2 }}>
             The folder everything lives under, as every computer sees it —
             <span className="font-mono"> \\server\share\Projects</span>. Current:{' '}
             <span className="font-mono" style={{ color: INK }}>
@@ -885,7 +885,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               EXACTLY. A warning that promises the opposite of what happens is
               worse than no warning. */}
           {row?.provider === WORKSPACE_PROVIDERS.S3 && (
-            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-2"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-dense mb-2"
                  style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
@@ -918,7 +918,7 @@ export default function StorageSection({ isActive, workspaceId }) {
             {bridge?.pickDirectory && (
               <button type="button" onClick={browseForRoot} disabled={saving || probing || !!loadError}
                       className={darkBtnClass} data-variant="secondary" data-size="sm" data-surface="dark">
-                <FolderOpen className="w-3 h-3" /> Browse
+                <FolderOpen /> Browse
               </button>
             )}
             <button type="button" onClick={beginSaveRoot}
@@ -929,7 +929,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           </div>
 
           {!bridge && (
-            <p className="text-[11px] leading-relaxed mb-2" style={{ color: INK_2 }}>
+            <p className="text-dense mb-2" style={{ color: INK_2 }}>
               Reachability can&rsquo;t be checked from a browser — the path is
               verified on each desktop when it connects. If the path is a
               mapped drive letter (<span className="font-mono">Z:\...</span>),
@@ -940,13 +940,13 @@ export default function StorageSection({ isActive, workspaceId }) {
           )}
 
           {probeSummary && !refusal && confirmStep === 0 && (
-            <div className="flex items-center gap-1.5 text-[11px] mb-1" style={{ color: SUCCESS }}>
+            <div className="flex items-center gap-1.5 text-dense mb-1" style={{ color: SUCCESS }}>
               <CheckCircle2 className="w-3.5 h-3.5" /> {probeSummary}
             </div>
           )}
 
           {refusal && (
-            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-1"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-dense mb-1"
                  style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>{refusal}</span>
@@ -958,7 +958,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           {confirmStep === 1 && (
             <div className="p-3 rounded-control mb-1"
                  style={{ backgroundColor: SIGNAL_TINT, border: `1px solid ${SIGNAL}` }}>
-              <p className="text-[11px] leading-relaxed mb-2" style={{ color: INK }}>
+              <p className="text-dense mb-2" style={{ color: INK }}>
                 <span className="font-mono">{pendingLocal}</span> is a folder on{' '}
                 <strong>this computer only</strong>. Nobody else on the team
                 will be able to open these files, and you will not see them
@@ -971,8 +971,8 @@ export default function StorageSection({ isActive, workspaceId }) {
                   Continue
                 </button>
                 <button type="button" onClick={resetRootFlow}
-                        className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-control"
-                        style={{ color: INK_2 }}>
+                        className="ui-btn" data-variant="ghost" data-size="sm"
+                        data-surface="dark">
                   Cancel
                 </button>
               </div>
@@ -981,7 +981,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           {confirmStep === 2 && (
             <div className="p-3 rounded-control mb-1"
                  style={{ backgroundColor: SIGNAL_TINT, border: `1px solid ${SIGNAL}` }}>
-              <p className="text-[11px] font-bold mb-2" style={{ color: INK }}>
+              <p className="text-h3 mb-2" style={{ color: INK }}>
                 Set this computer&rsquo;s folder anyway?
               </p>
               <div className="flex items-center gap-2">
@@ -989,8 +989,8 @@ export default function StorageSection({ isActive, workspaceId }) {
                   Set folder
                 </button>
                 <button type="button" onClick={resetRootFlow}
-                        className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-control"
-                        style={{ color: INK_2 }}>
+                        className="ui-btn" data-variant="ghost" data-size="sm"
+                        data-surface="dark">
                   Cancel
                 </button>
               </div>
@@ -1002,10 +1002,10 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Bucket (byos + S3 only, S37) ──────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.S3 && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-1" style={{ color: INK_2 }}>
             Bucket
           </h3>
-          <p className="text-[11px] leading-relaxed mb-2" style={{ color: INK_2 }}>
+          <p className="text-dense mb-2" style={{ color: INK_2 }}>
             Your S3-compatible bucket. Works from the browser and the desktop
             alike — both need the bucket&rsquo;s one-time CORS rule (the Test
             below checks it, and the setup guide has the JSON to paste).
@@ -1018,7 +1018,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           </p>
 
           {row?.root_path && (
-            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-2"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-dense mb-2"
                  style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
@@ -1037,7 +1037,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               Shown only when a real config is already saved AND the draft
               differs, so it warns about a change rather than nagging. */}
           {row?.provider === WORKSPACE_PROVIDERS.S3 && row?.provider_config && connectionEdited && (
-            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mb-2"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-dense mb-2"
                  style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
@@ -1052,7 +1052,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
           <div className="flex flex-col gap-2 mb-2">
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>
+              <span className="text-label uppercase" style={{ color: INK_2 }}>
                 Endpoint <span className="font-normal normal-case">(empty = AWS S3)</span>
               </span>
               <input type="text" value={s3Draft.endpoint}
@@ -1063,7 +1063,7 @@ export default function StorageSection({ isActive, workspaceId }) {
             </label>
             <div className="flex gap-2 flex-wrap">
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>Region</span>
+                <span className="text-label uppercase" style={{ color: INK_2 }}>Region</span>
                 <input type="text" value={s3Draft.region}
                        onChange={e => setS3Draft(d => ({ ...d, region: e.target.value }))}
                        placeholder="us-east-1 · us-west-004 · auto"
@@ -1071,7 +1071,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        className="ui-input" data-size="sm" data-surface="dark" />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>Bucket</span>
+                <span className="text-label uppercase" style={{ color: INK_2 }}>Bucket</span>
                 <input type="text" value={s3Draft.bucket}
                        onChange={e => setS3Draft(d => ({ ...d, bucket: e.target.value }))}
                        placeholder="studio-media"
@@ -1079,7 +1079,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        className="ui-input" data-size="sm" data-surface="dark" />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>
+                <span className="text-label uppercase" style={{ color: INK_2 }}>
                   Prefix <span className="font-normal normal-case">(optional folder inside the bucket)</span>
                 </span>
                 <input type="text" value={s3Draft.prefix}
@@ -1090,14 +1090,14 @@ export default function StorageSection({ isActive, workspaceId }) {
               </label>
             </div>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: INK_2 }}>Access key ID</span>
+              <span className="text-label uppercase" style={{ color: INK_2 }}>Access key ID</span>
               <input type="text" value={s3Draft.accessKeyId}
                      onChange={e => setS3Draft(d => ({ ...d, accessKeyId: e.target.value }))}
                      placeholder="AKIA…"
                      disabled={saving || testing || !!loadError}
                      className="ui-input" data-size="sm" data-surface="dark" />
             </label>
-            <label className="flex items-center gap-2 text-[11px]" style={{ color: INK_2 }}>
+            <label className="flex items-center gap-2 text-dense" style={{ color: INK_2 }}>
               <input type="checkbox" checked={s3Draft.forcePathStyle}
                      onChange={e => setS3Draft(d => ({ ...d, forcePathStyle: e.target.checked }))}
                      disabled={saving || testing || !!loadError} />
@@ -1117,7 +1117,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           </div>
 
           <div className="pt-2 mb-2" style={{ borderTop: `1px solid ${RULE}` }}>
-            <p className="text-[11px] leading-relaxed mb-1" style={{ color: INK_2 }}>
+            <p className="text-dense mb-1" style={{ color: INK_2 }}>
               Access key secret — stored encrypted; WILSON only ever shows its
               last characters.{' '}
               {/* Three states, never two: a failed check must not assert
@@ -1129,7 +1129,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                   : <span style={{ color: SIGNAL }}>Not stored yet.</span>}
             </p>
             {cryptoMissing && (
-              <p className="text-[11px] leading-relaxed mb-1" style={{ color: DANGER }}>
+              <p className="text-dense mb-1" style={{ color: DANGER }}>
                 This environment has no storage encryption key configured, so a
                 secret cannot be saved here yet. It is set once per environment
                 by an operator.
@@ -1164,21 +1164,21 @@ export default function StorageSection({ isActive, workspaceId }) {
                       className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark">
                 {testing ? 'Testing…' : 'Test connection'}
               </button>
-              <span className="text-[11px]" style={{ color: INK_2 }}>
+              <span className="text-dense" style={{ color: INK_2 }}>
                 A real round trip: the server writes, reads and deletes a probe
                 object, then this app repeats it — the second half is what
                 catches a missing CORS rule.
               </span>
             </div>
             {testResult && !s3Refusal && (
-              <div className="flex items-center gap-1.5 text-[11px] mt-2" style={{ color: SUCCESS }}>
+              <div className="flex items-center gap-1.5 text-dense mt-2" style={{ color: SUCCESS }}>
                 <CheckCircle2 className="w-3.5 h-3.5" /> {testResult}
               </div>
             )}
           </div>
 
           {s3Refusal && (
-            <div className="flex items-start gap-1.5 p-2 rounded-control text-[11px] leading-relaxed mt-2"
+            <div className="flex items-start gap-1.5 p-2 rounded-control text-dense mt-2"
                  style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>{s3Refusal}</span>
@@ -1188,13 +1188,13 @@ export default function StorageSection({ isActive, workspaceId }) {
       )}
 
       {saveError && (
-        <div className="p-2 rounded-control text-[11px] mb-2"
+        <div className="p-2 rounded-control text-dense mb-2"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)', color: DANGER }}>
           {saveError}
         </div>
       )}
       {notice && !saveError && (
-        <div className="flex items-center gap-1.5 text-[11px] mb-2" style={{ color: SUCCESS }}>
+        <div className="flex items-center gap-1.5 text-dense mb-2" style={{ color: SUCCESS }}>
           <CheckCircle2 className="w-3.5 h-3.5" /> {notice}
         </div>
       )}
