@@ -549,11 +549,24 @@
   }
   .at-picker[data-active='true'] .at-picker-icon { color: var(--color-signal); }
   .at-picker-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  /* 🚨 C3c: THIS ROSE WITH `.at-prose`, AND HAD TO. It was the Label step in
+     capitals, which was RIGHT while the blurb under it was also 11px — bold
+     capitals above regular text is a working hierarchy at one size. Raising
+     the blurb to Dense and leaving this alone put a four-picker card on the
+     page whose titles were two steps SMALLER than the sentences they title,
+     which no amount of weight fixes. Found by looking at the page; every
+     test was green, and the `.at-prose` change that caused it is correct on
+     its own line.
+     The picker's title is a card title (§3.1 H3: "card titles, group
+     headings"), and AT-08 sends card titles to sentence case — the same
+     treatment the five `<h3>` titles in this section took in the same pass,
+     so the section now has ONE card-title object instead of two. */
   .at-picker-label {
-    font-size: var(--text-label);
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    letter-spacing: 0;
+    text-transform: none;
     color: var(--color-ink);
   }
   /* 🚨 THE DISABLED BRANCH HAS TO REACH THE CHILDREN. `.at-picker:disabled`
