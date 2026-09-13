@@ -282,17 +282,29 @@ when you point storage at a folder on your own computer, were the last two
 hand-made buttons in the console. They are the shared button now, at the same
 height and in the same case as the button they sit next to.
 
-## One thing that went wrong mid-session, and how it was caught
+## Two things that went wrong mid-session, and how they were caught
 
 Making the explanations bigger made the picker titles above them *smaller than
 the text they were titling* — "Petal cloud" at label size sitting on top of a
 full-size sentence. Every test stayed green, because each change was correct
 on its own line; it was only wrong as a pair. It was found by opening the page
-and looking at it, and it is fixed: the picker titles are card titles now,
-same treatment as the five card headings around them.
+and looking at it.
 
-That is the second time on this page that the only thing which found a real
-defect was looking at it. Worth knowing.
+**And the first fix for it was wrong too.** Raising those titles to the same
+size as the card headings around them closed the gap below and opened one
+above: "Storage mode" and "Petal cloud" became the same size, the same weight
+and — while the page is loading — the same colour, so the card had no top.
+That one was found by a reviewer measuring the rendered page. The option names
+sit one step below the card headings now, and are told apart from their own
+explanations by weight rather than size, which is what the original 11px
+version was doing before any of this started.
+
+Four levels, if you want to check it: the section name, the card heading, the
+option name, the explanation. No two of them look alike, and nothing is
+smaller than the thing it titles.
+
+That is twice in this session, after twice in the last one, that the only
+thing which found a real defect was looking at the page. Worth knowing.
 
 ## What is still not done here, and why
 
