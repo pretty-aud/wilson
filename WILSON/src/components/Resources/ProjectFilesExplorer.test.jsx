@@ -145,10 +145,33 @@ describe('the Files page — the chrome', () => {
 
   it('the toolbar controls sit at the 28px control height, tabs included', () => {
     // Toolbar's contract is one baseline for the whole row. `index.css`
-    // enforces it for four kit classes but not for `.ui-tab` (36px), so the
-    // view switch stood 8px proud until this page pinned it. Kit request, in
-    // the hand-off.
-    expect(css).toMatch(/\.rs-page \.ui-toolbar \.ui-tab \{ height: var\(--control-sm\); \}/)
+    // enforced it for four kit classes but not for `.ui-tab` (36px), so the
+    // view switch stood 8px proud until this page pinned it.
+    //
+    // 📌 F3 took the rule into the kit and F4 retired this page's copy. The
+    // PROPERTY is unchanged and the OWNER moved, so this asserts it where it
+    // now lives — and then asserts the copy is gone, which is the half that
+    // would otherwise rot into a second source of truth.
+    const kit = readFileSync(resolve(here, '../../index.css'), 'utf8')
+    const rule = kit.match(/\.ui-toolbar \.ui-btn[\s\S]*?\{[^}]*\}/)
+    expect(rule, 'no toolbar baseline rule in index.css').not.toBeNull()
+    expect(rule[0]).toContain('.ui-toolbar .ui-tab')
+    expect(rule[0]).toContain('height: var(--control-sm)')
+    expect(css).not.toMatch(/\.rs-page \.ui-toolbar \.ui-tab\b/)
+  })
+
+  it('and the tab strip itself no longer needs a page-local nowrap', () => {
+    // Same move: `.rs-page .ui-toolbar .ui-tabs` was this page's copy of a
+    // rule that is now `.ui-toolbar .ui-tabs` in the kit (F4). Both
+    // declarations came with it, so retiring the copy is a no-op — and the
+    // `flex-shrink: 0` half is the one that matters here, because the view
+    // switch has to hold its width against the picker beside it.
+    const kit = readFileSync(resolve(here, '../../index.css'), 'utf8')
+    const scoped = kit.match(/\n {2}\.ui-toolbar \.ui-tabs \{([^}]*)\}/)
+    expect(scoped, 'no .ui-toolbar .ui-tabs rule in index.css').not.toBeNull()
+    expect(scoped[1]).toContain('flex-wrap: nowrap')
+    expect(scoped[1]).toContain('flex-shrink: 0')
+    expect(css).not.toMatch(/\.rs-page \.ui-toolbar \.ui-tabs\b/)
   })
 })
 

@@ -116,23 +116,6 @@
   }
   .rs-search { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 260px; }
   .rs-page .ui-input[data-size="sm"] { max-width: 240px; }
-  /* `Tabs` wraps by default — correct for a set of eleven, wrong for a set of
-     two that IS the view switch: squeezed by the slot beside it, it stacked
-     "Table" over "Columns" and took the toolbar from 44px to 93px. The switch
-     holds its width and the picker beside it gives way instead. */
-  .rs-page .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
-  /* 🚨 KIT REQUEST, recorded in this session's hand-off. Toolbar's contract is
-     "every child 28px so the row has one baseline", and `index.css` enforces
-     it for `.ui-btn`, `.ui-iconbtn`, `.ui-input` and `.ui-chip` — but not for
-     `.ui-tab`, which is `--control-md` (36px). A tab inside a toolbar
-     therefore stands 8px proud of everything beside it and takes the row from
-     44px to 53px. Scoped here so this page matches Team Members, which is the
-     reference; it belongs in `index.css` beside the other four, because Team
-     Members' own saved-view tabs hit it the moment an admin sees more than
-     one view (they do not render in tester mode, which is why F2 did not see
-     it). `src/index.css` is Foundation's file, so this session does not
-     edit it. */
-  .rs-page .ui-toolbar .ui-tab { height: var(--control-sm); }
   /* 🚨 KIT REQUEST (hand-off). `ProjectDetailPanel`'s two date fields carried
      `colorScheme: 'dark'` inline; the kit `Input` has no such token and
      `color-scheme` is declared NOWHERE in the app (grepped). Without it the
