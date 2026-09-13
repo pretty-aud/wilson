@@ -40,6 +40,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { Dialog } from './Dialog'
+import { FOCUSABLE } from './overlay'
 import { Switch } from './Switch'
 import { Button } from './Button'
 
@@ -47,9 +48,13 @@ const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../in
 
 afterEach(cleanup)
 
-// The same selector list the trap itself uses, applied to the whole document
-// so the walk can leave the dialog exactly where a browser would.
-const FOCUSABLE = 'a[href],button,input:not([type="hidden"]),select,textarea,summary,[tabindex]'
+// 🚨 THE TRAP'S OWN SELECTOR LIST, imported, applied to the whole document so
+// the walk can leave the dialog exactly where a browser would. A hand-copied
+// subset models a NARROWER browser than the thing under test: the first cut
+// here dropped six selectors (`area[href]`, `iframe`, `object`, `embed`,
+// `audio`/`video[controls]`, `[contenteditable="true"]`), so a dialog whose
+// only focusable child was one of those would have been walked by a simulator
+// that could not reach it — the trap would have looked tighter than it is.
 const docOrder = () => [...document.querySelectorAll(FOCUSABLE)].filter((el) => {
   if (el.matches(':disabled')) return false
   const ti = el.getAttribute('tabindex')

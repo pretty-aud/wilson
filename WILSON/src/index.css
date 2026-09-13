@@ -128,7 +128,6 @@
   --measure-prose-max: 72ch;
 
   /* ── Density (§3.3) ────────────────────────────────────────────────── */
-  --control-xs: 16px;
   --control-sm: 28px;
   --control-md: 36px;
   --row: 36px;
@@ -141,7 +140,6 @@
   --panel-header: 32px;
   --shortcut-bar: 34px;
   --titlebar: 32px;
-  --icon-xs: 10px;
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 24px;
@@ -756,16 +754,6 @@ select option {
   .ui-iconbtn[data-size="sm"] { width: var(--control-sm); height: var(--control-sm); }
   .ui-iconbtn > svg { width: var(--icon-md); height: var(--icon-md); }
   .ui-iconbtn[data-size="sm"] > svg { width: var(--icon-sm); height: var(--icon-sm); }
-  /* `xs` is the IN-COMPONENT size, and the only one: a control mounted
-     INSIDE another component rather than on the page. `.ui-badge` is 20px
-     and the smallest icon button was 28px, so a remove control put inside
-     a badge grew the row and the department chips had to give it a
-     private 16px box of their own (C3b request 3). 16/10 is what that box
-     measured. It is deliberately NOT a third page-control height — §3.3
-     has two, 28 and 36, and a 16px target on a page would be wrong. The
-     badge is the affordance; this is its glyph. */
-  .ui-iconbtn[data-size="xs"] { width: var(--control-xs); height: var(--control-xs); }
-  .ui-iconbtn[data-size="xs"] > svg { width: var(--icon-xs); height: var(--icon-xs); }
   .ui-iconbtn:hover:not(:disabled) { background-color: var(--color-hover); color: var(--color-ink); }
   .ui-iconbtn[data-active="true"] {
     color: var(--color-ink);
@@ -830,8 +818,9 @@ select option {
      padding-right to 8px — about 1px of clearance between the chevron and
      the last character of "All severities" (C3b request 5). (0,2,1) here
      beats both, and beats them by specificity rather than by source order,
-     so it survives being moved. Retires
-     `.at-section select.ui-input[data-size="sm"]`. */
+     so it survives being moved. ⚠️ `.at-section select.ui-input[data-size=
+     "sm"]` is SUPERSEDED but NOT yet deleted, for the same reason as the
+     tab-strip rule below — hand-off ui-f4-2026-09-13 §7. */
   select.ui-input[data-size="sm"] { padding-right: 28px; }
 
   /* ── Field: Label role + control, 4px inside / 16px between ────────── */
@@ -1457,12 +1446,24 @@ select option {
          apply but the item will not shrink below its content, because a
          flex item's `min-width` is `auto`. Hence `min-width: 0`.
 
-     `max-width` holds back the sort slot's 10px so the arrow is never the
-     thing that gets clipped, and `vertical-align` keeps the two spans on one
-     line when they are inline rather than flex. */
+     `vertical-align` keeps the two spans on one line when they are inline
+     rather than flex.
+
+     🚨 The slot is deliberately NOT given a box outside `.ui-th-btn`. F4 tried
+     that — `display: inline-block`, so its `width: 10px` would apply — on the
+     grounds that "always this wide, sorted or not" was only true inside the
+     button. It is the wrong 10px. Measured on Team Members, `Day rate`, a
+     right-aligned column with no `onSort`: the gap from the label to the
+     cell's right content edge went 0px -> 10px while the figures below it
+     stayed at 4px, so the header stopped lining up with its own column. A
+     header that cannot sort never grows an arrow, so it has nothing to
+     reserve for; the sortable case reserves it through `flex: 0 0 10px`,
+     which is the case the promise was written about. Putting the slot BEFORE
+     the label on a right-aligned column would buy both — a kit request, not
+     this. */
   .ui-th-label {
     display: inline-block;
-    max-width: calc(100% - 10px);
+    max-width: 100%;
     min-width: 0;
     vertical-align: middle;
     overflow: hidden;
@@ -1470,10 +1471,9 @@ select option {
   }
   /* Always present, always this wide, sorted or not: an arrow that appears on
      click shifts the label sideways under the pointer that just clicked it.
-     `inline-block` so that promise holds in a plain <th> too — `width` does
-     not apply to an inline box, so outside `.ui-th-btn` the slot reserved
-     nothing and the label moved the moment a column was sorted. */
-  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; display: inline-block; vertical-align: middle; }
+     That is `flex: 0 0 10px` inside `.ui-th-btn`, which is where a column
+     that can be sorted lives. See the note above for why it stops there. */
+  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; }
   .ui-th-sort[data-dir="asc"]::before { content: "\2191"; }
   .ui-th-sort[data-dir="desc"]::before { content: "\2193"; }
 
@@ -1599,16 +1599,24 @@ select option {
   }
 
   /* ...and a tab STRIP inside a toolbar does not wrap. `.ui-tabs` is
-     `flex-wrap: wrap` because R.A.B.B.I.T.’s eleven-tab ViewTabs needs it,
-     and a two-tab toolbar must not have it: the strip breaks to a second
+     `flex-wrap: wrap` for a set large enough to need a second line (NOT for
+     R.A.B.B.I.T.'s eleven-tab ViewTabs, which an earlier draft of this note
+     cited: that one is hand-rolled Tailwind and renders no `.ui-tabs` at
+     all). A two-tab toolbar must not have it: the strip breaks to a second
      line and takes the 44px row with it (C3b kit request 1). The rule is
      contextual rather than a `wrap={false}` prop because Toolbar’s contract
-     already says NEVER WRAPS in its own header — a prop would make callers
-     opt in to something the container already promises, and every caller
-     is in a lane’s finished file. `flex-shrink: 0` comes with it so the
+     already says NEVER WRAPS in its own header, and every caller is in a
+     lane's finished file. Toolbar DOES have a `wrap` prop, and this rule is
+     deliberately UNCONDITIONAL rather than scoped to `:not([data-wrap=
+     "true"])`: its one caller is the Files explorer, whose six heterogeneous
+     controls need the ROW to wrap while its two-tab view switch must not —
+     which is exactly why C1 scoped this rule locally on that page.
+     `flex-shrink: 0` comes with it so the
      strip keeps its width against a long right slot, which is what both
-     page-local copies carried. Retires `.at-section .ui-toolbar .ui-tabs`
-     and `.rs-page .ui-toolbar .ui-tabs`. */
+     page-local copies carried. Retired `.rs-page .ui-toolbar .ui-tabs` (F4).
+     ⚠️ `.at-section .ui-toolbar .ui-tabs` is SUPERSEDED but NOT yet deleted:
+     a C3c session held that file while this landed. Deletion owed by the
+     Admin lane — hand-off ui-f4-2026-09-13 §7. */
   .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
 
   /* ── SectionTitle ───────────────────────────────────────────────────── */
@@ -1668,13 +1676,13 @@ select option {
   .ui-card-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
   /* A card that holds a table pads nothing: the cells bring their own padding
      and the rows must reach the hairline on every side. */
-  .ui-card:not([data-pad]) { overflow: hidden; }
-  .ui-card:not([data-pad]) > .ui-card-head {
+  .ui-card:not([data-pad="true"]) { overflow: hidden; }
+  .ui-card:not([data-pad="true"]) > .ui-card-head {
     padding: 8px 12px;
     margin-bottom: 0;
     border-bottom: 1px solid var(--color-rule);
   }
-  .ui-card:not([data-pad])[data-surface="light"] > .ui-card-head { border-bottom-color: var(--color-rule-light); }
+  .ui-card:not([data-pad="true"])[data-surface="light"] > .ui-card-head { border-bottom-color: var(--color-rule-light); }
 
   /* ── Tabs ───────────────────────────────────────────────────────────── */
   .ui-tabs { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
@@ -1702,7 +1710,7 @@ select option {
   .ui-tab[data-active="true"] { color: var(--color-ink); font-weight: 600; border-bottom-color: var(--color-signal); }
   .ui-tab:disabled { color: var(--color-ink-3); cursor: not-allowed; }
   .ui-tab[data-surface="light"] { color: var(--color-ink-light); }
-  .ui-tab[data-surface="light"][data-active] { color: var(--color-ink-light); border-bottom-color: var(--color-ink-light); }
+  .ui-tab[data-surface="light"][data-active="true"] { color: var(--color-ink-light); border-bottom-color: var(--color-ink-light); }
   .ui-tab-count {
     font-family: var(--font-mono);
     font-size: var(--text-caption);

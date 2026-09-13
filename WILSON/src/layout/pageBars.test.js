@@ -385,7 +385,10 @@ describe('the numbers written in pageBars.js are the numbers it computes', () =>
     for (const [top, bottom] of DISTINCT) {
       const at = capFrom(bars(top, bottom))
       expect(source, `bars(${top}, ${bottom}) caps from ${at}px and the header does not say so`)
-        .toMatch(new RegExp(`bars\\(${top}, ${bottom}\\)[^\\n]*\\n?[^\\n]*cap from\\s+${at}px`))
+        // 🚨 ONE line. The first cut allowed `\n?[^\n]*`, so a row's number
+        // could be satisfied by the NEXT row's line — three rows whose numbers
+        // happen to differ is not a guard.
+        .toMatch(new RegExp(`bars\\(${top}, ${bottom}\\)[^\\n\\r]*cap from\\s+${at}px`))
       // The control: the row really is NOT at rest one pixel lower, so the
       // crossover is a crossover and not just "some size where it happens to
       // be capped".
@@ -399,8 +402,13 @@ describe('the numbers written in pageBars.js are the numbers it computes', () =>
     for (const [top, bottom] of DISTINCT) {
       const at = floorTo(bars(top, bottom))
       seen.add(at)
-      expect(source, `bars(${top}, ${bottom}) floors at ${at}px and the header does not say so`)
-        .toContain(`${at}px`)
+      // 🚨 Anchored to the ROW, not just present somewhere. `toContain` was
+      // too loose: the header carries 26 distinct `Npx` literals, so a future
+      // floor landing on any of them would pass while the header said nothing
+      // about that row at all.
+      const label = top === 268 ? 'Home' : top === 95 ? 'tool rows' : `${top}/${bottom} rows`
+      expect(source, `the header does not say ${label} floor at ${at}px`)
+        .toMatch(new RegExp(`${label.replace(/[/]/g, '\\/')}[^\\n\\r]*${at}px`))
     }
     // The claim the old note made — one ~740px for every row — is false, and
     // this is what makes it false.

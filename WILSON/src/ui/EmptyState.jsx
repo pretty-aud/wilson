@@ -22,7 +22,7 @@ export function EmptyState({ Icon, icon, title, body, children, compact = false,
   return (
     <div
       className={`ui-empty ${className}`.trim()}
-      data-compact={compact || undefined}
+      data-compact={compact ? 'true' : undefined}
       data-surface={surface}
       role="status"
       {...rest}

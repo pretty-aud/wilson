@@ -90,15 +90,43 @@ describe('Table', () => {
       expect(block()).toContain('min-width: 0')
     })
 
-    it('never lets the sort arrow be the thing that gets clipped', () => {
-      expect(block()).toMatch(/max-width:\s*calc\(100% - 10px\)/)
-      // …which is only true if the slot really is 10px wide in BOTH cases.
-      // Outside `.ui-th-btn` it was inline, and `width` does not apply to an
-      // inline box, so the slot that promises to reserve space reserved none.
+    it('is capped by its own cell and nothing else', () => {
+      expect(block()).toMatch(/max-width:\s*100%/)
+    })
+
+    // 🚨 The sort slot stays INLINE outside `.ui-th-btn`, and this is the
+    // guard that keeps it there. F4 briefly made it `inline-block` so its
+    // `width: 10px` would apply — reasoning that "always this wide, sorted or
+    // not" was only true inside the button. Measured on Team Members at
+    // 1440x900, `Day rate`, right-aligned with no `onSort`: the gap from the
+    // label to the cell's right content edge went 0px to 10px while the
+    // figures below stayed at 4px, so the header stopped lining up with its
+    // own column — on a plan whose top money findings are all "the columns
+    // only line up by luck". A header that cannot sort never grows an arrow.
+    it('does not reserve a slot in a header that can never sort', () => {
       const slot = css.match(/\n {2}\.ui-th-sort \{([^}]*)\}/)
       expect(slot, 'no .ui-th-sort block').not.toBeNull()
+      // The flex reservation, for the case the promise was written about.
+      expect(slot[1]).toContain('flex: 0 0 10px')
       expect(slot[1]).toContain('width: 10px')
-      expect(slot[1]).toMatch(/display:\s*inline-block/)
+      // …and NOT a box outside it.
+      expect(slot[1]).not.toMatch(/display:\s*inline-block/)
+    })
+
+    it('so a right-aligned header still ends where its figures do', () => {
+      // jsdom does not lay out, so this asserts the two facts the measurement
+      // rested on: the header is right-aligned by the same rule as the cell,
+      // and the label's cap leaves nothing back for a slot that is not there.
+      const { container } = render(
+        <Table head={<Row><Th numeric>Day rate</Th></Row>}><Row><Td numeric>1200</Td></Row></Table>,
+      )
+      const th = container.querySelector('.ui-th')
+      const td = container.querySelector('.ui-td')
+      expect(th.dataset.align).toBe('right')
+      expect(td.dataset.align).toBe('right')
+      expect(th.querySelector('.ui-th-btn'), 'no onSort, so no flex box').toBeNull()
+      expect(css).toMatch(/\.ui-th\[data-align="right"\], \.ui-td\[data-align="right"\] \{ text-align: right; \}/)
+      expect(block()).not.toMatch(/max-width:\s*calc/)
     })
 
     it('renders both cases as the stylesheet expects to find them', () => {

@@ -110,8 +110,16 @@ describe('Toolbar: a tab strip inside it does not wrap', () => {
   })
 
   it('beats the .ui-tabs default on specificity, not on source order', () => {
+    // 🚨 BOTH selectors come OUT OF THE STYLESHEET. The first cut counted
+    // units of two string literals written in the test — `2 > 1`, which no
+    // edit to any source file could redden. Renaming or deleting either rule
+    // now fails here, which is the whole point of the assertion.
     const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
-    expect(units('.ui-toolbar .ui-tabs')).toBeGreaterThan(units('.ui-tabs'))
+    const base = css.match(/\n {2}(\.ui-tabs) \{/)
+    const winner = css.match(/\n {2}(\.ui-toolbar \.ui-tabs) \{/)
+    expect(base, 'no .ui-tabs rule in index.css').not.toBeNull()
+    expect(winner, 'no .ui-toolbar .ui-tabs rule in index.css').not.toBeNull()
+    expect(units(winner[1])).toBeGreaterThan(units(base[1]))
   })
 
   it('renders a real Tabs inside a real Toolbar for the rule to reach', () => {
@@ -129,7 +137,12 @@ describe('Toolbar: a tab strip inside it does not wrap', () => {
     expect(tabs.matches('.ui-toolbar .ui-tabs')).toBe(true)
   })
 
-  it('leaves a tab bar outside a toolbar wrapping, which ViewTabs needs', () => {
+  // ⚠️ NOT "which ViewTabs needs", which is what an earlier draft of this
+  // name claimed. R.A.B.B.I.T.'s eleven-tab ViewTabs is hand-rolled Tailwind
+  // and renders no `.ui-tabs` at all, so it is not what the default is for.
+  // The default is for any set large enough to need a second line; the rule
+  // above is for a strip inside a 44px row, which is never that set.
+  it('leaves a tab bar outside a toolbar wrapping, which is the default', () => {
     const { container } = render(
       <Tabs panelId="p" value="a" items={[{ id: 'a', label: 'All' }]} />,
     )

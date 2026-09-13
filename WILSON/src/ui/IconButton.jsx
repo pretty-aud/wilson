@@ -1,6 +1,5 @@
 // =============================================================================
-// IconButton — 28 / 36, ghost by default, `title` required (plan §4), plus a
-// 16px `xs` that may only be mounted INSIDE another component.
+// IconButton — 28 / 36, ghost by default, `title` required (plan §4).
 //
 // The `title` is the tooltip (no tooltip component is added, §3.3) and,
 // unless an explicit `aria-label` is given, the accessible name; a missing
@@ -11,22 +10,20 @@
 //
 // binUi compatibility (Bins' IconBtn): `Icon` (capitalised) is the glyph
 // component, and a numeric `size` (Tailwind units, e.g. 3.5) means the small
-// control. New callers pass `icon` and 'xs' | 'sm' | 'md'.
+// control. New callers pass `icon` and 'sm' | 'md'.
 //
-// ── Why there is an `xs` and why it is not a third page size ────────────────
-// §3.3 has exactly two control heights, 28 and 36, and that stands: a 16px
-// target on a page would be wrong. `xs` is for a control mounted INSIDE
-// another component, which on this surface is one case — `.ui-badge` is 20px
-// tall, the smallest icon button was 28px, so a remove control put inside a
-// badge grew the row, and the department chips had to give it a private 16px
-// box of their own (C3b kit request 3). 16/10 is what that box measured. The
-// badge is the affordance and this is its glyph, so the hit area is the chip's
-// rather than this button's.
+// ⚠️ THERE IS NO `xs`, and C3b's request 3 is still open. F4 built one (16px
+// box, 10px glyph, the measurements `.at-dept-remove` already declares) and
+// then took it out again, because adopting it is a trade the kit cannot make
+// on its own — see the F4 hand-off §4b. In short: that button renders 28x28
+// today, which CLEARS the 24px minimum target size; the 16px version does
+// not. Shrinking it buys 4px of chip height and costs an accessibility floor.
+// That is a ruling, not a kit fix.
 // =============================================================================
 
 import { forwardRef } from 'react'
 
-const SIZES = ['xs', 'sm', 'md']
+const SIZES = ['sm', 'md']
 
 export const IconButton = forwardRef(function IconButton(
   {
@@ -66,8 +63,8 @@ export const IconButton = forwardRef(function IconButton(
       aria-pressed={active || undefined}
       className={`ui-iconbtn ${className}`.trim()}
       data-size={s}
-      data-active={active || undefined}
-      data-danger={danger || undefined}
+      data-active={active ? 'true' : undefined}
+      data-danger={danger ? 'true' : undefined}
       data-surface={surface}
       {...rest}
     >

@@ -58,7 +58,7 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
             type="button"
             disabled={it.disabled}
             className="ui-menu-item"
-            data-danger={it.danger || undefined}
+            data-danger={it.danger ? 'true' : undefined}
             onClick={() => { if (it.disabled) return; it.onClick?.(); if (!it.keepOpen) onClose?.() }}
           >
             {it.Icon && <it.Icon aria-hidden="true" />}

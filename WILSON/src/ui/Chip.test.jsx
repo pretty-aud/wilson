@@ -28,12 +28,17 @@ describe('Chip', () => {
     expect(c.style.backgroundColor).toBe('')
   })
 
-  it('clicks', () => {
+  it('clicks, and an inactive chip carries no state at all', () => {
     const onClick = vi.fn()
     render(<Chip onClick={onClick}>All</Chip>)
     fireEvent.click(screen.getByRole('button', { name: 'All' }))
     expect(onClick).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'All' }).dataset.active).toBe('false')
+    // 🚨 ABSENT, not the string "false" — which is what this asserted until
+    // F4. C3b's trap 2 is that `"false"` is a value some selector somewhere
+    // reads as present; the kit now emits the attribute only when the state
+    // is on, so there is nothing for a presence selector to find.
+    expect(screen.getByRole('button', { name: 'All' }).dataset.active).toBeUndefined()
+    expect(screen.getByRole('button', { name: 'All' }).matches('.ui-chip[data-active="true"]')).toBe(false)
   })
 })
 
