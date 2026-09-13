@@ -24,7 +24,7 @@ export function Card({
     <section
       className={`ui-card ${className}`.trim()}
       data-surface={surface}
-      data-pad={pad || undefined}
+      data-pad={pad ? 'true' : undefined}
       {...rest}
     >
       {(title || actions) && (

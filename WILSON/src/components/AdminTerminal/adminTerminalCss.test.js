@@ -446,8 +446,16 @@ describe('🚨 a String()-spelled attribute never meets a presence selector', ()
     // Two derivations deep — the presence list from `index.css`, the
     // component list from the imports — and either going empty makes the
     // guard pass while checking nothing.
-    expect(PRESENCE).toContain('data-selected')
-    expect(PRESENCE).toContain('data-inactive')
+    // F4, 2026-09-13: the kit no longer keys ANY selector on presence —
+    // `.ui-tr[data-selected="true"]` now, for all twelve — so `PRESENCE` is
+    // empty BY CONSTRUCTION and the collision described above can no longer
+    // be spelled. The two kit-side halves are asserted in
+    // `src/ui/dataState.test.jsx`, against the rendered node rather than the
+    // source text. What is asserted HERE is that the premise stays gone: the
+    // moment a presence-keyed `.ui-*` selector comes back this list refills,
+    // the guard below is load-bearing again, and this line says so out loud
+    // instead of the guard silently scanning nothing.
+    expect(PRESENCE).toEqual([])
     expect(kitComponents.has('Table')).toBe(true)
     expect(kitComponents.has('Row')).toBe(true)
     expect(kitComponents.has('Button')).toBe(true)

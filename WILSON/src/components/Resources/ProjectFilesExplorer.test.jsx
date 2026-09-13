@@ -189,7 +189,7 @@ describe('the Files table — the contract lane B converges on', () => {
     expect([...row.querySelectorAll('td[data-numeric]')]).toHaveLength(4)
     // The kit, not this page, owns what `numeric` means.
     expect(readFileSync(resolve(here, '../../index.css'), 'utf8'))
-      .toMatch(/\.ui-th\[data-numeric\], \.ui-td\[data-numeric\] \{ font-variant-numeric: tabular-nums; \}/)
+      .toMatch(/\.ui-th\[data-numeric="true"\], \.ui-td\[data-numeric="true"\] \{ font-variant-numeric: tabular-nums; \}/)
   })
 
   it('gives the name column ONE x origin: a fixed-width icon slot (F11)', async () => {
@@ -284,7 +284,7 @@ describe('the Files table — the contract lane B converges on', () => {
     expect(fileRow.hasAttribute('data-selected')).toBe(true)
     // One fill plus a 2px signal left edge, from the kit — not a fourth alpha.
     expect(readFileSync(resolve(here, '../../index.css'), 'utf8'))
-      .toMatch(/\.ui-tr\[data-selected\] > \.ui-td:first-child \{ box-shadow: inset 2px 0 0 0 var\(--color-signal\); \}/)
+      .toMatch(/\.ui-tr\[data-selected="true"\] > \.ui-td:first-child \{ box-shadow: inset 2px 0 0 0 var\(--color-signal\); \}/)
   })
 
   it('carries no zebra, no cream header and no second ink', () => {

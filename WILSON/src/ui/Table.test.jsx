@@ -111,11 +111,11 @@ describe('Table', () => {
       return i
     }
     // dark: equal specificity (0,4,0), declared later
-    expect(at('.ui-tr[data-selected][data-selected] > .ui-td'))
-      .toBeGreaterThan(at('.ui-tr[data-interactive]:hover > .ui-td'))
+    expect(at('.ui-tr[data-selected="true"][data-selected="true"] > .ui-td'))
+      .toBeGreaterThan(at('.ui-tr[data-interactive="true"]:hover > .ui-td'))
     // light: equal specificity (0,6,0), declared later
-    expect(at('.ui-table[data-surface="light"] .ui-tr[data-selected][data-selected] > .ui-td'))
-      .toBeGreaterThan(at('.ui-table[data-surface="light"] .ui-tr[data-interactive]:hover > .ui-td'))
+    expect(at('.ui-table[data-surface="light"] .ui-tr[data-selected="true"][data-selected="true"] > .ui-td'))
+      .toBeGreaterThan(at('.ui-table[data-surface="light"] .ui-tr[data-interactive="true"]:hover > .ui-td'))
   })
 
   // 🚨 `highlighted` must not be the hover token. It was, on both surfaces —
@@ -123,13 +123,13 @@ describe('Table', () => {
   // and hover on a highlighted row was invisible. It is an edge now, and the
   // selection edge is declared after it so a row that is both reads selected.
   it('draws a highlighted row as an edge, never as the hover fill', () => {
-    const hi = css.indexOf('.ui-tr[data-highlighted] > .ui-td:first-child')
-    const sel = css.indexOf('.ui-tr[data-selected] > .ui-td:first-child')
+    const hi = css.indexOf('.ui-tr[data-highlighted="true"] > .ui-td:first-child')
+    const sel = css.indexOf('.ui-tr[data-selected="true"] > .ui-td:first-child')
     expect(hi).toBeGreaterThan(-1)
     expect(sel).toBeGreaterThan(hi)
     // The control: no background-color rule for the highlight at all, on
     // either surface — that is what made it collide with hover.
-    expect(css).not.toMatch(/\.ui-tr\[data-highlighted\][^{]*\{[^}]*background-color/)
+    expect(css).not.toMatch(/\.ui-tr\[data-highlighted="true"\][^{]*\{[^}]*background-color/)
   })
 
   it('takes `dense` from the view and the light surface from the page', () => {

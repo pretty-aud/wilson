@@ -30,7 +30,7 @@ export function SectionTitle({
     <div
       className={`ui-section ${className}`.trim()}
       data-surface={surface}
-      data-rule={rule || undefined}
+      data-rule={rule ? 'true' : undefined}
       {...rest}
     >
       <div className="ui-section-text">

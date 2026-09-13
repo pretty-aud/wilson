@@ -27,7 +27,7 @@ export function Toolbar({ children, right, surface = 'dark', wrap = false, class
     <div
       className={`ui-toolbar ${className}`.trim()}
       data-surface={surface}
-      data-wrap={wrap || undefined}
+      data-wrap={wrap ? 'true' : undefined}
       {...rest}
     >
       <div className="ui-toolbar-slot">{children}</div>

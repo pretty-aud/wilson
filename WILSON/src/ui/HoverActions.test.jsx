@@ -49,7 +49,7 @@ describe('HoverActions', () => {
     expect(css).toContain('.ui-hover-actions:focus-within { opacity: 1; }')
     // The control: the slot must not be removed from the layout when hidden,
     // or the row reflows on hover — which is the bug it exists to avoid.
-    const rule = css.slice(css.indexOf('.ui-hover-actions {'), css.indexOf('.ui-hover-actions[data-always]'))
+    const rule = css.slice(css.indexOf('.ui-hover-actions {'), css.indexOf('.ui-hover-actions[data-always="true"]'))
     expect(rule).not.toContain('display: none')
     expect(rule).not.toContain('visibility: hidden')
   })

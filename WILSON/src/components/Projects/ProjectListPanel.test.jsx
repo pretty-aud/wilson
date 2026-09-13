@@ -81,7 +81,7 @@ describe('the projects list is the shared table', () => {
     expect(code).not.toMatch(/#[0-9a-fA-F]{6}\b/)
     // The hover is a rule on the shared Row, so `:focus-within` answers it.
     expect(readFileSync(resolve(here, '../../index.css'), 'utf8'))
-      .toMatch(/\.ui-tr\[data-interactive\]:hover > \.ui-td/)
+      .toMatch(/\.ui-tr\[data-interactive="true"\]:hover > \.ui-td/)
   })
 
   it('opens a project from anywhere on the row, as before', () => {

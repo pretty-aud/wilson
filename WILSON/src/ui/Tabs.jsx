@@ -94,7 +94,7 @@ export function Tabs({
             title={item.title}
             aria-controls={panelId || undefined}
             className="ui-tab"
-            data-active={active || undefined}
+            data-active={active ? 'true' : undefined}
             data-surface={surface}
             onClick={() => onChange?.(item.id)}
           >

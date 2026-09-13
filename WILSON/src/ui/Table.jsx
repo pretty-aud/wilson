@@ -64,7 +64,7 @@ export function Table({
     >
       <table
         className={`ui-table ${className}`.trim()}
-        data-dense={dense || undefined}
+        data-dense={dense ? 'true' : undefined}
         data-surface={surface}
         {...rest}
       >
@@ -115,10 +115,10 @@ export function Row({
   return (
     <tr
       className={`ui-tr ${className}`.trim()}
-      data-selected={selected || undefined}
-      data-highlighted={highlighted || undefined}
-      data-interactive={interactive || undefined}
-      data-inactive={inactive || undefined}
+      data-selected={selected ? 'true' : undefined}
+      data-highlighted={highlighted ? 'true' : undefined}
+      data-interactive={interactive ? 'true' : undefined}
+      data-inactive={inactive ? 'true' : undefined}
       {...rest}
     >
       {children}
@@ -157,7 +157,7 @@ export function Th({
       scope="col"
       className={`ui-th ${className}`.trim()}
       data-align={a}
-      data-numeric={numeric || undefined}
+      data-numeric={numeric ? 'true' : undefined}
       aria-sort={sort ? (sort === 'asc' ? 'ascending' : 'descending') : undefined}
       style={width ? { width, ...style } : style}
       {...rest}
@@ -183,7 +183,7 @@ export function Td({
     <td
       className={`ui-td ${className}`.trim()}
       data-align={a}
-      data-numeric={numeric || undefined}
+      data-numeric={numeric ? 'true' : undefined}
       {...rest}
     >
       {children}
