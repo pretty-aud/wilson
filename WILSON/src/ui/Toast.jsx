@@ -8,11 +8,29 @@
 //   toast.push({ tone: 'success', title: 'Saved', body: '12 files', duration: 4000, action })
 //   toast.dismiss(id)
 //
-// The stack sits bottom centre, 24px up, newest at the bottom. A toast
-// auto-dismisses after `duration` (default 5s; 0 = sticky); hovering it
-// pauses the timer (RabbitProvider's UndoToast idiom, which was the best
-// forgiveness pattern in the app). `Toast` itself is presentational so a
-// test, or a surface with its own stack manager, can render one.
+// The stack sits bottom centre, 24px above the page's BOTTOM BAR, newest at
+// the bottom. A toast auto-dismisses after `duration` (default 5s; 0 =
+// sticky); hovering it pauses the timer (RabbitProvider's UndoToast idiom,
+// which was the best forgiveness pattern in the app). `Toast` itself is
+// presentational so a test, or a surface with its own stack manager, can
+// render one.
+//
+// ── `bar`, and why the anchor is not a flat 24px ────────────────────────────
+// It was `bottom: 24px` off the WINDOW, which is 24px off the bar only on a
+// page with no bar. D1b measured the cost (its §7, 2026-09-11): one toast is
+// 40.84px and tops out at 64.84px, inside the 80px bottom bar of the light
+// pages; two are 89.69px and straddle its edge. The bars are viewport-relative
+// since Phase 4, so no constant can stand in for them.
+//
+// `bar` is the current page's bottom-bar height — a CSS length, and it comes
+// from `PAGE_BARS`, which is the same source of truth the pet's `bottomOffset`
+// reads (App.jsx: `calc(PAGE_BARS[currentPage].bottom + 16px)`). It is passed
+// in rather than looked up here so the kit keeps no dependency on the layout
+// registry, and because the shell has already resolved the page.
+//
+// 🚨 Omitting it puts the stack back over the bar SILENTLY, which is why dev
+// says so. `0px` is the honest fallback — it is the old behaviour, correct
+// for a barless surface and wrong everywhere else.
 //
 // Tone is a data attribute resolved in index.css; the ink is always `ink`,
 // and the tone is a 3px left edge plus the icon, never a fill under text.
@@ -86,7 +104,10 @@ function TimedToast({ item, onDismiss }) {
   )
 }
 
-export function ToastProvider({ children }) {
+export function ToastProvider({ children, bar = '0px' }) {
+  if (import.meta.env?.DEV && bar === '0px') {
+    console.error('ToastProvider: `bar` is required — it is the current page’s bottom-bar height, from PAGE_BARS. Without it the stack sits 24px off the WINDOW and the bar covers it.')
+  }
   const [items, setItems] = useState([])
   const dismiss = useCallback((id) => setItems((list) => list.filter((t) => t.id !== id)), [])
   const push = useCallback(({ tone = 'info', title, body, duration = 5000, action } = {}) => {
@@ -98,7 +119,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="ui-toast-stack" aria-live="polite">
+      <div className="ui-toast-stack" aria-live="polite" style={{ '--toast-bar': bar }}>
         {items.map((item) => <TimedToast key={item.id} item={item} onDismiss={() => dismiss(item.id)} />)}
       </div>
     </ToastContext.Provider>
