@@ -32,8 +32,8 @@ export function Switch({
   return (
     <span
       className={`ui-switch ${className}`.trim()}
-      data-checked={on}
-      data-disabled={disabled || undefined}
+      data-checked={on ? 'true' : undefined}
+      data-disabled={disabled ? 'true' : undefined}
       data-surface={surface}
       title={title}
     >

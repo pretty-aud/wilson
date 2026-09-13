@@ -254,10 +254,10 @@
      rung exactly there; `ink-2` measures 7.03 on the selected fill. */
   .fx-col-item[data-selected] .fx-col-meta,
   .fx-col-item:hover .fx-col-meta { color: var(--color-ink-2); }
-  .ui-tr[data-selected] .rc-comp-derived,
-  .ui-tr[data-interactive]:hover .rc-comp-derived,
-  .ui-tr[data-selected] .fx-path,
-  .ui-tr[data-interactive]:hover .fx-path { color: var(--color-ink-2); }
+  .ui-tr[data-selected="true"] .rc-comp-derived,
+  .ui-tr[data-interactive="true"]:hover .rc-comp-derived,
+  .ui-tr[data-selected="true"] .fx-path,
+  .ui-tr[data-interactive="true"]:hover .fx-path { color: var(--color-ink-2); }
   .fx-col-meta {
     flex-shrink: 0;
     margin-left: 8px;

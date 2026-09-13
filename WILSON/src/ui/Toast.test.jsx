@@ -129,9 +129,13 @@ describe('the toast anchor clears the page’s bottom bar', () => {
         expect(anchor, `${page} at ${vh}px`).toBeGreaterThanOrEqual(bar)
         // …by the whole gap, so the stack does not merely touch the bar.
         expect(anchor - bar, `${page} gap at ${vh}px`).toBeCloseTo(gapFromCss(), 5)
-        // And the OLD anchor is measured beside it at the same viewport, so
-        // each case carries its own evidence that the change did something.
-        if (bar > gapFromCss()) expect(gapFromCss()).toBeLessThan(bar)
+        // 🚨 The OLD anchor, measured at the SAME viewport: a flat gap off the
+        // window, which is what `bottom: 24px` resolved to. It sits INSIDE the
+        // bar at every one of these sizes, which is the whole finding — and it
+        // is an independent number, not a restatement of the line above. (An
+        // earlier cut wrote `if (bar > gap) expect(gap).toBeLessThan(bar)`,
+        // where the guard and the assertion were the same comparison.)
+        expect(gapFromCss(), `${page}: the old flat anchor at ${vh}px`).toBeLessThan(bar)
       }
     })
   }
@@ -142,8 +146,8 @@ describe('the toast anchor clears the page’s bottom bar', () => {
     // 64.84px, INSIDE it, and two at 113.69px, across its edge. D1b's numbers.
     const bar = resolveAt(PAGE_BARS.settings.bottom, 900)
     expect(bar).toBe(80)
-    expect(24 + ONE_TOAST).toBeLessThan(bar)
-    expect(24 + TWO_TOASTS).toBeGreaterThan(bar)
+    expect(gapFromCss() + ONE_TOAST).toBeLessThan(bar)
+    expect(gapFromCss() + TWO_TOASTS).toBeGreaterThan(bar)
     // …and both now sit entirely clear of it.
     const anchor = anchorAt('settings', 900)
     expect(anchor).toBeGreaterThanOrEqual(bar)
@@ -151,7 +155,7 @@ describe('the toast anchor clears the page’s bottom bar', () => {
     expect(anchor + TWO_TOASTS).toBeGreaterThan(bar)
     // Home's bar is bigger again, so the flat anchor buried a whole stack.
     expect(resolveAt(PAGE_BARS.home.bottom, 1440)).toBe(268)
-    expect(24 + TWO_TOASTS).toBeLessThan(resolveAt(PAGE_BARS.home.bottom, 1440))
+    expect(gapFromCss() + TWO_TOASTS).toBeLessThan(resolveAt(PAGE_BARS.home.bottom, 1440))
     expect(anchorAt('home', 1440)).toBeGreaterThanOrEqual(268)
   })
 
@@ -159,6 +163,18 @@ describe('the toast anchor clears the page’s bottom bar', () => {
     const err = quiet()
     render(<ToastProvider>x</ToastProvider>)
     expect(err).toHaveBeenCalledWith(expect.stringContaining('`bar` is required'))
+    err.mockRestore()
+  })
+
+  it('but does not scold a barless surface for passing 0px', () => {
+    // `0px` is the honest fallback and correct where there is no bar. An
+    // earlier cut warned on `bar === '0px'`, so it could not tell "not passed"
+    // from "passed, correctly" — the only dev error in the kit that fired on a
+    // value rather than on absence or an out-of-enum value.
+    const err = quiet()
+    const { container } = render(<ToastProvider bar="0px">x</ToastProvider>)
+    expect(err).not.toHaveBeenCalled()
+    expect(container.querySelector('.ui-toast-stack').style.getPropertyValue('--toast-bar')).toBe('0px')
     err.mockRestore()
   })
 

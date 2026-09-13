@@ -28,9 +28,12 @@
 // in rather than looked up here so the kit keeps no dependency on the layout
 // registry, and because the shell has already resolved the page.
 //
-// 🚨 Omitting it puts the stack back over the bar SILENTLY, which is why dev
-// says so. `0px` is the honest fallback — it is the old behaviour, correct
-// for a barless surface and wrong everywhere else.
+// 🚨 OMITTING it puts the stack back over the bar SILENTLY, so dev says so —
+// on ABSENCE, never on a value. `'0px'` is a legitimate thing to pass: it is
+// the old flat anchor and it is correct on a surface that has no bar. An
+// earlier cut warned on `bar === '0px'` and so could not tell "not passed"
+// from "passed, correctly"; every other dev error in this kit fires on a
+// missing prop or on a value outside an enum, and this one now matches.
 //
 // Tone is a data attribute resolved in index.css; the ink is always `ink`,
 // and the tone is a 3px left edge plus the icon, never a fill under text.
@@ -104,8 +107,8 @@ function TimedToast({ item, onDismiss }) {
   )
 }
 
-export function ToastProvider({ children, bar = '0px' }) {
-  if (import.meta.env?.DEV && bar === '0px') {
+export function ToastProvider({ children, bar }) {
+  if (import.meta.env?.DEV && bar == null) {
     console.error('ToastProvider: `bar` is required — it is the current page’s bottom-bar height, from PAGE_BARS. Without it the stack sits 24px off the WINDOW and the bar covers it.')
   }
   const [items, setItems] = useState([])
@@ -119,7 +122,7 @@ export function ToastProvider({ children, bar = '0px' }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="ui-toast-stack" aria-live="polite" style={{ '--toast-bar': bar }}>
+      <div className="ui-toast-stack" aria-live="polite" style={{ '--toast-bar': bar ?? '0px' }}>
         {items.map((item) => <TimedToast key={item.id} item={item} onDismiss={() => dismiss(item.id)} />)}
       </div>
     </ToastContext.Provider>

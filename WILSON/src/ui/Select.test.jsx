@@ -48,20 +48,44 @@ describe('a small Select still has room for its arrow', () => {
     expect(at, `no "${selector}" rule in index.css`).toBeGreaterThan(-1)
     return css.slice(at + selector.length, css.indexOf('}', at))
   }
+  // 🚨 The selector TEXT comes out of the stylesheet, never from a literal
+  // here. The first cut passed `spec('.ui-input[data-size="sm"]')` — a string
+  // typed in the test — so `200 > 101` was arithmetic about the test, and
+  // deleting `select.ui-input { padding-right: 28px }` outright reddened
+  // nothing. Each of the three is now looked up, so a rename or a deletion
+  // fails the lookup before the comparison is reached.
+  const selectorOf = (re, what) => {
+    const m = css.match(re)
+    expect(m, `no ${what} selector in index.css`).not.toBeNull()
+    return m[1]
+  }
+  const SM = () => selectorOf(/\n {2}(\.ui-input\[data-size="sm"\]) \{/, 'sm input')
+  const SELECT = () => selectorOf(/\n {2}(select\.ui-input) \{/, 'base select')
+  const SM_SELECT = () => selectorOf(/\n {2}(select\.ui-input\[data-size="sm"\]) \{/, 'sm select')
 
   it('is overridden by the sm shorthand — the defect, asserted as a control', () => {
     // `.ui-input[data-size="sm"]` sets the PADDING SHORTHAND, which resets
     // padding-right to 8px. If this ever becomes longhands the guard below is
     // no longer the thing standing between the chevron and the text, and this
     // control says so rather than passing quietly.
-    expect(ruleFor('.ui-input[data-size="sm"]')).toMatch(/padding:\s*0 8px/)
-    expect(spec('.ui-input[data-size="sm"]')).toBeGreaterThan(spec('select.ui-input'))
+    expect(ruleFor(SM())).toMatch(/padding:\s*0 8px/)
+    // …and the base select rule really is the one it beats — asserted here so
+    // that deleting it cannot pass unnoticed.
+    expect(ruleFor(SELECT())).toMatch(/padding-right:\s*28px/)
+    expect(spec(SM())).toBeGreaterThan(spec(SELECT()))
   })
 
   it('restores the 28px clearance at a specificity that beats it', () => {
-    expect(ruleFor('select.ui-input[data-size="sm"]')).toMatch(/padding-right:\s*28px/)
-    expect(spec('select.ui-input[data-size="sm"]'))
-      .toBeGreaterThan(spec('.ui-input[data-size="sm"]'))
+    expect(ruleFor(SM_SELECT())).toMatch(/padding-right:\s*28px/)
+    expect(spec(SM_SELECT())).toBeGreaterThan(spec(SM()))
+  })
+
+  it('the counter agrees with real CSS specificity on all four selectors', () => {
+    // The counter is the thing every assertion above rests on, so it is
+    // checked against hand-computed values: (0,1,0) (0,1,1) (0,2,0) (0,2,1).
+    expect([spec('.ui-input'), spec('select.ui-input'),
+      spec('.ui-input[data-size="sm"]'), spec('select.ui-input[data-size="sm"]')])
+      .toEqual([100, 101, 200, 201])
   })
 
   it('reaches the element Select actually renders', () => {

@@ -36,8 +36,8 @@ export function Field({ label, children, hint, inline = false, mixed = false, su
   return (
     <label
       className={`ui-field ${className}`.trim()}
-      data-inline={inline || undefined}
-      data-mixed={mixed || undefined}
+      data-inline={inline ? 'true' : undefined}
+      data-mixed={mixed ? 'true' : undefined}
       data-surface={surface}
       {...rest}
     >

@@ -3,7 +3,6 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { X } from 'lucide-react'
 import { IconButton } from './IconButton'
-import { Badge } from './Badge'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -48,45 +47,37 @@ describe('IconButton', () => {
   })
 })
 
-// ── F4 (C3b request 3): the size that fits inside a Badge ───────────────────
-describe('IconButton: the xs size a Badge can host', () => {
+// ── F4: the scale has TWO control heights, and C3b's request 3 is open ──────
+describe('IconButton: no third control height (C3b request 3, still open)', () => {
   const block = (sel) => {
     const at = css.indexOf(sel + ' {')
     expect(at, `no "${sel}" rule in index.css`).toBeGreaterThan(-1)
     return css.slice(at + sel.length, css.indexOf('}', at))
   }
 
-  it('is 16px with a 10px glyph, both from the scale', () => {
-    expect(block('.ui-iconbtn[data-size="xs"]')).toContain('width: var(--control-xs)')
-    expect(block('.ui-iconbtn[data-size="xs"]')).toContain('height: var(--control-xs)')
-    expect(block('.ui-iconbtn[data-size="xs"] > svg')).toContain('width: var(--icon-xs)')
-    expect(css).toMatch(/--control-xs:\s*16px/)
-    expect(css).toMatch(/--icon-xs:\s*10px/)
+  it('offers sm and md and nothing smaller', () => {
+    // §3.3: "Control heights 28 (sm …) and 36 (md …)". F4 built an `xs` at
+    // 16/10 for the department chips and took it back out: the button renders
+    // 28x28 today, which clears the 24px minimum target size, and 16x16 does
+    // not — so shrinking it trades an accessibility floor for 4px of chip
+    // height. That is a ruling, not a kit fix (hand-off §4b).
+    expect(block('.ui-iconbtn[data-size="sm"]')).toContain('var(--control-sm)')
+    expect(css).not.toMatch(/--control-xs/)
+    expect(css).not.toMatch(/--icon-xs/)
+    expect(css).not.toContain('.ui-iconbtn[data-size="xs"]')
   })
 
-  it('fits inside a Badge without growing it — the whole point', () => {
-    // The control AND the measurement: `.ui-badge` is 20px, so 16 fits and
-    // the 28px `sm` does not. If the badge height ever changes this says so.
-    const badge = block('.ui-badge')
-    expect(badge).toContain('height: 20px')
+  it('and the arithmetic that makes it a trade, so the next session has it', () => {
+    // `.ui-badge` is 20px; `sm` is 28. The overflow C3b reported is 4px top
+    // and bottom, and it is what the chip pays for a target that clears 24.
+    expect(block('.ui-badge')).toContain('height: 20px')
     const px = (name) => Number(css.match(new RegExp(`--${name}:\\s*(\\d+)px`))[1])
-    expect(px('control-xs')).toBeLessThan(20)
-    expect(px('control-sm')).toBeGreaterThan(20)
+    expect(px('control-sm')).toBe(28)
+    expect((px('control-sm') - 20) / 2).toBe(4)
+    expect(px('control-sm')).toBeGreaterThanOrEqual(24)
   })
 
-  it('renders as a real button inside a real Badge', () => {
-    render(
-      <Badge>
-        Camera
-        <IconButton icon={X} size="xs" title="Remove Camera" />
-      </Badge>,
-    )
-    const b = screen.getByRole('button', { name: 'Remove Camera' })
-    expect(b.dataset.size).toBe('xs')
-    expect(b.closest('.ui-badge')).not.toBeNull()
-  })
-
-  it('falls back to md and says so, rather than silently taking the default', () => {
+  it('an unknown size falls back to md and says so, rather than taking it silently', () => {
     // An unrecognised size used to reach `data-size` verbatim, match no rule,
     // and leave the button at 36px with nothing said — Panel and Drawer fixed
     // the same shape for `data-width="220px"`.

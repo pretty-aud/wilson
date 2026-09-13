@@ -75,7 +75,7 @@ export function _resetOverlaysForTests() {
 // a feature test rather than a browser test: under the runner it is
 // `undefined` and the semantic filter stands alone.
 
-const FOCUSABLE = [
+export const FOCUSABLE = [
   'a[href]',
   'area[href]',
   'button',

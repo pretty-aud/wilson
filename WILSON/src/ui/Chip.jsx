@@ -34,7 +34,7 @@ export function Chip({
       disabled={disabled}
       aria-pressed={active}
       className={`ui-chip ${className}`.trim()}
-      data-active={active}
+      data-active={active ? 'true' : undefined}
       data-surface={surface}
       style={vars || style ? { ...vars, ...style } : undefined}
       {...rest}
