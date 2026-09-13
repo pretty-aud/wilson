@@ -60,6 +60,63 @@ describe('Table', () => {
     expect(container.querySelectorAll('.ui-th')[0].getAttribute('aria-sort')).toBe('ascending')
   })
 
+  // ── F4 (C3b request 4): a clipped header ellipsises instead of cutting ────
+  // The measured symptom was `RATE ACCESS` sheared mid-word with no ellipsis,
+  // which reads as a rendering fault rather than as a narrow column. The two
+  // properties were already there and inert.
+  describe('a header too narrow for its label', () => {
+    const block = () => {
+      const m = css.match(/\n {2}\.ui-th-label \{([^}]*)\}/)
+      expect(m, 'no .ui-th-label block in index.css').not.toBeNull()
+      return m[1]
+    }
+
+    it('does not leave the label an inline box, where neither property applies', () => {
+      // The control, and the whole defect: `overflow` and `text-overflow` do
+      // nothing on a non-replaced inline box. They were declared and inert.
+      expect(block()).toContain('overflow: hidden')
+      expect(block()).toContain('text-overflow: ellipsis')
+      expect(block()).toMatch(/display:\s*inline-block/)
+      expect(block()).not.toMatch(/display:\s*inline\s*;/)
+    })
+
+    it('can shrink below its content in the sortable case, which is a flex item', () => {
+      // With `onSort` the label is a flex item inside `.ui-th-btn`, where the
+      // two properties DO apply but `min-width: auto` refuses to shrink it, so
+      // it overflows instead of ellipsising. Different cause, same symptom.
+      const btn = css.match(/\n {2}\.ui-th-btn \{([^}]*)\}/)
+      expect(btn, 'no .ui-th-btn block').not.toBeNull()
+      expect(btn[1]).toMatch(/display:\s*inline-flex/)
+      expect(block()).toContain('min-width: 0')
+    })
+
+    it('never lets the sort arrow be the thing that gets clipped', () => {
+      expect(block()).toMatch(/max-width:\s*calc\(100% - 10px\)/)
+      // …which is only true if the slot really is 10px wide in BOTH cases.
+      // Outside `.ui-th-btn` it was inline, and `width` does not apply to an
+      // inline box, so the slot that promises to reserve space reserved none.
+      const slot = css.match(/\n {2}\.ui-th-sort \{([^}]*)\}/)
+      expect(slot, 'no .ui-th-sort block').not.toBeNull()
+      expect(slot[1]).toContain('width: 10px')
+      expect(slot[1]).toMatch(/display:\s*inline-block/)
+    })
+
+    it('renders both cases as the stylesheet expects to find them', () => {
+      // The plain case really is a bare span in a table-cell, and the sortable
+      // case really is a child of the flex button — asserted against the DOM,
+      // because the rules above are written for those two shapes and nothing
+      // else pins them.
+      const { container } = render(
+        <Table head={<Row><Th>Plain</Th><Th onSort={() => {}}>Sortable</Th></Row>}>
+          <Row><Td>1</Td><Td>2</Td></Row>
+        </Table>,
+      )
+      const [plain, sortable] = container.querySelectorAll('.ui-th-label')
+      expect(plain.parentElement.matches('th.ui-th')).toBe(true)
+      expect(sortable.parentElement.matches('.ui-th-btn')).toBe(true)
+    })
+  })
+
   it('makes a sortable header a real button and calls onSort', () => {
     const onSort = vi.fn()
     render(<Table head={<Row><Th onSort={onSort}>Name</Th></Row>}><Row><Td>x</Td></Row></Table>)

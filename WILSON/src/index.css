@@ -1416,10 +1416,36 @@ select option {
   }
   .ui-th[data-align="right"] .ui-th-btn { justify-content: flex-end; }
   .ui-th[data-align="center"] .ui-th-btn { justify-content: center; }
-  .ui-th-label { overflow: hidden; text-overflow: ellipsis; }
+  /* 🚨 `overflow: hidden; text-overflow: ellipsis` does NOTHING on a
+     non-replaced INLINE box, and this span was inline in both of the two
+     places it renders — which is why a clipped header was cut mid-word and
+     read as a rendering fault rather than as a narrow column (C3b request 4,
+     where `RATE ACCESS` presented exactly that). The two places fail
+     differently and both are fixed here:
+
+       · with no `onSort` the label is an inline span inside the <th>, a
+         table-cell — `inline-block` is what makes the two properties apply;
+       · with `onSort` it is a flex item inside `.ui-th-btn`, where they DO
+         apply but the item will not shrink below its content, because a
+         flex item's `min-width` is `auto`. Hence `min-width: 0`.
+
+     `max-width` holds back the sort slot's 10px so the arrow is never the
+     thing that gets clipped, and `vertical-align` keeps the two spans on one
+     line when they are inline rather than flex. */
+  .ui-th-label {
+    display: inline-block;
+    max-width: calc(100% - 10px);
+    min-width: 0;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   /* Always present, always this wide, sorted or not: an arrow that appears on
-     click shifts the label sideways under the pointer that just clicked it. */
-  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; }
+     click shifts the label sideways under the pointer that just clicked it.
+     `inline-block` so that promise holds in a plain <th> too — `width` does
+     not apply to an inline box, so outside `.ui-th-btn` the slot reserved
+     nothing and the label moved the moment a column was sorted. */
+  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; display: inline-block; vertical-align: middle; }
   .ui-th-sort[data-dir="asc"]::before { content: "\2191"; }
   .ui-th-sort[data-dir="desc"]::before { content: "\2193"; }
 
