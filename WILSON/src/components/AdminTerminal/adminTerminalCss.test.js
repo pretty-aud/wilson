@@ -859,6 +859,45 @@ describe('C7: one scale, and every size taken from it by name', () => {
     expect(bad).toEqual([])
   })
 
+  it('🚨 and no element is told its size twice', () => {
+    // 🚨 MUTANT 35, AND IT RE-ADMITTED THIS SESSION'S OWN FIXED DEFECT.
+    // `fontSize` is exempt from the ban above because the scan READS it — but
+    // reading it only proves the number is on the scale, and 11 is on the
+    // scale. `<h3 className="text-h3" style={{ fontSize: 11 }}>` put a card
+    // title at 11px above its own 13px body copy, which is verbatim what
+    // `1b0d4ae` exists to fix, and all 89 tests stayed green.
+    // An element that has been told its size by a step must not be re-told
+    // inline. The one legitimate inline size on the surface — the avatar —
+    // carries no step class, so it is exempt by construction rather than by
+    // name.
+    const bad = []
+    for (const [file, src] of Object.entries(sources)) {
+      for (const tag of openingTags(src)) {
+        if (!/fontSize\s*:/.test(tag)) continue
+        const step = tagClassTokens(tag).find((t) => /^text-(h1|h2|h3|body|dense|caption|label)$/.test(t))
+        if (step) bad.push(`${file} — \`${step}\` and an inline \`fontSize\` on one element`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 `.at-label-aside` keeps the two declarations that are its whole job', () => {
+    // 🚨 CORRECTION 2 HAD NO GUARD AT ALL, and a reviewer deleted its two
+    // load-bearing declarations with the suite at 89/89. Measured damage:
+    // "(optional folder inside the bucket)" goes 168.2px → 199.9px, stops
+    // fitting its 223.6px column, wraps to two lines, and drops the Prefix
+    // input 15px below Region's and Bucket's. `font-weight` is not pinned
+    // here because losing it is visible without being a layout fault.
+    const rule = [...cssCode.matchAll(/\.at-label-aside\s*\{([^}]*)\}/g)].map((m) => m[1])
+    expect(rule.length).toBe(1)
+    expect(rule[0]).toMatch(/text-transform:\s*none/)
+    expect(rule[0]).toMatch(/letter-spacing:\s*0/)
+    // Two parentheticals, two callers — a countable invariant, because a
+    // partial revert of a paired edit is the shape that slipped past a
+    // class-based check in C3b's round two.
+    expect(jsx.match(/at-label-aside/g)?.length).toBe(2)
+  })
+
   it('🚨 `.at-prose` is prose, and prose is the one thing 11px is not for', () => {
     // Pinned by value, and the sheet-wide check is exactly why it has to be:
     // that one asks only that a size reads SOME `--text-*`, which a revert to

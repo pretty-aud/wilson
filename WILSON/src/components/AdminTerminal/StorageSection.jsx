@@ -625,7 +625,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
       {/* ── Mode ─────────────────────────────────────────────────────── */}
       <div className="p-4 rounded-control mb-3" style={cardStyle}>
-        <h3 className="text-h3 mb-2" style={{ color: INK_2 }}>
+        <h3 className="text-h3 mb-2" style={{ color: INK }}>
           Storage mode
         </h3>
         <div className="flex flex-col gap-2">
@@ -671,7 +671,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           means the mode is UNKNOWN, and the red banner above already says so. */}
       {mode === 'central' && !loadError && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-h3 mb-2" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-2" style={{ color: INK }}>
             Petal cloud plan
           </h3>
 
@@ -828,7 +828,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Provider picker (byos only, S37) ─────────────────────────── */}
       {mode === 'byos' && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-h3 mb-2" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-2" style={{ color: INK }}>
             What you own
           </h3>
           <div className="flex flex-col gap-2">
@@ -864,7 +864,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Root (byos + server/NAS only) ────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.NETWORK && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-h3 mb-1" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-1" style={{ color: INK }}>
             Storage root
           </h3>
           <p className="text-dense mb-2" style={{ color: INK_2 }}>
@@ -1002,7 +1002,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Bucket (byos + S3 only, S37) ──────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.S3 && (
         <div className="p-4 rounded-control mb-3" style={cardStyle}>
-          <h3 className="text-h3 mb-1" style={{ color: INK_2 }}>
+          <h3 className="text-h3 mb-1" style={{ color: INK }}>
             Bucket
           </h3>
           <p className="text-dense mb-2" style={{ color: INK_2 }}>

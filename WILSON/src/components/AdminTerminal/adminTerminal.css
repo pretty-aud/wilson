@@ -245,7 +245,14 @@
      JSX, and "no `tracking-*` utility" caught it — correctly, since the guard
      cannot tell a cancellation from an invention. The guard now exempts
      `tracking-normal` by name for the next person; this stays in the sheet
-     because the sizing and the weight belong together with it. */
+     because the sizing and the weight belong together with it.
+     🚨 IT SETS NO `font-size`, AND THAT IS A DECISION. It inherits the Label
+     step from its parent, so these two sentences are the only prose in the
+     section still at 11px — which a reviewer flagged against a session whose
+     whole framing was "52 sites of body copy off the 11px floor". They stay:
+     a parenthetical inside a label is part of the label, and at 13px it
+     would be LARGER than the field name it qualifies, which is the
+     inversion this session has now made twice and fixed twice. */
   .at-label-aside {
     font-weight: 400;
     text-transform: none;
