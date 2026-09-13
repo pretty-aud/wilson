@@ -1053,7 +1053,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           <div className="flex flex-col gap-2 mb-2">
             <label className="flex flex-col gap-1">
               <span className="text-label uppercase" style={{ color: INK_2 }}>
-                Endpoint <span className="font-normal normal-case">(empty = AWS S3)</span>
+                Endpoint <span className="at-label-aside">(empty = AWS S3)</span>
               </span>
               <input type="text" value={s3Draft.endpoint}
                      onChange={e => setS3Draft(d => ({ ...d, endpoint: e.target.value }))}
@@ -1080,7 +1080,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
                 <span className="text-label uppercase" style={{ color: INK_2 }}>
-                  Prefix <span className="font-normal normal-case">(optional folder inside the bucket)</span>
+                  Prefix <span className="at-label-aside">(optional folder inside the bucket)</span>
                 </span>
                 <input type="text" value={s3Draft.prefix}
                        onChange={e => setS3Draft(d => ({ ...d, prefix: e.target.value }))}

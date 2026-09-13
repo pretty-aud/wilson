@@ -233,6 +233,24 @@
     letter-spacing: 0;
     color: var(--color-ink-2);
   }
+  /* The parenthetical inside a field label — "(empty = AWS S3)", "(optional
+     folder inside the bucket)". It is sentence case inside a Label-step
+     parent, and `letter-spacing` INHERITS, so without this it carries the
+     token's 0.06em: §3.1 gives tracking to the Label role and zero to
+     everything else, and a sentence-case aside is everything else. It was
+     inheriting `tracking-wider`'s 0.05em before the type pass and 0.06em
+     after, so this is a rule C3c made fractionally worse and is fixing.
+     🚨 IT LIVES HERE RATHER THAN IN A CLASS BECAUSE C3c's OWN GUARD FORBIDS
+     THE UTILITY. `tracking-normal` is the one spelling that would do this in
+     JSX, and "no `tracking-*` utility" caught it — correctly, since the guard
+     cannot tell a cancellation from an invention. The guard now exempts
+     `tracking-normal` by name for the next person; this stays in the sheet
+     because the sizing and the weight belong together with it. */
+  .at-label-aside {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
   .at-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .at-nowrap { white-space: nowrap; }
   .at-break { word-break: break-all; }
@@ -561,10 +579,26 @@
      headings"), and AT-08 sends card titles to sentence case — the same
      treatment the five `<h3>` titles in this section took in the same pass,
      so the section now has ONE card-title object instead of two. */
+  /* 🚨 THIS ROSE WITH `.at-prose`, AND IT TOOK TWO GOES TO LAND.
+     It was the Label step in capitals, which was RIGHT while the blurb under
+     it was also 11px — bold capitals above regular text is a working
+     hierarchy at one size. Raising the blurb to Dense and leaving this alone
+     put four pickers on the page whose titles were two steps SMALLER than
+     the sentences they title, which no weight fixes.
+     🚨 THE FIRST REPAIR OVERSHOT BY ONE STEP AND RE-MADE AT-08 A LEVEL UP.
+     At `--text-h3` this became character-for-character the card title above
+     it — measured in the running app at 14px/600, and in the shipped tester
+     state the same ink too, because the disabled rule takes both to `ink-2`.
+     AT-08's own words: "the panel's own title and the four group headings
+     inside it are the same treatment, so the panel has no top."
+     So: card title 14/600 → option title 13/600 → blurb 13/400. The option
+     is told from its blurb by WEIGHT at one size, which is the relationship
+     the 11px original had, moved up two steps; and the card is told from the
+     options inside it by size, which is the one this had lost. */
   .at-picker-label {
-    font-size: var(--text-h3);
-    line-height: var(--text-h3--line-height);
-    font-weight: var(--text-h3--font-weight);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
     color: var(--color-ink);
