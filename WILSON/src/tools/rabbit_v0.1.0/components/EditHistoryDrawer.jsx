@@ -90,10 +90,10 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
           <History className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
           <div className="flex-1 min-w-0">
-            <div className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
+            <div className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
               Edit history
             </div>
-            <div className="text-dense font-mono truncate" style={{ color: '#78716c' }}>
+            <div className="text-dense truncate" style={{ color: '#78716c' }}>
               {ENTITY_LABELS[entityType] || entityType}{entityLabel ? ` · ${entityLabel}` : ''}
             </div>
           </div>
@@ -110,28 +110,28 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
           {!cloudMode ? (
-            <div className="text-dense font-mono px-3 py-4 rounded"
+            <div className="text-dense px-3 py-4 rounded"
               style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
               Edit history is only recorded in cloud (supabase) mode. The
               current adapter ({adapterMode}) does not capture changes.
             </div>
           ) : error ? (
-            <div className="text-dense font-mono px-3 py-4 rounded"
+            <div className="text-dense px-3 py-4 rounded"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               Could not load history: {error}
             </div>
           ) : loading && entries.length === 0 ? (
-            <div className="text-dense font-mono px-3 py-4" style={{ color: '#78716c' }}>
+            <div className="text-dense px-3 py-4" style={{ color: '#78716c' }}>
               Loading…
             </div>
           ) : entries.length === 0 ? (
-            <div className="text-dense font-mono px-3 py-4" style={{ color: '#78716c' }}>
+            <div className="text-dense px-3 py-4" style={{ color: '#78716c' }}>
               No recorded changes in the last 90 days.
             </div>
           ) : (
             <>
               {revertError && (
-                <div className="text-dense font-mono px-3 py-2 rounded"
+                <div className="text-dense px-3 py-2 rounded"
                   style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
                   Revert failed: {revertError}
                 </div>
@@ -146,7 +146,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
                 />
               ))}
               {entries.length >= 100 && (
-                <div className="text-dense font-mono px-3 py-2 text-center" style={{ color: '#78716c' }}>
+                <div className="text-dense px-3 py-2 text-center" style={{ color: '#78716c' }}>
                   Showing the latest 100 changes — older entries exist within
                   the retention window.
                 </div>
@@ -156,7 +156,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 flex-shrink-0 text-dense font-mono"
+        <div className="px-4 py-2 flex-shrink-0 text-dense"
           style={{ color: '#57534e', borderTop: '1px solid #44403c' }}>
           History is kept for 90 days. Reverts are ordinary edits — they
           appear here too, and Ctrl+Z undoes them.
@@ -176,14 +176,14 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
     <div className="rounded px-3 py-2.5 flex flex-col gap-1.5"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2">
-        <span className="text-label font-mono uppercase font-semibold px-1.5 py-0.5 rounded-sm flex-shrink-0"
+        <span className="text-label uppercase font-semibold px-1.5 py-0.5 rounded-sm flex-shrink-0"
           style={{ color: meta.color, border: `1px solid ${meta.color}`, opacity: 0.9 }}>
           {meta.label}
         </span>
-        <span className="text-dense font-mono font-semibold truncate flex-1" style={{ color: '#d6d3d1' }}>
+        <span className="text-dense font-semibold truncate flex-1" style={{ color: '#d6d3d1' }}>
           {actorName(entry)}
         </span>
-        <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
+        <span className="text-dense flex-shrink-0" style={{ color: '#78716c' }}>
           {formatHistoryTimestamp(entry.created_at)}
         </span>
         {onRevert && (
@@ -201,7 +201,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
       </div>
 
       {summary && (
-        <div className="text-dense font-mono truncate" style={{ color: '#a8a29e' }} title={summary}>
+        <div className="text-dense truncate" style={{ color: '#a8a29e' }} title={summary}>
           {summary}
         </div>
       )}
@@ -209,7 +209,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
       {lines.length > 0 && (
         <div className="flex flex-col gap-1">
           {lines.map(l => (
-            <div key={l.field} className="text-dense font-mono flex items-baseline gap-1.5 min-w-0">
+            <div key={l.field} className="text-dense flex items-baseline gap-1.5 min-w-0">
               <span className="flex-shrink-0" style={{ color: '#78716c' }}>{l.field}:</span>
               <span className="truncate" style={{ color: '#a8a29e', textDecoration: 'line-through', textDecorationColor: '#57534e' }} title={l.from}>
                 {l.from}

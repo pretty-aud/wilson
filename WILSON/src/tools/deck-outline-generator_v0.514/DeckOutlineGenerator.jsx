@@ -3776,7 +3776,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       className="w-full p-2 text-left hover:bg-stone-700 transition-colors"
                     >
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-dense font-mono text-orange-400 font-semibold">#{item.pageNum}</span>
+                        <span className="text-dense text-orange-400 font-semibold">#{item.pageNum}</span>
                         <span className="text-caption text-stone-500 group-hover:opacity-0 transition-opacity">{item.timestamp}</span>
                       </div>
                       <p className="text-dense text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
@@ -3831,7 +3831,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="font-semibold uppercase flex items-center justify-between text-label">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-dense">1</span>
+                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white text-dense">1</span>
                   Project Documentation & Deck Context
                 </div>
                 {section1Collapsed ? (
@@ -3908,7 +3908,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore('documents', doc.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-dense font-mono transition-colors flex-shrink-0"
+                                  className="px-1.5 py-0.5 rounded-sm text-dense transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
@@ -3930,7 +3930,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-dense font-mono transition-colors flex-shrink-0"
+                                  className="px-1.5 py-0.5 rounded-sm text-dense transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
@@ -4140,7 +4140,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="font-semibold uppercase flex items-center justify-between text-label">
                 <div className={`flex items-center gap-2 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-dense ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-dense ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
                   Generate Page Outline
                   {fullDeckMode && <span className="text-dense font-normal normal-case ml-2">(Disabled in Full Deck mode)</span>}
                 </div>
@@ -4302,7 +4302,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                           : 'bg-stone-700 text-stone-400 hover:text-stone-300 border-2 border-stone-600 border-b-0 rounded-t-sm mb-0'
                       }`}
                     >
-                      <span className="font-mono">#{tab.pageNum}</span>
+                      <span className="">#{tab.pageNum}</span>
                       <span className="max-w-[100px] truncate">{tab.title}</span>
                       <button
                         onClick={(e) => closeTab(tab.id, e)}
@@ -4499,7 +4499,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       onChange={handleTextareaChange}
                       onContextMenu={handleTextareaContextMenu}
                       onKeyDown={handleTextareaKeyDown}
-                      className="w-full min-h-[780px] p-4 font-mono text-body whitespace-pre-wrap text-orange-400 bg-stone-950 leading-relaxed border-none resize-y"
+                      className="w-full min-h-[780px] p-4 text-body whitespace-pre-wrap text-orange-400 bg-stone-950 leading-relaxed border-none resize-y"
                       style={{ minHeight: '780px' }}
                     />
                   </>
@@ -4546,7 +4546,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <div className="px-3 pt-2 pb-1 flex-shrink-0 border-b border-stone-700">
                       <span className="text-label text-stone-500 uppercase font-semibold">Replacing</span>
                       <div className="mt-1 max-h-[60px] overflow-y-auto">
-                        <p className="text-dense text-stone-400 font-mono whitespace-pre-wrap leading-relaxed">{contextMenu.selectedText}</p>
+                        <p className="text-dense text-stone-400 whitespace-pre-wrap leading-relaxed">{contextMenu.selectedText}</p>
                       </div>
                     </div>
 
@@ -4560,7 +4560,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                             <span className="text-dense text-stone-400">Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
                           </div>
                         ) : (
-                          <p className="text-dense text-orange-400 font-mono whitespace-pre-wrap leading-relaxed">{rewritePreview.text}</p>
+                          <p className="text-dense text-orange-400 whitespace-pre-wrap leading-relaxed">{rewritePreview.text}</p>
                         )}
                       </div>
                     </div>
@@ -4763,7 +4763,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.sp_sys && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
-                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4780,7 +4780,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.sp_rules && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4798,7 +4798,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.fd_sys && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
-                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4815,7 +4815,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.fd_rules && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4838,7 +4838,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.theme_prompt && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
-                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4855,7 +4855,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_shared && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4872,7 +4872,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_midjourney && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4889,7 +4889,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_flux && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4906,7 +4906,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_nanobanana && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4923,7 +4923,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_chatgpt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4941,7 +4941,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.img_api_sys && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
-                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4969,7 +4969,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                               value={rewritePrompts[mode]}
                               onChange={(e) => setRewritePrompts(prev => ({ ...prev, [mode]: e.target.value }))}
                               disabled={promptsTabLocked}
-                              className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-y wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`}
+                              className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-y wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`}
                             />
                             <button
                               onClick={() => setRewritePrompts(prev => ({ ...prev, [mode]: DEFAULT_REWRITE_PROMPTS[mode] }))}
@@ -4997,7 +4997,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.sp_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-dense ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -5014,7 +5014,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.fd_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-96 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-96 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-dense ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -5031,7 +5031,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.vis_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-stone-400 text-dense font-mono resize-none wilson-dark-scroll cursor-not-allowed" />
+                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-stone-400 text-dense resize-none wilson-dark-scroll cursor-not-allowed" />
                       </div>
                     )}
                   </div>
@@ -5047,7 +5047,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-dense ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -5235,7 +5235,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   onChange={(e) => setNewProjectTitle(e.target.value)}
                   placeholder="Enter project title..."
                   autoFocus
-                  className="w-full px-3 py-2 text-body font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-body rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
                 />
               </div>
@@ -5248,7 +5248,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="Brief description of the project..."
                   rows={3}
-                  className="w-full px-3 py-2 text-body font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-none"
+                  className="w-full px-3 py-2 text-body rounded-sm focus:ring-2 focus:ring-orange-500 resize-none"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
                 />
               </div>
@@ -5261,7 +5261,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     type="date"
                     value={newProjectStartDate}
                     onChange={(e) => setNewProjectStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
                   />
                 </div>
@@ -5271,7 +5271,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     type="date"
                     value={newProjectEndDate}
                     onChange={(e) => setNewProjectEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
                   />
                 </div>

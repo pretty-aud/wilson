@@ -60,7 +60,7 @@ export default function IngestionToast({ onJumpToReview }) {
       >
         <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: accent === '#ea580c' ? '#fb923c' : accent === '#15803d' ? '#86efac' : '#fca5a5' }} />
         <span
-          className="flex-1 text-label font-mono uppercase font-semibold truncate"
+          className="flex-1 text-label uppercase font-semibold truncate"
           style={{ color: '#fb923c' }}
         >
           {headline}
@@ -98,7 +98,7 @@ export default function IngestionToast({ onJumpToReview }) {
         )}
 
         {/* Status line */}
-        <div className="flex items-center justify-between text-dense font-mono" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
           <span className="truncate">
             {phase === 'running' && (chunksTotal > 0
               ? `${chunksDone}/${chunksTotal} chunks · ${pct}%`
@@ -110,7 +110,7 @@ export default function IngestionToast({ onJumpToReview }) {
 
         {/* Last chunk label */}
         {phase === 'running' && lastLabel && (
-          <div className="text-dense font-mono italic truncate" style={{ color: '#78716c' }}>
+          <div className="text-dense italic truncate" style={{ color: '#78716c' }}>
             {lastLabel}
           </div>
         )}
@@ -122,7 +122,7 @@ export default function IngestionToast({ onJumpToReview }) {
             onClick={() => {
               onJumpToReview?.()
             }}
-            className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
+            className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',

@@ -57,15 +57,15 @@ export default function ProjectContextBar() {
       <Folder className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
 
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
+        <span className="text-label uppercase" style={{ color: '#78716c' }}>
           Project
         </span>
-        <span className="text-dense font-mono font-semibold truncate" style={{ color: project ? '#d6d3d1' : '#78716c' }}>
+        <span className="text-dense font-semibold truncate" style={{ color: project ? '#d6d3d1' : '#78716c' }}>
           {project?.title || (activeProjectId ? 'Loading…' : 'No project selected')}
         </span>
         {status && (
           <span
-            className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm flex-shrink-0"
+            className="px-1.5 py-0.5 text-label uppercase rounded-sm flex-shrink-0"
             style={{
               color: '#fff7ed',
               backgroundColor: statusColor,
@@ -82,7 +82,7 @@ export default function ProjectContextBar() {
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors"
+          className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm transition-colors"
           style={{
             color: '#a8a29e',
             backgroundColor: '#292524',
@@ -104,7 +104,7 @@ export default function ProjectContextBar() {
           >
             <div className="overflow-y-auto" style={{ maxHeight: 360 }}>
               {projects.length === 0 ? (
-                <div className="px-3 py-2 text-dense font-mono italic" style={{ color: '#78716c' }}>
+                <div className="px-3 py-2 text-dense italic" style={{ color: '#78716c' }}>
                   No projects yet.
                 </div>
               ) : (
@@ -127,7 +127,7 @@ export default function ProjectContextBar() {
                       {isActive
                         ? <Check className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
                         : <Circle className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />}
-                      <span className="flex-1 truncate text-dense font-mono">{p.title || 'Untitled'}</span>
+                      <span className="flex-1 truncate text-dense">{p.title || 'Untitled'}</span>
                       {p.status && (
                         <span className="flex items-center gap-1.5 flex-shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{

@@ -255,7 +255,7 @@ export default function ModelsSection({ isActive }) {
             onChange={(e) => setNewId(e.target.value)}
             placeholder="claude-…"
             required
-            className="px-2 py-1.5 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ border: '1px solid #d6d3d1', width: '260px', color: '#1c1917' }}
           />
         </label>
@@ -324,7 +324,7 @@ export default function ModelsSection({ isActive }) {
                     value={d.model_id ?? ''}
                     disabled={busy}
                     onChange={(e) => onDefault(entry.key, e.target.value, d.effort ?? '')}
-                    className="px-2 py-1 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
+                    className="px-2 py-1 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
                     style={{ border: '1px solid #d6d3d1', color: '#1c1917' }}
                   >
                     <option value="">Built-in ({BUILTIN[entry.tier]})</option>

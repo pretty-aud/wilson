@@ -320,7 +320,7 @@ export function MfaEnrollPanel({ onEnrolled }) {
         <button
           type="button"
           onClick={copySecret}
-          className={`flex items-center gap-2 font-mono ${PRESS_CLASS}`}
+          className={`flex items-center gap-2 ${PRESS_CLASS}`}
           style={{
             ...AUTH_TEXT_STYLE,
             fontSize: `${TYPE.dense}px`,
@@ -354,7 +354,7 @@ export function MfaEnrollPanel({ onEnrolled }) {
         onChange={(e) => setCode(e.target.value.replace(/[^0-9\s]/g, ''))}
         placeholder="000000"
         aria-label="Authenticator code"
-        className="font-mono"
+        className=""
         style={{
           ...AUTH_INPUT_STYLE,
           width: 160,

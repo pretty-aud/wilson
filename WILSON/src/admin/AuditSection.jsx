@@ -235,7 +235,7 @@ export default function AuditSection({ isActive }) {
                     )}
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <span className="text-dense font-mono" style={{ color: '#57534e' }}>{r.actor_label ?? '—'}</span>
+                    <span className="text-dense" style={{ color: '#57534e' }}>{r.actor_label ?? '—'}</span>
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="text-dense" style={{ color: '#1c1917' }}>{r.message}</div>

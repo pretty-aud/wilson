@@ -34,7 +34,7 @@ function NoteInput({ take, canWrite, onUpdate }) {
 
 function RoleLegend() {
   return (
-    <div className="flex items-start gap-2 text-dense font-mono" style={{ color: C.dimmer }}>
+    <div className="flex items-start gap-2 text-dense" style={{ color: C.dimmer }}>
       <Info className="w-3 h-3 flex-shrink-0 mt-px" />
       <div className="grid gap-x-4 gap-y-0.5" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
         {TAKE_ROLES.map(r => (
@@ -64,7 +64,7 @@ export default function ShotTakesPanel({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-dense font-mono" style={{ color: C.muted }}>
+        <span className="text-dense" style={{ color: C.muted }}>
           {list.length === 0 ? 'No takes assigned' : `${list.length} take${list.length === 1 ? '' : 's'}`}
           {summary.parts > 0 && <span style={{ color: TAKE_ROLE_META.part.color }}> · {summary.parts} part{summary.parts === 1 ? '' : 's'}</span>}
           {summary.alts > 0 && <span style={{ color: C.dim }}> · {summary.alts} alt{summary.alts === 1 ? '' : 's'}</span>}
@@ -81,7 +81,7 @@ export default function ShotTakesPanel({
       </div>
 
       {list.length === 0 ? (
-        <div className="px-3 py-4 text-center text-dense font-mono rounded-sm leading-relaxed" style={{ color: C.dim, backgroundColor: C.deep, border: `1px dashed ${C.line}` }}>
+        <div className="px-3 py-4 text-center text-dense rounded-sm leading-relaxed" style={{ color: C.dim, backgroundColor: C.deep, border: `1px dashed ${C.line}` }}>
           Assign the bin files this shot is cut from. The first becomes the primary take; a shot rebuilt from several takes lists them in order as parts.
         </div>
       ) : (
@@ -98,7 +98,7 @@ export default function ShotTakesPanel({
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="truncate text-dense font-mono" style={{ color: C.bright }} title={file.display_name || file.original_name}>{file.display_name || file.original_name}</span>
                     {isPrimary && <Star className="w-3 h-3 flex-shrink-0" style={{ color: C.accentText, fill: C.accentText }} />}
-                    {file.online === false && <span className="text-label font-mono uppercase" style={{ color: C.amber }}>offline</span>}
+                    {file.online === false && <span className="text-label uppercase" style={{ color: C.amber }}>offline</span>}
                   </div>
                   <div className="truncate text-dense font-mono" style={{ color: C.dim }}>
                     {[slateLine(file), techLine(file), binPathFor?.(file.bin_id)].filter(Boolean).join(' · ') || file.original_name}

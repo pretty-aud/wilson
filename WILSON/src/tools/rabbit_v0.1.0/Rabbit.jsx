@@ -337,7 +337,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
       style={{ left: 26, bottom: 13, zIndex: 50 }}
     >
       <span
-        className="text-label font-mono uppercase font-semibold px-1 py-px rounded-sm"
+        className="text-label uppercase font-semibold px-1 py-px rounded-sm"
         title={realtimeStatus === 'live'
           ? 'Live sync connected — edits from teammates appear instantly'
           : realtimeStatus === 'error'
@@ -362,7 +362,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
           <span
             key={u.user_id || u.label}
             title={u.label || 'Member'}
-            className="flex items-center justify-center rounded-full text-dense font-mono font-semibold"
+            className="flex items-center justify-center rounded-full text-dense font-semibold"
             style={{
               width: 16, height: 16,
               color: '#fff7ed',
@@ -375,7 +375,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
         )
       })}
       {overflow > 0 && (
-        <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+        <span className="text-dense" style={{ color: '#78716c' }}>
           +{overflow}
         </span>
       )}
@@ -388,14 +388,14 @@ function NoProjectPlaceholder({ onPickSummary }) {
   return (
     <div className="h-full flex flex-col items-center justify-center gap-4" style={{ backgroundColor: '#1c1917' }}>
       <ListChecks className="w-10 h-10" style={{ color: '#78716c' }} />
-      <div className="text-dense font-mono text-center max-w-sm leading-relaxed" style={{ color: '#a8a29e' }}>
+      <div className="text-dense text-center max-w-sm leading-relaxed" style={{ color: '#a8a29e' }}>
         No project selected. Open the Summary tab to pick an
         existing project or scaffold a new one.
       </div>
       <button
         type="button"
         onClick={onPickSummary}
-        className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors"
+        className="px-4 py-1.5 text-dense rounded-sm transition-colors"
         style={{
           color: '#fff7ed',
           backgroundColor: '#ea580c',

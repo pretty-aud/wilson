@@ -184,7 +184,7 @@ export default function OperatorLogin({ onSignedIn }) {
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setError('') }}
                 disabled={busy}
-                className="w-full px-3 py-2 mb-4 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 mb-4 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
               <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>
@@ -196,7 +196,7 @@ export default function OperatorLogin({ onSignedIn }) {
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError('') }}
                 disabled={busy}
-                className="w-full px-3 py-2 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
             </>
@@ -213,7 +213,7 @@ export default function OperatorLogin({ onSignedIn }) {
                 value={code}
                 onChange={(e) => { setCode(e.target.value); setError('') }}
                 disabled={busy}
-                className="w-full px-3 py-2 text-body font-mono tracking-[0.4em] text-center rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 text-body tracking-[0.4em] text-center rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
             </>

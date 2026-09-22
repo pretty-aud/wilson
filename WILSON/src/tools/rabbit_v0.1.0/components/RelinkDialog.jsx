@@ -123,7 +123,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
         <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c', borderLeft: '3px solid #ea580c' }}>
           <FolderSearch className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-          <div className="flex-1 text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
+          <div className="flex-1 text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
             Relink missing files
           </div>
           <button type="button" onClick={onClose} disabled={phase === 'applying'} title="Close"
@@ -135,7 +135,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
           {error && (
-            <div className="text-dense font-mono px-3 py-2 rounded flex items-start gap-2"
+            <div className="text-dense px-3 py-2 rounded flex items-start gap-2"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span className="min-w-0 break-words">{error}</span>
@@ -144,7 +144,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
 
           {phase === 'idle' && (
             <>
-              <p className="text-dense font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
+              <p className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
                 {scan == null
                   ? 'Checking which files are missing on disk…'
                   : missingCount === 0
@@ -156,7 +156,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                 <div className="rounded px-3 py-2 max-h-40 overflow-y-auto flex flex-col gap-1"
                   style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
                   {scan.missing.map(f => (
-                    <div key={f.id} className="text-dense font-mono truncate" style={{ color: '#78716c' }} title={f.storage_path}>
+                    <div key={f.id} className="text-dense truncate" style={{ color: '#78716c' }} title={f.storage_path}>
                       {f.name} <span style={{ color: '#57534e' }}>· {f.storage_path}</span>
                     </div>
                   ))}
@@ -174,7 +174,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
 
           {phase === 'preview' && match && (
             <>
-              <p className="text-dense font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
+              <p className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
                 Searched <span style={{ color: '#fb923c' }}>{folder}</span>
                 {walkTruncated && <span style={{ color: '#fbbf24' }}> (large folder — walk was capped; unmatched files may exist deeper)</span>}
               </p>
@@ -183,7 +183,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                   the write, not after. */}
               {scan?.filesDir && folder && match.proposals.length > 0
                 && folder.toLowerCase() !== String(scan.filesDir).toLowerCase() && (
-                <p className="text-dense font-mono leading-relaxed px-3 py-2 rounded"
+                <p className="text-dense leading-relaxed px-3 py-2 rounded"
                   style={{ color: '#fbbf24', backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
                   This also makes the picked folder the project's files
                   folder — new uploads will be saved there. You can reset it
@@ -195,8 +195,8 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                 {match.proposals.map(p => (
                   <div key={p.id} className="flex flex-col gap-0.5 py-1.5 px-2 rounded" style={{ backgroundColor: '#1c1917' }}>
                     <div className="flex items-center gap-2">
-                      <span className="text-dense font-mono truncate flex-1" style={{ color: '#e7e5e4' }}>{p.name}</span>
-                      <span className="text-label font-mono uppercase flex-shrink-0"
+                      <span className="text-dense truncate flex-1" style={{ color: '#e7e5e4' }}>{p.name}</span>
+                      <span className="text-label uppercase flex-shrink-0"
                         style={{ color: (CONFIDENCE_LABEL[p.confidence] || {}).color || '#a8a29e' }}>
                         {(CONFIDENCE_LABEL[p.confidence] || {}).text || p.confidence}
                       </span>
@@ -215,7 +215,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                 <PreviewGroup label={`Ambiguous — left untouched (${match.ambiguous.length})`} color="#fbbf24">
                   {match.ambiguous.map(a => (
                     <div key={a.id} className="py-1.5 px-2 rounded" style={{ backgroundColor: '#1c1917' }}>
-                      <div className="text-dense font-mono truncate" style={{ color: '#e7e5e4' }}>{a.name}</div>
+                      <div className="text-dense truncate" style={{ color: '#e7e5e4' }}>{a.name}</div>
                       <div className="text-dense font-mono" style={{ color: '#78716c' }}>
                         {a.candidates.length} same-name candidates — rename or remove duplicates, then rescan.
                       </div>
@@ -227,7 +227,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
               {match.unmatched.length > 0 && (
                 <PreviewGroup label={`Still missing (${match.unmatched.length})`} color="#f87171">
                   {match.unmatched.map(u => (
-                    <div key={u.id} className="text-dense font-mono truncate py-1 px-2" style={{ color: '#78716c' }} title={u.oldPath}>
+                    <div key={u.id} className="text-dense truncate py-1 px-2" style={{ color: '#78716c' }} title={u.oldPath}>
                       {u.name}
                     </div>
                   ))}
@@ -262,14 +262,14 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
           style={{ backgroundColor: '#292524', borderTop: '1px solid #44403c' }}>
           {phase === 'done' ? (
             <button type="button" onClick={onClose}
-              className="px-3 py-1.5 rounded-md text-dense font-mono transition-all hover:brightness-125"
+              className="px-3 py-1.5 rounded-md text-dense transition-all hover:brightness-125"
               style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
               Done
             </button>
           ) : (
             <>
               <button type="button" onClick={onClose} disabled={phase === 'applying'}
-                className="px-3 py-1.5 rounded-md text-dense font-mono transition-colors hover:bg-stone-700"
+                className="px-3 py-1.5 rounded-md text-dense transition-colors hover:bg-stone-700"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
                 Cancel
               </button>
@@ -281,7 +281,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
               {(phase === 'idle' || phase === 'preview') && (
                 <button type="button" onClick={pickAndScan}
                   disabled={scan == null ? !error : missingCount === 0}
-                  className="px-3 py-1.5 rounded-md text-dense font-mono transition-colors hover:bg-stone-700 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-md text-dense transition-colors hover:bg-stone-700 disabled:opacity-40"
                   style={{ color: '#fb923c', border: '1px solid #44403c' }}>
                   {phase === 'preview' ? 'Pick a different folder' : 'Choose folder…'}
                 </button>
@@ -289,7 +289,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
               {phase === 'preview' && (
                 <button type="button" onClick={apply}
                   disabled={!match || match.proposals.length === 0}
-                  className="px-3 py-1.5 rounded-md text-dense font-mono transition-all hover:brightness-125 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-md text-dense transition-all hover:brightness-125 disabled:opacity-40"
                   style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
                   Relink {match?.proposals.length ?? 0} file{(match?.proposals.length ?? 0) === 1 ? '' : 's'}
                 </button>
@@ -306,13 +306,13 @@ function PreviewGroup({ label, color, empty, children }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : !!children
   return (
     <div className="rounded-md overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
-      <div className="px-3 py-1.5 text-label font-mono uppercase font-semibold"
+      <div className="px-3 py-1.5 text-label uppercase font-semibold"
         style={{ color, borderBottom: '1px solid #44403c' }}>
         {label}
       </div>
       <div className="p-1.5 flex flex-col gap-1 max-h-56 overflow-y-auto">
         {hasChildren ? children : (
-          <div className="text-dense font-mono px-2 py-1.5" style={{ color: '#78716c' }}>{empty}</div>
+          <div className="text-dense px-2 py-1.5" style={{ color: '#78716c' }}>{empty}</div>
         )}
       </div>
     </div>

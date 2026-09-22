@@ -197,7 +197,7 @@ export default function HelpPage() {
 
           {/* Version footer — Label step, full ink, mono because a version is data */}
           <div className="px-3 py-2 flex-shrink-0 border-t border-rule-light">
-            <span className="text-label font-mono text-ink-light">
+            <span className="text-label text-ink-light">
               {typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'}
             </span>
           </div>

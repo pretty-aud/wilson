@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { sourceFiles } from '../../scripts/ui-audit.mjs';
 import { protectedRanges, isProtected } from '../../scripts/ui-source-regions.mjs';
 import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
+import { classifyMono } from '../../scripts/ui-mono-map.mjs';
 import { enclosingRun, enclosingTag } from '../../scripts/ui-type-inventory.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose, by name and reason.
@@ -40,12 +41,27 @@ const OFF_SCALE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|2xl|3xl)\b)
    were reported as case-less labels before this. */
 const SCALE_STEP = /(?<![-\w])text-(?:h1|h2|h3|body|dense|caption|label)\b/g;
 
+/* 🚨 READ THE TREE ONCE. Six sweeps over 271 files is ~1,600 reads plus a
+   region scan each, and while this file passes on its own in a second, under
+   vitest's parallel workers that I/O pushed four unrelated tree-walking tests
+   (devFixtures, authStateCallbacks, quizWiring, aiFiles) past their 5s timeout
+   and tripled the whole suite's wall clock. A guard that makes other tests
+   fail is worse than no guard: the next session debugs the wrong thing. */
+let TREE = null;
+function tree() {
+  if (!TREE) {
+    TREE = sourceFiles().map((file) => {
+      const src = readFileSync(file, 'utf8');
+      return { file, src, guarded: protectedRanges(src) };
+    });
+  }
+  return TREE;
+}
+
 /** Collect matches of `re` across the scope, skipping protected regions. */
 function sweep(re, judge) {
   const out = [];
-  for (const file of sourceFiles()) {
-    const src = readFileSync(file, 'utf8');
-    const guarded = protectedRanges(src);
+  for (const { file, src, guarded } of tree()) {
     const r = new RegExp(re.source, 'g');
     let m;
     while ((m = r.exec(src))) {
@@ -143,5 +159,48 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
     expect('a font-bold b'.match(/\bfont-(?:bold|medium)\b/g)).toEqual(['font-bold']);
     expect('a font-medium b'.match(/\bfont-(?:bold|medium)\b/g)).toEqual(['font-medium']);
     expect('a font-semibold b'.match(/\bfont-(?:bold|medium)\b/g)).toBeNull();
+  });
+});
+
+// ── Pass 3: mono is for data ────────────────────────────────────────────────
+// These twelve cases ARE the map's specification. Each was read out of the
+// tree by hand and judged BEFORE the patterns were written to satisfy it, and
+// the first draft got five of them wrong — which is why they are pinned rather
+// than described. A later session that widens a pattern finds out here which
+// side of the line it has moved.
+describe('mono is for data, sans for everything else (§3.1)', () => {
+  const RUN = 'text-dense font-mono';
+  const cases = [
+    ['{d.toLocaleDateString()}', 'div', RUN, true, 'a timestamp'],
+    ['{file.display_name || file.original_name}', 'span', RUN, true, 'a file name, though it contains "name"'],
+    ['{stats.taskCount}', 'span', RUN, true, 'a count, though the boundary is a camelCase hump'],
+    ['{__OTTER_VERSION__}', 'span', RUN, true, 'a version, though the boundary is an underscore'],
+    ['+{fmtCurrency(a, b)}', 'span', RUN, true, 'a figure with a character in front of it'],
+    ['{sceneShots.length}', 'span', RUN, true, "a collection's size is a count"],
+    ['{fmtCurrency(grand.total)}', 'div', 'text-h1 font-mono', true, 'a figure at a heading size is still a figure (the kit\'s Stat)'],
+    ['{project.title}', 'span', RUN, false, 'a title is prose'],
+    ['{member.email}', 'span', RUN, false, 'an address reads as prose in a modern UI'],
+    ['No projects yet.', 'div', RUN, false, 'an empty state'],
+    ['Contingency', 'td', RUN, false, 'a row label in a table cell'],
+    ['{row.code}', 'span', 'text-label font-mono uppercase', false, 'the Label step is sans whatever it holds'],
+  ];
+
+  for (const [body, tag, run, keep, why] of cases) {
+    it(`${keep ? 'keeps' : 'drops'} mono: ${why}`, () => {
+      expect(classifyMono({ tag, run, body }).keep).toBe(keep);
+    });
+  }
+
+  it('a control is sans whatever it holds — the kit already says so', () => {
+    // .ui-input is var(--font-sans); C8 makes that the app's answer, not taste.
+    for (const tag of ['button', 'select', 'input', 'textarea', 'label']) {
+      expect(classifyMono({ tag, run: RUN, body: '{row.id}' }).keep).toBe(false);
+    }
+  });
+
+  it('code, pre and kbd keep mono whatever they hold', () => {
+    for (const tag of ['code', 'pre', 'kbd']) {
+      expect(classifyMono({ tag, run: RUN, body: 'No projects yet.' }).keep).toBe(true);
+    }
   });
 });

@@ -167,13 +167,13 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
             <div className="mt-3">
               <p className="text-dense text-orange-400 font-semibold mb-1">Example — Strong Deck Context:</p>
-              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
+              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded leading-relaxed">
                 "Create a 10-slide pitch deck for ZeroSpace's holographic display technology. Target audience: brand marketing directors at luxury fashion houses. Tone: premium, forward-thinking, slightly provocative. Emphasize ROI and experiential impact. Use data from the uploaded case studies. Visual style: dark backgrounds, gold/amber accents, large hero imagery."
               </p>
             </div>
             <div className="mt-2">
               <p className="text-dense text-orange-400 font-semibold mb-1">Example — Weak Deck Context:</p>
-              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
+              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded leading-relaxed">
                 "Make a nice presentation about our company."
               </p>
             </div>
@@ -192,7 +192,7 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
             <div className="mt-3">
               <p className="text-dense text-orange-400 font-semibold mb-1">Example — Strong Page Request:</p>
-              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
+              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded leading-relaxed">
                 "Create a 'Title and two columns' slide comparing traditional LED activations vs ZeroSpace holographic experiences. Left column: limitations of LED (flat, static, high setup cost). Right column: benefits of holographic (3D, interactive, modular). Pull specific metrics from the uploaded ROI document."
               </p>
             </div>
@@ -316,7 +316,7 @@ export function DogHelpContent({ helpPage, theme }) {
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Example Customization:</p>
-                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded font-mono">
+                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded">
                   Add: "Use professional business language suitable for executive presentations. Avoid jargon and keep bullet points to 10 words or fewer."
                 </p>
               </div>
@@ -361,7 +361,7 @@ export function DogHelpContent({ helpPage, theme }) {
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Example Customization:</p>
-                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded font-mono">
+                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded">
                   Change: "max 4 sentences per section" &rarr; "max 2 sentences per section, use punchy language"
                   <br/>Add: "8. Always suggest a specific stock photo description in REQUIRED ASSETS"
                 </p>
@@ -429,7 +429,7 @@ export function DogHelpContent({ helpPage, theme }) {
               Extended export format that wraps the standard DECKOUTLINE with a deck summary header (title, page count, selected theme colors, visual description)
               and an alternate themes footer listing all unused themes. This schema is read-only and cannot be edited.
             </p>
-            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> In the Import/Export modal, check "Include theme colors & deck visual description" to switch the download button to VIS_DECKOUTLINE format. The file is named <span className="text-orange-400 font-mono">PROJECTNAME_VIS_DECKOUTLINE.md</span>.</p>
+            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> In the Import/Export modal, check "Include theme colors & deck visual description" to switch the download button to VIS_DECKOUTLINE format. The file is named <span className="text-orange-400">PROJECTNAME_VIS_DECKOUTLINE.md</span>.</p>
             <p className="text-caption text-stone-500 mt-1"><span className="text-orange-400">Importing:</span> VIS_DECKOUTLINE files can be imported back — the system will parse theme colors from the header and footer and restore them automatically.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">

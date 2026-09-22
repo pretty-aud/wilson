@@ -176,7 +176,7 @@ export default function OperatorApp() {
           WILSON Operator Console
         </span>
         <div className="flex items-center gap-3">
-          <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{email}</span>
+          <span className="text-dense" style={{ color: '#a8a29e' }}>{email}</span>
           <button
             onClick={handleSignOut}
             className="flex items-center gap-1.5 px-2 py-1 text-dense font-semibold rounded-sm transition-colors"

@@ -520,7 +520,7 @@ export default function ProjectTasksView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>No project loaded</span>
+        <span className="text-label uppercase" style={{ color: '#78716c' }}>No project loaded</span>
       </div>
     )
   }
@@ -542,7 +542,7 @@ export default function ProjectTasksView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -551,7 +551,7 @@ export default function ProjectTasksView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -571,7 +571,7 @@ export default function ProjectTasksView() {
         {/* Group */}
         <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
           onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: (viewMode === 'kanban' ? kanbanGroup : groupBy) ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -581,7 +581,7 @@ export default function ProjectTasksView() {
         {/* View mode toggle — segmented control */}
         <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -589,7 +589,7 @@ export default function ProjectTasksView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('kanban')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
             style={{
               backgroundColor: viewMode === 'kanban' ? '#ea580c' : 'transparent',
               color: viewMode === 'kanban' ? '#fff7ed' : '#78716c',
@@ -613,7 +613,7 @@ export default function ProjectTasksView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search tasks…"
-            className="flex-1 px-2 py-1.5 text-dense font-mono bg-transparent"
+            className="flex-1 px-2 py-1.5 text-dense bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
@@ -625,7 +625,7 @@ export default function ProjectTasksView() {
         {/* Right: count, phase, new task */}
         <div className="flex items-center gap-2 ml-auto">
 
-          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
+          <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>
             {processed.length}/{tasks.length}
           </span>
 
@@ -636,7 +636,7 @@ export default function ProjectTasksView() {
             onClick={handleExportCsv}
             disabled={processed.length === 0}
             title={processed.length === 0 ? 'Nothing to export in the current view' : 'Export the current view as CSV'}
-            className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800 disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm transition-colors hover:bg-stone-800 disabled:opacity-40"
             style={{ color: '#78716c', border: '1px solid #44403c' }}
           >
             <Download className="w-3.5 h-3.5" /> Export
@@ -651,7 +651,7 @@ export default function ProjectTasksView() {
           <GatedAction allowed={canWrite}>
             {/* Phase create */}
             <button type="button" onClick={() => setShowPhaseCreate(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               <Plus className="w-3.5 h-3.5" /> Phase
             </button>
@@ -660,7 +660,7 @@ export default function ProjectTasksView() {
           <GatedAction allowed={canWrite}>
             {/* Key date create */}
             <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
               <Diamond className="w-3.5 h-3.5" /> Key Date
             </button>
@@ -668,7 +668,7 @@ export default function ProjectTasksView() {
 
           <GatedAction allowed={canWrite}>
             <button type="button" onClick={() => handleAddTask()}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono rounded transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 text-dense rounded transition-colors"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               <Plus className="w-3.5 h-3.5" /> New task
             </button>
@@ -738,18 +738,18 @@ export default function ProjectTasksView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowSaveDialog(false)}
-                className="px-4 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
+                className="px-4 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
               <button type="button" onClick={saveCurrentView}
-                className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
+                className="px-4 py-1.5 text-dense rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
             </div>
           </div>
@@ -762,18 +762,18 @@ export default function ProjectTasksView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowPhaseCreate(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Create phase</span>
+            <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Create phase</span>
             <input autoFocus type="text" value={newPhaseName} onChange={e => setNewPhaseName(e.target.value)}
               placeholder="Phase name..."
               onKeyDown={e => { if (e.key === 'Enter') handleCreatePhase() }}
-              className="px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowPhaseCreate(false)}
-                className="px-4 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
+                className="px-4 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
               <button type="button" onClick={handleCreatePhase}
-                className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
+                className="px-4 py-1.5 text-dense rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Create</button>
             </div>
           </div>
@@ -840,23 +840,23 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+            <span className="text-label uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -864,7 +864,7 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }} />
               )
             )}
@@ -876,13 +876,13 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -910,7 +910,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -918,12 +918,12 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
         <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-30"
           style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {views.length === 0 && (
-            <div className="px-3 py-2.5 text-dense font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
+            <div className="px-3 py-2.5 text-dense italic" style={{ color: '#78716c' }}>No saved views</div>
           )}
           {views.map(v => (
             <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
               onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-dense font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
+              <span className="text-dense truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
               <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
                 className="p-0.5 hover:bg-stone-600 rounded transition-colors" style={{ color: '#fca5a5' }}>
                 <X className="w-3 h-3" />
@@ -932,7 +932,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
           ))}
           <div style={{ borderTop: '1px solid #44403c' }}>
             <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-dense font-mono transition-colors"
+              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-dense transition-colors"
               style={{ color: '#fb923c' }}>
               <Save className="w-3 h-3" /> Save current view
             </button>
@@ -995,8 +995,8 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
         <ListChecks className="w-12 h-12" style={{ color: '#44403c' }} />
-        <span className="text-dense font-mono" style={{ color: '#78716c' }}>No tasks yet</span>
-        <span className="text-dense font-mono" style={{ color: '#57534e' }}>Create a task to get started</span>
+        <span className="text-dense" style={{ color: '#78716c' }}>No tasks yet</span>
+        <span className="text-dense" style={{ color: '#57534e' }}>Create a task to get started</span>
       </div>
     )
   }
@@ -1009,7 +1009,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
             {/* One wrapper for the whole bulk group rather than six. It must
@@ -1027,7 +1027,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
               <button type="button" onClick={bulkDelete}
                 className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
                 style={{ color: '#fca5a5' }}>
-                <Trash2 className="w-3 h-3" /> <span className="text-label font-mono uppercase">Delete</span>
+                <Trash2 className="w-3 h-3" /> <span className="text-label uppercase">Delete</span>
               </button>
             </GatedAction>
             <button type="button" onClick={clearSelection}
@@ -1047,7 +1047,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
           </button>
         </div>
         {columns.map(c => (
-          <div key={c.key} className="px-3.5 py-2.5 text-label font-mono uppercase font-semibold text-left"
+          <div key={c.key} className="px-3.5 py-2.5 text-label uppercase font-semibold text-left"
             style={{ color: '#a8a29e', flex: c.flex, minWidth: 0 }}>
             {c.label}
           </div>
@@ -1144,7 +1144,7 @@ function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-dense font-mono rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-dense rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1236,28 +1236,28 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
               readOnly={!canWrite}
             />
             <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Start</span>
+              <span className="text-label uppercase" style={{ color: '#78716c' }}>Start</span>
               <input
                 type="date"
                 value={phase.start_date || ''}
                 onChange={e => ctx?.updatePhase?.(phase.id, { start_date: e.target.value || null })}
                 onClick={e => e.stopPropagation()}
                 readOnly={!canWrite} disabled={!canWrite}
-                className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-1.5 py-0.5 text-dense rounded focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#292524', color: phase.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
-              <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>End</span>
+              <span className="text-label uppercase" style={{ color: '#78716c' }}>End</span>
               <input
                 type="date"
                 value={phase.end_date || ''}
                 onChange={e => ctx?.updatePhase?.(phase.id, { end_date: e.target.value || null })}
                 readOnly={!canWrite} disabled={!canWrite}
                 onClick={e => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#292524', color: phase.end_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
             </div>
-            <span className="text-dense font-mono px-1.5 py-0.5 rounded flex-shrink-0"
+            <span className="text-dense px-1.5 py-0.5 rounded flex-shrink-0"
               style={{ color: '#a8a29e', backgroundColor: '#292524' }}>
               {group.tasks.length}
             </span>
@@ -1265,7 +1265,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         ) : (
           /* ── Standard group header ── */
           <button type="button" onClick={onToggle} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
-            <span className="text-label font-mono uppercase font-semibold"
+            <span className="text-label uppercase font-semibold"
               style={{ color: groupAccent }}>
               {group.label}
             </span>
@@ -1306,7 +1306,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
   }
   if (readOnly) {
     return (
-      <span className="text-label font-mono uppercase font-semibold truncate"
+      <span className="text-label uppercase font-semibold truncate"
         style={{ color: accent }}>
         {value || 'Untitled phase'}
       </span>
@@ -1321,7 +1321,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
         onBlur={commit}
         onClick={e => e.stopPropagation()}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="px-1.5 py-0.5 text-dense font-mono font-semibold rounded focus:ring-2 focus:ring-orange-500"
+        className="px-1.5 py-0.5 text-dense font-semibold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: accent, border: '1px solid #44403c', minWidth: 80 }}
       />
     )
@@ -1329,7 +1329,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
   return (
     <button type="button"
       onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true) }}
-      className="text-dense font-mono font-semibold hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors truncate"
+      className="text-dense font-semibold hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors truncate"
       style={{ color: accent }}
       title="Click to rename phase">
       {value || 'Untitled'}
@@ -1395,12 +1395,12 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                   onChange={e => setLocalTitle(e.target.value)}
                   onBlur={commitTitle}
                   onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { setLocalTitle(milestone.title); setEditTitle(false) } }}
-                  className="flex-1 px-1 py-0.5 text-dense font-mono font-semibold rounded focus:ring-1 focus:ring-amber-500"
+                  className="flex-1 px-1 py-0.5 text-dense font-semibold rounded focus:ring-1 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 />
               ) : (
                 <span
-                  className="text-dense font-mono font-semibold truncate cursor-pointer"
+                  className="text-dense font-semibold truncate cursor-pointer"
                   style={{ color: '#f59e0b' }}
                   onClick={() => !isProjectBound && setEditTitle(true)}
                   title={milestone.description || milestone.title}
@@ -1409,7 +1409,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                 </span>
               )}
               {isProjectBound && (
-                <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded" style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #3a3733' }}>bound</span>
+                <span className="text-label uppercase px-1.5 py-0.5 rounded" style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #3a3733' }}>bound</span>
               )}
             </div>
           )
@@ -1423,7 +1423,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                     onChange={e => setLocalDate(e.target.value)}
                     onBlur={commitDate}
                     onKeyDown={e => { if (e.key === 'Enter') commitDate(); if (e.key === 'Escape') { setLocalDate(milestone.date); setEditDate(false) } }}
-                    className="w-full px-1 py-0.5 text-dense font-mono rounded focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-1 py-0.5 text-dense rounded focus:ring-1 focus:ring-amber-500"
                     style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                   />
                 ) : (
@@ -1436,7 +1436,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                   </span>
                 )
               ) : (
-                <span className="text-dense font-mono" style={{ color: '#57534e' }}>—</span>
+                <span className="text-dense" style={{ color: '#57534e' }}>—</span>
               )}
             </div>
           )
@@ -1520,7 +1520,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: sc }}>
             {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
           </select>
@@ -1531,7 +1531,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: pc }}>
             {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
           </select>
@@ -1541,7 +1541,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: task.asset_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -1551,7 +1551,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: task.phase_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1561,7 +1561,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: task.assignee_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -1595,7 +1595,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
           </div>
         )
       default:
-        return <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{task[col.key] ?? '--'}</span>
+        return <span className="text-dense" style={{ color: '#a8a29e' }}>{task[col.key] ?? '--'}</span>
     }
   }
 
@@ -1642,7 +1642,7 @@ function AddRowButton({ onAdd }) {
       className="w-full flex items-center gap-2 px-3.5 py-2 hover:bg-stone-800/40 transition-colors text-left"
       style={{ border: '1px dashed #292524', borderRadius: 4 }}>
       <Plus className="w-3.5 h-3.5" style={{ color: '#57534e' }} />
-      <span className="text-dense font-mono" style={{ color: '#57534e' }}>New task</span>
+      <span className="text-dense" style={{ color: '#57534e' }}>New task</span>
     </button>
   )
 }
@@ -1734,7 +1734,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
       <div className="px-3.5 py-3 flex items-center justify-between"
         style={{ borderBottom: `3px solid ${headerAccent}`, flexShrink: 0 }}>
         <div className="flex items-center gap-2.5">
-          <span className="text-label font-mono uppercase font-semibold"
+          <span className="text-label uppercase font-semibold"
             style={{ color: headerAccent }}>
             {group.label}
           </span>
@@ -1770,7 +1770,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
             placeholder="+ Add task..."
             onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
             onBlur={commitAdd}
-            className="w-full px-3 py-2 text-dense font-mono rounded focus:ring-1 focus:ring-orange-500 transition-all"
+            className="w-full px-3 py-2 text-dense rounded focus:ring-1 focus:ring-orange-500 transition-all"
             style={{
               color: '#a8a29e',
               backgroundColor: 'transparent',
@@ -1811,7 +1811,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Title + actions */}
       <div className="flex items-start justify-between gap-2">
-        <span className="text-dense font-mono leading-snug" style={{ color: '#e7e5e4' }}>
+        <span className="text-dense leading-snug" style={{ color: '#e7e5e4' }}>
           {task.title || 'Untitled task'}
         </span>
         <div className="flex items-center gap-0.5 flex-shrink-0"
@@ -1835,11 +1835,11 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Status + Priority */}
       <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-label font-mono uppercase font-semibold" style={{ color: sc }}>
+        <span className="text-label uppercase font-semibold" style={{ color: sc }}>
           {fmt(task.status || 'waiting_to_start')}
         </span>
         <span style={{ color: '#44403c' }}>&middot;</span>
-        <span className="text-label font-mono uppercase" style={{ color: pc }}>
+        <span className="text-label uppercase" style={{ color: pc }}>
           {fmt(task.priority || 'medium')}
         </span>
       </div>
@@ -1848,12 +1848,12 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
       {(asset || assignee) && (
         <div className="flex items-center justify-between mt-1 pt-1.5" style={{ borderTop: '1px solid #292524' }}>
           {asset ? (
-            <span className="text-dense font-mono truncate max-w-[140px]" style={{ color: '#78716c' }}>
+            <span className="text-dense truncate max-w-[140px]" style={{ color: '#78716c' }}>
               {asset.name}
             </span>
           ) : <span />}
           {assignee ? (
-            <span className="text-dense font-mono truncate max-w-[100px] text-right" style={{ color: '#78716c' }}>
+            <span className="text-dense truncate max-w-[100px] text-right" style={{ color: '#78716c' }}>
               {assignee.name}
             </span>
           ) : null}
@@ -1892,7 +1892,7 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
 
   if (readOnly) {
     return (
-      <span className="block text-dense font-mono text-left w-full truncate px-1.5 py-1"
+      <span className="block text-dense text-left w-full truncate px-1.5 py-1"
         style={{ color: value ? '#d6d3d1' : '#57534e' }}>
         {value || placeholder || '—'}
       </span>
@@ -1904,13 +1904,13 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-dense font-mono text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded transition-colors"
+      className="text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded transition-colors"
       style={{ color: value ? '#d6d3d1' : '#57534e' }}>
       {value || placeholder || '\u2014'}
     </button>
@@ -1921,7 +1921,7 @@ function CellDateInput({ value, onCommit, readOnly = false }) {
   return (
     <input type="date" value={value || ''} onChange={e => onCommit(e.target.value)}
       readOnly={readOnly} disabled={readOnly}
-      className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+      className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
       style={{ backgroundColor: 'transparent', color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none', colorScheme: 'dark' }} />
   )
 }
@@ -1934,7 +1934,7 @@ function CellNumberInput({ value, onCommit, readOnly = false }) {
       onBlur={() => { const n = parseFloat(draft); onCommit(isNaN(n) ? null : n) }}
       onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
       readOnly={readOnly} disabled={readOnly}
-      className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+      className="px-1.5 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
       style={{ backgroundColor: 'transparent', color: (value != null && value !== '') ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none' }}
       min={0} step={0.5} />
   )
@@ -1952,8 +1952,8 @@ function TaskBigTile({ icon: Icon, label, value, tone = 'neutral' }) {
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
       <div className="flex flex-col min-w-0">
-        <span className="text-label font-mono uppercase" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
+        <span className="text-label uppercase" style={{ color: colors.label }}>{label}</span>
+        <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
       </div>
     </div>
   )

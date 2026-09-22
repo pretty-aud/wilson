@@ -240,7 +240,7 @@ ${contentBody}
                     type="text"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 bg-transparent text-dense font-mono text-orange-400"
+                    className="flex-1 px-2.5 py-1.5 bg-transparent text-dense text-orange-400"
                     placeholder="Deck"
                     spellCheck={false}
                   />
@@ -333,7 +333,7 @@ ${contentBody}
                   <select
                     value={imgPromptModel}
                     onChange={(e) => setImgPromptModel(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 cursor-pointer"
+                    className="w-full px-3 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 cursor-pointer"
                   >
                     <option value="midjourney">Midjourney</option>
                     <option value="flux">Flux</option>
@@ -380,7 +380,7 @@ ${contentBody}
                   <textarea
                     value={importText}
                     onChange={(e) => setImportText(e.target.value)}
-                    className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-dense font-mono resize-none"
+                    className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-dense resize-none"
                     placeholder="Or paste DECKOUTLINE content here..."
                   />
                   <button
@@ -395,7 +395,7 @@ ${contentBody}
                 <textarea
                   value={importText}
                   onChange={(e) => setImportText(e.target.value)}
-                  className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-dense font-mono resize-none"
+                  className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-dense resize-none"
                   placeholder="Or paste DECKOUTLINE content here..."
                 />
               )}

@@ -932,8 +932,8 @@ export default function StorageSection({ isActive, workspaceId }) {
             <p className="text-dense mb-2" style={{ color: INK_2 }}>
               Reachability can&rsquo;t be checked from a browser — the path is
               verified on each desktop when it connects. If the path is a
-              mapped drive letter (<span className="font-mono">Z:\...</span>),
-              enter the <span className="font-mono">\\server\share\...</span>{' '}
+              mapped drive letter (<span className="">Z:\...</span>),
+              enter the <span className="">\\server\share\...</span>{' '}
               form instead: a drive letter means something different on every
               computer.
             </p>
@@ -959,11 +959,11 @@ export default function StorageSection({ isActive, workspaceId }) {
             <div className="p-3 rounded-control mb-1"
                  style={{ backgroundColor: SIGNAL_TINT, border: `1px solid ${SIGNAL}` }}>
               <p className="text-dense mb-2" style={{ color: INK }}>
-                <span className="font-mono">{pendingLocal}</span> is a folder on{' '}
+                <span className="">{pendingLocal}</span> is a folder on{' '}
                 <strong>this computer only</strong>. Nobody else on the team
                 will be able to open these files, and you will not see them
                 from another machine. If you work with a team, use a network
-                path (<span className="font-mono">\\server\share\...</span>)
+                path (<span className="">\\server\share\...</span>)
                 instead.
               </p>
               <div className="flex items-center gap-2">
@@ -1010,7 +1010,7 @@ export default function StorageSection({ isActive, workspaceId }) {
             alike — both need the bucket&rsquo;s one-time CORS rule (the Test
             below checks it, and the setup guide has the JSON to paste).
             Current:{' '}
-            <span className="font-mono" style={{ color: INK }}>
+            <span className="" style={{ color: INK }}>
               {row?.provider === WORKSPACE_PROVIDERS.S3 && row?.provider_config
                 ? `${row.provider_config.bucket}${row.provider_config.prefix ? ` / ${row.provider_config.prefix}` : ''}`
                 : 'not set'}
@@ -1125,7 +1125,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               {secretStatusError
                 ? <span style={{ color: SIGNAL }}>Could not check whether a secret is stored — reopen this section to retry.</span>
                 : secretHint
-                  ? <span className="font-mono" style={{ color: INK }}>Stored · ends …{secretHint}</span>
+                  ? <span className="" style={{ color: INK }}>Stored · ends …{secretHint}</span>
                   : <span style={{ color: SIGNAL }}>Not stored yet.</span>}
             </p>
             {cryptoMissing && (

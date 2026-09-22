@@ -70,7 +70,7 @@ export default function IntakeProgress({
         ) : (
           <Sparkles className="w-6 h-6" style={{ color: '#fb923c' }} />
         )}
-        <h2 className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
+        <h2 className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
           {phase === 'starting' && 'Preparing intake…'}
           {phase === 'running'  && 'Running intake'}
           {phase === 'done'     && 'Intake complete'}
@@ -78,7 +78,7 @@ export default function IntakeProgress({
         </h2>
       </div>
 
-      <p className="text-dense font-mono italic max-w-md text-center" style={{ color: '#78716c' }}>
+      <p className="text-dense italic max-w-md text-center" style={{ color: '#78716c' }}>
         You can leave this view — the breakdown keeps running in the background.
         Watch the toast in the bottom-left corner.
       </p>
@@ -98,7 +98,7 @@ export default function IntakeProgress({
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
+          <div className="flex items-center justify-between text-label uppercase" style={{ color: '#a8a29e' }}>
             <span>
               {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'
@@ -110,7 +110,7 @@ export default function IntakeProgress({
             </span>
           </div>
           {lastLabel && (
-            <div className="text-dense font-mono truncate" style={{ color: '#78716c' }}>
+            <div className="text-dense truncate" style={{ color: '#78716c' }}>
               last: {lastLabel}
             </div>
           )}
@@ -120,7 +120,7 @@ export default function IntakeProgress({
       {/* Error block */}
       {phase === 'error' && errorMsg && (
         <div
-          className="max-w-md text-dense font-mono leading-relaxed p-3 rounded-sm text-center"
+          className="max-w-md text-dense leading-relaxed p-3 rounded-sm text-center"
           style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
         >
           {errorMsg}
@@ -133,7 +133,7 @@ export default function IntakeProgress({
           <button
             type="button"
             onClick={handleAbort}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono rounded-sm"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             <X className="w-3 h-3" />
@@ -148,7 +148,7 @@ export default function IntakeProgress({
               startedRef.current = false
               onBack?.()
             }}
-            className="px-3 py-1.5 text-dense font-mono rounded-sm"
+            className="px-3 py-1.5 text-dense rounded-sm"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             ← Back to settings

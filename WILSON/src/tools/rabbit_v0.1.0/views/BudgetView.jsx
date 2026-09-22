@@ -222,7 +222,7 @@ export default function BudgetView() {
               }}
             >
               <Icon className="w-3 h-3" />
-              <span className="text-label font-mono uppercase">
+              <span className="text-label uppercase">
                 {t.label}
               </span>
             </button>
@@ -239,7 +239,7 @@ export default function BudgetView() {
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
         >
           <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" style={{ color: '#fb923c' }} />
-          <div className="text-dense font-mono leading-relaxed" style={{ color: '#d6d3d1' }}>
+          <div className="text-dense leading-relaxed" style={{ color: '#d6d3d1' }}>
             <span style={{ color: '#fb923c' }}>NO RATE CARD YET.</span>{' '}
             Bids are calculated as a role&rsquo;s rate &times; the days assigned to it, so
             every total below will stay at zero until this workspace has rate-card
@@ -533,10 +533,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         >
           <ShieldCheck className="w-5 h-5 flex-shrink-0" style={{ color: '#4ade80' }} />
           <div className="flex-1 min-w-0">
-            <span className="text-label font-mono font-semibold uppercase block" style={{ color: '#4ade80' }}>
+            <span className="text-label font-semibold uppercase block" style={{ color: '#4ade80' }}>
               Budget active — In production
             </span>
-            <span className="text-dense font-mono block mt-0.5" style={{ color: '#86efac' }}>
+            <span className="text-dense block mt-0.5" style={{ color: '#86efac' }}>
               Locked bid: <span className="font-semibold">{lockedVersion.name}</span>
               {' '}· {lockedVersion.snapshot?.lockedAt
                 ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
@@ -547,7 +547,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <button
             type="button"
             onClick={resetToTidding}
-            className="flex items-center gap-1.5 text-dense font-mono px-2.5 py-1 rounded-sm hover:bg-green-900 transition-colors flex-shrink-0"
+            className="flex items-center gap-1.5 text-dense px-2.5 py-1 rounded-sm hover:bg-green-900 transition-colors flex-shrink-0"
             style={{ color: '#86efac', border: '1px solid #22c55e' }}
             title="Reset to bidding — re-enables bid version editing"
           >
@@ -585,7 +585,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           {/* Base cost — read only */}
           <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
             style={{ backgroundColor: '#1c1917' }}>
-            <span className="text-label font-mono font-semibold uppercase" style={{ color: '#d6d3d1' }}>
+            <span className="text-label font-semibold uppercase" style={{ color: '#d6d3d1' }}>
               Base cost
             </span>
             <div className="text-h2 font-mono font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
@@ -641,7 +641,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                   disabled={isActive} />
               )}
             </div>
-            <div className="text-dense font-mono text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
+            <div className="text-dense font-mono tabular-nums text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
               {agencyEnabled ? `+` : ''}{' '}
               {agencyEnabled
                 ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} style={{ color: '#a8a29e' }} />
@@ -655,7 +655,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           {/* Grand total */}
           <div className="flex items-center justify-between py-4 px-4 rounded-sm"
             style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="text-h2 font-mono font-semibold" style={{ color: '#fb923c' }}>
+            <span className="text-h2 font-semibold" style={{ color: '#fb923c' }}>
               Grand Total
             </span>
             <div className="text-h1 font-mono font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
@@ -671,18 +671,18 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         <div className="flex items-center justify-between mt-3 px-1">
           <div className="flex items-center gap-3">
             {rateCardName && (
-              <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+              <span className="text-dense" style={{ color: '#78716c' }}>
                 Rates via <span style={{ color: '#a8a29e' }}>{rateCardName}</span>
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Actuals</span>
+            <span className="text-label uppercase" style={{ color: '#78716c' }}>Actuals</span>
             <select
               value={project?.budget_actual_column_mode || 'fortnightly'}
               onChange={e => updateProjectField('budget_actual_column_mode', e.target.value)}
               disabled={isActive}
-              className="px-2 py-1 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+              className="px-2 py-1 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
             >
               {COLUMN_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -695,10 +695,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                 if (Number.isFinite(n) && n > 0 && n <= 100) updateProjectField('budget_actual_column_count', n)
               }}
               disabled={isActive}
-              className="w-12 px-2 py-1 text-dense font-mono rounded-sm text-center focus:ring-1 focus:ring-orange-500"
+              className="w-12 px-2 py-1 text-dense rounded-sm text-center focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
             />
-            <span className="text-dense font-mono" style={{ color: '#78716c' }}>cols</span>
+            <span className="text-dense" style={{ color: '#78716c' }}>cols</span>
           </div>
         </div>
 
@@ -708,7 +708,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             style={{ backgroundColor: '#1c1917', border: '1px solid #78350f' }}
           >
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#fcd34d' }} />
-            <p className="text-dense font-mono leading-relaxed" style={{ color: '#fcd34d' }}>
+            <p className="text-dense leading-relaxed" style={{ color: '#fcd34d' }}>
               {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
               not in the rate card — those rows compute at $0.
               ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
@@ -722,7 +722,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         {/* Create new bid */}
         <div className="flex items-end gap-2 mb-4">
           <div className="flex-1">
-            <span className="text-label font-mono uppercase block mb-1.5" style={{ color: '#fb923c' }}>
+            <span className="text-label uppercase block mb-1.5" style={{ color: '#fb923c' }}>
               Save current as bid version
             </span>
             <input
@@ -732,7 +732,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
               placeholder="e.g. Bid v1 — initial estimate"
               disabled={isActive || versionBusy}
-              className="w-full px-3 py-2 text-body font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+              className="w-full px-3 py-2 text-body rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
             />
           </div>
@@ -740,7 +740,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             type="button"
             onClick={createBidVersion}
             disabled={!versionName.trim() || isActive || versionBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono font-semibold transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-semibold transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}
           >
             {versionBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
@@ -757,12 +757,12 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               className="grid grid-cols-12 gap-2 px-3 py-1.5"
               style={{ borderBottom: '1px solid #44403c' }}
             >
-              <span className="col-span-1 text-label font-mono uppercase" style={{ color: '#78716c' }}>Active</span>
-              <span className="col-span-4 text-label font-mono uppercase" style={{ color: '#78716c' }}>Name</span>
-              <span className="col-span-2 text-label font-mono uppercase" style={{ color: '#78716c' }}>Date</span>
-              <span className="col-span-2 text-label font-mono uppercase text-right" style={{ color: '#78716c' }}>Total</span>
-              <span className="col-span-1 text-label font-mono uppercase text-right" style={{ color: '#78716c' }}>Days</span>
-              <span className="col-span-2 text-label font-mono uppercase text-right" style={{ color: '#78716c' }}>Actions</span>
+              <span className="col-span-1 text-label uppercase" style={{ color: '#78716c' }}>Active</span>
+              <span className="col-span-4 text-label uppercase" style={{ color: '#78716c' }}>Name</span>
+              <span className="col-span-2 text-label uppercase" style={{ color: '#78716c' }}>Date</span>
+              <span className="col-span-2 text-label uppercase text-right" style={{ color: '#78716c' }}>Total</span>
+              <span className="col-span-1 text-label uppercase text-right" style={{ color: '#78716c' }}>Days</span>
+              <span className="col-span-2 text-label uppercase text-right" style={{ color: '#78716c' }}>Actions</span>
             </div>
             {budgetVersions
               .slice()
@@ -770,7 +770,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               .map(v => (
                 <div
                   key={v.id}
-                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-sm text-dense font-mono items-center"
+                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-sm text-dense items-center"
                   style={{
                     backgroundColor: isActive && v.id === lockedVersionId ? '#1a2e1a'
                       : v.is_active ? '#292524' : '#1c1917',
@@ -846,7 +846,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               border: `1px solid ${Math.abs(versionVariance.diff) < 0.01 ? '#44403c' : versionVariance.diff > 0 ? '#7f1d1d' : '#14532d'}`,
             }}
           >
-            <span className="text-label font-mono uppercase block mb-2" style={{ color: '#fb923c' }}>
+            <span className="text-label uppercase block mb-2" style={{ color: '#fb923c' }}>
               Variance vs active bid ({activeVersion?.name})
             </span>
             <div className="flex items-baseline gap-4">
@@ -858,7 +858,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               <span className="text-dense font-mono" style={{ color: '#78716c' }}>
                 ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
               </span>
-              <span className="text-dense font-mono" style={{ color: '#57534e' }}>
+              <span className="text-dense" style={{ color: '#57534e' }}>
                 Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
                 {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
               </span>
@@ -872,7 +872,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <button
               type="button"
               onClick={() => setShowActivateConfirm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-dense font-mono font-semibold transition-colors hover:brightness-110"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-dense font-semibold transition-colors hover:brightness-110"
               style={{ backgroundColor: '#14532d', color: '#4ade80', border: '1px solid #22c55e' }}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -887,15 +887,15 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <div className="flex items-start gap-3 mb-3">
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#fbbf24' }} />
               <div>
-                <span className="text-h3 font-mono font-semibold block" style={{ color: '#fbbf24' }}>
+                <span className="text-h3 font-semibold block" style={{ color: '#fbbf24' }}>
                   Confirm: Set budget to active
                 </span>
-                <p className="text-dense font-mono mt-1.5 leading-relaxed" style={{ color: '#d6d3d1' }}>
+                <p className="text-dense mt-1.5 leading-relaxed" style={{ color: '#d6d3d1' }}>
                   This will lock <span className="font-semibold" style={{ color: '#fbbf24' }}>"{activeVersion?.name}"</span> as
                   the approved bid for this project. A snapshot of all task counts, durations, and budget totals
                   will be frozen as the reference point for production.
                 </p>
-                <p className="text-dense font-mono mt-2 leading-relaxed" style={{ color: '#a8a29e' }}>
+                <p className="text-dense mt-2 leading-relaxed" style={{ color: '#a8a29e' }}>
                   While active, you will not be able to create new bid versions or switch between versions.
                   You can reset this later if needed.
                 </p>
@@ -905,7 +905,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               <button
                 type="button"
                 onClick={() => setShowActivateConfirm(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono transition-colors hover:bg-stone-800"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense transition-colors hover:bg-stone-800"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}
               >
                 Cancel
@@ -914,7 +914,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                 type="button"
                 onClick={activateBudget}
                 disabled={versionBusy}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm text-dense font-mono font-semibold transition-colors hover:brightness-110"
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm text-dense font-semibold transition-colors hover:brightness-110"
                 style={{ backgroundColor: '#d97706', color: '#fff7ed', border: '1px solid #b45309' }}
               >
                 {versionBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
@@ -1063,12 +1063,12 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   function HeaderRow() {
     return (
       <div className="flex gap-2 px-2 py-1" style={{ borderBottom: '2px solid #57534e' }}>
-        <span className="flex-1 text-label font-mono uppercase" style={{ color: '#fb923c' }}>Category</span>
-        <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
-        {agencyEnabled && <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
-        <span className="text-label font-mono uppercase text-right font-semibold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
-        <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
-        <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
+        <span className="flex-1 text-label uppercase" style={{ color: '#fb923c' }}>Category</span>
+        <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
+        {agencyEnabled && <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
+        <span className="text-label uppercase text-right font-semibold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
+        <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
+        <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
       </div>
     )
   }
@@ -1077,12 +1077,12 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
     const v = actualTotal - bidTotal
     return (
       <div className="flex gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
-        <span className={`flex-1 text-dense font-mono truncate ${bold ? 'font-semibold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
-        <span className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
+        <span className={`flex-1 text-dense truncate ${bold ? 'font-semibold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
+        <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
         {agencyEnabled && <span className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
         <span className={`text-dense font-mono text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
-        <span className="text-dense font-mono text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
-        <span className="text-dense font-mono text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
+        <span className="text-dense text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
+        <span className="text-dense text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
           {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
         </span>
       </div>
@@ -1093,7 +1093,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
     return (
       <div className="flex items-center gap-2 px-2 pt-3 pb-1">
         {icon}
-        <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>{label}</span>
+        <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{label}</span>
       </div>
     )
   }
@@ -1136,8 +1136,8 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {/* ── Grand total ── */}
         <div className="mt-2" style={{ borderTop: '2px solid #fb923c' }}>
           <div className="flex gap-2 px-2 py-2.5 rounded-sm mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="flex-1 text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>Grand Total</span>
-            <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
+            <span className="flex-1 text-label font-semibold uppercase" style={{ color: '#fb923c' }}>Grand Total</span>
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
             {agencyEnabled && <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
             <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
             <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
@@ -1176,7 +1176,7 @@ function PctInput({ label, value, onChange, disabled }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
+      <span className="text-label uppercase" style={{ color: '#fb923c' }}>
         {label}
       </span>
       <div
@@ -1195,17 +1195,17 @@ function PctInput({ label, value, onChange, disabled }) {
                 if (e.key === 'Enter') { e.preventDefault(); commit() }
                 else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
               }}
-              className="w-full px-2 py-1.5 text-body font-mono font-semibold rounded-sm focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2 py-1.5 text-body font-semibold rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
             />
-            <span className="absolute right-2 text-dense font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
+            <span className="absolute right-2 text-dense pointer-events-none" style={{ color: '#78716c' }}>%</span>
           </div>
         ) : (
           <button
             type="button"
             onClick={start}
             disabled={disabled}
-            className="absolute inset-0 text-right px-2 py-1.5 text-body font-mono font-semibold rounded-sm transition-colors disabled:cursor-not-allowed"
+            className="absolute inset-0 text-right px-2 py-1.5 text-body font-semibold rounded-sm transition-colors disabled:cursor-not-allowed"
             style={{
               backgroundColor: '#1c1917',
               border: '1px solid #44403c',
@@ -1225,7 +1225,7 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
   return (
     <div className="flex items-baseline justify-between">
       <span
-        className={`text-label font-mono ${bold ? 'font-semibold uppercase' : ''}`}
+        className={`text-label ${bold ? 'font-semibold uppercase' : ''}`}
         style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
       >
         {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
@@ -1234,7 +1234,7 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
       <CurrencyDisplay
         value={amount}
         currency={currency}
-        className={`font-mono ${bold ? 'font-semibold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
+        className={`${bold ? 'font-semibold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
         style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
       />
     </div>
@@ -1267,7 +1267,7 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
     <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
       style={{ backgroundColor: '#1c1917' }}>
       <div className="flex items-center gap-2.5">
-        <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>+ {label}</span>
+        <span className="text-dense" style={{ color: '#a8a29e' }}>+ {label}</span>
         {editing ? (
           <input
             ref={ref}
@@ -1279,13 +1279,13 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
               if (e.key === 'Enter') { e.preventDefault(); commit() }
               else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
             }}
-            className="w-16 px-2 py-0.5 text-body font-mono font-semibold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
+            className="w-16 px-2 py-0.5 text-body font-semibold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
           />
         ) : (
           <button
             type="button" onClick={start} disabled={disabled}
-            className="px-2 py-0.5 text-body font-mono font-semibold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
+            className="px-2 py-0.5 text-body font-semibold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
             style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
           >
             {pct}%
@@ -1333,7 +1333,7 @@ function InlinePct({ value, onChange, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-14 px-1.5 py-0.5 text-dense font-mono font-semibold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
+        className="w-14 px-1.5 py-0.5 text-dense font-semibold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
       />
     )
@@ -1342,7 +1342,7 @@ function InlinePct({ value, onChange, disabled }) {
   return (
     <button
       type="button" onClick={start} disabled={disabled}
-      className="px-1.5 py-0.5 text-dense font-mono font-semibold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
+      className="px-1.5 py-0.5 text-dense font-semibold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
       style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
     >
       {value}%
@@ -1664,7 +1664,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
           <>
             <BreakdownTable rows={rows} currency={budget.currency} labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'} countHeader="Tasks" />
             <div
-              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-sm text-dense font-mono items-center"
+              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-sm text-dense font-mono tabular-nums items-center"
               style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
             >
               <span className="font-semibold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
@@ -2039,12 +2039,12 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           </button>
         </div>
         <div style={{ flex: 2 }} className="min-w-0">
-          <div className="text-dense font-mono truncate" style={{ color: '#d6d3d1' }}>
+          <div className="text-dense truncate" style={{ color: '#d6d3d1' }}>
             {exp.title || <span style={{ color: '#78716c', fontStyle: 'italic' }}>Untitled</span>}
           </div>
           {exp.description && <div className="text-dense truncate mt-0.5" style={{ color: '#78716c' }}>{exp.description}</div>}
         </div>
-        <div style={{ flex: 1 }} className="text-dense font-mono">
+        <div style={{ flex: 1 }} className="text-dense">
           <CurrencyDisplay value={est} currency={currency} style={{ color: est ? '#a8a29e' : '#57534e' }} />
         </div>
         {(() => {
@@ -2069,10 +2069,10 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
             </div>
           </>)
         })()}
-        <div style={{ flex: 1 }} className="text-dense font-mono">
+        <div style={{ flex: 1 }} className="text-dense">
           <CurrencyDisplay value={act} currency={currency} style={{ color: act ? '#d6d3d1' : '#57534e' }} />
         </div>
-        <div style={{ flex: 0.8 }} className="text-dense font-mono">
+        <div style={{ flex: 0.8 }} className="text-dense">
           {est > 0 ? (
             <span style={{ color: statusColor }}>
               {v > 0 ? '+' : ''}{<CurrencyDisplay value={v} currency={currency} style={{ color: statusColor }} />}
@@ -2137,7 +2137,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
       <div className="flex items-center gap-3 px-1 flex-wrap">
         {/* New expense */}
         <button type="button" onClick={handleCreate}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> New expense
         </button>
@@ -2156,7 +2156,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
           <Filter className="w-3.5 h-3.5" /> Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
@@ -2165,14 +2165,14 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div className="flex items-center gap-1.5">
           <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
             <option value="">No sort</option>
             {EXPENSE_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
           {sortField && (
             <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
+              className="px-2 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
             </button>
@@ -2185,7 +2185,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div className="flex items-center gap-1.5">
           <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
             {EXPENSE_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -2200,7 +2200,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 
         {/* Reset margin/contingency */}
         <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Reset M/C
         </button>
@@ -2210,14 +2210,14 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search expenses..."
-            className="flex-1 px-2.5 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+            className="flex-1 px-2.5 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}><X className="w-3.5 h-3.5" /></button>
           )}
         </div>
 
-        <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
+        <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
       </div>
 
       {/* Filter panel */}
@@ -2236,14 +2236,14 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         {expSomeSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 32, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
               {expSelected.size} selected
             </span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <button type="button" onClick={expBulkDelete}
               className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
               style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-label font-mono uppercase">Delete</span>
+              <Trash2 className="w-3 h-3" /> <span className="text-label uppercase">Delete</span>
             </button>
             <button type="button" onClick={expClearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
@@ -2263,7 +2263,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         </div>
         {COL_HEADER.map((col, i) => (
           <div key={i}
-            className={`text-label font-mono uppercase ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
+            className={`text-label uppercase ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
             style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
             onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
           >
@@ -2281,7 +2281,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           {groups.map(g => (
             <div key={g.key}>
               <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-sm" style={{ backgroundColor: '#292524', borderLeft: '3px solid #fb923c' }}>
-                <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
+                <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
                 <span className="ml-auto text-dense font-mono" style={{ color: '#a8a29e' }}>
                   Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#a8a29e' }} />
@@ -2308,10 +2308,10 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteConfirmId(null)} />
           <div className="relative rounded-sm p-5 flex flex-col gap-3" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 360 }}>
             <div className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-red-400" /><span className="text-h3 font-semibold" style={{ color: '#fca5a5' }}>Delete Expense</span></div>
-            <p className="text-dense font-mono" style={{ color: '#a8a29e' }}>This will permanently remove this expense. You can undo with Ctrl+Z.</p>
+            <p className="text-dense" style={{ color: '#a8a29e' }}>This will permanently remove this expense. You can undo with Ctrl+Z.</p>
             <div className="flex justify-end gap-2 mt-1">
-              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={() => handleDelete(deleteConfirmId)} className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#dc2626', border: '1px solid #991b1b' }}>Delete</button>
+              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-3 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
+              <button type="button" onClick={() => handleDelete(deleteConfirmId)} className="px-3 py-1.5 text-dense rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#dc2626', border: '1px solid #991b1b' }}>Delete</button>
             </div>
           </div>
         </div>
@@ -2323,14 +2323,14 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded-sm p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..." onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowSaveDialog(false)} className="px-4 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={saveCurrentView} className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
+              <button type="button" onClick={() => setShowSaveDialog(false)} className="px-4 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
+              <button type="button" onClick={saveCurrentView} className="px-4 py-1.5 text-dense rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
             </div>
           </div>
         </>
@@ -2402,37 +2402,37 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
+        <span className="text-label uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
         <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Margin %</label>
+        <label className="text-label uppercase" style={{ color: '#78716c' }}>Margin %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
           <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Contingency %</label>
+        <label className="text-label uppercase" style={{ color: '#78716c' }}>Contingency %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
           <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-dense font-mono font-semibold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-sm"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono rounded-sm"
+          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-sm"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Default
         </button>
@@ -2461,21 +2461,21 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
         const needsValue = !['is_empty', 'is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>{i === 0 ? 'Where' : 'And'}</span>
+            <span className="text-label uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>{i === 0 ? 'Where' : 'And'}</span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {EXPENSE_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -2483,7 +2483,7 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
@@ -2493,13 +2493,13 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-sm hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense rounded-sm hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Done</button>
         )}
       </div>
@@ -2521,25 +2521,25 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 w-56 rounded-sm overflow-hidden z-30"
           style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-          {views.length === 0 && <div className="px-3 py-2.5 text-dense font-mono italic" style={{ color: '#78716c' }}>No saved views</div>}
+          {views.length === 0 && <div className="px-3 py-2.5 text-dense italic" style={{ color: '#78716c' }}>No saved views</div>}
           {views.map(v => (
             <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
               onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-dense font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
+              <span className="text-dense truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
               <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
                 className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors" style={{ color: '#fca5a5' }}><X className="w-3 h-3" /></button>
             </div>
           ))}
           <div style={{ borderTop: '1px solid #44403c' }}>
             <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-dense font-mono transition-colors"
+              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-dense transition-colors"
               style={{ color: '#fb923c' }}>
               <Save className="w-3 h-3" /> Save current view
             </button>
@@ -2650,29 +2650,29 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Title */}
           <div className="flex flex-col gap-1">
-            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Title *</label>
+            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Title *</label>
             <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Software License, Equipment Rental" autoFocus
-              className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+              className="px-3 py-2 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
           </div>
 
           {/* Costs row: Estimated + Actual + Variance display */}
           <div className="flex gap-4">
             <div className="flex flex-col gap-1 flex-1">
-              <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
+              <label className="text-label uppercase" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
               <input type="number" step="0.01" min="0" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+                className="px-3 py-2 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
             <div className="flex flex-col gap-1 flex-1">
-              <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
+              <label className="text-label uppercase" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
               <input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+                className="px-3 py-2 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
             <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
-              <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Variance</label>
-              <div className="px-3 py-2 text-dense font-mono rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              <label className="text-label uppercase" style={{ color: '#fb923c' }}>Variance</label>
+              <div className="px-3 py-2 text-dense rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 {est > 0 ? (
                   <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
                     {variance > 0 ? '+' : ''}<CurrencyDisplay value={variance} currency={currency} className="inline" style={{ color: 'inherit' }} />
@@ -2684,23 +2684,23 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
           {/* Date */}
           <div className="flex flex-col gap-1" style={{ maxWidth: 220 }}>
-            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Purchase Date</label>
+            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Purchase Date</label>
             <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
-              className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+              className="px-3 py-2 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
           </div>
 
           {/* Description */}
           <div className="flex flex-col gap-1">
-            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Description / Reason</label>
+            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Description / Reason</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Why was this expense incurred?" rows={3}
-              className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500 resize-none"
+              className="px-3 py-2 text-dense rounded-sm focus:ring-1 focus:ring-orange-500 resize-none"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
           </div>
 
           {/* Relations */}
           <div className="flex flex-col gap-2">
-            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Related Items</label>
+            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Related Items</label>
             <div className="space-y-2">
               <RelationPicker label="Assets" icon={<Boxes className="w-3 h-3" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
               <RelationPicker label="Phases" icon={<Layers className="w-3 h-3" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
@@ -2710,26 +2710,26 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
           {/* File upload */}
           <div className="flex flex-col gap-2">
-            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
+            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
             {allFiles.length > 0 && (
               <div className="flex flex-col gap-1">
                 {allFiles.map(f => (
                   <div key={f.id} className="flex items-center gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
-                    <span className="text-dense font-mono truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
+                    <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
                     <button type="button" onClick={() => removeFile(f.id)} className="p-0.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#ef4444' }}><X className="w-3 h-3" /></button>
                   </div>
                 ))}
               </div>
             )}
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700 self-start"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700 self-start"
               style={{ color: '#a8a29e', border: '1px dashed #44403c' }}>
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
               {uploading ? 'Uploading...' : 'Upload files'}
             </button>
             {uploadError && (
-              <p className="text-dense font-mono leading-relaxed" style={{ color: '#ef4444' }}>{uploadError}</p>
+              <p className="text-dense leading-relaxed" style={{ color: '#ef4444' }}>{uploadError}</p>
             )}
             <input ref={fileInputRef} type="file" multiple className="hidden"
               onChange={e => { setUploadError(null); handleFileUpload(e) }} />
@@ -2738,11 +2738,11 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3 border-t-2 border-stone-600 flex-shrink-0">
-          <p className="text-dense font-mono" style={{ color: '#78716c' }}>{isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}</p>
+          <p className="text-dense" style={{ color: '#78716c' }}>{isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}</p>
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
+            <button type="button" onClick={onClose} className="px-3 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
             <button type="button" onClick={handleSubmit} disabled={!title.trim() || busy}
-              className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-4 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>{busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}</button>
           </div>
         </div>
@@ -2775,7 +2775,7 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
   return (
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700 w-full text-left"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700 w-full text-left"
         style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
         {icon}<span>{label}</span>
         {selectedIds.length > 0 && <span className="ml-auto px-1.5 py-0.5 rounded-sm text-dense" style={{ backgroundColor: '#ea580c', color: '#fff7ed' }}>{selectedIds.length}</span>}
@@ -2785,7 +2785,7 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
           {items.length > 5 && (
             <div className="p-1.5 border-b border-stone-700">
               <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} autoFocus
-                className="w-full px-2 py-1 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2 py-1 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
           )}
@@ -2796,7 +2796,7 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
                 return (
                   <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-stone-700 transition-colors">
                     <input type="checkbox" checked={checked} onChange={() => toggle(it.id)} className="accent-orange-500 w-3.5 h-3.5" />
-                    <span className="text-dense font-mono truncate" style={{ color: checked ? '#d6d3d1' : '#a8a29e' }}>{it[nameKey] || 'Unnamed'}</span>
+                    <span className="text-dense truncate" style={{ color: checked ? '#d6d3d1' : '#a8a29e' }}>{it[nameKey] || 'Unnamed'}</span>
                   </label>
                 )
               })
@@ -2814,7 +2814,7 @@ function Card({ title, children }) {
   return (
     <div className="rounded-sm p-5 mb-4" style={{ border: '1px solid #44403c' }}>
       {title && (
-        <h3 className="text-label font-mono uppercase font-semibold mb-4 px-1" style={{ color: '#fb923c' }}>
+        <h3 className="text-label uppercase font-semibold mb-4 px-1" style={{ color: '#fb923c' }}>
           {title}
         </h3>
       )}
@@ -2832,9 +2832,9 @@ function BigTile({ label, value, hint, tone = 'neutral' }) {
   return (
     <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-label font-mono uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
-      {hint && <span className="text-dense font-mono mt-0.5" style={{ color: colors.label }}>{hint}</span>}
+      <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
+      <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
+      {hint && <span className="text-dense mt-0.5" style={{ color: colors.label }}>{hint}</span>}
     </div>
   )
 }
@@ -2844,7 +2844,7 @@ function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
     <div className="flex flex-col gap-1 p-3">
       <HeaderRow cols={[labelHeader, countHeader, 'Bid', 'Logged', 'Variance', 'Cost']} sixCol />
       {rows.map((row, i) => (
-        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-3 py-2 rounded-sm text-dense font-mono items-center transition-colors hover:bg-stone-800" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-3 py-2 rounded-sm text-dense items-center transition-colors hover:bg-stone-800" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
           <span className="truncate" style={{ color: '#d6d3d1' }}>{row.name}</span>
           <span style={{ color: '#a8a29e' }}>{row.taskCount}</span>
           <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
@@ -2861,7 +2861,7 @@ function HeaderRow({ cols, sixCol }) {
   return (
     <div className={`grid ${sixCol ? 'grid-cols-6' : 'grid-cols-3'} gap-2 px-3 py-1.5`} style={{ borderBottom: '1px solid #44403c' }}>
       {cols.map(c => (
-        <span key={c} className="text-label font-mono uppercase" style={{ color: '#78716c' }}>{c}</span>
+        <span key={c} className="text-label uppercase" style={{ color: '#78716c' }}>{c}</span>
       ))}
     </div>
   )
@@ -2882,7 +2882,7 @@ function VarianceCell({ value }) {
 function Field({ label, children }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>{label}</span>
+      <span className="text-label uppercase" style={{ color: '#fb923c' }}>{label}</span>
       {children}
     </div>
   )
@@ -2908,7 +2908,7 @@ function Select({ value, onChange, options, colorFn }) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
+      className="px-2 py-1.5 text-dense rounded-sm cursor-pointer"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: colorFn ? colorFn(value) : '#d6d3d1' }}
     >
       {options.map(o => <option key={o.value} value={o.value} style={colorFn ? { color: colorFn(o.value) } : undefined}>{o.label}</option>)}
@@ -2919,13 +2919,13 @@ function Select({ value, onChange, options, colorFn }) {
 function CenterMsg({ children }) {
   return (
     <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-      <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>{children}</span>
+      <span className="text-label uppercase" style={{ color: '#a8a29e' }}>{children}</span>
     </div>
   )
 }
 
 function Empty({ children }) {
-  return <div className="text-dense font-mono italic" style={{ color: '#78716c' }}>{children}</div>
+  return <div className="text-dense font-mono tabular-nums italic" style={{ color: '#78716c' }}>{children}</div>
 }
 
 function varianceLabel(v) {

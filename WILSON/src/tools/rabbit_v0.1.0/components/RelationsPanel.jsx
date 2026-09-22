@@ -120,7 +120,7 @@ export default function RelationsPanel({
               ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
               : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
             <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
+            <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
               Assets ({relatedAssets.length})
             </span>
             <button type="button"
@@ -136,7 +136,7 @@ export default function RelationsPanel({
             <div className="px-1 pb-1">
               {relatedAssets.length === 0 ? (
                 <div className="px-3 py-3 text-center">
-                  <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
+                  <p className="text-label uppercase" style={{ color: '#57534e' }}>
                     No assets linked
                   </p>
                 </div>
@@ -147,10 +147,10 @@ export default function RelationsPanel({
                       className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors group/rel cursor-pointer"
                       onClick={() => onOpenAsset?.(a.id)}>
                       <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(a.status) }} />
-                      <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
+                      <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                         {a.name || 'Untitled'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
+                      <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
                         style={{ color: statusColor(a.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(a.status)}30` }}>
                         {fmt(a.status || 'not_started')}
                       </span>
@@ -179,7 +179,7 @@ export default function RelationsPanel({
               ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
               : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
             <ListChecks className="w-3.5 h-3.5" style={{ color: '#fbbf24' }} />
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fbbf24' }}>
+            <span className="text-label uppercase font-semibold" style={{ color: '#fbbf24' }}>
               Tasks ({relatedTasks.length})
             </span>
             {onCreateTask && (
@@ -197,7 +197,7 @@ export default function RelationsPanel({
             <div className="px-1 pb-1">
               {relatedTasks.length === 0 ? (
                 <div className="px-3 py-3 text-center">
-                  <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
+                  <p className="text-label uppercase" style={{ color: '#57534e' }}>
                     No tasks linked
                   </p>
                 </div>
@@ -211,16 +211,16 @@ export default function RelationsPanel({
                         onClick={() => onOpenTask?.(t.id)}>
                         <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(t.status) }} />
                         <div className="flex-1 min-w-0">
-                          <span className="text-dense font-mono truncate block" style={{ color: '#d6d3d1' }}>
+                          <span className="text-dense truncate block" style={{ color: '#d6d3d1' }}>
                             {t.title || 'Untitled'}
                           </span>
                           {linkedAsset && (
-                            <span className="text-dense font-mono truncate block" style={{ color: '#57534e' }}>
+                            <span className="text-dense truncate block" style={{ color: '#57534e' }}>
                               {linkedAsset.name}
                             </span>
                           )}
                         </div>
-                        <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
+                        <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
                           style={{ color: statusColor(t.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(t.status)}30` }}>
                           {fmt(t.status || 'waiting_to_start')}
                         </span>
@@ -237,7 +237,7 @@ export default function RelationsPanel({
         {relatedAssets.length === 0 && relatedTasks.length === 0 && (
           <div className="px-3 py-4 text-center">
             <Boxes className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-            <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
+            <p className="text-label uppercase" style={{ color: '#57534e' }}>
               No assets or tasks linked yet
             </p>
           </div>
@@ -273,7 +273,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
     <div className="absolute inset-0 z-30 flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
+        <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
           Link Asset
         </span>
         <div className="flex-1" />
@@ -289,7 +289,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search assets…"
-            className="flex-1 px-2 py-1.5 text-dense font-mono bg-transparent"
+            className="flex-1 px-2 py-1.5 text-dense bg-transparent"
             style={{ color: '#d6d3d1' }}
             autoFocus />
         </div>
@@ -298,7 +298,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
       {/* List */}
       <div className="flex-1 overflow-auto px-1 py-1">
         {filtered.length === 0 ? (
-          <div className="px-3 py-4 text-center text-label font-mono uppercase" style={{ color: '#57534e' }}>
+          <div className="px-3 py-4 text-center text-label uppercase" style={{ color: '#57534e' }}>
             {assets.length === 0 ? 'All assets already linked' : 'No matches'}
           </div>
         ) : (
@@ -307,7 +307,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
               onClick={() => onPick(a.id)}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors text-left">
               <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(a.status) }} />
-              <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
+              <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                 {a.name || 'Untitled'}
               </span>
               <Plus className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
@@ -401,7 +401,7 @@ export function NewTaskSidePopup({
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
         <div className="flex items-center gap-2">
           <ListChecks className="w-4 h-4" style={{ color: '#fbbf24' }} />
-          <span className="text-dense font-mono font-semibold" style={{ color: '#fbbf24' }}>New Task</span>
+          <span className="text-dense font-semibold" style={{ color: '#fbbf24' }}>New Task</span>
         </div>
         <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
           <X className="w-4 h-4" />
@@ -415,7 +415,7 @@ export function NewTaskSidePopup({
           <SideLabel>Title *</SideLabel>
           <input type="text" value={draft.title} onChange={e => upd({ title: e.target.value })}
             placeholder="Task title…" autoFocus
-            className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+            className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
         </div>
 
@@ -424,7 +424,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Status</SideLabel>
             <select value={draft.status} onChange={e => upd({ status: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
               {TASK_STATUSES_LIST.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -432,7 +432,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Priority</SideLabel>
             <select value={draft.priority} onChange={e => upd({ priority: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {PRIORITIES_LIST.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
             </select>
@@ -444,7 +444,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Asset</SideLabel>
             <select value={draft.asset_id || ''} onChange={e => upd({ asset_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -453,7 +453,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Phase</SideLabel>
             <select value={draft.phase_id || ''} onChange={e => upd({ phase_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -467,7 +467,7 @@ export function NewTaskSidePopup({
             <div>
               <SideLabel>Scene</SideLabel>
               <select value={draft.scene_id || ''} onChange={e => upd({ scene_id: e.target.value || null, shot_id: null })}
-                className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                 disabled={entityType === 'scene'}>
                 <option value="">--</option>
@@ -477,7 +477,7 @@ export function NewTaskSidePopup({
             <div>
               <SideLabel>Shot</SideLabel>
               <select value={draft.shot_id || ''} onChange={e => upd({ shot_id: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                 disabled={entityType === 'shot'}>
                 <option value="">--</option>
@@ -494,7 +494,7 @@ export function NewTaskSidePopup({
               <div>
                 <SideLabel>Level</SideLabel>
                 <select value={draft.level_id || ''} onChange={e => upd({ level_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   disabled={entityType === 'level'}>
                   <option value="">--</option>
@@ -506,7 +506,7 @@ export function NewTaskSidePopup({
               <div>
                 <SideLabel>Experience</SideLabel>
                 <select value={draft.experience_id || ''} onChange={e => upd({ experience_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   disabled={entityType === 'experience'}>
                   <option value="">--</option>
@@ -522,7 +522,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Assignee</SideLabel>
             <select value={draft.assignee_id || ''} onChange={e => upd({ assignee_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {projectMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -531,7 +531,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Role</SideLabel>
             <select value={draft.assigned_role_slug || ''} onChange={e => upd({ assigned_role_slug: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {roleEntries.map(r => <option key={r.role_slug} value={r.role_slug}>{r.role_label}</option>)}
@@ -545,20 +545,20 @@ export function NewTaskSidePopup({
             <SideLabel>Bid days</SideLabel>
             <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
               onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               placeholder="--" />
           </div>
           <div>
             <SideLabel>Start</SideLabel>
             <input type="date" value={draft.start_date || ''} onChange={e => upd({ start_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
           </div>
           <div>
             <SideLabel>End</SideLabel>
             <input type="date" value={draft.end_date || ''} onChange={e => upd({ end_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
           </div>
         </div>
@@ -568,7 +568,7 @@ export function NewTaskSidePopup({
           <SideLabel>Description</SideLabel>
           <textarea value={draft.description} onChange={e => upd({ description: e.target.value })}
             rows={3}
-            className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
+            className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500 resize-y"
             style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
             placeholder="Task description…" />
         </div>
@@ -577,13 +577,13 @@ export function NewTaskSidePopup({
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
         <button type="button" onClick={onClose}
-          className="px-3 py-1.5 text-dense font-mono rounded transition-colors hover:bg-stone-700"
+          className="px-3 py-1.5 text-dense rounded transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           Cancel
         </button>
         <button type="button" onClick={handleConfirm}
           disabled={!draft.title.trim()}
-          className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
+          className="px-4 py-1.5 text-dense rounded transition-colors"
           style={{
             color: draft.title.trim() ? '#fff7ed' : '#78716c',
             backgroundColor: draft.title.trim() ? '#ea580c' : '#292524',
@@ -597,7 +597,7 @@ export function NewTaskSidePopup({
 }
 
 function SideLabel({ children }) {
-  return <div className="text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>{children}</div>
+  return <div className="text-label uppercase mb-1" style={{ color: '#78716c' }}>{children}</div>
 }
 
 
@@ -714,7 +714,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                 : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
               <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
+              <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
                 Scenes & Shots ({sceneShotCount})
               </span>
               <div className="ml-auto flex items-center gap-0.5">
@@ -739,7 +739,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
               <div className="px-1 pb-1">
                 {relScenes.length === 0 && orphanShots.length === 0 ? (
                   <div className="px-3 py-2 text-center">
-                    <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
+                    <p className="text-label uppercase" style={{ color: '#57534e' }}>
                       No scenes or shots linked
                     </p>
                   </div>
@@ -768,7 +768,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                             </button>
                             <Film className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
                             <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sc.status) }} />
-                            <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
+                            <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                               {sc.name || 'Untitled'}
                             </span>
                             {childShots.length > 0 && (
@@ -793,10 +793,10 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                                   className="flex items-center gap-2 pl-3 pr-2 py-1 rounded hover:bg-stone-800/50 transition-colors group/sh">
                                   <Clapperboard className="w-2.5 h-2.5 flex-shrink-0" style={{ color: '#f97316' }} />
                                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sh.status) }} />
-                                  <span className="text-dense font-mono truncate flex-1" style={{ color: '#a8a29e' }}>
+                                  <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>
                                     {sh.name || 'Untitled'}
                                   </span>
-                                  <span className="px-1 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
+                                  <span className="px-1 py-0.5 text-label uppercase rounded flex-shrink-0"
                                     style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                                     {fmt(sh.status || 'not_started')}
                                   </span>
@@ -827,10 +827,10 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                             <span className="w-3.5 h-3.5 block flex-shrink-0" />
                             <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#f97316' }} />
                             <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sh.status) }} />
-                            <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
+                            <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                               {sh.name || 'Untitled'}
                             </span>
-                            <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
+                            <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
                               style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                               {fmt(sh.status || 'not_started')}
                             </span>
@@ -866,7 +866,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                   ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
                 <Icon className="w-3.5 h-3.5" style={{ color: sec.color }} />
-                <span className="text-label font-mono uppercase font-semibold" style={{ color: sec.color }}>
+                <span className="text-label uppercase font-semibold" style={{ color: sec.color }}>
                   {sec.label} ({sec.items.length})
                 </span>
                 <button type="button"
@@ -882,7 +882,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 <div className="px-1 pb-1">
                   {sec.items.length === 0 ? (
                     <div className="px-3 py-2 text-center">
-                      <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
+                      <p className="text-label uppercase" style={{ color: '#57534e' }}>
                         No {sec.label.toLowerCase()} linked
                       </p>
                     </div>
@@ -892,10 +892,10 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                         <div key={item.id}
                           className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors group/rel">
                           <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(item.status) }} />
-                          <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
+                          <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                             {item.name || 'Untitled'}
                           </span>
-                          <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
+                          <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
                             style={{ color: statusColor(item.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(item.status)}30` }}>
                             {fmt(item.status || 'not_started')}
                           </span>
@@ -1014,7 +1014,7 @@ export function RelationPickerPopup({
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-2">
             {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
-            <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-semibold" style={{ color: '#fb923c' }}>
               {title}
             </span>
             <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1033,7 +1033,7 @@ export function RelationPickerPopup({
             <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search…"
-              className="flex-1 px-2 py-1.5 text-dense font-mono bg-transparent"
+              className="flex-1 px-2 py-1.5 text-dense bg-transparent"
               style={{ color: '#d6d3d1' }}
               autoFocus />
           </div>
@@ -1042,7 +1042,7 @@ export function RelationPickerPopup({
         {/* Items */}
         <div className="flex-1 overflow-auto px-2 py-1">
           {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-label font-mono uppercase" style={{ color: '#57534e' }}>
+            <div className="px-3 py-6 text-center text-label uppercase" style={{ color: '#57534e' }}>
               No items found
             </div>
           ) : (
@@ -1065,12 +1065,12 @@ export function RelationPickerPopup({
                   {/* Status dot */}
                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(st) }} />
                   {/* Name */}
-                  <span className="text-dense font-mono truncate flex-1"
+                  <span className="text-dense truncate flex-1"
                     style={{ color: isSelected ? '#f4a261' : '#d6d3d1' }}>
                     {getName(item)}
                   </span>
                   {/* Status badge */}
-                  <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
+                  <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
                     style={{ color: statusColor(st), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(st)}30` }}>
                     {fmt(st)}
                   </span>
@@ -1083,7 +1083,7 @@ export function RelationPickerPopup({
         {/* Footer */}
         <div className="px-4 py-2.5 flex justify-end" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense font-mono rounded transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense rounded transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>

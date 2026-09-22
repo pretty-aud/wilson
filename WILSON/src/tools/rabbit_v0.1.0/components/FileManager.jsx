@@ -764,7 +764,7 @@ export default function FileManager({
       {/* Header bar */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
+          <span className="text-label uppercase" style={{ color: '#fb923c' }}>
             Files ({assetFiles.length})
           </span>
           {/* Opening an OS explorer window only means anything when the file
@@ -801,7 +801,7 @@ export default function FileManager({
             type="button"
             onClick={() => (managed ? handleAddManagedFiles() : cloudInputRef.current?.click())}
             disabled={copying}
-            className="flex items-center gap-1 px-2 py-0.5 text-dense font-mono rounded-sm hover:brightness-110 transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-sm hover:brightness-110 transition-colors"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',
@@ -846,7 +846,7 @@ export default function FileManager({
           write to — and it has to say so. */}
       {uploadError && (
         <div
-          className="mb-2 px-2 py-1 rounded-sm text-dense font-mono"
+          className="mb-2 px-2 py-1 rounded-sm text-dense"
           style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
         >
           {uploadError}
@@ -860,7 +860,7 @@ export default function FileManager({
           error banner above uses: nothing here failed. */}
       {batchNotice && (
         <div
-          className="mb-2 px-2 py-1 rounded-sm text-dense font-mono flex items-start justify-between gap-2"
+          className="mb-2 px-2 py-1 rounded-sm text-dense flex items-start justify-between gap-2"
           style={{ color: '#fcd34d', backgroundColor: 'rgba(234,179,8,0.10)', border: '1px solid #78350f' }}
         >
           <span>{batchNotice}</span>
@@ -882,7 +882,7 @@ export default function FileManager({
           for the whole batch, listing every refusal — not one per file. */}
       {refusedFiles?.length > 0 && (
         <div
-          className="mb-2 px-2 py-1.5 rounded-sm text-dense font-mono"
+          className="mb-2 px-2 py-1.5 rounded-sm text-dense"
           style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
         >
           <div className="flex items-start justify-between gap-2">
@@ -906,10 +906,10 @@ export default function FileManager({
       {copyProgress && (
         <div className="mb-2">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-dense font-mono truncate" style={{ color: '#a8a29e', maxWidth: 200 }}>
+            <span className="text-dense font-mono tabular-nums truncate" style={{ color: '#a8a29e', maxWidth: 200 }}>
               {copyProgress.fileName}
             </span>
-            <span className="text-dense font-mono" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono tabular-nums" style={{ color: '#fb923c' }}>
               {copyProgress.percent}%
             </span>
           </div>
@@ -926,7 +926,7 @@ export default function FileManager({
       {assetFiles.length === 0 && !copying && (
         <div className="py-6 text-center">
           <FolderOpen className="w-6 h-6 mx-auto mb-1" style={{ color: '#57534e' }} />
-          <span className="text-dense font-mono italic" style={{ color: '#78716c' }}>
+          <span className="text-dense italic" style={{ color: '#78716c' }}>
             No files yet -- click "Add files" to get started.
           </span>
         </div>
@@ -990,7 +990,7 @@ export default function FileManager({
                         anything and never has — the file uploaded fine. */}
                     {rowNotice(f) && (
                       <span
-                        className="text-dense font-mono truncate"
+                        className="text-dense truncate"
                         style={{ color: '#fcd34d', maxWidth: 180 }}
                         title={rowNotice(f).message}
                       >
@@ -1012,7 +1012,7 @@ export default function FileManager({
                             if (e.key === 'Enter') handleSaveNotes(f.id)
                             if (e.key === 'Escape') setEditingNotes(null)
                           }}
-                          className="flex-1 px-1 py-0.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+                          className="flex-1 px-1 py-0.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
                           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                         />
                         <button onClick={() => handleSaveNotes(f.id)} className="p-0.5 hover:bg-stone-700 rounded-sm" style={{ color: '#86efac' }}>
@@ -1026,7 +1026,7 @@ export default function FileManager({
                       <button
                         type="button"
                         onClick={() => { setEditingNotes(f.id); setNotesDraft(f.notes || '') }}
-                        className="text-dense font-mono text-left truncate hover:underline"
+                        className="text-dense text-left truncate hover:underline"
                         style={{ color: f.notes ? '#a8a29e' : '#57534e', maxWidth: 180 }}
                       >
                         {f.notes || 'Add notes...'}
@@ -1039,7 +1039,7 @@ export default function FileManager({
                       stored_name per version. A cloud row has no version, and
                       printing "v001" on every one of them would be a confident
                       lie about a feature that is not there. */}
-                  <span className="text-dense font-mono px-1.5 py-0.5 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
+                  <span className="text-dense px-1.5 py-0.5 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
                     {f.version_label || (managed ? 'v001' : '--')}
                   </span>
                 </Td>
@@ -1119,7 +1119,7 @@ export default function FileManager({
                 {/* §5f: the same inline note on the gallery card. */}
                 {rowNotice(f) && (
                   <span
-                    className="text-dense font-mono truncate"
+                    className="text-dense truncate"
                     style={{ color: '#fcd34d' }}
                     title={rowNotice(f).message}
                   >
@@ -1127,7 +1127,7 @@ export default function FileManager({
                   </span>
                 )}
                 <div className="flex items-center justify-between">
-                  <span className="text-dense font-mono px-1 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
+                  <span className="text-dense px-1 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
                     {f.version_label || (managed ? 'v001' : '--')}
                   </span>
                   <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1193,7 +1193,7 @@ export default function FileManager({
 // ── Table atoms ──
 function Th({ children }) {
   return (
-    <th className="px-2 py-1.5 text-label font-mono uppercase text-left" style={{ color: '#fb923c' }}>
+    <th className="px-2 py-1.5 text-label uppercase text-left" style={{ color: '#fb923c' }}>
       {children}
     </th>
   )

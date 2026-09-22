@@ -38,7 +38,7 @@ const pill = {
   color: 'var(--color-ink)',
   border: '1px solid var(--color-rule)',
   boxShadow: 'var(--shadow-float)',
-  fontFamily: 'var(--font-mono)',
+  fontFamily: 'var(--)',
   fontSize: 'var(--text-label)',
   lineHeight: 'var(--text-label--line-height)',
   letterSpacing: 'var(--text-label--letter-spacing)',

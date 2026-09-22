@@ -37,7 +37,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
         </Btn>
       </>}>
       {n === 0 ? (
-        <div className="text-dense font-mono leading-relaxed" style={{ color: C.text }}>The bin is empty. Nothing on disk changes.</div>
+        <div className="text-dense leading-relaxed" style={{ color: C.text }}>The bin is empty. Nothing on disk changes.</div>
       ) : (
         <div className="flex flex-col gap-3">
           <div className="text-dense font-mono leading-relaxed" style={{ color: C.text }}>
@@ -61,7 +61,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
           </label>
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="radio" name="delmode" checked={mode === 'remove'} onChange={() => setMode('remove')} className="mt-0.5 accent-orange-600" />
-            <span className="text-dense font-mono flex items-center gap-1.5" style={{ color: C.text }}><Trash2 className="w-3 h-3" /> Remove the files from the project (undo restores them)</span>
+            <span className="text-dense flex items-center gap-1.5" style={{ color: C.text }}><Trash2 className="w-3 h-3" /> Remove the files from the project (undo restores them)</span>
           </label>
         </div>
       )}

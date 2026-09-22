@@ -24,7 +24,7 @@ export default function BinFileGrid({
   useEffect(() => { currentRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [currentId])
   return (
     <div className="flex-1 min-h-0 overflow-auto p-3" style={{ backgroundColor: C.bg }}>
-      {rows.length === 0 && <div className="px-2 py-6 text-dense font-mono" style={{ color: C.dimmer }}>Nothing matches.</div>}
+      {rows.length === 0 && <div className="px-2 py-6 text-dense font-mono tabular-nums" style={{ color: C.dimmer }}>Nothing matches.</div>}
       {/* data-bin-grid: the keyboard handler reads the REAL column count from
           this element's computed grid (review round 2: a formula guessed it and
           the cursor drifted diagonally at some pane widths). */}
@@ -120,7 +120,7 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         <div className="truncate text-dense font-mono" style={{ color: C.dim, minHeight: 13 }} title={row.source_path}>
           {techLine(row) || row.original_name}
         </div>
-        {binName != null && <div className="truncate text-dense font-mono mt-0.5 flex items-center gap-1" style={{ color: C.dimmer }}><ColorDot color={binColor} size={6} />{binName}</div>}
+        {binName != null && <div className="truncate text-dense mt-0.5 flex items-center gap-1" style={{ color: C.dimmer }}><ColorDot color={binColor} size={6} />{binName}</div>}
       </div>
     </div>
   )

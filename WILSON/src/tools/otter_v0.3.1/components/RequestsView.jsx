@@ -510,7 +510,7 @@ export default function RequestsView({
                               <span className="block text-dense font-semibold text-stone-200">
                                 {r.target_name ?? 'A company standard course'}
                               </span>
-                              <span className="block text-dense font-mono truncate text-stone-500">
+                              <span className="block text-dense truncate text-stone-500">
                                 {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                                 {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                               </span>
@@ -526,7 +526,7 @@ export default function RequestsView({
                               <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{r.summary}</p>
 
                               {r.source_readable ? (
-                                <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
                                   <Eye className="w-3 h-3 mt-0.5 shrink-0" />
                                   <span>
                                     Submitting shared their copy with reviewers while this request is open.{' '}
@@ -540,7 +540,7 @@ export default function RequestsView({
                                   </span>
                                 </p>
                               ) : (
-                                <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
                                   <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
                                   <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                                 </p>
@@ -593,7 +593,7 @@ export default function RequestsView({
                                     value={note}
                                     onChange={(e) => setNote(e.target.value)}
                                     placeholder="What should change before you would approve this?"
-                                    className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense font-mono resize-none focus:border-orange-500 placeholder-stone-600"
+                                    className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600"
                                   />
                                   <div className="flex gap-2 mt-2">
                                     <button
@@ -664,7 +664,7 @@ export default function RequestsView({
                             <span className="block text-dense font-semibold text-stone-200">
                               {r.target_name ?? 'A company standard course'}
                             </span>
-                            <span className="block text-dense font-mono truncate text-stone-500">
+                            <span className="block text-dense truncate text-stone-500">
                               {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                               {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                             </span>
@@ -677,7 +677,7 @@ export default function RequestsView({
                               What they changed, and why
                             </p>
                             <p className="text-dense whitespace-pre-wrap mb-2 text-stone-300">{r.summary}</p>
-                            <p className="text-caption font-mono flex items-center gap-1.5 text-stone-600">
+                            <p className="text-caption flex items-center gap-1.5 text-stone-600">
                               <Lock className="w-3 h-3 shrink-0" />
                               An admin or the course&apos;s owner decides this one.
                             </p>
@@ -732,7 +732,7 @@ export default function RequestsView({
                                 <span className="text-stone-500 font-normal"> · round {n.revision}</span>
                               )}
                             </span>
-                            <span className="block text-dense font-mono truncate text-stone-500">
+                            <span className="block text-dense truncate text-stone-500">
                               {isMine ? 'put forward by you' : (n.proposer_label ?? 'someone')} · {fmt(n.created_at)}
                             </span>
                           </span>
@@ -747,7 +747,7 @@ export default function RequestsView({
                             <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
 
                             {isMine ? (
-                              <p className="text-caption font-mono flex items-start gap-1.5 text-stone-500">
+                              <p className="text-caption flex items-start gap-1.5 text-stone-500">
                                 <Lock className="w-3 h-3 mt-0.5 shrink-0" />
                                 <span>
                                   {n.status === 'changes_requested'
@@ -762,7 +762,7 @@ export default function RequestsView({
                             ) : (
                               <>
                                 {n.course_readable ? (
-                                  <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                  <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
                                     <Eye className="w-3 h-3 mt-0.5 shrink-0" />
                                     <span>
                                       Putting it forward opened their course to reviewers while this is
@@ -777,7 +777,7 @@ export default function RequestsView({
                                     </span>
                                   </p>
                                 ) : (
-                                  <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                  <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
                                     <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
                                     <span>Their course is not readable right now — refresh to see its current state.</span>
                                   </p>
@@ -820,7 +820,7 @@ export default function RequestsView({
                                       value={nomNote}
                                       onChange={(e) => setNomNote(e.target.value)}
                                       placeholder="What would have to change before this could be the company's official course?"
-                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense font-mono resize-none focus:border-orange-500 placeholder-stone-600"
+                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600"
                                     />
                                     <div className="flex gap-2 mt-2">
                                       <button
@@ -861,7 +861,7 @@ export default function RequestsView({
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="text-caption font-mono flex items-center gap-1.5 text-stone-600">
+                                  <p className="text-caption flex items-center gap-1.5 text-stone-600">
                                     <Lock className="w-3 h-3 shrink-0" />
                                     {n.status === 'changes_requested'
                                       ? 'Sent back to the proposer — waiting on them.'
@@ -886,7 +886,7 @@ export default function RequestsView({
                             {n.course_name ?? 'A course'}
                             <span className="font-normal text-stone-600"> · {n.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-caption font-mono text-stone-600">
+                          <span className="block text-caption text-stone-600">
                             {fmt(n.reviewed_at ?? n.updated_at)}
                             {n.status === 'approved' && n.superseded_name
                               ? ` — replaced “${n.superseded_name}”`
@@ -928,7 +928,7 @@ export default function RequestsView({
                                 <span className="text-stone-500 font-normal"> · round {r.revision}</span>
                               )}
                             </span>
-                            <span className="block text-dense font-mono truncate text-stone-500">
+                            <span className="block text-dense truncate text-stone-500">
                               sent {fmt(r.created_at)}
                             </span>
                           </span>
@@ -948,7 +948,7 @@ export default function RequestsView({
                           )}
 
                           {!needsMe && r.status !== 'open' && (
-                            <p className="text-caption font-mono flex items-center gap-1.5 text-stone-500">
+                            <p className="text-caption flex items-center gap-1.5 text-stone-500">
                               <Lock className="w-3 h-3 shrink-0" />
                               {r.status === 'withdrawn' ? (
                                 // A withdrawal is the PROPOSER's act — the server pins the
@@ -1026,7 +1026,7 @@ export default function RequestsView({
                             {r.target_name ?? 'A company standard course'}
                             <span className="font-normal text-stone-600"> · {r.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-caption font-mono text-stone-600">
+                          <span className="block text-caption text-stone-600">
                             {fmt(r.reviewed_at ?? r.updated_at)}
                             {r.review_note ? ` — “${r.review_note}”` : ''}
                           </span>

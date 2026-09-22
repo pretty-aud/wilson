@@ -3419,7 +3419,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                           <div className="space-y-2">
                             {mc.nodes.map((node, ni) => (
                               <div key={ni} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
-                                <div className="font-mono font-semibold text-dense mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
+                                <div className="font-semibold text-dense mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
                                 <p className="text-dense mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
                                 {Array.isArray(node.inputs) && node.inputs.length > 0 && (
                                   <div className="mb-2">
@@ -3427,7 +3427,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                     <div className="space-y-0.5">
                                       {node.inputs.filter(Boolean).map((inp, k) => (
                                         <div key={k} className="flex items-start gap-1.5 text-dense">
-                                          <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
+                                          <span className="shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
                                           <NodeTypeBadge type={inp.type} />
                                           <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
                                         </div>
@@ -3441,7 +3441,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                     <div className="space-y-0.5">
                                       {node.outputs.filter(Boolean).map((out, k) => (
                                         <div key={k} className="flex items-start gap-1.5 text-dense">
-                                          <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
+                                          <span className="shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
                                           <NodeTypeBadge type={out.type} />
                                           <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
                                         </div>
@@ -5221,7 +5221,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="space-y-3">
                 {cat.nodes.map((node, j) => (
                   <div key={j} className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                    <div className="font-mono font-semibold text-h3 mb-2" style={{ color: '#fb923c' }}>{node.name}</div>
+                    <div className="font-semibold text-h3 mb-2" style={{ color: '#fb923c' }}>{node.name}</div>
                     <p className="text-dense mb-3 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
 
                     {Array.isArray(node.inputs) && node.inputs.length > 0 && (
@@ -5230,7 +5230,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         <div className="space-y-1">
                           {node.inputs.filter(Boolean).map((inp, k) => (
                             <div key={k} className="flex items-start gap-2 text-dense">
-                              <span className="font-mono shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
+                              <span className="shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
                               <NodeTypeBadge type={inp.type} />
                               <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
                             </div>
@@ -5245,7 +5245,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         <div className="space-y-1">
                           {node.outputs.filter(Boolean).map((out, k) => (
                             <div key={k} className="flex items-start gap-2 text-dense">
-                              <span className="font-mono shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
+                              <span className="shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
                               <NodeTypeBadge type={out.type} />
                               <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
                             </div>
@@ -5378,7 +5378,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="px-3 pb-3 pt-2">
                 <textarea value={editingPrompts[s.key] || ''} onChange={e => setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))}
                   disabled={promptsTabLocked}
-                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                 <button onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}
                   className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                 <button onClick={savePrompts} disabled={promptsTabLocked}
@@ -5410,7 +5410,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="flex items-center gap-2">
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
               disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-dense font-mono focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
+              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-dense focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
             {/* Session 12: this button used to POST /api/browse-folder, a
                 route that never existed on ANY host — it was dead everywhere
                 (same class as S11's unreachable renderDeleteConfirm). The

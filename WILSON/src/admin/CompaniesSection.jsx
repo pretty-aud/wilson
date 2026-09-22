@@ -105,7 +105,7 @@ const lightInputStyle = {
   border: 'none',
 }
 const inputClass =
-  'px-3 py-2 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
+  'px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
 
 function ThLight({ children }) {
   return (
@@ -1054,7 +1054,7 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
               value={f.value}
               onChange={(e) => { f.set(e.target.value); setErr('') }}
               disabled={busy}
-              className={`w-full px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${f.mono ? 'font-mono' : ''}`}
+              className={`w-full px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${f.mono ? '' : ''}`}
               style={{
                 backgroundColor: 'rgba(0,0,0,0.35)',
                 color: '#fde8d0',

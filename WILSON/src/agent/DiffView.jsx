@@ -51,7 +51,7 @@ export default function DiffView({
               {isBulk ? `Change ${bulkIndex + 1} of ${bulkTotal}` : 'Proposed Changes'}
             </span>
             {lessonTitle && (
-              <span className="text-dense text-stone-400 font-mono">
+              <span className="text-dense text-stone-400">
                 {subjectTitle ? `${subjectTitle} → ` : ''}{lessonTitle}
               </span>
             )}
@@ -76,7 +76,7 @@ export default function DiffView({
                   {/* Original */}
                   <div className="p-3">
                     <div className="text-label font-semibold uppercase text-red-400 mb-2">Original</div>
-                    <div className="text-body text-stone-300 font-mono whitespace-pre-wrap leading-relaxed">
+                    <div className="text-body text-stone-300 whitespace-pre-wrap leading-relaxed">
                       {origHighlighted.map((w, i) => (
                         <span key={i} className={w.type === 'removed' ? 'bg-red-900/50 text-red-300 line-through' : ''}>
                           {w.text}
@@ -87,7 +87,7 @@ export default function DiffView({
                   {/* Proposed */}
                   <div className="p-3">
                     <div className="text-label font-semibold uppercase text-green-400 mb-2">Proposed</div>
-                    <div className="text-body text-stone-300 font-mono whitespace-pre-wrap leading-relaxed">
+                    <div className="text-body text-stone-300 whitespace-pre-wrap leading-relaxed">
                       {propHighlighted.map((w, i) => (
                         <span key={i} className={w.type === 'added' ? 'bg-green-900/50 text-green-300' : ''}>
                           {w.text}
@@ -109,7 +109,7 @@ export default function DiffView({
               onChange={e => setEditInstruction(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && editInstruction.trim()) { onEdit(editInstruction); setEditMode(false); setEditInstruction(''); } }}
               placeholder="Tell the agent what to change..."
-              className="flex-1 bg-stone-800 text-stone-200 border border-stone-600 rounded-sm px-3 py-1.5 text-body font-mono focus:border-orange-500"
+              className="flex-1 bg-stone-800 text-stone-200 border border-stone-600 rounded-sm px-3 py-1.5 text-body focus:border-orange-500"
               autoFocus
             />
             <button

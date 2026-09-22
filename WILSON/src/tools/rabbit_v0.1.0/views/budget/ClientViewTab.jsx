@@ -162,15 +162,15 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Eye className="w-5 h-5" style={{ color: '#fb923c' }} />
-          <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
+          <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
             Client View
           </span>
-          <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+          <span className="text-dense" style={{ color: '#78716c' }}>
             Clean estimate for client presentation
           </span>
         </div>
         <button type="button" onClick={handlePrint}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <Printer className="w-3.5 h-3.5" /> Print / Export
         </button>
@@ -178,10 +178,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
       {/* Preview card */}
       <div ref={printRef} className="rounded-sm p-6" style={{ backgroundColor: '#fafaf9', border: '1px solid #d6d3d1' }}>
-        <h2 className="text-h1 font-mono font-semibold mb-1" style={{ color: '#1c1917' }}>
+        <h2 className="text-h1 font-semibold mb-1" style={{ color: '#1c1917' }}>
           {project?.title || 'Project'}
         </h2>
-        <p className="text-dense font-mono mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
+        <p className="text-dense mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
 
         <div className="flex gap-8 mb-5 text-dense font-mono">
           <div>
@@ -198,10 +198,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #1c1917' }}>
-              <th className="text-left text-label font-mono uppercase py-2 px-3" style={{ color: '#44403c' }}>
+              <th className="text-left text-label uppercase py-2 px-3" style={{ color: '#44403c' }}>
                 Item
               </th>
-              <th className="text-right text-label font-mono uppercase py-2 px-3" style={{ color: '#44403c' }}>
+              <th className="text-right text-label uppercase py-2 px-3" style={{ color: '#44403c' }}>
                 Estimate
               </th>
             </tr>
@@ -209,7 +209,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
           <tbody>
             {clientLineItems.map(row => (
               <tr key={row.label} style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense font-mono py-2 px-3" style={{ color: '#1c1917' }}>{row.label}</td>
+                <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>{row.label}</td>
                 <td className="text-dense font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
                   {fmtCurrency(row.estimate, currency)}
                 </td>
@@ -231,10 +231,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             {/* Markup as "Production Fee" — NO percentage shown */}
             {markupAmt > 0 && (
               <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense font-mono py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-dense font-mono tabular-nums py-2 px-3" style={{ color: '#1c1917' }}>
                   Production Fee
                 </td>
-                <td className="text-dense font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
                   {fmtCurrency(markupAmt, currency)}
                 </td>
               </tr>
@@ -242,8 +242,8 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
             {/* Grand total */}
             <tr style={{ borderTop: '2px solid #1c1917' }}>
-              <td className="text-dense font-mono font-semibold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
-              <td className="text-dense font-mono font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
+              <td className="text-dense font-semibold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
+              <td className="text-dense font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
                 {fmtCurrency(grandTotal, currency)}
               </td>
             </tr>
@@ -252,10 +252,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
         {/* Note + Signature area */}
         <div className="mt-8">
-          <p className="text-dense font-mono mb-1" style={{ color: '#78716c' }}>Note:</p>
+          <p className="text-dense mb-1" style={{ color: '#78716c' }}>Note:</p>
           <div className="h-16 rounded-sm mb-8" style={{ border: '1px solid #e7e5e4' }} />
 
-          <div className="flex flex-col gap-4 text-dense font-mono" style={{ color: '#1c1917' }}>
+          <div className="flex flex-col gap-4 text-dense" style={{ color: '#1c1917' }}>
             <div className="flex items-end gap-2">
               <span>Estimate Approved by:</span>
               <div className="flex-1" style={{ borderBottom: '1px solid #1c1917', height: 18 }} />
