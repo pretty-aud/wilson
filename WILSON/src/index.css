@@ -2273,15 +2273,35 @@ select option {
        off §3.3's 4-8-12-16-24-32-48 scale.
 
    ⚠️ AND ONE SIDE EFFECT T1 CAUSED AND CANNOT FIX HERE. Setting `font-size`
-   on the container re-bases every `em` beneath it. `SyntaxHighlighter` is
-   mounted with `PreTag="div"`, so a fenced code block has NO `<pre>`
-   ancestor: `oneDark`'s inline `padding: 1em` and `margin: 0.5em 0` used to
-   resolve against 16px (16px / 8px, both on §3.3's grid) and now resolve
-   against 14px (14px / 7px, neither). The same missing `<pre>` means
+   on the container re-bases every `em` beneath it. A LANGUAGE-TAGGED fence
+   goes to `SyntaxHighlighter`, mounted with `PreTag="div"`, so it has NO
+   `<pre>` ancestor: `oneDark`'s inline `padding: 1em` and `margin: 0.5em 0`
+   used to resolve against 16px (16px / 8px, both on §3.3's grid) and now
+   resolve against 14px (14px / 7px, neither). The same missing `<pre>` means
    `code:not(pre code)` matches those blocks too, so they move 14.4px -> 13px,
-   which is the right direction; and `.lesson-content pre` below is dead for
-   any language-tagged block, so A3 should not spend time converting its
-   border. Spacing is A3's; this is the note that says why it drifted.
+   which is the right direction. Spacing is A3's; this is the note that says
+   why it drifted.
+
+   🚨 AND TWO CORRECTIONS TO THAT NOTE, from round two, because the first
+   version of it would have sent A3 the wrong way:
+
+     - `.lesson-content pre` IS LIVE, and T1 first wrote that it was dead.
+       `PreTag="div"` is on the `match` branch ONLY. A fence with NO language
+       tag falls to the other branch, which returns a bare `<code>` that
+       react-markdown still wraps in a `<pre>` — and lesson content is
+       generated markdown, where untagged fences are routine. So the 2px
+       border, the 2px radius and the 1rem padding on `pre` below all render,
+       and they do need converting.
+     - `code`'s `line-height` below NEVER APPLIES to a language-tagged block.
+       `oneDark` sets `lineHeight: '1.5'` as an INLINE style on both the
+       wrapper and the `code`, and inline beats a class rule. The Dense step's
+       1.45 reaches inline code and untagged fences only. It is a 0.05
+       difference and not worth an `!important` fight in a type bundle, but it
+       is the third property this one mechanism has quietly taken, and A3
+       should know the mechanism rather than meet it a fourth time.
+
+   Also off §3.3's scale and not previously named: `padding: 0.15rem 0.4rem`
+   on inline `code` is 2.4px / 6.4px.
    ═══════════════════════════════════════════════════════════════ */
 .lesson-content {
   font-size: var(--text-body);

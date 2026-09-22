@@ -199,7 +199,16 @@ const TRANSITION_ALL = /\btransition-all\b/g;
    declarations, so the idiom is live here — and a guard that goes red on the
    system's own vocabulary teaches the next session to weaken the regex
    instead of fixing the CSS. */
-const END = String.raw`\s*(?:!important\s*)?[;}]`;
+/* `!\s*important`, not `!important`: a space between the bang and the word is
+   legal CSS, and round one fixed the common spelling rather than the general
+   one — so `font-weight: 600 ! important` was still reported as a defect. */
+const END = String.raw`\s*(?:!\s*important\s*)?[;}]`;
+/* ⚠️ The `i` flag makes the EXEMPTION case-insensitive too, so
+   `font-size: var(--TEXT-BODY)` reads as on-system although CSS custom
+   property names are case-SENSITIVE and that is an undefined variable. And
+   `var(--text-anything)` is exempt, not only a size token. Both are
+   contrived while every `--text-*` token in `@theme` is a type token; the
+   note is here so the next reader does not have to rediscover it. */
 const CSS_OFF_SIZE = new RegExp(String.raw`font-size\s*:(?!\s*var\(--text-)\s*[^;}]+`, 'gi');
 const CSS_OFF_LEADING = new RegExp(String.raw`line-height\s*:(?!\s*var\(--text-)\s*[^;}]+`, 'gi');
 const CSS_OFF_WEIGHT = new RegExp(
@@ -212,7 +221,15 @@ const CSS_OFF_WEIGHT = new RegExp(
    restated for CSS, and T1 wrote all three detectors without noticing it.
    A reading surface has no business using the shorthand, so this bans it
    outright rather than trying to parse it. */
-const CSS_SHORTHAND = /(?:^|[;{])\s*font\s*:/gi;
+/* 🚨 A LOOKBEHIND, NOT A LIST OF DELIMITERS. Round one wrote
+   `(?:^|[;{])\s*font\s*:`, which misses a shorthand that follows a nested
+   block's `}` — `{ & em { … } font: 700 1.5rem/1.7 sans-serif; }` was invisible
+   to all four detectors. It is masked today only because the same correction
+   forbids nesting in this block, so the one backstop depends on the other:
+   the day A3 nests legitimately and relaxes that check, the hole opens with
+   nothing under it. Asking "is this the property `font` and not `font-size`"
+   needs no delimiter list at all. */
+const CSS_SHORTHAND = /(?<![-\w])font\s*:/gi;
 /** §3.1: "Measure 60 to 66ch, set in `ch`." Either the literal or the token
  *  that carries it — `--measure-reading` is 66ch and is asserted to be in the
  *  band by its own case below, so a rule reading it is in the band too. */
@@ -266,6 +283,12 @@ const lessonRules = () => (LESSON_RULES ??= extractLessonRules(readFileSync('src
  *  the sweep takes its name with it, so naming them is what makes a
  *  disappearance loud rather than silent. */
 const LESSON_SELECTORS = ['h1', 'h2', 'h3', ' p ', 'li', 'code', 'pre', 'blockquote', 'th', 'td'];
+
+/** A leading set by hand on an element that already carries a scale step.
+ *  §3.1 gives every step one leading; 156 sites override it anyway. */
+const LEADING_OVERRIDE = /\bleading-(?:tight|snug|normal|relaxed|loose|none|\[[^\]]*\])\b/;
+/** Measured 2026-09-22: 19 in T1's lane, 38 in T2's, 99 in the rest. */
+const STEP_LEADING_RESIDUE = 156;
 const WHITE_GROUND = /\bbg-white(?:\/\d+)?\b/g;
 const OFF_SPACING = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y)-\[[\d.]+(?:px|rem|em)\]/g;
 /* The INVARIANT ("no vh in any padding"), not the shape of today's ternary:
@@ -472,11 +495,27 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        disappear, with a live `font-size: 1.5rem` inside them, while this
        control stayed green. A floor on a COUNT OF RULES guards nothing:
        rules are not a quantity that is supposed to trend downwards. */
+    /* `toBe(17)` is a poor SPECIFICATION — it fails with "expected 18 to be
+       17" and invites the next reader to bump the number. It stays because it
+       is the only assertion that proves `lessonRules()` read the real
+       `src/index.css` end to end: the pipeline control below exercises
+       `extractLessonRules` over synthetic strings and never touches the
+       cached real-file reader. It is a denominator, and the selector list
+       under it carries the specification. */
     expect(lessonRules().length).toBe(17);
     const css = lessonCss();
+    /* 🚨 A BOUNDARY, BECAUSE `.lesson-content p` IS A SUBSTRING OF
+       `.lesson-content pre`. Round one wrote the list with `' p '` — it saw
+       that `p` needs one — and then threw it away with `.trim()` inside a
+       `toContain`. A reviewer deleted the `p` rule outright, split
+       `ul, ol` into two so the count stayed 17, and the whole block including
+       this control stayed GREEN: the `pre` rule was answering for the
+       paragraph rule. That is the disappearance this control exists to make
+       loud, passing silently, on the one selector it was written for. */
     for (const sel of LESSON_SELECTORS) {
-      expect(css, `the .lesson-content ${sel.trim()} rule is missing from the sweep`)
-        .toContain(`.lesson-content ${sel.trim()}`);
+      const name = sel.trim();
+      expect(new RegExp(`\\.lesson-content ${name}(?![\\w-])`).test(css),
+        `the .lesson-content ${name} rule is missing from the sweep`).toBe(true);
     }
     // Nesting is what made rules vanish. The extractor walks it now; this says
     // no one has to rely on that being right in this block.
@@ -504,16 +543,57 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       .toEqual([]);
   });
 
+  it('a scale step keeps its own leading, and the override count does not grow', () => {
+    /* 🚨 A RATCHET, BECAUSE T1's FIX WAS ONE SITE OF NINETEEN IN ITS OWN LANE.
+       This bundle argued "three leadings where §3.1 asks for one per step" as
+       the reason to rewrite `.lesson-content`, then removed exactly one
+       `leading-tight` from a file it was already editing — and a reviewer
+       found eighteen more in D.O.G. and O.T.T.E.R. alone, including the same
+       shape one file over. Either a step owns its leading, in which case the
+       fix was 5% done, or `leading-relaxed` on long prose is a legitimate
+       exception, in which case the removal had no principle behind it. It is
+       the second, mostly: T0 left `text-dense … leading-relaxed` standing
+       across the app on purpose, and deciding site by site is lane work.
+
+       So this asserts nothing about the 156 that exist and everything about
+       the 157th. The number may fall, never rise. 19 are T1's lane (A1/A2),
+       38 are R.A.B.B.I.T.'s (lane B), 99 are the rest of the app. */
+    const hits = sweep(SCALE_STEP, ({ run }) => LEADING_OVERRIDE.test(run));
+    expect(hits.length, `a scale step with a hand-set leading:\n${hits.slice(0, 20).join('\n')}`)
+      .toBeLessThanOrEqual(STEP_LEADING_RESIDUE);
+    // The denominator: this really is a live, non-empty pattern, not a regex
+    // that stopped matching.
+    expect(hits.length, 'LEADING_OVERRIDE matches nothing — it has stopped working')
+      .toBeGreaterThan(50);
+  });
+
   it('the measure is on the PROSE rule, and the token is in §3.1s band', () => {
     /* 🚨 NOT "somewhere in the block". T1 asserted `CSS_MEASURE` against the
        whole joined string, so a reviewer put the prose back to 74ch, dropped a
        66ch onto `pre code`, and the assertion stayed green over the exact
        before-value this bundle exists to have removed. The measure has to be
        on the rule that carries the paragraphs. */
-    const prose = lessonRules().filter((r) => /(^|[\s,(])p([\s,)]|$)/.test(r.slice(0, r.indexOf('{'))));
-    expect(prose.length, 'no .lesson-content rule selects `p`').toBeGreaterThan(0);
+    /* 🚨 AND IT HAS TO SELECT PARAGRAPHS UNCONDITIONALLY. Round one asked
+       only whether the token `p` appeared anywhere in the selector, which a
+       reviewer defeated in one line:
+
+           .lesson-content :is(h1, h2, h3, blockquote) p { max-width: … }
+
+       — a measure that applies to paragraphs INSIDE a heading or a quote and
+       to nothing else, leaving every top-level paragraph uncapped at the full
+       container width, which is the 74ch defect this bundle exists to have
+       removed. Green, under an assertion titled "the measure is on the PROSE
+       rule". So the selector must reach `p` directly from `.lesson-content`:
+       one descendant step, nothing after it. */
+    const selectorOf = (r) => r.slice(0, r.indexOf('{')).trim();
+    const DIRECT_P = /^\.lesson-content\s+(?:p|:is\([^)]*\bp\b[^)]*\))\s*(?:,|$)/;
+    const prose = lessonRules().filter((r) =>
+      selectorOf(r).split(',').some((one) => DIRECT_P.test(one.trim().startsWith('.lesson-content')
+        ? one.trim() : `.lesson-content ${one.trim()}`)));
+    expect(prose.length, 'no .lesson-content rule selects paragraphs directly').toBeGreaterThan(0);
     expect(prose.some((r) => CSS_MEASURE.test(r)),
-      `no rule selecting p carries a 60-66ch measure:\n${prose.join('\n')}`).toBe(true);
+      `no rule selecting p directly carries a 60-66ch measure:\n${prose.map(selectorOf).join('\n')}`)
+      .toBe(true);
     expect(readFileSync('src/index.css', 'utf8'), '--measure-reading is outside §3.1s band')
       .toMatch(MEASURE_TOKEN);
   });
@@ -1565,17 +1645,18 @@ describe('the inline half: every type value reads a token (T3)', () => {
     // Both lanes exist in the tree, so neither predicate is silently empty.
     expect(tree().filter((t) => T1_LANE.test(t.file)).length).toBeGreaterThan(10);
     expect(tree().filter((t) => T2_LANE.test(t.file)).length).toBeGreaterThan(50);
-    /* The widening is COMPLETE: T1 widened it by one lane, T2 landed and
-       widened it to everything. This says so rather than describing a
-       half-way state that no longer exists — and it is the line that will go
-       red if a future session narrows the scope again to make its own work
-       pass, which is the one direction this predicate must never move. */
-    for (const f of ['src/App.jsx', 'src/tools/otter_v0.3.1/Otter.jsx',
-      'src/tools/rabbit_v0.1.0/views/TeamView.jsx',
-      'src/tools/deck-outline-generator_v0.514/modals/DuplicateResolverModal.jsx']) {
-      expect(IN_ASSERTED_SCOPE(f), `${f} is outside the hard assertion`).toBe(true);
-    }
-    expect(tree().every((t) => IN_ASSERTED_SCOPE(t.file))).toBe(true);
+    /* ⚠️ THERE IS NOTHING LEFT TO ASSERT ABOUT `IN_ASSERTED_SCOPE`, AND
+       PRETENDING OTHERWISE IS WORSE THAN SAYING SO. T1 wrote
+       `expect(tree().every(t => IN_ASSERTED_SCOPE(t.file))).toBe(true)` after
+       T2 had already set the predicate to `() => true`: a tautology that
+       cannot fail, sitting in a control block, reading as coverage. A
+       reviewer called it, rightly. The real content of this control is the
+       orphan check below — that is the one that catches a lane being renamed
+       out from under an assertion — so the tautology is deleted rather than
+       dressed up. If a later session ever narrows the scope again, it should
+       write the assertion then, against whatever it narrows to. */
+    expect(tree().filter((t) => !IN_ASSERTED_SCOPE(t.file)).map((t) => t.file),
+      'the hard assertion no longer covers every file').toEqual([]);
     // Every in-scope file belongs to exactly one of the three lanes.
     const orphans = tree().filter((t) =>
       !IN_T3_SCOPE(t.file) && !T1_LANE.test(t.file) && !T2_LANE.test(t.file));
