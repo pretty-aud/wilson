@@ -44,10 +44,13 @@ phase and task bars, the dates, the zoom control and the minimap are untouched.
 news rather than a gap. You called this page out by name as the worst of them;
 an earlier session rebuilt it, and the sweep re-derived every one of its type
 decisions from scratch and agreed with all of them. Settings is the same: zero
-changed lines. So is Home, and so are Team members, the Rate card, the Dashboard
-and the Admin terminal. The sweep only found work in the three tools, the help
-text and the operator console — everything the earlier sessions had not reached
-yet.
+changed lines. So are Home, Team members, the Rate card and the Dashboard. The
+Admin terminal moved by six lines, all in one place and all in the same
+direction: three Windows network paths in the storage help (`\\server\share\…`)
+got their typewriter font back, because a path is exactly the kind of thing
+that font is for. Everything else the sweep found was in the three tools, the
+help text and the operator console — the surfaces earlier sessions had not
+reached yet.
 
 **O.T.T.E.R.** (`t0-*-otter-*.png`) — course and lesson text steps up a size;
 the buttons stop shouting.
