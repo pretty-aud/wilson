@@ -1402,9 +1402,15 @@ const OverviewPane = forwardRef(function OverviewPane({
           the cursor. Shows the phase name, task count, and date
           range. Only renders when the user is hovering a phase
           row in this minimap. */}
+      {/* T2: the popup carries the family for its whole subtree — a phase
+          name, a task count and a date range. T0's mono map reads that as
+          "a row of figures with a name column" and KEEPS it, for the reason
+          round one learned the hard way on the Breakdown table: one name in
+          the mono costs less than four figures out of it, and the figures are
+          the ones that have to line up. */}
       {hoverPopup && (hoverPopup.row?.kind === 'phase' || hoverPopup.row?.kind === 'milestone') && (
         <div
-          className="fixed pointer-events-none rounded-control shadow-lg"
+          className="fixed pointer-events-none rounded-control shadow-lg font-mono"
           style={{
             left: hoverPopup.x + 14,
             top:  hoverPopup.y + 14,
@@ -1413,7 +1419,6 @@ const OverviewPane = forwardRef(function OverviewPane({
             padding: '6px 10px',
             zIndex: 9999,
             maxWidth: 320,
-            fontFamily: 'monospace',
           }}
         >
           {hoverPopup.row.kind === 'milestone' ? (
@@ -2292,12 +2297,10 @@ function DetailPane({
           </div>
           {rows.length === 0 ? (
             <div
-              className="flex items-center justify-center text-center px-4"
+              className="flex items-center justify-center text-center px-4 text-dense"
               style={{
                 height: 80,
                 color: '#78716c',
-                fontSize: 11,
-                fontFamily: 'monospace',
               }}
             >
               {canWrite ? 'No phases yet — click + Phase' : 'No phases yet'}
@@ -2648,8 +2651,8 @@ function DetailPane({
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
-                className="absolute inset-0 flex items-center justify-center text-center px-6"
-                style={{ color: '#57534e', fontSize: 11, fontFamily: 'monospace', fontStyle: 'italic' }}
+                className="absolute inset-0 flex items-center justify-center text-center px-6 text-dense"
+                style={{ color: '#57534e', fontStyle: 'italic' }}
               >
                 {/* Session 29 — the empty state was instructions. Telling a
                     read-only user to "drag on the overview to draw a task" and
@@ -2960,7 +2963,7 @@ function DetailPane({
           the user is dragging a task onto another phase row. */}
       {reparentGhost && (
         <div
-          className="fixed pointer-events-none rounded-control shadow-lg"
+          className="fixed pointer-events-none rounded-control shadow-lg text-dense"
           style={{
             left: reparentGhost.x + 12,
             top:  reparentGhost.y + 12,
@@ -2968,8 +2971,6 @@ function DetailPane({
             border: '1px dashed #fb923c',
             color: '#fff7ed',
             padding: '4px 10px',
-            fontSize: 11,
-            fontFamily: 'monospace',
             zIndex: 9999,
             maxWidth: 280,
             whiteSpace: 'nowrap',
@@ -3794,6 +3795,35 @@ function DetailBar({
       <div className="absolute left-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
       <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
       {width > 32 && (
+        /* 🚨 THE TWO TRUE-ARMS ARE IDENTICAL AND THE TERNARY STAYS. T0 left it
+           as the marker that a distinction was intended: phase bars used to be
+           `font-bold uppercase tracking-wider`, which §3.1 retires, because
+           uppercase belongs to the Label step alone and a phase NAME is not a
+           label. Choosing a replacement is design work on the surface B3 owns,
+           so T2 measured the problem instead of inventing one.
+
+           MEASURED, and it changes the question. A phase bar and a subgroup
+           bar are NOT typographically identical twins with nothing else
+           between them — four other channels still separate them, three of
+           them right here in this component:
+
+             border-style   subgroup DASHED, phase solid      (:3787)
+             border-width   1.5px vs 2px                       (:3785)
+             box-shadow     phase carries a 1px dark ring, subgroup none (:3786)
+             palette        `barTone` branches on subgroupStyle FIRST and
+                            returns an entirely different table  (:5762)
+
+           The dashed border alone reads at a glance. So what the old
+           `uppercase tracking-wider` added was a FIFTH signal, not the only
+           one, and the app is not short of one here.
+
+           What this expression does still say — and it is the part worth
+           keeping — is that a PARENT bar (phase or subgroup) is 600 and a TASK
+           bar is 400. That distinction is live, it is the one §3.1 can
+           express with two weights, and collapsing the ternary to
+           `(phaseStyle || subgroupStyle) ? 'font-semibold' : ''` would say it
+           more plainly at the cost of the marker. Audrey rules; walkthrough 31
+           asks her. Until then, nothing here is silently tidied away. */
         <span
           className={`text-dense truncate pointer-events-none overflow-hidden ${
             subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-semibold' : '')

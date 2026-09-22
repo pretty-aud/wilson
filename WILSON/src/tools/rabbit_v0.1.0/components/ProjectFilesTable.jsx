@@ -93,15 +93,45 @@ export default function ProjectFilesTable({
   const w = variant === 'warm'
 
   /* ── variant-driven tokens ── */
+  /* 🚨 UI overhaul, Wave 1 bundle T2 (2026-09-22). THIS FILE IS B4's (plan
+     §6.5) — it is rendered by Intake, Summary, ProjectFilesSection AND the
+     Files page, and B4 converges it with the other three file tables onto
+     `Table`. Wave 1's job here is the TYPE and nothing else: not a column
+     width, not a radius, not an ink. Nothing below is structural.
+
+     The whole table's type came out of these two objects — eight column
+     headers and every cell of every row, on both variants — which is why the
+     first pass of the inventory saw 4 of this file's 11 declarations and
+     reported a plausible smaller number.
+
+     Both `fontSize` ternaries were a variant choosing between two off-scale
+     sizes, and the dark arm of each was the worse one:
+
+       headers   11 warm / 9 dark   ->  text-label, 11px, both variants
+       cells     13 warm / 10 dark  ->  text-dense, 13px, both variants
+
+     §3.1 gives "table headers" to Label and "table cells" to Dense by name,
+     so neither is a judgement call; the 9px and the 10px were simply below
+     the floor. The two variants agreeing is the point — a table that changes
+     type size depending on which page draws it is two tables.
+
+     The family splits, and T0's mono map is what splits it. The headers
+     render seven literal words and keep no data evidence, so they are sans.
+     The cells are the row, and a row is mostly figures: of the seven columns,
+     Name (`f.name || f.file_name || f.original_name`), Type (`getExt`), Size
+     (`fmtBytes`) and Created (`fmtDate`) are data and only Kind and
+     Description are prose — the count is 4 to 2, which is exactly the rule
+     round one wrote after the Breakdown table went sans on its name column.
+     So the cells keep the mono, and it is now `--font-mono` from `@theme`
+     rather than a fourth private stack. */
+  const hdrClass = 'text-label uppercase'
   const hdr = {
-    fontSize: w ? 11 : 9, fontFamily: 'ui-monospace,monospace',
-    textTransform: 'uppercase', letterSpacing: '0.06em',
     color: w ? '#3a1e08' : '#fb923c',
     padding: w ? '10px 14px' : '7px 8px',
-    whiteSpace: 'nowrap', fontWeight: w ? 700 : undefined,
+    whiteSpace: 'nowrap',
   }
+  const cellClass = 'text-dense font-mono'
   const cell = {
-    fontSize: w ? 13 : 10, fontFamily: 'ui-monospace,monospace',
     color: w ? '#3c2010' : '#d6d3d1',
     padding: w ? '10px 14px' : '6px 8px',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -126,15 +156,15 @@ export default function ProjectFilesTable({
         borderBottom: w ? '1px solid rgba(120,70,30,0.3)' : '1px solid #44403c',
         position: 'sticky', top: 0, zIndex: 1,
       }}>
-        <div style={hdr}>Core</div>
-        <div style={hdr}>Name</div>
-        <div style={hdr}>Kind</div>
-        <div style={hdr}>Type</div>
-        <div style={hdr}>Size</div>
-        <div style={hdr}>Description</div>
-        <div style={hdr}>Created</div>
-        {onAudit && <div style={hdr} />}
-        {onDelete && <div style={hdr} />}
+        <div className={hdrClass} style={hdr}>Core</div>
+        <div className={hdrClass} style={hdr}>Name</div>
+        <div className={hdrClass} style={hdr}>Kind</div>
+        <div className={hdrClass} style={hdr}>Type</div>
+        <div className={hdrClass} style={hdr}>Size</div>
+        <div className={hdrClass} style={hdr}>Description</div>
+        <div className={hdrClass} style={hdr}>Created</div>
+        {onAudit && <div className={hdrClass} style={hdr} />}
+        {onDelete && <div className={hdrClass} style={hdr} />}
       </div>
 
       {/* Rows */}
@@ -148,7 +178,7 @@ export default function ProjectFilesTable({
           alignItems: 'center',
         }}>
           {/* Core */}
-          <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
+          <div className={cellClass} style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
             <input type="checkbox" checked={!!f.is_core_definer}
               onChange={canEdit ? e => onUpdate(f.id, { is_core_definer: e.target.checked }) : undefined}
               disabled={!canEdit}
@@ -157,7 +187,7 @@ export default function ProjectFilesTable({
           </div>
 
           {/* Name */}
-          <div style={{ ...cell, display: 'flex', alignItems: 'center', gap: 7 }}>
+          <div className={cellClass} style={{ ...cell, display: 'flex', alignItems: 'center', gap: 7 }}>
             {isMediaFile(f)
               ? <ImageIcon size={iconSz} style={{ color: w ? '#ea580c' : '#f97316', flexShrink: 0 }} />
               : <FileText size={iconSz} style={{ color: w ? '#9a6438' : '#78716c', flexShrink: 0 }} />
@@ -168,13 +198,16 @@ export default function ProjectFilesTable({
           </div>
 
           {/* Kind */}
-          <div style={cell}>
+          {/* A control is a control: the kit rules `.ui-select` at 13/400 in
+              the sans, so both arms of the size ternary below (12 warm, 10
+              dark) land on Dense and the private mono stack goes. */}
+          <div className={cellClass} style={cell}>
             {canEdit ? (
               <select value={f.document_kind || ''}
                 onChange={e => onUpdate(f.id, { document_kind: e.target.value || null })}
+                className="text-dense"
                 style={{
                   width: '100%', padding: w ? '3px 6px' : '2px 4px',
-                  fontSize: w ? 12 : 10, fontFamily: 'ui-monospace,monospace',
                   backgroundColor: w ? 'rgba(120, 70, 30, 0.5)' : '#292524',
                   color: f.document_kind
                     ? (w ? '#3c2010' : '#f4a261')
@@ -193,13 +226,13 @@ export default function ProjectFilesTable({
           </div>
 
           {/* Type */}
-          <div style={{ ...cell, color: mutedColor }}>{getExt(f)}</div>
+          <div className={cellClass} style={{ ...cell, color: mutedColor }}>{getExt(f)}</div>
 
           {/* Size */}
-          <div style={{ ...cell, color: mutedColor }}>{fmtBytes(f.size)}</div>
+          <div className={cellClass} style={{ ...cell, color: mutedColor }}>{fmtBytes(f.size)}</div>
 
           {/* Description */}
-          <div style={cell}>
+          <div className={cellClass} style={cell}>
             {canEdit ? (
               <DescCell value={f.description || ''} onChange={v => onUpdate(f.id, { description: v })} warm={w} />
             ) : (
@@ -210,11 +243,11 @@ export default function ProjectFilesTable({
           </div>
 
           {/* Date */}
-          <div style={{ ...cell, color: mutedColor }}>{fmtDate(f.created_at || f.uploaded_at)}</div>
+          <div className={cellClass} style={{ ...cell, color: mutedColor }}>{fmtDate(f.created_at || f.uploaded_at)}</div>
 
           {/* File activity (Session 14) */}
           {onAudit && (
-            <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
+            <div className={cellClass} style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
               {f.storage_path ? (
                 <button onClick={() => onAudit(f)} title="File activity"
                   style={{
@@ -231,7 +264,7 @@ export default function ProjectFilesTable({
 
           {/* Delete */}
           {onDelete && (
-            <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
+            <div className={cellClass} style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
               <button onClick={() => onDelete(f.id)}
                 style={{
                   color: w ? '#9a6438' : '#78716c', padding: 2, borderRadius: 3,
@@ -259,11 +292,10 @@ function DescCell({ value, onChange, warm }) {
       onChange={e => setLocal(e.target.value)}
       onBlur={() => { if (local !== value) onChange(local) }}
       placeholder={warm ? 'Add description...' : '—'}
+      className="text-dense"
       style={{
         width: '100%',
         padding: warm ? '3px 6px' : '2px 4px',
-        fontSize: warm ? 12 : 10,
-        fontFamily: 'ui-monospace,monospace',
         backgroundColor: warm ? 'rgba(120, 70, 30, 0.2)' : 'transparent',
         color: warm ? '#5c3415' : '#a8a29e',
         border: warm ? '1px solid rgba(120,70,30,0.2)' : 'none',

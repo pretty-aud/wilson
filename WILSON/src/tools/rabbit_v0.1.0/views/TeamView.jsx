@@ -1045,16 +1045,24 @@ function MemberAvatar({ member, size = 24 }) {
     .map(w => w[0]?.toUpperCase() || '')
     .join('')
   return (
+    /* T2: the size was `Math.max(8, size * 0.38)`, and MemberAvatar is called
+       at 24 and 28 and nothing else — so it rendered at 9.12px and 10.64px,
+       both BELOW §3.1's 11px floor and neither of them on the scale. A
+       computed size cannot be on a seven-step scale by accident, and this one
+       was not.
+       Dense, sans, 600. The map has no arm for a computed size, so the site
+       goes through it as what it is: a plain <div> under 12.5px on a surface
+       the Dense-file list does not name, which is Dense. Sans because
+       `classifyMono` finds no data evidence — initials are a NAME compressed,
+       not an identifier. And the two call sizes now agree, which is the point:
+       one step, not a size per avatar. */
     <div
-      className="flex items-center justify-center rounded-full flex-shrink-0"
+      className="flex items-center justify-center rounded-full flex-shrink-0 text-dense font-semibold"
       style={{
         width: size,
         height: size,
         backgroundColor: '#44403c',
         color: '#d6d3d1',
-        fontSize: Math.max(8, size * 0.38),
-        fontFamily: 'monospace',
-        fontWeight: 'bold',
       }}
     >
       {initials}
