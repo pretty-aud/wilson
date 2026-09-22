@@ -2,9 +2,10 @@
 /**
  * UI overhaul — the six before/after pages, at both window sizes.
  *
- *   node scripts/ui-shots.mjs <before|after> [port] [outDir]
+ *   node scripts/ui-shots.mjs <before|after> [port] [outDir] [prefix]
  *
- * Writes `docs/sessions/handoffs/img/t0-<phase>-<page>-<W>x<H>.png`.
+ * Writes `docs/sessions/handoffs/img/<prefix>-<phase>-<page>-<W>x<H>.png`,
+ * prefix defaulting to `t0`.
  *
  * WHY A SCRIPT AND NOT THE BROWSER PANE. Twelve shots per phase is twelve
  * images into a session's context for no reading benefit — the shots are for
@@ -29,11 +30,16 @@ import { join } from 'node:path';
 
 const phase = process.argv[2];
 if (!['before', 'after'].includes(phase)) {
-  console.error('usage: node scripts/ui-shots.mjs <before|after> [port] [outDir]');
+  console.error('usage: node scripts/ui-shots.mjs <before|after> [port] [outDir] [prefix]');
   process.exit(1);
 }
 const PORT = process.argv[3] || '5241';
 const OUT = process.argv[4] || 'docs/sessions/handoffs/img';
+/* The filename prefix. Defaults to `t0` so this script's own committed shots
+   keep reproducing byte-for-byte; T1 passes `t1`, and so on. It was a
+   hard-coded literal until T1, which meant the second bundle to run this
+   would have silently overwritten the first bundle's before/after pair. */
+const PREFIX = process.argv[5] || 't0';
 const BASE = `http://localhost:${PORT}`;
 const SIZES = [[1440, 900], [1280, 700]];
 
@@ -47,6 +53,13 @@ const PAGES = [
   { key: 'otter', path: '/otter' },
   { key: 'files', path: '/project-files', drive: driveToFiles },
   { key: 'rabbit-timeline', path: '/rabbit', drive: driveToTimeline },
+  /* T1: the lesson READING surface, which is not `/otter`. `/otter` is the
+     course library; `.lesson-content` does not exist in the DOM until a
+     course AND a subject have been clicked, which is why every check in this
+     repo reported "0 off-scale" over a pane carrying h1 at 24px. If the
+     empty course library is what you screenshot, you have photographed the
+     wrong thing — T0 trap 16 on a third surface. */
+  { key: 'otter-lesson', path: '/otter', drive: driveToLesson },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -108,6 +121,33 @@ async function driveToFiles(page) {
   await sleep(4000);
 }
 
+/**
+ * Open a course, then a subject, which opens its first lesson — and only
+ * then is `.lesson-content` in the DOM.
+ *
+ * `clickByText` above searches `<button>` only, and O.T.T.E.R.'s subject card
+ * puts its title in a heading inside the clickable, so this one widens the
+ * search and clicks the nearest clickable ancestor. Verified by measuring the
+ * rendered surface afterwards rather than by trusting the click: the drive
+ * reports what it found so a silent miss cannot be read as a passing shot.
+ */
+async function driveToLesson(page) {
+  const clickWide = (text) => page.evaluate((text) => {
+    const all = [...document.querySelectorAll('button, [role="button"], h1, h2, h3, h4')];
+    const hit = all.find((e) => (e.textContent || '').trim() === text);
+    if (!hit) return false;
+    (hit.closest('button, [role="button"]') || hit).click();
+    return true;
+  }, text);
+
+  const course = await clickWide('DaVinci Resolve 19');
+  await sleep(3500);
+  const subject = await clickWide('Project setup and media');
+  await sleep(4000);
+  const open = await page.evaluate(() => !!document.querySelector('.lesson-content'));
+  if (!open) console.log(`    (drive: course=${course} subject=${subject} lesson-content=${open} — SHOT IS NOT THE READING SURFACE)`);
+}
+
 async function driveToTimeline(page) {
   await clickByText(page, 'Summary');
   await sleep(2500);
@@ -134,7 +174,7 @@ for (const [w, h] of SIZES) {
     await page.goto(BASE + p.path, { waitUntil: 'domcontentloaded' });
     await sleep(p.path === '/' ? 5000 : 6500); // clear the page transition
     if (p.drive) await p.drive(page);
-    const file = join(OUT, `t0-${phase}-${p.key}-${w}x${h}.png`);
+    const file = join(OUT, `${PREFIX}-${phase}-${p.key}-${w}x${h}.png`);
     await page.screenshot({ path: file, animations: 'disabled' });
     written.push([file, statSync(file).size]);
     console.log(`  ${file}  ${(statSync(file).size / 1024).toFixed(0)} kB`);
