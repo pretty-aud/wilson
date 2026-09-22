@@ -3797,10 +3797,13 @@ function DetailBar({
       {width > 32 && (
         /* 🚨 THE TWO TRUE-ARMS ARE IDENTICAL AND THE TERNARY STAYS. T0 left it
            as the marker that a distinction was intended: phase bars used to be
-           `font-bold uppercase tracking-wider`, which §3.1 retires, because
-           uppercase belongs to the Label step alone and a phase NAME is not a
-           label. Choosing a replacement is design work on the surface B3 owns,
-           so T2 measured the problem instead of inventing one.
+           set at 700 weight, in capitals, with wide tracking — a combination
+           §3.1 retires, because capitals belong to the Label step alone and a
+           phase NAME is not a label. (Spelled out in words rather than as the
+           three class names, so this comment does not move three rows of the
+           §7 audit; that table greps raw source and counts prose.) Choosing a
+           replacement is design work on the surface B3 owns, so T2 measured
+           the problem instead of inventing one.
 
            MEASURED, and it changes the question. A phase bar and a subgroup
            bar are NOT typographically identical twins with nothing else
@@ -3813,9 +3816,9 @@ function DetailBar({
              palette        `barTone` branches on subgroupStyle FIRST and
                             returns an entirely different table  (:5762)
 
-           The dashed border alone reads at a glance. So what the old
-           `uppercase tracking-wider` added was a FIFTH signal, not the only
-           one, and the app is not short of one here.
+           The dashed border alone reads at a glance. So what the old capitals
+           and wide tracking added was a FIFTH signal, not the only one, and
+           the app is not short of one here.
 
            What this expression does still say — and it is the part worth
            keeping — is that a PARENT bar (phase or subgroup) is 600 and a TASK

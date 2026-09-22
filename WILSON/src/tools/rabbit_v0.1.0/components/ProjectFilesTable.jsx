@@ -136,9 +136,24 @@ export default function ProjectFilesTable({
     padding: w ? '10px 14px' : '6px 8px',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   }
+  /* 🚨 ONE NUMBER HERE IS T2's AND IT IS THE ONLY NON-TYPE BYTE IN THIS FILE:
+     the DARK variant's Created column, 80px -> 112px.
+
+     Taking the cells from 10px to the Dense step is what made it necessary,
+     and a type conversion that leaves a column unable to render its own
+     content is not finished. MEASURED in the browser rather than eyeballed:
+     of the 230 cells the Summary tab draws, exactly 32 overflowed and every
+     one of them was a date — `clientWidth` 80 against `scrollWidth` 110, so
+     every row read "Aug 19,…". No other column overflowed and no header did.
+
+     ⚠️ The WARM variant's 96px is left alone and it also truncates: its cells
+     were ALREADY 13px before this session, so 96 against 110 is pre-existing
+     and it is B4's, along with the rest of this file's structure. Recorded in
+     the hand-off rather than fixed here, because fixing what I did not break
+     in a file I do not own is how a lane's diff stops being reviewable. */
   const cols = w
     ? `48px minmax(180px,1fr) 100px 60px 76px minmax(140px,1fr) 96px${onAudit ? ' 40px' : ''}${onDelete ? ' 40px' : ''}`
-    : `44px minmax(140px,1fr) 90px 52px 64px minmax(100px,1fr) 80px${onAudit ? ' 32px' : ''}${onDelete ? ' 32px' : ''}`
+    : `44px minmax(140px,1fr) 90px 52px 64px minmax(100px,1fr) 112px${onAudit ? ' 32px' : ''}${onDelete ? ' 32px' : ''}`
 
   const mutedColor = w ? '#6b4423' : '#78716c'
   const iconSz = w ? 15 : 13
