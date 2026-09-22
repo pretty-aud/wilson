@@ -201,17 +201,27 @@ export default function IntakePrepare({
               <span className="text-body" style={{ color: '#a8a29e' }}>
                 {dragging ? 'Drop to add' : 'Drop files or click to browse'}
               </span>
-              {/* 🚨 CAPTION, AND THE MAP ONLY SAID DENSE BY ACCIDENT. Below
-                  12.5px the map promotes to Caption on a muted ink, and
-                  `META_INK` lists the three the F1 ladder replaces —
-                  `#78716c`, `#8d8986`, `#57534e`. This hint is `#44403c`,
-                  which is not an INK at all: it is the old border grey, and
-                  the ladder has not reached it. So the promotion failed on a
-                  colour rather than on a role, and the CTA above and its hint
-                  came out 14px over 13px — one step apart, with nothing but a
-                  very dim pair of greys between them. Caption restores the
-                  two-step gap the pair had before. §3.2's ink is B1's; the
-                  step is Wave 1's, and this is the step. */}
+              {/* 🚨 CAPTION, AND THE REASON IS THE PAIR RATHER THAN THE INK.
+                  The map put this on Dense, which left the drop zone's call to
+                  action at 14px directly over its hint at 13 — one step apart,
+                  same family, separated by nothing but a very dim pair of
+                  greys. Caption restores the two-step gap the pair had before.
+
+                  An earlier draft argued it from the INK: below 12.5px the map
+                  promotes to Caption on a muted ink, `META_INK` lists the three
+                  the F1 ladder replaces (`#78716c`, `#8d8986`, `#57534e`), and
+                  this is `#44403c` — not an ink at all, but the old border
+                  grey, which the ladder has not reached. True, and it does not
+                  stop here: a reviewer found three sibling `#44403c` sites in
+                  this same file. Two of them are `<p>` (`:343`, `:354`) and are
+                  Dense by a rule that OUTRANKS the ink — T0's `DENSE_TAGS`
+                  fires before `META_INK`, because a prose tag says what the
+                  content IS. The third (`:294`, "No files uploaded yet") is an
+                  empty state, not a hint, and §3.1 gives Caption "metadata,
+                  hints, counts, timestamps".
+                  So the ink observation is real but it is not the argument.
+                  The argument is that a CTA and its own hint may not be one
+                  step apart, and that does not generalise past this pair. */}
               <span className="text-caption" style={{ color: '#44403c' }}>
                 {[...ACCEPTED_EXTS].join('  ·  ')}
               </span>

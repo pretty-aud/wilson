@@ -1076,7 +1076,8 @@ function MemberAvatar({ member, size = 24 }) {
        circle's INSCRIBED width at 24px. 12px caps are ~8.6px tall, so at the
        cap line a 24px circle offers about 22.4px, and WW is 23.67 at Caption
        and 23.02 even at Label. The chip wants to be 28px, not the type to be
-       smaller; both call sites at `:324` and `:770` pass 24. */
+       smaller. Two of the four call sites already are 28 — `:805` and `:988`
+       — and it is `:324` and `:770` that pass 24. */
     <div
       className="flex items-center justify-center rounded-full flex-shrink-0 text-caption font-semibold"
       style={{

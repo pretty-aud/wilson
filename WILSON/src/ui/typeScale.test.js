@@ -40,7 +40,7 @@ import { enclosingRunRaw, enclosingTag } from '../../scripts/ui-type-inventory.m
 import {
   coverage, inlineClassEvidence, valueArms, declsNearMarker, openTagOf,
   openingTagEndFromAttr, classNameRun, ownTextFrom,
-  SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE,
+  SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE, isMonoValue,
 } from '../../scripts/ui-inline-type.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
@@ -1084,7 +1084,6 @@ const INLINE_TRACKING = /['"]?letterSpacing['"]?\s*:/g;
    converted `fontSize: ${TYPE.caption}px`. A new token with no assertion
    behind it only moves the drift somewhere quieter. */
 const INLINE_LEADING = /['"]?lineHeight['"]?\s*:/g;
-const INLINE_WEIGHT_KEY = /['"]?fontWeight['"]?\s*:/g;
 
 /* 🚨 A VALUE IS NOT `[^,;\n}]+`, AND THE ROUND-ONE FIX IS WHAT PROVED IT.
    That character class stops at the first `}` — which in this codebase is
@@ -1442,6 +1441,12 @@ describe('the inline half: every type value reads a token (T3)', () => {
     expect(fires(INLINE_CASE, 'uppercase')).toBe(false);
     expect(fires(INLINE_LEADING, 'lineHeight: 1.6')).toBe(true);
     expect(fires(INLINE_LEADING, 'leading-relaxed')).toBe(false);
+    // 🚨 `INLINE_WEIGHT` was the sixth, and it was missing: three assertions
+    // run it, and a mutant that killed it was caught only INCIDENTALLY, by the
+    // frozen-title count — which is the shape this control exists to replace.
+    expect(fires(INLINE_WEIGHT, 'fontWeight: 600')).toBe(true);
+    expect(fires(INLINE_WEIGHT, "fontWeight: 'bold'")).toBe(true);
+    expect(fires(INLINE_WEIGHT, 'font-semibold')).toBe(false);
   });
 
   it("CONTROL: the inventory's own property list cannot be pruned in silence", () => {
@@ -1531,15 +1536,44 @@ describe('the inline half: every type value reads a token (T3)', () => {
   });
 
   it("CONTROL: the inventory recognises the repo's own mono token", () => {
-    // The family test was written against `'ui-monospace,monospace'` and
-    // `DATA`, case-sensitively — and the overhaul converted those sites to
-    // `FONT_MONO`, which SHOUTS. Every site it actually converted printed no
-    // family verdict at all.
+    /* 🚨 THIS CONTROL USED TO RE-TYPE THE REGEX AS A LITERAL INSTEAD OF CALLING
+       THE CODE, which is the file's own rule 1 inside out: a reviewer reverted
+       the fix in `ui-inline-type.mjs` and all 2,910 tests stayed green while
+       the inventory printed no family verdict for any site the overhaul had
+       actually converted. The predicate is exported now and this calls it.
+       The fix it pins: the test was written against `'ui-monospace,monospace'`
+       and `DATA`, case-sensitively, and could not see `FONT_MONO` — the token
+       everything was converted TO, which SHOUTS. */
     for (const v of ["'ui-monospace,monospace'", 'FONT_MONO', 'DATA', "'monospace'"]) {
-      expect(/mono|\bDATA\b/i.test(v), `${v} is a mono value`).toBe(true);
+      expect(isMonoValue(v), `${v} is a mono value`).toBe(true);
     }
-    for (const v of ['SANS', 'FONT_SANS', "'var(--font-sans)'"]) {
-      expect(/mono|\bDATA\b/i.test(v), `${v} is not`).toBe(false);
+    for (const v of ['SANS', 'FONT_SANS', "'var(--font-sans)'", "'Geist'"]) {
+      expect(isMonoValue(v), `${v} is not`).toBe(false);
+    }
+  });
+
+  it('CONTROL: the arm splitter finds a ternary wherever it is hiding', () => {
+    /* 🚨 NOTHING TESTED THIS, AND IT WAS WRONG THREE WAYS. `valueArms` is what
+       lets the token and floor assertions ask each rendered value separately,
+       and a reviewer showed that (a) a LEFT-nested ternary reported its own
+       condition as a value, (b) a ternary inside a template literal was never
+       split at all, because `isConditional` strips backtick-quoted text before
+       looking for a `?`, and (c) a bracketed arm came back opaque. (b) and (c)
+       both laundered a 9px arm straight past the 11px floor — the assertion
+       that exists as the independent backstop for an allowlisted site. */
+    expect(valueArms('a ? b : c ? d : e')).toEqual(['b', 'd', 'e']);      // right-nested
+    expect(valueArms('a ? b ? c : d : e')).toEqual(['c', 'd', 'e']);      // LEFT-nested
+    expect(valueArms('`${w ? TYPE.h2 : 9}px`')).toEqual(['TYPE.h2', '9']);
+    expect(valueArms('(b ? TYPE.h2 : 9)')).toEqual(['TYPE.h2', '9']);
+    expect(valueArms('b ? (c ? TYPE.h1 : 9) : TYPE.label'))
+      .toEqual(['TYPE.h1', '9', 'TYPE.label']);
+    // A condition is never a value, and a call is not a ternary.
+    expect(valueArms('size >= 40 ? TYPE.h2 : TYPE.label')).toEqual(['TYPE.h2', 'TYPE.label']);
+    expect(valueArms('Math.max(8, size * 0.38)')).toEqual(['Math.max(8, size * 0.38)']);
+    // …and each of those hiding places reaches the floor assertion.
+    for (const v of ['`${w ? TYPE.h2 : 9}px`', '(b ? TYPE.h2 : 9)',
+      'b ? (c ? TYPE.h1 : 9) : TYPE.label']) {
+      expect(valueArms(v).some(belowFloorArm), `${v} hides a 9`).toBe(true);
     }
   });
 

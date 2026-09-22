@@ -3817,15 +3817,21 @@ function DetailBar({
                             subgroup `top: 4 / height: rowPx - 8` (:3782)
 
            ⚠️ A FIFTH CHANNEL WAS CLAIMED HERE AND IT DOES NOT HOLD IN THE
-           DEFAULT CASE. `barTone` (:5790 — an earlier draft of this comment
-           cited :5762, which is a blank line inside another function's header)
-           does branch on `subgroupStyle` first, but its two fall-through arms
-           are byte-identical: a subgroup with an unrecognised status and a
-           phase with the default `not_started` both return
-           `{ bg:'#1c1917', border:'#78716c', fg:'#d6d3d1' }`. The palette
-           separates them only once a status is set. A reviewer measured that;
-           the claim is corrected rather than dropped, because the four above
-           were verified and stand.
+           DEFAULT CASE, AND THE LINE NUMBER TOOK THREE GOES. `barTone` is at
+           :5808 — an earlier draft of this comment cited :5762, a blank line
+           inside another function's header, and its correction cited :5790,
+           which is a comment line inside `lifecycleState`. It does branch on
+           `subgroupStyle` first, but two of its arms are byte-identical: a
+           subgroup with an UNRECOGNISED status string (:5820) and a phase with
+           the default `not_started` (:5835) both return
+           `{ bg:'#1c1917', border:'#78716c', fg:'#d6d3d1' }`.
+           ⚠️ That is the only collision, and an earlier draft generalised it
+           into "the palette separates them only once a status is set", which
+           is backwards: a subgroup with NO status falls through to the
+           date-based ladder at :5823, and all three of its outcomes differ
+           from the phase default on at least the foreground. So the palette
+           does separate them in the common case; it collides in one narrow
+           combination. The four channels above were verified and stand.
 
            The dashed border alone reads at a glance. So what the old capitals
            and wide tracking added was a FIFTH signal, not the only one, and

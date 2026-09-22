@@ -194,6 +194,20 @@ export function inlineClassEvidence(decls) {
  * widening the run to a whole template put every Gantt TASK bar on the Label
  * step. Pass 1 ignores the arms; so does this.
  */
+/** Is the whole string one bracketed group — `(x)` rather than `(a) + (b)`? */
+export function outerParensWrap(text = '') {
+  if (text[0] !== '(' || text[text.length - 1] !== ')') return false;
+  let depth = 0, quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) { if (c === quote && text[i - 1] !== BS) quote = null; continue; }
+    if (c === '"' || c === "'" || c === BT) { quote = c; continue; }
+    if (c === '(') depth++;
+    else if (c === ')') { depth--; if (depth === 0) return i === text.length - 1; }
+  }
+  return false;
+}
+
 export function isConditional(valueText = '') {
   const bare = valueText.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, '');
   return /\?/.test(bare) && /:/.test(bare);
@@ -219,6 +233,23 @@ export function valueArms(valueText = '') {
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\/\/[^\n]*/g, ' ')
     .trim();
+  /* 🚨 A TERNARY CAN HIDE INSIDE A TEMPLATE LITERAL OR A PAIR OF BRACKETS, AND
+     THE FIRST DRAFT GAVE UP AT BOTH. `isConditional` strips backtick-quoted
+     text before looking for a `?`, so `` `${w ? TYPE.h2 : 9}px` `` was never
+     split; and the splitter tracks bracket depth, so `(b ? TYPE.h2 : 9)` came
+     back as one opaque arm. A reviewer planted both against the 11px floor —
+     the assertion that exists precisely as the independent backstop — and both
+     walked past it while the token assertion caught them. So: recurse into
+     every `${…}` span, and into a fully-bracketed arm, before answering. */
+  const interpolations = [...noComments.matchAll(/\$\{([\s\S]*?)\}/g)].map((m) => m[1]);
+  if (interpolations.length) {
+    return interpolations.flatMap((inner) => valueArms(inner));
+  }
+  /* A wholly-bracketed value is its contents. `outerParensWrap` checks the
+     FIRST `(` really closes at the LAST `)`, so `(a) + (b)` is not mistaken
+     for one bracket and stripped into `a) + (b`. */
+  if (outerParensWrap(noComments)) return valueArms(noComments.slice(1, -1));
+
   if (!isConditional(noComments)) return [noComments];
 
   /* Split on the `?` and `:` that are OUTSIDE strings, brackets and calls,
@@ -241,18 +272,31 @@ export function valueArms(valueText = '') {
   /* 🚨 A CONDITION IS NOT A VALUE. `size >= 40 ? TYPE.h2 : TYPE.label` splits
      into three pieces and only two of them render; treating `size >= 40` as a
      value would report a legitimate, fully tokenised site as hard-coded.
-     Piece 0 is always the condition. A piece introduced by `?` is always an
-     arm. A piece introduced by `:` is an arm UNLESS the next separator is `?`
-     — that is the condition of a nested ternary, as in
-     `a ? b : c ? d : e`, whose arms are b, d and e. */
+     Piece 0 is always the condition. A piece followed by `?` is a condition
+     too — that is a NESTED ternary, and it can nest either way:
+
+       a ? b : c ? d : e     (right)  arms b, d, e
+       a ? b ? c : d : e     (left)   arms c, d, e
+
+     The first draft keyed on the separator BEFORE a piece, which got the
+     right-nested form and reported `b` — a condition — as a value in the
+     left-nested one. A reviewer measured it. Keying on the separator AFTER
+     gets both, because what makes a piece a condition is that a `?` follows
+     it, wherever it sits. */
   const arms = [];
   for (let i = 0; i < pieces.length; i++) {
-    const p = pieces[i];
-    if (p.sep === null) continue;                       // the outer condition
-    if (p.sep === ':' && pieces[i + 1]?.sep === '?') continue;  // a nested one
-    arms.push(p.text);
+    if (pieces[i].sep === null) continue;                  // the outer condition
+    if (pieces[i + 1]?.sep === '?') continue;              // a nested condition
+    arms.push(pieces[i].text);
   }
-  return arms.map((s) => s.trim()).filter(Boolean);
+  /* And each arm answers the same question again, because an arm can itself be
+     a bracketed ternary or a template — `b ? (c ? TYPE.h1 : 9) : TYPE.label`.
+     The recursion terminates because an arm is always shorter than the value
+     it came from, and the guard makes that explicit. */
+  return arms
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .flatMap((a) => (a.length < noComments.length ? valueArms(a) : [a]));
 }
 
 /**
@@ -483,6 +527,19 @@ export function typeDecls(objText) {
   return out;
 }
 
+/**
+ * Does this `fontFamily` value name the mono?
+ *
+ * 🚨 EXPORTED SO THE GUARD CAN CALL IT, AND IT WAS NOT. The first fix here was
+ * to make the test case-insensitive, because it had been written against
+ * `'ui-monospace,monospace'` and `DATA` and could not see `FONT_MONO` — the
+ * token the overhaul converted everything TO, which SHOUTS. The control that
+ * was supposed to pin that re-typed the regex as a literal inside the test
+ * file instead of calling this, so reverting the fix left 2,910 tests green.
+ * That is the file's own rule 1 inside out, and a reviewer proved it.
+ */
+export const isMonoValue = (v) => /mono|\bDATA\b/i.test(String(v));
+
 /** A literal number, or `'20px'`. Anything else is an expression → null. */
 export function pxOf(valueText) {
   if (valueText == null) return null;
@@ -624,7 +681,7 @@ export function inlineSites(files = sourceFiles()) {
          sites to the `FONT_MONO` token — which `/mono|Mono/` does not match,
          because the token SHOUTS. The result was that every site the overhaul
          had actually converted printed no family verdict at all. */
-      const hasMono = (decls.fontFamily || []).some((v) => /mono|\bDATA\b/i.test(v));
+      const hasMono = (decls.fontFamily || []).some(isMonoValue);
       const step = px == null ? null : classifySite(rel, px, run, judgedTag, body, objText, ownText);
 
       rows.push({
