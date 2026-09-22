@@ -86,29 +86,29 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
       )}
 
       <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Scene (all)</span>
+        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase" style={{ color: C.dim }}>Scene (all)</span>
           <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Shoot day (all)</span>
+        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase" style={{ color: C.dim }}>Shoot day (all)</span>
           <TextInput type="date" value={batch.shoot_day} onChange={v => setBatch(b => ({ ...b, shoot_day: v }))} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Camera (all)</span>
+        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase" style={{ color: C.dim }}>Camera (all)</span>
           <TextInput value={batch.camera} onChange={v => setBatch(b => ({ ...b, camera: v.toUpperCase() }))} placeholder="A" maxLength={4} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Roll (all)</span>
+        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase" style={{ color: C.dim }}>Roll (all)</span>
           <TextInput value={batch.roll} onChange={v => setBatch(b => ({ ...b, roll: v.toUpperCase() }))} placeholder="A001" /></label>
-        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Tags (all)</span>
+        <label className="flex flex-col gap-1"><span className="text-label font-mono uppercase" style={{ color: C.dim }}>Tags (all)</span>
           <TextInput value={batch.tags} onChange={v => setBatch(b => ({ ...b, tags: v }))} placeholder="hero, b-roll" /></label>
       </div>
       <div className="flex items-center gap-4 mb-2 flex-wrap">
         {anySub && <Toggle checked={createSubBins} onChange={setCreateSubBins} label="Folders become nested bins" />}
-        <button type="button" className="text-dense font-mono uppercase tracking-wider hover:text-stone-200" style={{ color: C.dim }}
+        <button type="button" className="text-dense font-mono hover:text-stone-200" style={{ color: C.dim }}
           onClick={() => setItems(list => list.map(it => ({ ...it, include: it.status === 'ok' })))}>Tick all</button>
-        <button type="button" className="text-dense font-mono uppercase tracking-wider hover:text-stone-200" style={{ color: C.dim }}
+        <button type="button" className="text-dense font-mono hover:text-stone-200" style={{ color: C.dim }}
           onClick={() => setItems(list => list.map(it => ({ ...it, include: false })))}>Untick all</button>
-        <button type="button" className="text-dense font-mono uppercase tracking-wider hover:text-stone-200" style={{ color: C.dim }}
+        <button type="button" className="text-dense font-mono hover:text-stone-200" style={{ color: C.dim }}
           onClick={() => setItems(list => list.map(it => ({ ...it, apply: !!it.suggestions && it.apply === false })))}>Toggle suggestions</button>
       </div>
 
       <div className="rounded-sm overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-        <div className="grid items-center px-2 text-label font-mono uppercase tracking-wider" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+        <div className="grid items-center px-2 text-label font-mono uppercase" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
           <span /><span className="px-1 py-1.5">Name</span><span className="px-1">Type</span><span className="px-1">Size</span><span className="px-1">From the name</span><span className="px-1">Folder</span>
         </div>
         <div className="max-h-[46vh] overflow-y-auto">

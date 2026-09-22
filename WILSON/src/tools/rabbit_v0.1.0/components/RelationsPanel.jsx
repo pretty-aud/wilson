@@ -120,7 +120,7 @@ export default function RelationsPanel({
               ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
               : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
             <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
               Assets ({relatedAssets.length})
             </span>
             <button type="button"
@@ -136,7 +136,7 @@ export default function RelationsPanel({
             <div className="px-1 pb-1">
               {relatedAssets.length === 0 ? (
                 <div className="px-3 py-3 text-center">
-                  <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+                  <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                     No assets linked
                   </p>
                 </div>
@@ -150,7 +150,7 @@ export default function RelationsPanel({
                       <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
                         {a.name || 'Untitled'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded flex-shrink-0"
+                      <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
                         style={{ color: statusColor(a.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(a.status)}30` }}>
                         {fmt(a.status || 'not_started')}
                       </span>
@@ -179,7 +179,7 @@ export default function RelationsPanel({
               ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
               : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
             <ListChecks className="w-3.5 h-3.5" style={{ color: '#fbbf24' }} />
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fbbf24' }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fbbf24' }}>
               Tasks ({relatedTasks.length})
             </span>
             {onCreateTask && (
@@ -197,7 +197,7 @@ export default function RelationsPanel({
             <div className="px-1 pb-1">
               {relatedTasks.length === 0 ? (
                 <div className="px-3 py-3 text-center">
-                  <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+                  <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                     No tasks linked
                   </p>
                 </div>
@@ -220,7 +220,7 @@ export default function RelationsPanel({
                             </span>
                           )}
                         </div>
-                        <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded flex-shrink-0"
+                        <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
                           style={{ color: statusColor(t.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(t.status)}30` }}>
                           {fmt(t.status || 'waiting_to_start')}
                         </span>
@@ -237,7 +237,7 @@ export default function RelationsPanel({
         {relatedAssets.length === 0 && relatedTasks.length === 0 && (
           <div className="px-3 py-4 text-center">
             <Boxes className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-            <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+            <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
               No assets or tasks linked yet
             </p>
           </div>
@@ -273,7 +273,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
     <div className="absolute inset-0 z-30 flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+        <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
           Link Asset
         </span>
         <div className="flex-1" />
@@ -401,7 +401,7 @@ export function NewTaskSidePopup({
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
         <div className="flex items-center gap-2">
           <ListChecks className="w-4 h-4" style={{ color: '#fbbf24' }} />
-          <span className="text-dense font-mono font-bold" style={{ color: '#fbbf24' }}>New Task</span>
+          <span className="text-dense font-mono font-semibold" style={{ color: '#fbbf24' }}>New Task</span>
         </div>
         <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
           <X className="w-4 h-4" />
@@ -577,13 +577,13 @@ export function NewTaskSidePopup({
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
         <button type="button" onClick={onClose}
-          className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors hover:bg-stone-700"
+          className="px-3 py-1.5 text-dense font-mono rounded transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           Cancel
         </button>
         <button type="button" onClick={handleConfirm}
           disabled={!draft.title.trim()}
-          className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+          className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
           style={{
             color: draft.title.trim() ? '#fff7ed' : '#78716c',
             backgroundColor: draft.title.trim() ? '#ea580c' : '#292524',
@@ -597,7 +597,7 @@ export function NewTaskSidePopup({
 }
 
 function SideLabel({ children }) {
-  return <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>{children}</div>
+  return <div className="text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>{children}</div>
 }
 
 
@@ -714,7 +714,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                 : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
               <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
                 Scenes & Shots ({sceneShotCount})
               </span>
               <div className="ml-auto flex items-center gap-0.5">
@@ -739,7 +739,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
               <div className="px-1 pb-1">
                 {relScenes.length === 0 && orphanShots.length === 0 ? (
                   <div className="px-3 py-2 text-center">
-                    <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+                    <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                       No scenes or shots linked
                     </p>
                   </div>
@@ -796,7 +796,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                                   <span className="text-dense font-mono truncate flex-1" style={{ color: '#a8a29e' }}>
                                     {sh.name || 'Untitled'}
                                   </span>
-                                  <span className="px-1 py-0.5 text-label font-mono uppercase tracking-wider rounded flex-shrink-0"
+                                  <span className="px-1 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
                                     style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                                     {fmt(sh.status || 'not_started')}
                                   </span>
@@ -830,7 +830,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                             <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
                               {sh.name || 'Untitled'}
                             </span>
-                            <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded flex-shrink-0"
+                            <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
                               style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                               {fmt(sh.status || 'not_started')}
                             </span>
@@ -866,7 +866,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                   ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
                 <Icon className="w-3.5 h-3.5" style={{ color: sec.color }} />
-                <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: sec.color }}>
+                <span className="text-label font-mono uppercase font-semibold" style={{ color: sec.color }}>
                   {sec.label} ({sec.items.length})
                 </span>
                 <button type="button"
@@ -882,7 +882,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 <div className="px-1 pb-1">
                   {sec.items.length === 0 ? (
                     <div className="px-3 py-2 text-center">
-                      <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+                      <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                         No {sec.label.toLowerCase()} linked
                       </p>
                     </div>
@@ -895,7 +895,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                           <span className="text-dense font-mono truncate flex-1" style={{ color: '#d6d3d1' }}>
                             {item.name || 'Untitled'}
                           </span>
-                          <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded flex-shrink-0"
+                          <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
                             style={{ color: statusColor(item.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(item.status)}30` }}>
                             {fmt(item.status || 'not_started')}
                           </span>
@@ -1014,7 +1014,7 @@ export function RelationPickerPopup({
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-2">
             {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
-            <span className="text-dense font-mono font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>
               {title}
             </span>
             <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1070,7 +1070,7 @@ export function RelationPickerPopup({
                     {getName(item)}
                   </span>
                   {/* Status badge */}
-                  <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded flex-shrink-0"
+                  <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded flex-shrink-0"
                     style={{ color: statusColor(st), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(st)}30` }}>
                     {fmt(st)}
                   </span>
@@ -1083,7 +1083,7 @@ export function RelationPickerPopup({
         {/* Footer */}
         <div className="px-4 py-2.5 flex justify-end" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>

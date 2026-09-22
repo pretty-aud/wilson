@@ -61,8 +61,8 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
         {sceneHasFiles && <Chip active={sameSceneOnly} onClick={() => setSameSceneOnly(v => !v)} title={sameSceneOnly ? `Only files logged to this shot or its scene — switch off to see the ${hiddenByScene} other${hiddenByScene === 1 ? '' : 's'} too` : 'Only files logged to this shot or its scene'} count={hiddenByScene || null}><Film className="w-3 h-3" /> same scene only{hiddenByScene ? ' · hiding' : ''}</Chip>}
         {typesPresent.map(t => <Chip key={t} active={types.has(t)} color={MEDIA_TYPE_META[t].color + 'cc'} onClick={() => setTypes(s => { const x = new Set(s); if (x.has(t)) x.delete(t); else x.add(t); return x })}>{MEDIA_TYPE_META[t].label}</Chip>)}
         <span className="ml-auto flex items-center gap-2">
-          <button type="button" className="text-dense font-mono uppercase tracking-wider hover:text-stone-200" style={{ color: C.dim }} onClick={pickAllShown}>Tick all shown</button>
-          <button type="button" className="text-dense font-mono uppercase tracking-wider hover:text-stone-200" style={{ color: C.dim }} onClick={() => setPicked(new Set())}>Untick all</button>
+          <button type="button" className="text-dense font-mono hover:text-stone-200" style={{ color: C.dim }} onClick={pickAllShown}>Tick all shown</button>
+          <button type="button" className="text-dense font-mono hover:text-stone-200" style={{ color: C.dim }} onClick={() => setPicked(new Set())}>Untick all</button>
         </span>
       </div>
 
@@ -80,7 +80,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
             const on = locked || picked.has(file.id)
             return (
               <div key={file.id}>
-                {header && <div className="px-3 py-1 text-label font-mono uppercase tracking-wider" style={{ color: tier === 0 ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
+                {header && <div className="px-3 py-1 text-label font-mono uppercase" style={{ color: tier === 0 ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
                 <label className="flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" style={{ borderBottom: `1px solid ${C.faint}`, backgroundColor: on && !locked ? 'rgba(234,88,12,0.12)' : 'transparent', opacity: locked ? 0.6 : file.online === false ? 0.75 : 1 }}>
                   <input type="checkbox" className="accent-orange-600" checked={on} disabled={locked || busy} onChange={() => toggle(file.id)} />
                   <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={64} height={36} />
@@ -89,7 +89,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
                       <span className="truncate text-dense font-mono" style={{ color: C.bright }}>{file.display_name || file.original_name}</span>
                       <FlagMark flag={file.review_flag} circled={file.circled} size={11} />
                       <MediaTag type={file.media_type} small />
-                      {locked && <span className="text-label font-mono uppercase tracking-wider inline-flex items-center gap-1" style={{ color: C.accentText }}><Star className="w-2.5 h-2.5" /> assigned</span>}
+                      {locked && <span className="text-label font-mono uppercase inline-flex items-center gap-1" style={{ color: C.accentText }}><Star className="w-2.5 h-2.5" /> assigned</span>}
                     </div>
                     <div className="truncate text-dense font-mono" style={{ color: C.dim }}>
                       {[slateLine(file), techLine(file), binPathLabel(bins, file.bin_id)].filter(Boolean).join(' · ') || file.original_name}

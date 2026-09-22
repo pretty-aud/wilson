@@ -60,7 +60,7 @@ export default function IngestionToast({ onJumpToReview }) {
       >
         <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: accent === '#ea580c' ? '#fb923c' : accent === '#15803d' ? '#86efac' : '#fca5a5' }} />
         <span
-          className="flex-1 text-label font-mono uppercase tracking-widest font-bold truncate"
+          className="flex-1 text-label font-mono uppercase font-semibold truncate"
           style={{ color: '#fb923c' }}
         >
           {headline}
@@ -122,7 +122,7 @@ export default function IngestionToast({ onJumpToReview }) {
             onClick={() => {
               onJumpToReview?.()
             }}
-            className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',

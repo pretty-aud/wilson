@@ -60,15 +60,24 @@
  * every decision without trusting the codemod's own report.
  */
 
-/* ── Label evidence. The one signal that is never a judgment call. ─────────
-   `tracking-[0.06em]` and friends count: an arbitrary tracking value on a
-   small size is the same design intent as `tracking-wider`.
-   Measured on this codebase: of 855 sites this catches, 853 carry `uppercase`
-   outright, so the tracking arms are a safety net, not the rule. */
+/* ── Label evidence, and there is exactly one signal. ─────────────────────
+   `uppercase`. Not tracking.
+ *
+ * The first draft also accepted `tracking-wide|wider|widest|tight|tighter`
+ * and `tracking-[…]` on the reasoning that tracking on a small size is the
+ * same design intent as capitals. Measured: of the 855 sites that rule
+ * caught, 853 carried `uppercase` anyway, so the tracking arms decided
+ * exactly two sites — and the one they decided on their own, they decided
+ * WRONG. `ProjectSummaryView`'s shot-naming preview sets the generated name
+ * in `text-[11px] font-mono font-bold tracking-wide` next to a `Preview:`
+ * label. The tracking arm called the VALUE a label; it is data, and the
+ * label is the word beside it.
+ *
+ * Tracking is a typographic nicety an author reaches for on anything small.
+ * Capitals are a statement about what the text IS. Only the second one is
+ * evidence, and pass 2's own guard is what found this. */
 export const LABEL_EVIDENCE = [
   /\buppercase\b/,
-  /\btracking-(?:wide|wider|widest|tight|tighter)\b/,
-  /\btracking-\[[^\]]+\]/,
 ];
 
 /* ── THE ONE EXCEPTION TO "uppercase MEANS Label": A CONTROL IS A CONTROL.

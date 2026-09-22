@@ -222,7 +222,7 @@ export default function BudgetView() {
               }}
             >
               <Icon className="w-3 h-3" />
-              <span className="text-label font-mono uppercase tracking-wider">
+              <span className="text-label font-mono uppercase">
                 {t.label}
               </span>
             </button>
@@ -533,11 +533,11 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         >
           <ShieldCheck className="w-5 h-5 flex-shrink-0" style={{ color: '#4ade80' }} />
           <div className="flex-1 min-w-0">
-            <span className="text-label font-mono font-bold uppercase block" style={{ color: '#4ade80' }}>
+            <span className="text-label font-mono font-semibold uppercase block" style={{ color: '#4ade80' }}>
               Budget active — In production
             </span>
             <span className="text-dense font-mono block mt-0.5" style={{ color: '#86efac' }}>
-              Locked bid: <span className="font-bold">{lockedVersion.name}</span>
+              Locked bid: <span className="font-semibold">{lockedVersion.name}</span>
               {' '}· {lockedVersion.snapshot?.lockedAt
                 ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
                 : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
@@ -585,10 +585,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           {/* Base cost — read only */}
           <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
             style={{ backgroundColor: '#1c1917' }}>
-            <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#d6d3d1' }}>
+            <span className="text-label font-mono font-semibold uppercase" style={{ color: '#d6d3d1' }}>
               Base cost
             </span>
-            <div className="text-h2 font-mono font-bold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+            <div className="text-h2 font-mono font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay value={baseCost} currency={currency} style={{ color: '#d6d3d1' }} />
             </div>
           </div>
@@ -655,10 +655,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           {/* Grand total */}
           <div className="flex items-center justify-between py-4 px-4 rounded-sm"
             style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="text-h2 font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-h2 font-mono font-semibold" style={{ color: '#fb923c' }}>
               Grand Total
             </span>
-            <div className="text-h1 font-mono font-bold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+            <div className="text-h1 font-mono font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay
                 value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
                 currency={currency}
@@ -677,7 +677,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Actuals</span>
+            <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Actuals</span>
             <select
               value={project?.budget_actual_column_mode || 'fortnightly'}
               onChange={e => updateProjectField('budget_actual_column_mode', e.target.value)}
@@ -722,7 +722,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         {/* Create new bid */}
         <div className="flex items-end gap-2 mb-4">
           <div className="flex-1">
-            <span className="text-label font-mono uppercase tracking-widest block mb-1.5" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase block mb-1.5" style={{ color: '#fb923c' }}>
               Save current as bid version
             </span>
             <input
@@ -740,7 +740,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             type="button"
             onClick={createBidVersion}
             disabled={!versionName.trim() || isActive || versionBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono uppercase tracking-wider font-bold transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono font-semibold transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}
           >
             {versionBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
@@ -757,12 +757,12 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               className="grid grid-cols-12 gap-2 px-3 py-1.5"
               style={{ borderBottom: '1px solid #44403c' }}
             >
-              <span className="col-span-1 text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Active</span>
-              <span className="col-span-4 text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Name</span>
-              <span className="col-span-2 text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Date</span>
-              <span className="col-span-2 text-label font-mono uppercase tracking-widest text-right" style={{ color: '#78716c' }}>Total</span>
-              <span className="col-span-1 text-label font-mono uppercase tracking-widest text-right" style={{ color: '#78716c' }}>Days</span>
-              <span className="col-span-2 text-label font-mono uppercase tracking-widest text-right" style={{ color: '#78716c' }}>Actions</span>
+              <span className="col-span-1 text-label font-mono uppercase" style={{ color: '#78716c' }}>Active</span>
+              <span className="col-span-4 text-label font-mono uppercase" style={{ color: '#78716c' }}>Name</span>
+              <span className="col-span-2 text-label font-mono uppercase" style={{ color: '#78716c' }}>Date</span>
+              <span className="col-span-2 text-label font-mono uppercase text-right" style={{ color: '#78716c' }}>Total</span>
+              <span className="col-span-1 text-label font-mono uppercase text-right" style={{ color: '#78716c' }}>Days</span>
+              <span className="col-span-2 text-label font-mono uppercase text-right" style={{ color: '#78716c' }}>Actions</span>
             </div>
             {budgetVersions
               .slice()
@@ -802,7 +802,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                   }}>
                     {v.name}
                     {isActive && v.id === lockedVersionId && (
-                      <span className="ml-1.5 text-label uppercase tracking-wider px-1 py-0.5 rounded-sm"
+                      <span className="ml-1.5 text-label uppercase px-1 py-0.5 rounded-sm"
                         style={{ backgroundColor: '#166534', color: '#4ade80', border: '1px solid #22c55e' }}>
                         Locked
                       </span>
@@ -846,11 +846,11 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               border: `1px solid ${Math.abs(versionVariance.diff) < 0.01 ? '#44403c' : versionVariance.diff > 0 ? '#7f1d1d' : '#14532d'}`,
             }}
           >
-            <span className="text-label font-mono uppercase tracking-widest block mb-2" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase block mb-2" style={{ color: '#fb923c' }}>
               Variance vs active bid ({activeVersion?.name})
             </span>
             <div className="flex items-baseline gap-4">
-              <span className="text-h1 font-mono font-bold" style={{
+              <span className="text-h1 font-mono font-semibold" style={{
                 color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
               }}>
                 {versionVariance.diff > 0 ? '+' : ''}<CurrencyDisplay value={versionVariance.diff} currency={currency} />
@@ -872,7 +872,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <button
               type="button"
               onClick={() => setShowActivateConfirm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-dense font-mono uppercase tracking-wider font-bold transition-colors hover:brightness-110"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-dense font-mono font-semibold transition-colors hover:brightness-110"
               style={{ backgroundColor: '#14532d', color: '#4ade80', border: '1px solid #22c55e' }}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -887,11 +887,11 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <div className="flex items-start gap-3 mb-3">
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#fbbf24' }} />
               <div>
-                <span className="text-h3 font-mono font-bold block" style={{ color: '#fbbf24' }}>
+                <span className="text-h3 font-mono font-semibold block" style={{ color: '#fbbf24' }}>
                   Confirm: Set budget to active
                 </span>
                 <p className="text-dense font-mono mt-1.5 leading-relaxed" style={{ color: '#d6d3d1' }}>
-                  This will lock <span className="font-bold" style={{ color: '#fbbf24' }}>"{activeVersion?.name}"</span> as
+                  This will lock <span className="font-semibold" style={{ color: '#fbbf24' }}>"{activeVersion?.name}"</span> as
                   the approved bid for this project. A snapshot of all task counts, durations, and budget totals
                   will be frozen as the reference point for production.
                 </p>
@@ -905,7 +905,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               <button
                 type="button"
                 onClick={() => setShowActivateConfirm(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono uppercase tracking-wider transition-colors hover:bg-stone-800"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono transition-colors hover:bg-stone-800"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}
               >
                 Cancel
@@ -914,7 +914,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                 type="button"
                 onClick={activateBudget}
                 disabled={versionBusy}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm text-dense font-mono uppercase tracking-wider font-bold transition-colors hover:brightness-110"
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm text-dense font-mono font-semibold transition-colors hover:brightness-110"
                 style={{ backgroundColor: '#d97706', color: '#fff7ed', border: '1px solid #b45309' }}
               >
                 {versionBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
@@ -1063,12 +1063,12 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   function HeaderRow() {
     return (
       <div className="flex gap-2 px-2 py-1" style={{ borderBottom: '2px solid #57534e' }}>
-        <span className="flex-1 text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Category</span>
-        <span className="text-label font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
-        {agencyEnabled && <span className="text-label font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
-        <span className="text-label font-mono uppercase tracking-widest text-right font-bold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
-        <span className="text-label font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
-        <span className="text-label font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
+        <span className="flex-1 text-label font-mono uppercase" style={{ color: '#fb923c' }}>Category</span>
+        <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
+        {agencyEnabled && <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
+        <span className="text-label font-mono uppercase text-right font-semibold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
+        <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
+        <span className="text-label font-mono uppercase text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
       </div>
     )
   }
@@ -1077,10 +1077,10 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
     const v = actualTotal - bidTotal
     return (
       <div className="flex gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
-        <span className={`flex-1 text-dense font-mono truncate ${bold ? 'font-bold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
+        <span className={`flex-1 text-dense font-mono truncate ${bold ? 'font-semibold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
         <span className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
         {agencyEnabled && <span className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
-        <span className={`text-dense font-mono text-right ${bold ? 'font-bold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
+        <span className={`text-dense font-mono text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
         <span className="text-dense font-mono text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
         <span className="text-dense font-mono text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
           {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
@@ -1093,7 +1093,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
     return (
       <div className="flex items-center gap-2 px-2 pt-3 pb-1">
         {icon}
-        <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{label}</span>
+        <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>{label}</span>
       </div>
     )
   }
@@ -1136,12 +1136,12 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {/* ── Grand total ── */}
         <div className="mt-2" style={{ borderTop: '2px solid #fb923c' }}>
           <div className="flex gap-2 px-2 py-2.5 rounded-sm mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="flex-1 text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Grand Total</span>
-            <span className="text-dense font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
-            {agencyEnabled && <span className="text-dense font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
-            <span className="text-dense font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
-            <span className="text-dense font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
-            <span className="text-dense font-mono text-right font-bold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
+            <span className="flex-1 text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>Grand Total</span>
+            <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
+            {agencyEnabled && <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
+            <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
+            <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
+            <span className="text-dense font-mono text-right font-semibold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
               {grand.bidTotal > 0 || grand.actualTotal > 0 ? `${grand.variance > 0 ? '+' : ''}${fmtC(grand.variance)}` : '\u2014'}
             </span>
           </div>
@@ -1176,7 +1176,7 @@ function PctInput({ label, value, onChange, disabled }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+      <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
         {label}
       </span>
       <div
@@ -1195,7 +1195,7 @@ function PctInput({ label, value, onChange, disabled }) {
                 if (e.key === 'Enter') { e.preventDefault(); commit() }
                 else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
               }}
-              className="w-full px-2 py-1.5 text-body font-mono font-bold rounded-sm focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2 py-1.5 text-body font-mono font-semibold rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
             />
             <span className="absolute right-2 text-dense font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
@@ -1205,7 +1205,7 @@ function PctInput({ label, value, onChange, disabled }) {
             type="button"
             onClick={start}
             disabled={disabled}
-            className="absolute inset-0 text-right px-2 py-1.5 text-body font-mono font-bold rounded-sm transition-colors disabled:cursor-not-allowed"
+            className="absolute inset-0 text-right px-2 py-1.5 text-body font-mono font-semibold rounded-sm transition-colors disabled:cursor-not-allowed"
             style={{
               backgroundColor: '#1c1917',
               border: '1px solid #44403c',
@@ -1225,7 +1225,7 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
   return (
     <div className="flex items-baseline justify-between">
       <span
-        className={`text-label font-mono ${bold ? 'font-bold uppercase tracking-wider' : ''}`}
+        className={`text-label font-mono ${bold ? 'font-semibold uppercase' : ''}`}
         style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
       >
         {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
@@ -1234,7 +1234,7 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
       <CurrencyDisplay
         value={amount}
         currency={currency}
-        className={`font-mono ${bold ? 'font-bold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
+        className={`font-mono ${bold ? 'font-semibold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
         style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
       />
     </div>
@@ -1279,13 +1279,13 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
               if (e.key === 'Enter') { e.preventDefault(); commit() }
               else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
             }}
-            className="w-16 px-2 py-0.5 text-body font-mono font-bold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
+            className="w-16 px-2 py-0.5 text-body font-mono font-semibold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
           />
         ) : (
           <button
             type="button" onClick={start} disabled={disabled}
-            className="px-2 py-0.5 text-body font-mono font-bold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
+            className="px-2 py-0.5 text-body font-mono font-semibold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
             style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
           >
             {pct}%
@@ -1333,7 +1333,7 @@ function InlinePct({ value, onChange, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-14 px-1.5 py-0.5 text-dense font-mono font-bold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
+        className="w-14 px-1.5 py-0.5 text-dense font-mono font-semibold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
       />
     )
@@ -1342,7 +1342,7 @@ function InlinePct({ value, onChange, disabled }) {
   return (
     <button
       type="button" onClick={start} disabled={disabled}
-      className="px-1.5 py-0.5 text-dense font-mono font-bold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
+      className="px-1.5 py-0.5 text-dense font-mono font-semibold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
       style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
     >
       {value}%
@@ -1667,12 +1667,12 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
               className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-sm text-dense font-mono items-center"
               style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
             >
-              <span className="font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
+              <span className="font-semibold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
               <span style={{ color: '#a8a29e' }}>{filteredTasks.length}</span>
               <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
               <span />
               <span />
-              <CurrencyDisplay value={totalCost} currency={budget.currency} className="font-bold" style={{ color: '#d6d3d1' }} />
+              <CurrencyDisplay value={totalCost} currency={budget.currency} className="font-semibold" style={{ color: '#d6d3d1' }} />
             </div>
           </>
         )}
@@ -2137,7 +2137,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
       <div className="flex items-center gap-3 px-1 flex-wrap">
         {/* New expense */}
         <button type="button" onClick={handleCreate}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> New expense
         </button>
@@ -2156,7 +2156,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
           <Filter className="w-3.5 h-3.5" /> Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
@@ -2172,7 +2172,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           </select>
           {sortField && (
             <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="px-2 py-1.5 text-dense font-mono uppercase rounded-sm hover:bg-stone-700 transition-colors"
+              className="px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
             </button>
@@ -2200,7 +2200,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 
         {/* Reset margin/contingency */}
         <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Reset M/C
         </button>
@@ -2217,7 +2217,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           )}
         </div>
 
-        <span className="text-label font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
+        <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
       </div>
 
       {/* Filter panel */}
@@ -2236,7 +2236,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         {expSomeSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 32, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
               {expSelected.size} selected
             </span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
@@ -2263,7 +2263,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         </div>
         {COL_HEADER.map((col, i) => (
           <div key={i}
-            className={`text-label font-mono uppercase tracking-widest ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
+            className={`text-label font-mono uppercase ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
             style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
             onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
           >
@@ -2281,7 +2281,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           {groups.map(g => (
             <div key={g.key}>
               <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-sm" style={{ backgroundColor: '#292524', borderLeft: '3px solid #fb923c' }}>
-                <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{g.label}</span>
+                <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
                 <span className="ml-auto text-dense font-mono" style={{ color: '#a8a29e' }}>
                   Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#a8a29e' }} />
@@ -2307,7 +2307,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div className="fixed inset-0 z-[90] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteConfirmId(null)} />
           <div className="relative rounded-sm p-5 flex flex-col gap-3" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 360 }}>
-            <div className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-red-400" /><span className="text-h3 font-bold" style={{ color: '#fca5a5' }}>Delete Expense</span></div>
+            <div className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-red-400" /><span className="text-h3 font-semibold" style={{ color: '#fca5a5' }}>Delete Expense</span></div>
             <p className="text-dense font-mono" style={{ color: '#a8a29e' }}>This will permanently remove this expense. You can undo with Ctrl+Z.</p>
             <div className="flex justify-end gap-2 mt-1">
               <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
@@ -2323,7 +2323,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded-sm p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..." onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
               className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
@@ -2402,13 +2402,13 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
+        <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
         <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
+        <label className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Margin %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
@@ -2418,7 +2418,7 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
+        <label className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Contingency %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
@@ -2429,10 +2429,10 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider font-bold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-dense font-mono font-semibold rounded-sm"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono rounded-sm"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Default
         </button>
@@ -2493,13 +2493,13 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Done</button>
         )}
       </div>
@@ -2521,7 +2521,7 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -2641,7 +2641,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         <div className="flex items-center justify-between px-5 py-3 border-b-2 border-stone-600 flex-shrink-0" style={{ backgroundColor: '#1c1917' }}>
           <div className="flex items-center gap-2">
             <Receipt className="w-5 h-5 text-orange-400" />
-            <span className="text-label font-bold text-orange-400 uppercase tracking-wide">{isEdit ? 'Edit Expense' : 'New Expense'}</span>
+            <span className="text-label font-semibold text-orange-400 uppercase">{isEdit ? 'Edit Expense' : 'New Expense'}</span>
           </div>
           <button type="button" onClick={onClose} className="p-1 rounded hover:bg-stone-700 transition-colors"><X className="w-5 h-5" style={{ color: '#a8a29e' }} /></button>
         </div>
@@ -2650,7 +2650,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Title */}
           <div className="flex flex-col gap-1">
-            <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Title *</label>
+            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Title *</label>
             <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Software License, Equipment Rental" autoFocus
               className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
@@ -2659,19 +2659,19 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
           {/* Costs row: Estimated + Actual + Variance display */}
           <div className="flex gap-4">
             <div className="flex flex-col gap-1 flex-1">
-              <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
+              <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
               <input type="number" step="0.01" min="0" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} placeholder="0.00"
                 className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
             <div className="flex flex-col gap-1 flex-1">
-              <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
+              <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
               <input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder="0.00"
                 className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
             <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
-              <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Variance</label>
+              <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Variance</label>
               <div className="px-3 py-2 text-dense font-mono rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 {est > 0 ? (
                   <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
@@ -2684,7 +2684,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
           {/* Date */}
           <div className="flex flex-col gap-1" style={{ maxWidth: 220 }}>
-            <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Purchase Date</label>
+            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Purchase Date</label>
             <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
               className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
@@ -2692,7 +2692,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
           {/* Description */}
           <div className="flex flex-col gap-1">
-            <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Description / Reason</label>
+            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Description / Reason</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Why was this expense incurred?" rows={3}
               className="px-3 py-2 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500 resize-none"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
@@ -2700,7 +2700,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
           {/* Relations */}
           <div className="flex flex-col gap-2">
-            <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Related Items</label>
+            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Related Items</label>
             <div className="space-y-2">
               <RelationPicker label="Assets" icon={<Boxes className="w-3 h-3" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
               <RelationPicker label="Phases" icon={<Layers className="w-3 h-3" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
@@ -2710,7 +2710,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 
           {/* File upload */}
           <div className="flex flex-col gap-2">
-            <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
+            <label className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
             {allFiles.length > 0 && (
               <div className="flex flex-col gap-1">
                 {allFiles.map(f => (
@@ -2742,7 +2742,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
             <button type="button" onClick={handleSubmit} disabled={!title.trim() || busy}
-              className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>{busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}</button>
           </div>
         </div>
@@ -2814,7 +2814,7 @@ function Card({ title, children }) {
   return (
     <div className="rounded-sm p-5 mb-4" style={{ border: '1px solid #44403c' }}>
       {title && (
-        <h3 className="text-label font-mono uppercase tracking-widest font-bold mb-4 px-1" style={{ color: '#fb923c' }}>
+        <h3 className="text-label font-mono uppercase font-semibold mb-4 px-1" style={{ color: '#fb923c' }}>
           {title}
         </h3>
       )}
@@ -2832,8 +2832,8 @@ function BigTile({ label, value, hint, tone = 'neutral' }) {
   return (
     <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-label font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-label font-mono uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
+      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       {hint && <span className="text-dense font-mono mt-0.5" style={{ color: colors.label }}>{hint}</span>}
     </div>
   )
@@ -2861,7 +2861,7 @@ function HeaderRow({ cols, sixCol }) {
   return (
     <div className={`grid ${sixCol ? 'grid-cols-6' : 'grid-cols-3'} gap-2 px-3 py-1.5`} style={{ borderBottom: '1px solid #44403c' }}>
       {cols.map(c => (
-        <span key={c} className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>{c}</span>
+        <span key={c} className="text-label font-mono uppercase" style={{ color: '#78716c' }}>{c}</span>
       ))}
     </div>
   )
@@ -2882,7 +2882,7 @@ function VarianceCell({ value }) {
 function Field({ label, children }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>{label}</span>
+      <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>{label}</span>
       {children}
     </div>
   )
@@ -2908,7 +2908,7 @@ function Select({ value, onChange, options, colorFn }) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+      className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: colorFn ? colorFn(value) : '#d6d3d1' }}
     >
       {options.map(o => <option key={o.value} value={o.value} style={colorFn ? { color: colorFn(o.value) } : undefined}>{o.label}</option>)}
@@ -2919,7 +2919,7 @@ function Select({ value, onChange, options, colorFn }) {
 function CenterMsg({ children }) {
   return (
     <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-      <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{children}</span>
+      <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>{children}</span>
     </div>
   )
 }

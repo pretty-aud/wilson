@@ -97,7 +97,7 @@ const cardStyle = {
   border: '1px solid rgba(120, 70, 30, 0.3)',
 }
 const darkBtnClass =
-  'flex items-center gap-1.5 px-3 py-1.5 text-label font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40'
+  'flex items-center gap-1.5 px-3 py-1.5 text-label font-semibold uppercase rounded-sm transition-colors disabled:opacity-40'
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 const lightInputStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.55)',
@@ -110,7 +110,7 @@ const inputClass =
 function ThLight({ children }) {
   return (
     <th
-      className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left"
+      className="px-3 py-2 text-label font-semibold uppercase text-left"
       style={{ color: '#57534e' }}
     >
       {children}
@@ -163,7 +163,7 @@ function StorageCell({ plan }) {
       <span className="text-dense" style={{ color: '#78716c' }}>/{formatBytes(plan.quota_bytes)}</span>
       {held && (
         <span
-          className="ml-1.5 px-1.5 py-0.5 text-label font-bold uppercase tracking-wider rounded-sm"
+          className="ml-1.5 px-1.5 py-0.5 text-label font-semibold uppercase rounded-sm"
           style={{ backgroundColor: 'rgba(180,83,9,0.15)', color: AMBER }}
           title="Petal cloud uploads are suspended for this company. Nothing stored has been deleted."
         >
@@ -269,7 +269,7 @@ export default function CompaniesSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-label font-bold uppercase tracking-widest text-stone-900">Companies</h2>
+          <h2 className="text-label font-semibold uppercase text-stone-900">Companies</h2>
           <p className="text-dense text-stone-950 leading-relaxed">
             Every workspace on the platform. Counts are live.
           </p>
@@ -339,7 +339,7 @@ export default function CompaniesSection({ isActive }) {
                 <TdLight>
                   <span className="text-dense font-semibold text-stone-900">{r.name}</span>
                   {r.deleted_at && (
-                    <span className="ml-2 px-1.5 py-0.5 text-label font-bold uppercase tracking-wider rounded-sm"
+                    <span className="ml-2 px-1.5 py-0.5 text-label font-semibold uppercase rounded-sm"
                       style={{ backgroundColor: 'rgba(220,38,38,0.15)', color: '#991b1b' }}>
                       Suspended
                     </span>
@@ -368,7 +368,7 @@ export default function CompaniesSection({ isActive }) {
         <div className="p-4 rounded-sm mb-4" style={{ backgroundColor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#991b1b' }}>
+              <p className="text-label font-semibold uppercase mb-1" style={{ color: '#991b1b' }}>
                 {tornDown.slug} torn down
               </p>
               {/* Honest counts. `removed` is what the bucket actually deleted,
@@ -388,7 +388,7 @@ export default function CompaniesSection({ isActive }) {
             </div>
             <button
               onClick={() => setTornDown(null)}
-              className="px-2 py-1 text-dense font-bold uppercase tracking-wider rounded-sm flex-shrink-0"
+              className="px-2 py-1 text-dense font-semibold rounded-sm flex-shrink-0"
               style={{ backgroundColor: 'transparent', color: '#57534e' }}
             >
               Dismiss
@@ -520,7 +520,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
   return (
     <div className="p-4 rounded-sm" style={cardStyle}>
-      <h3 className="text-label font-bold uppercase tracking-widest text-stone-900 mb-1">{row.name}</h3>
+      <h3 className="text-label font-semibold uppercase text-stone-900 mb-1">{row.name}</h3>
       <p className="text-dense text-stone-950 mb-4 leading-relaxed">
         <code className="font-mono">{row.slug}</code> · created{' '}
         {new Date(row.created_at).toLocaleDateString()} ·{' '}
@@ -534,7 +534,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
       {/* Rename — the slug is immutable by trigger and part of sign-in. */}
       <div className="flex items-end gap-2 mb-4">
         <div className="flex-1">
-          <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+          <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
             Display name
           </label>
           <input
@@ -568,7 +568,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           server refuses with `email_synthesized` rather than mailing a
           reserved-domain address into the void. */}
       <div className="mb-4">
-        <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+        <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
           Setup link
         </label>
         <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
@@ -596,7 +596,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
               </p>
             ) : (
               <p className="text-dense mb-2 leading-relaxed" style={{ color: '#57534e' }}>
-                Goes to <code className="font-mono font-bold">{contact.email}</code>
+                Goes to <code className="font-mono font-semibold">{contact.email}</code>
                 {contact.username && <> (<code className="font-mono">{contact.username}</code>)</>}.
                 Type it below to confirm.
               </p>
@@ -681,7 +681,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
       {/* Per-company Anthropic key. */}
       <div className="mb-2 pt-3" style={{ borderTop: '1px solid rgba(120,70,30,0.25)' }}>
-        <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+        <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
           Anthropic key
         </label>
         <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
@@ -743,7 +743,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           above the teardown rule — Fitts's Law, same as everything else the
           operator does more than once a year. Every control goes through run(). */}
       <div className="mb-2 pt-3" style={{ borderTop: '1px solid rgba(120,70,30,0.25)' }}>
-        <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+        <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
           Petal cloud storage
         </label>
 
@@ -818,7 +818,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
         <div className="flex items-end gap-2 mb-2">
           <div>
-            <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+            <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
               Quota (GB)
             </label>
             <input
@@ -920,7 +920,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
       <div className="mt-6 pt-4" style={{ borderTop: '1px solid rgba(220,38,38,0.35)' }}>
         {tearStage === 'confirm' ? (
           <div>
-            <p className="text-label font-bold uppercase tracking-wider mb-2" style={{ color: '#dc2626' }}>
+            <p className="text-label font-semibold uppercase mb-2" style={{ color: '#dc2626' }}>
               Permanently destroy {row.name}?
             </p>
             {/* Cognitive Bias: real numbers, not "are you sure?". */}
@@ -934,7 +934,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
               deleted — people who were only in this company keep a login with
               no workspace.
             </p>
-            <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+            <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
               Type <code className="font-mono">{row.slug}</code> to confirm
             </label>
             <div className="flex items-center gap-2">
@@ -976,7 +976,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           </div>
         ) : (
           <button
-            className="px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense font-semibold rounded-sm transition-colors"
             style={{ backgroundColor: 'transparent', color: '#dc2626', border: '1px solid rgba(220,38,38,0.5)' }}
             onClick={() => setTearStage('confirm')}
           >
@@ -1025,7 +1025,7 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
         className="w-full"
         style={{ maxWidth: '440px', backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '20px 22px' }}
       >
-        <h3 className="text-label font-bold uppercase tracking-widest mb-1" style={{ color: '#f4a261' }}>
+        <h3 className="text-label font-semibold uppercase mb-1" style={{ color: '#f4a261' }}>
           New company
         </h3>
         <p className="text-dense mb-4 leading-relaxed" style={{ color: '#a8a29e' }}>
@@ -1047,7 +1047,7 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
           { label: 'Admin email (optional)', value: email, set: setEmail, mono: true },
         ].map((f) => (
           <div key={f.label} className="mb-3">
-            <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+            <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>
               {f.label}
             </label>
             <input
@@ -1123,7 +1123,7 @@ function CredentialsDialog({ payload, onClose }) {
         className="w-full"
         style={{ maxWidth: '440px', backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '20px 22px' }}
       >
-        <h3 className="text-label font-bold uppercase tracking-widest mb-1" style={{ color: '#f4a261' }}>
+        <h3 className="text-label font-semibold uppercase mb-1" style={{ color: '#f4a261' }}>
           Company created
         </h3>
         {/* Zeigarnik: this is the only time the password exists anywhere. The

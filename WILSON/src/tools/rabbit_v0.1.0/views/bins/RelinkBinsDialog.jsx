@@ -94,7 +94,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
           </div>
           {roots?.length > 0 && (
             <div className="rounded-sm" style={{ border: `1px solid ${C.line}` }}>
-              <div className="px-2 py-1 text-label font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Known folders — scanned on open after a drive is plugged back in; scan one now, or forget it</div>
+              <div className="px-2 py-1 text-label font-mono uppercase" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Known folders — scanned on open after a drive is plugged back in; scan one now, or forget it</div>
               {roots.map(r => (
                 <div key={r.id} className="flex items-center gap-2 px-2 py-1 text-dense font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <span className="flex-1 truncate" style={{ color: C.text }} title={r.path}>{r.path}</span>

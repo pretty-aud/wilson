@@ -162,7 +162,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Eye className="w-5 h-5" style={{ color: '#fb923c' }} />
-          <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
             Client View
           </span>
           <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -170,7 +170,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
           </span>
         </div>
         <button type="button" onClick={handlePrint}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <Printer className="w-3.5 h-3.5" /> Print / Export
         </button>
@@ -178,18 +178,18 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
       {/* Preview card */}
       <div ref={printRef} className="rounded-sm p-6" style={{ backgroundColor: '#fafaf9', border: '1px solid #d6d3d1' }}>
-        <h2 className="text-h1 font-mono font-bold uppercase tracking-wider mb-1" style={{ color: '#1c1917' }}>
+        <h2 className="text-h1 font-mono font-semibold mb-1" style={{ color: '#1c1917' }}>
           {project?.title || 'Project'}
         </h2>
         <p className="text-dense font-mono mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
 
         <div className="flex gap-8 mb-5 text-dense font-mono">
           <div>
-            <span className="text-label uppercase tracking-widest block" style={{ color: '#78716c' }}>Project Code</span>
+            <span className="text-label uppercase block" style={{ color: '#78716c' }}>Project Code</span>
             <span style={{ color: '#1c1917' }}>{project?.project_code || '--'}</span>
           </div>
           <div>
-            <span className="text-label uppercase tracking-widest block" style={{ color: '#78716c' }}>Date</span>
+            <span className="text-label uppercase block" style={{ color: '#78716c' }}>Date</span>
             <span style={{ color: '#1c1917' }}>{new Date().toLocaleDateString()}</span>
           </div>
         </div>
@@ -198,10 +198,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #1c1917' }}>
-              <th className="text-left text-label font-mono uppercase tracking-widest py-2 px-3" style={{ color: '#44403c' }}>
+              <th className="text-left text-label font-mono uppercase py-2 px-3" style={{ color: '#44403c' }}>
                 Item
               </th>
-              <th className="text-right text-label font-mono uppercase tracking-widest py-2 px-3" style={{ color: '#44403c' }}>
+              <th className="text-right text-label font-mono uppercase py-2 px-3" style={{ color: '#44403c' }}>
                 Estimate
               </th>
             </tr>
@@ -242,8 +242,8 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
             {/* Grand total */}
             <tr style={{ borderTop: '2px solid #1c1917' }}>
-              <td className="text-dense font-mono font-bold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
-              <td className="text-dense font-mono font-bold text-right py-3 px-3" style={{ color: '#1c1917' }}>
+              <td className="text-dense font-mono font-semibold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
+              <td className="text-dense font-mono font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
                 {fmtCurrency(grandTotal, currency)}
               </td>
             </tr>

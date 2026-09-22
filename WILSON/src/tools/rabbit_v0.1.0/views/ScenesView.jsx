@@ -712,7 +712,7 @@ export default function ScenesView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
           No project loaded
         </span>
       </div>
@@ -737,7 +737,7 @@ export default function ScenesView() {
         <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           {['scenes', 'shots'].map(m => (
             <button key={m} type="button" onClick={() => setContentMode(m)}
-              className="px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+              className="px-2.5 py-1.5 text-dense font-mono transition-colors"
               style={{
                 color: contentMode === m ? '#fff7ed' : '#78716c',
                 backgroundColor: contentMode === m ? '#ea580c' : 'transparent',
@@ -749,7 +749,7 @@ export default function ScenesView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -760,7 +760,7 @@ export default function ScenesView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 150 }}>
             <option value="">Sort…</option>
             {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -776,13 +776,13 @@ export default function ScenesView() {
         <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
         {contentMode === 'scenes' ? (
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
             {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         ) : (
           <select value={shotGroupBy} onChange={e => setShotGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: shotGroupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
             {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -793,12 +793,12 @@ export default function ScenesView() {
         {/* View mode toggle */}
         <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{ color: viewMode === 'table' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent' }}>
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{ color: viewMode === 'gallery' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent' }}>
             <LayoutGrid className="w-3 h-3" /> Gallery
           </button>
@@ -841,7 +841,7 @@ export default function ScenesView() {
         )}
 
         {/* FPS badge */}
-        <span className="px-2 py-1 text-label font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+        <span className="px-2 py-1 text-label font-mono uppercase rounded-sm flex-shrink-0"
           style={{ color: '#fb923c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
           {fps} fps
         </span>
@@ -880,7 +880,7 @@ export default function ScenesView() {
         {/* Actions */}
         <div className="ml-auto flex items-center gap-1.5">
           <button type="button" onClick={handleNewScene}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:brightness-110"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded-sm transition-colors hover:brightness-110"
             style={{
               color: contentMode === 'scenes' ? '#fff7ed' : '#78716c',
               backgroundColor: contentMode === 'scenes' ? '#ea580c' : 'transparent',
@@ -897,7 +897,7 @@ export default function ScenesView() {
                 if (scenes.length > 1) setShotPickerOpen(o => !o)
               }}
               disabled={scenes.length === 0}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded-sm transition-colors hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
               style={{
                 color: contentMode === 'shots' ? '#fff7ed' : '#78716c',
                 backgroundColor: contentMode === 'shots' ? '#ea580c' : 'transparent',
@@ -909,7 +909,7 @@ export default function ScenesView() {
             {shotPickerOpen && scenes.length > 1 && (
               <div className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
                 style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 200, maxHeight: 260 }}>
-                <div className="px-3 py-1.5 text-label font-mono uppercase tracking-wider" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
+                <div className="px-3 py-1.5 text-label font-mono uppercase" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
                   Add shot to scene:
                 </div>
                 <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
@@ -956,7 +956,7 @@ export default function ScenesView() {
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
           <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
           <button type="button" onClick={() => setShowSaveDialog(false)}
             className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
@@ -972,7 +972,7 @@ export default function ScenesView() {
         <div className="flex items-center gap-2 px-4 py-1.5 text-dense font-mono flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917', color: '#f59e0b' }}>
           <span className="flex-1 truncate">{takesNotice}</span>
           <button type="button" onClick={() => { setTakesNotice(null); ctxRef.current?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`)) }}
-            className="px-2 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700" style={{ border: '1px solid #44403c', color: '#d6d3d1' }}>Retry</button>
+            className="px-2 py-0.5 text-dense font-mono rounded-sm hover:bg-stone-700" style={{ border: '1px solid #44403c', color: '#d6d3d1' }}>Retry</button>
           <button type="button" onClick={() => setTakesNotice(null)} className="p-0.5 rounded-sm hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
         </div>
       )}
@@ -1018,7 +1018,7 @@ export default function ScenesView() {
                     {collapsedGroups.has(g.key)
                       ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                       : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                    <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
+                    <span className="text-label font-mono uppercase font-semibold" style={{ color: groupAccent(g.key) }}>
                       {g.label}
                     </span>
                     <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1171,8 +1171,8 @@ function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
       <div className="flex flex-col min-w-0">
-        <span className="text-label font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+        <span className="text-label font-mono uppercase" style={{ color: colors.label }}>{label}</span>
+        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       </div>
     </div>
   )
@@ -1227,7 +1227,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   if (scenes.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
           No scenes yet
         </span>
       </div>
@@ -1244,22 +1244,22 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
            : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
         <span className="w-7" />
-        <span style={{ width: tw }} className="text-label font-mono uppercase tracking-widest text-center flex-shrink-0" />
-        <span className="w-14 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
-        <span className="w-48 text-label font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
-        <span className="w-36 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
-        <span className="w-20 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="flex-1 text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Description</span>
-        <span className="w-28 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Runtime</span>
-        <span className="w-20 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Frames</span>
+        <span style={{ width: tw }} className="text-label font-mono uppercase text-center flex-shrink-0" />
+        <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
+        <span className="w-48 text-label font-mono uppercase flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
+        <span className="w-36 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Status</span>
+        <span className="w-28 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Time of Day</span>
+        <span className="w-20 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Type</span>
+        <span className="flex-1 text-label font-mono uppercase" style={{ color: '#78716c' }}>Description</span>
+        <span className="w-28 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Runtime</span>
+        <span className="w-20 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Frames</span>
         <span className="w-14" />
 
         {/* Bulk action bar */}
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
             <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
@@ -1360,7 +1360,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 <select
                   value={sc.status || 'not_started'}
                   onChange={e => ctx?.updateScene?.(sc.id, { status: e.target.value })}
-                  className="w-full px-1 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{
                     color: statusColor(sc.status),
                     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1376,7 +1376,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 <select
                   value={sc.time_of_day || ''}
                   onChange={e => ctx?.updateScene?.(sc.id, { time_of_day: e.target.value || null })}
-                  className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{ color: sc.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                   onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                   onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -1391,7 +1391,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 <select
                   value={sc.type || 'interior'}
                   onChange={e => ctx?.updateScene?.(sc.id, { type: e.target.value })}
-                  className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{ color: '#a8a29e', border: '1px solid transparent' }}
                   onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                   onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -1444,14 +1444,14 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   return (
                     <div className="sticky top-0 z-20 flex items-center gap-3 px-3 py-1.5 rounded-sm mb-0.5"
                       style={{ backgroundColor: '#292524', border: '1px solid #fb923c' }}>
-                      <span className="text-dense font-mono font-bold" style={{ color: '#fb923c' }}>
+                      <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>
                         {selInScene.length} selected
                       </span>
                       <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
                       <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
                       <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
                       <button type="button" onClick={bulkDeleteNestedShots}
-                        className="ml-auto px-2 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-red-900/30 transition-colors"
+                        className="ml-auto px-2 py-0.5 text-dense font-mono rounded-sm hover:bg-red-900/30 transition-colors"
                         style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
                         <Trash2 className="w-3 h-3 inline-block mr-1" /> Delete
                       </button>
@@ -1537,7 +1537,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Status */}
                     <span className="w-36 flex justify-center flex-shrink-0">
                       <select value={shot.status || 'not_started'} onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                         {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                       </select>
@@ -1545,7 +1545,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Time of Day */}
                     <span className="w-28 flex justify-center flex-shrink-0">
                       <select value={shot.time_of_day || ''} onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1556,7 +1556,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Type */}
                     <span className="w-20 flex justify-center flex-shrink-0">
                       <select value={shot.type || 'other'} onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: '#78716c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1582,7 +1582,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Camera Movement */}
                     <span className="w-28 flex justify-center flex-shrink-0">
                       <select value={shot.camera_movement || ''} onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1626,7 +1626,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 })}
                 {/* Add shot row */}
                 <button type="button" onClick={() => onNewShot(sc.id)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800/40 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-800/40 transition-colors"
                   style={{ color: '#57534e', border: '1px dashed #292524' }}>
                   <Plus className="w-3 h-3" /> Add shot
                 </button>
@@ -1648,7 +1648,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
   if (scenes.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
           No scenes yet
         </span>
       </div>
@@ -1681,7 +1681,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
             </div>
             {/* Info */}
             <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <span className="text-dense font-mono truncate font-bold" style={{ color: '#d6d3d1' }}>
+              <span className="text-dense font-mono truncate font-semibold" style={{ color: '#d6d3d1' }}>
                 {sc.name || 'Untitled scene'}
               </span>
               {sc.description && (
@@ -1698,7 +1698,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
                     {fmt(sc.time_of_day)}
                   </span>
                 )}
-                <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm"
+                <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm"
                   style={{ color: statusColor(sc.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sc.status)}30` }}>
                   {fmt(sc.status || 'not_started')}
                 </span>
@@ -1757,7 +1757,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
           No shots yet — create a scene first, then add shots
         </span>
       </div>
@@ -1774,26 +1774,26 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
            : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
         <span style={{ width: tw }} className="flex-shrink-0" />
-        <span className="w-14 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
-        <span className="w-48 text-label font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
-        {takes?.supports && <span className="w-44 text-label font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
-        <span className="w-36 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
-        <span className="w-20 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="w-20 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Framing</span>
-        <span className="w-28 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Cam Move</span>
-        <span className="flex-1 text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Description</span>
-        <span className="w-28 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Duration</span>
-        <span className="w-20 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Frames</span>
-        <span className="w-24 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Start</span>
-        <span className="w-24 text-label font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>End</span>
+        <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
+        <span className="w-48 text-label font-mono uppercase flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
+        {takes?.supports && <span className="w-44 text-label font-mono uppercase flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
+        <span className="w-36 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Status</span>
+        <span className="w-28 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Time of Day</span>
+        <span className="w-20 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Type</span>
+        <span className="w-20 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Framing</span>
+        <span className="w-28 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Cam Move</span>
+        <span className="flex-1 text-label font-mono uppercase" style={{ color: '#78716c' }}>Description</span>
+        <span className="w-28 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Duration</span>
+        <span className="w-20 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Frames</span>
+        <span className="w-24 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>Start</span>
+        <span className="w-24 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>End</span>
         <span className="w-14" />
 
         {/* Bulk action bar */}
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
             <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
@@ -1826,7 +1826,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                   ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
                 <Film className="w-3 h-3" style={{ color: '#fb923c' }} />
-                <span className="text-dense font-mono font-bold truncate" style={{ color: '#fb923c' }}>
+                <span className="text-dense font-mono font-semibold truncate" style={{ color: '#fb923c' }}>
                   {g.label}
                 </span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1856,7 +1856,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                   ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
                 <Layers className="w-3 h-3" style={{ color: '#a8a29e' }} />
-                <span className="text-dense font-mono font-bold truncate" style={{ color: '#a8a29e' }}>
+                <span className="text-dense font-mono font-semibold truncate" style={{ color: '#a8a29e' }}>
                   {g.label}
                 </span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1957,7 +1957,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.status || 'not_started'}
                         onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{
                           color: statusColor(shot.status),
                           backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1972,7 +1972,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.time_of_day || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1986,7 +1986,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.type || 'other'}
                         onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: '#a8a29e', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -2018,7 +2018,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.camera_movement || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -2106,7 +2106,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                 {/* Add shot row */}
                 {g.scene && (
                   <button type="button" onClick={() => onNewShot(g.sceneId)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800/40 transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-800/40 transition-colors"
                     style={{ color: '#57534e', border: '1px dashed #292524' }}>
                     <Plus className="w-3 h-3" /> Add shot
                   </button>
@@ -2129,7 +2129,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
           No shots yet
         </span>
       </div>
@@ -2145,7 +2145,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
             {/* Scene group header */}
             <div className="flex items-center gap-2 mb-3">
               <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+              <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
                 {g.label}
               </span>
               <span className="text-dense font-mono" style={{ color: '#57534e' }}>
@@ -2199,7 +2199,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                   </div>
                   {/* Info */}
                   <div className="px-3 py-2.5 flex flex-col gap-1">
-                    <span className="text-dense font-mono truncate font-bold" style={{ color: '#d6d3d1' }}>
+                    <span className="text-dense font-mono truncate font-semibold" style={{ color: '#d6d3d1' }}>
                       {shot.name || 'Untitled shot'}
                     </span>
                     {shot.description && (
@@ -2211,7 +2211,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                       <span className="text-dense font-mono" style={{ color: '#78716c' }}>
                         #{shot.shot_number ?? '—'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm"
+                      <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm"
                         style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                         {fmt(shot.status || 'not_started')}
                       </span>
@@ -2350,10 +2350,10 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
             <Film className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-mono font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-h3 font-mono font-semibold" style={{ color: '#fb923c' }}>
               {scene.name || 'Untitled scene'}
             </span>
-            <span className="text-label font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+            <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded-sm"
               style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               {sceneCode}
             </span>
@@ -2479,7 +2479,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <div>
               <FieldLabel>Shots / Assets / Tasks</FieldLabel>
               <div className="flex items-center gap-2">
-                <span className="text-dense font-mono font-bold" style={{ color: '#d6d3d1' }}>
+                <span className="text-dense font-mono font-semibold" style={{ color: '#d6d3d1' }}>
                   {sceneShots.length}
                 </span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -2520,11 +2520,11 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-dense font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-dense font-mono text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}
-                    className="text-dense font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-dense font-mono text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
@@ -2549,11 +2549,11 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-dense font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-dense font-mono text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}
-                    className="text-dense font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-dense font-mono text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
@@ -2600,13 +2600,13 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <div className="flex items-center justify-between mb-2">
               <FieldLabel>Shots ({sceneShots.length})</FieldLabel>
               <button type="button" onClick={() => onNewShot(sceneId)}
-                className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+                className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
                 style={{ color: '#fb923c', border: '1px solid #44403c' }}>
                 <Plus className="w-3 h-3" /> Add shot
               </button>
             </div>
             {sceneShots.length === 0 ? (
-              <div className="px-3 py-4 text-center text-label font-mono uppercase tracking-wider rounded-sm"
+              <div className="px-3 py-4 text-center text-label font-mono uppercase rounded-sm"
                 style={{ color: '#57534e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 No shots yet
               </div>
@@ -2638,7 +2638,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                         {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
                       </span>
                     )}
-                    <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+                    <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm flex-shrink-0"
                       style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                       {fmt(shot.status || 'not_started')}
                     </span>
@@ -2660,12 +2660,12 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button"
             onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-red-900/30"
             style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
             <Trash2 className="w-3 h-3" /> Delete scene
           </button>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Close
           </button>
@@ -2784,10 +2784,10 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
             <Clapperboard className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-mono font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-h3 font-mono font-semibold" style={{ color: '#fb923c' }}>
               {shot.name || 'Untitled shot'}
             </span>
-            <span className="text-label font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+            <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded-sm"
               style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               {shotCode}
             </span>
@@ -2847,7 +2847,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                     <span className="text-label font-mono uppercase" style={{ color: takeFallback ? '#d6d3d1' : undefined }}>Set thumbnail</span>
                   </div>
                   {!takeFallback && <Clapperboard className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />}
-                  {takeFallback && <span className="absolute bottom-0 left-0 right-0 text-label font-mono uppercase tracking-wider text-center py-px group-hover/thumb:opacity-0 transition-opacity" style={{ color: '#fb923c', backgroundColor: 'rgba(12,10,9,0.75)' }}>from primary take</span>}
+                  {takeFallback && <span className="absolute bottom-0 left-0 right-0 text-label font-mono uppercase text-center py-px group-hover/thumb:opacity-0 transition-opacity" style={{ color: '#fb923c', backgroundColor: 'rgba(12,10,9,0.75)' }}>from primary take</span>}
                 </button>
               )}
             </div>
@@ -2981,11 +2981,11 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-dense font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-dense font-mono text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}
-                    className="text-dense font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-dense font-mono text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
@@ -3010,11 +3010,11 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-dense font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-dense font-mono text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}
-                    className="text-dense font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-dense font-mono text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
@@ -3078,12 +3078,12 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button"
             onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-red-900/30"
             style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
             <Trash2 className="w-3 h-3" /> Delete shot
           </button>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Close
           </button>
@@ -3106,7 +3106,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
-            <span className="text-dense font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
+            <span className="text-dense font-mono font-semibold" style={{ color: '#ef4444' }}>{title}</span>
           </div>
         </div>
         <div className="px-5 py-4">
@@ -3116,12 +3116,12 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
         </div>
         <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Cancel
           </button>
           <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-red-800"
             style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>
             Delete
           </button>
@@ -3188,12 +3188,12 @@ function SceneFilterPanel({ filters, filterFields, onAdd, onUpdate, onRemove, on
       })}
       <div className="flex items-center gap-2">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3 h-3" /> Add filter
         </button>
         <button type="button" onClick={onClose}
-          className="px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="px-2.5 py-1 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#78716c', border: '1px solid #44403c' }}>
           Done
         </button>
@@ -3251,7 +3251,7 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
             )}
           </div>
           <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
-            className="w-full px-3 py-2 text-dense font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors text-left"
+            className="w-full px-3 py-2 text-dense font-mono hover:bg-stone-700 transition-colors text-left"
             style={{ color: '#fb923c', borderTop: '1px solid #44403c' }}>
             <Save className="w-3 h-3 inline-block mr-1.5" /> Save current view
           </button>
@@ -3266,7 +3266,7 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
 function SceneBulkSelect({ label, options, onPick }) {
   return (
     <select defaultValue="" onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm bg-transparent cursor-pointer"
+      className="px-2 py-0.5 text-dense font-mono rounded-sm bg-transparent cursor-pointer"
       style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
       <option value="" disabled>{label}</option>
       {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
@@ -3349,7 +3349,7 @@ function PopupInlineText({ value, placeholder, onCommit }) {
 // ─── FieldLabel ───
 function FieldLabel({ children }) {
   return (
-    <span className="block text-label font-mono uppercase tracking-widest font-medium mb-1" style={{ color: '#78716c' }}>
+    <span className="block text-label font-mono uppercase font-semibold mb-1" style={{ color: '#78716c' }}>
       {children}
     </span>
   )

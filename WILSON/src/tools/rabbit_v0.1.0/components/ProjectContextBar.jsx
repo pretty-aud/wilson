@@ -57,15 +57,15 @@ export default function ProjectContextBar() {
       <Folder className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
 
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
           Project
         </span>
-        <span className="text-dense font-mono font-bold truncate" style={{ color: project ? '#d6d3d1' : '#78716c' }}>
+        <span className="text-dense font-mono font-semibold truncate" style={{ color: project ? '#d6d3d1' : '#78716c' }}>
           {project?.title || (activeProjectId ? 'Loading…' : 'No project selected')}
         </span>
         {status && (
           <span
-            className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+            className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm flex-shrink-0"
             style={{
               color: '#fff7ed',
               backgroundColor: statusColor,
@@ -82,7 +82,7 @@ export default function ProjectContextBar() {
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+          className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors"
           style={{
             color: '#a8a29e',
             backgroundColor: '#292524',
@@ -133,7 +133,7 @@ export default function ProjectContextBar() {
                           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{
                             backgroundColor: p.status === 'active' ? '#15803d' : p.status === 'archived' ? '#57534e' : p.status === 'wrapped' ? '#15803d' : '#ea580c',
                           }} />
-                          <span className="text-label uppercase tracking-wider" style={{
+                          <span className="text-label uppercase" style={{
                             color: p.status === 'active' ? '#4ade80' : p.status === 'archived' ? '#78716c' : p.status === 'wrapped' ? '#4ade80' : '#fb923c',
                           }}>
                             {p.status}

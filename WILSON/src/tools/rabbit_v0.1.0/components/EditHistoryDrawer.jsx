@@ -90,7 +90,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
           <History className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
           <div className="flex-1 min-w-0">
-            <div className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+            <div className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
               Edit history
             </div>
             <div className="text-dense font-mono truncate" style={{ color: '#78716c' }}>
@@ -176,7 +176,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
     <div className="rounded px-3 py-2.5 flex flex-col gap-1.5"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2">
-        <span className="text-label font-mono uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-sm flex-shrink-0"
+        <span className="text-label font-mono uppercase font-semibold px-1.5 py-0.5 rounded-sm flex-shrink-0"
           style={{ color: meta.color, border: `1px solid ${meta.color}`, opacity: 0.9 }}>
           {meta.label}
         </span>

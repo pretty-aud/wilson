@@ -337,7 +337,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
       style={{ left: 26, bottom: 13, zIndex: 50 }}
     >
       <span
-        className="text-label font-mono uppercase tracking-wider font-bold px-1 py-px rounded-sm"
+        className="text-label font-mono uppercase font-semibold px-1 py-px rounded-sm"
         title={realtimeStatus === 'live'
           ? 'Live sync connected — edits from teammates appear instantly'
           : realtimeStatus === 'error'
@@ -362,7 +362,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
           <span
             key={u.user_id || u.label}
             title={u.label || 'Member'}
-            className="flex items-center justify-center rounded-full text-dense font-mono font-bold"
+            className="flex items-center justify-center rounded-full text-dense font-mono font-semibold"
             style={{
               width: 16, height: 16,
               color: '#fff7ed',
@@ -395,7 +395,7 @@ function NoProjectPlaceholder({ onPickSummary }) {
       <button
         type="button"
         onClick={onPickSummary}
-        className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+        className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors"
         style={{
           color: '#fff7ed',
           backgroundColor: '#ea580c',

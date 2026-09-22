@@ -158,7 +158,7 @@ export default function OperatorLogin({ onSignedIn }) {
       <div className="w-full" style={{ maxWidth: '380px' }}>
         <div className="mb-6">
           <h1
-            className="text-label font-bold uppercase tracking-widest"
+            className="text-label font-semibold uppercase"
             style={{ color: '#f4a261' }}
           >
             WILSON Operator Console
@@ -175,7 +175,7 @@ export default function OperatorLogin({ onSignedIn }) {
         >
           {stage === 'auth' ? (
             <>
-              <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+              <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>
                 Email
               </label>
               <input
@@ -187,7 +187,7 @@ export default function OperatorLogin({ onSignedIn }) {
                 className="w-full px-3 py-2 mb-4 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
-              <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+              <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>
                 Password
               </label>
               <input
@@ -202,7 +202,7 @@ export default function OperatorLogin({ onSignedIn }) {
             </>
           ) : (
             <>
-              <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+              <label className="block text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>
                 Authenticator code
               </label>
               <input
@@ -228,7 +228,7 @@ export default function OperatorLogin({ onSignedIn }) {
           <button
             type="submit"
             disabled={busy}
-            className="w-full mt-5 px-3 py-2 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="w-full mt-5 px-3 py-2 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             {busy ? 'Working…' : stage === 'auth' ? 'Sign in' : 'Verify'}

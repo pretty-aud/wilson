@@ -181,7 +181,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
             <ListChecks className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-mono font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-h3 font-mono font-semibold" style={{ color: '#fb923c' }}>
               {task.title || 'Untitled task'}
             </span>
           </div>
@@ -295,7 +295,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 {!linkedAsset && !linkedShot && !(scenesOn && linkedScene) && (
                   <div className="px-3 py-6 text-center">
                     <FolderOpen className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-                    <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+                    <p className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                       Link an asset, scene, or shot to see files here
                     </p>
                   </div>
@@ -597,7 +597,7 @@ function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColo
           ? <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
           : <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />}
         {Icon && <Icon className="w-3 h-3 flex-shrink-0" style={{ color: accentColor || '#fb923c' }} />}
-        <span className="text-label font-mono uppercase tracking-wider truncate" style={{ color: accentColor || '#fb923c' }}>
+        <span className="text-label font-mono uppercase truncate" style={{ color: accentColor || '#fb923c' }}>
           {label}
         </span>
       </button>
@@ -615,7 +615,7 @@ function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColo
 function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setEditingFileName, setFileNameDraft, setFileNameOverride }) {
   return (
     <div className="mb-2">
-      <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+      <div className="text-label font-mono uppercase mb-1" style={{ color: '#57534e' }}>
         Upload file name
       </div>
       {editingFileName ? (
@@ -646,7 +646,7 @@ function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setE
 // ── Field label ──
 function FieldLabel({ children }) {
   return (
-    <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+    <div className="text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>
       {children}
     </div>
   )
@@ -666,13 +666,13 @@ function PopupInlineText({ value, placeholder, onCommit }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-2.5 py-1.5 text-body font-mono font-bold rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-2.5 py-1.5 text-body font-mono font-semibold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-body font-mono font-bold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded transition-colors"
+      className="text-body font-mono font-semibold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded transition-colors"
       style={{ color: value ? '#fb923c' : '#57534e' }}>
       {value || placeholder || '\u2014'}
     </button>

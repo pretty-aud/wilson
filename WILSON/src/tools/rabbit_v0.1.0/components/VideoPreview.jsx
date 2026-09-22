@@ -141,7 +141,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
           className="flex items-center justify-between gap-4 px-3 py-1.5"
           style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
         >
-          <span className="text-label font-mono uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono uppercase truncate" style={{ color: '#fb923c' }}>
             {label}
           </span>
           <button
@@ -165,7 +165,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
                 <button
                   type="button"
                   onClick={() => { onOpenExternally(); onClose?.() }}
-                  className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm hover:brightness-110"
+                  className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm hover:brightness-110"
                   style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 >
                   <ExternalLink className="w-3 h-3" />

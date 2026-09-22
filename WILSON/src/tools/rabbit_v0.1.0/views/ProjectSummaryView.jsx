@@ -218,7 +218,7 @@ export default function ProjectSummaryView() {
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
           Loading project…
         </span>
       </div>
@@ -231,11 +231,11 @@ export default function ProjectSummaryView() {
         <div className="p-6 flex flex-col gap-4">
           <Card title="All projects" icon={LayoutGrid}>
             <div className="flex items-center justify-between mb-3">
-              <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+              <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                 {allProjects.length} project{allProjects.length !== 1 ? 's' : ''}
               </span>
               <button type="button" onClick={handleNewProject} disabled={creating}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-50"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
                 <Plus className="w-3.5 h-3.5" />
                 {creating ? 'Creating…' : 'New project'}
@@ -270,14 +270,14 @@ export default function ProjectSummaryView() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Settings className="w-4 h-4" style={{ color: '#fb923c' }} />
-              <span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
+              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
                 Project Control Panel
               </span>
             </div>
             <button
               type="button"
               onClick={() => setShowSettings(false)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono uppercase tracking-wider transition-colors hover:brightness-110"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono transition-colors hover:brightness-110"
               style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
             >
               <LayoutDashboard className="w-3 h-3" /> Dashboard
@@ -292,7 +292,7 @@ export default function ProjectSummaryView() {
         <div className="rounded-sm px-5 py-3.5" style={{ backgroundColor: '#0c0a09', border: '1px solid #292524' }}>
           <div className="flex items-center gap-2.5 mb-3">
             <LayoutGrid className="w-4 h-4" style={{ color: '#a8a29e' }} />
-            <span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#a8a29e' }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#a8a29e' }}>
               Projects
             </span>
             <span className="text-dense font-mono" style={{ color: '#57534e' }}>
@@ -323,7 +323,7 @@ export default function ProjectSummaryView() {
                   >
                     {/* Title */}
                     <div className="flex items-center gap-2 w-full">
-                      <span className="flex-1 text-dense font-mono font-bold truncate text-left" style={{ color: isActive ? '#fb923c' : '#d6d3d1' }}>
+                      <span className="flex-1 text-dense font-mono font-semibold truncate text-left" style={{ color: isActive ? '#fb923c' : '#d6d3d1' }}>
                         {p.title || 'Untitled'}
                       </span>
                       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: stColor }} />
@@ -334,7 +334,7 @@ export default function ProjectSummaryView() {
                         {p.client_name || '—'}
                       </span>
                       {pType && (
-                        <span className="text-label font-mono uppercase tracking-wider flex-shrink-0" style={{ color: '#57534e' }}>
+                        <span className="text-label font-mono uppercase flex-shrink-0" style={{ color: '#57534e' }}>
                           {pType}
                         </span>
                       )}
@@ -350,10 +350,10 @@ export default function ProjectSummaryView() {
         <Card>
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+              <div className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
                 Project
               </div>
-              <h1 className="text-h1 font-mono font-bold" style={{ color: '#d6d3d1' }}>
+              <h1 className="text-h1 font-mono font-semibold" style={{ color: '#d6d3d1' }}>
                 {project.title}
               </h1>
               {project.description && (
@@ -386,7 +386,7 @@ export default function ProjectSummaryView() {
                     return (
                       <div className="flex items-center gap-1.5">
                         <Film className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>Director</span>
+                        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>Director</span>
                         <span className="text-dense font-mono" style={{ color: '#d6d3d1' }}>{d?.name || '—'}</span>
                       </div>
                     )
@@ -396,7 +396,7 @@ export default function ProjectSummaryView() {
                     return (
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>Producer</span>
+                        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>Producer</span>
                         <span className="text-dense font-mono" style={{ color: '#d6d3d1' }}>{p?.name || '—'}</span>
                       </div>
                     )
@@ -408,7 +408,7 @@ export default function ProjectSummaryView() {
               <button
                 type="button"
                 onClick={() => setShowSettings(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono uppercase tracking-wider transition-colors hover:brightness-110 flex-shrink-0"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense font-mono transition-colors hover:brightness-110 flex-shrink-0"
                 style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
               >
                 <Settings className="w-3 h-3" /> Control Panel
@@ -424,7 +424,7 @@ export default function ProjectSummaryView() {
           {/* Project folder path */}
           <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
             <FolderOpen className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-            <span className="text-label font-mono uppercase tracking-wider flex-shrink-0" style={{ color: '#78716c' }}>
+            <span className="text-label font-mono uppercase flex-shrink-0" style={{ color: '#78716c' }}>
               Folder:
             </span>
             {project.folder_root ? (
@@ -437,7 +437,7 @@ export default function ProjectSummaryView() {
                   onClick={() => {
                     window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })
                   }}
-                  className="text-dense font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  className="text-dense font-mono px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
                   style={{ color: '#fb923c', border: '1px solid #44403c' }}
                 >
                   Open
@@ -458,7 +458,7 @@ export default function ProjectSummaryView() {
                     const res = await pickAndSetProjectFolder(ctx, project)
                     if (!res.ok && res.error) setFolderMsg(res.error)
                   }}
-                  className="text-dense font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  className="text-dense font-mono px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
                   style={{ color: '#a8a29e', border: '1px solid #44403c' }}
                 >
                   Change
@@ -502,7 +502,7 @@ export default function ProjectSummaryView() {
                       border: '1px solid #44403c',
                     }}
                   >
-                    <span className="text-dense font-mono font-bold" style={{ color: '#ea580c' }}>
+                    <span className="text-dense font-mono font-semibold" style={{ color: '#ea580c' }}>
                       {String(i + 1).padStart(2, '0')}
                     </span>
                     <span className="text-dense font-mono" style={{ color: '#d6d3d1' }}>{p.name}</span>
@@ -589,7 +589,7 @@ export default function ProjectSummaryView() {
           </div>
           {Object.keys(budget.byRole).length > 0 && (
             <div className="mt-4 flex flex-col gap-1">
-              <div className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+              <div className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
                 By role
               </div>
               {Object.values(budget.byRole)
@@ -666,11 +666,11 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         <div className="px-6 py-5" style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-3 mb-1">
             <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}60` }} />
-            <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
+            <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
               {project.status || 'draft'} / {project.project_type?.replace(/_/g, ' ') || 'untyped'} / {project.project_tier || 'untiered'}
             </span>
           </div>
-          <h2 className="text-h1 font-mono font-bold mt-3" style={{ color: '#f5f5f4' }}>
+          <h2 className="text-h1 font-mono font-semibold mt-3" style={{ color: '#f5f5f4' }}>
             {project.title || 'Untitled Project'}
           </h2>
           {project.description && (
@@ -821,14 +821,14 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         }}>
           <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.scenes_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.scenes_enabled ? SECTION_ACCENT : '#57534e'}` }}>
             <Film className="w-3.5 h-3.5" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-label font-mono uppercase tracking-widest font-bold flex-1" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }}>
+            <span className="text-label font-mono uppercase font-semibold flex-1" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }}>
               Scenes & Shots
             </span>
             <SettingsToggle checked={project.scenes_enabled} onChange={v => update('scenes_enabled', v)} />
           </div>
           {project.scenes_enabled && (
             <div className="flex flex-col gap-3 p-4">
-              <span className="text-label font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Naming conventions</span>
+              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>Naming conventions</span>
               <div className="grid grid-cols-2 gap-3">
                 <SettingsField label="Scene digits">
                   <SettingsNumberInput value={project.scene_digits ?? 3} onChange={v => { const n = parseInt(v, 10); if (Number.isFinite(n) && n >= 1 && n <= 5) update('scene_digits', n) }} placeholder="3" min={1} max={5} />
@@ -845,8 +845,8 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
               </div>
               {/* Naming preview */}
               <div className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ backgroundColor: '#0c0a09', border: '1px solid #44403c' }}>
-                <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Preview:</span>
-                <span className="text-label font-mono font-bold tracking-wide" style={{ color: '#fb923c' }}>
+                <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Preview:</span>
+                <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>
                   {/* Session 25: built by the SAME function the Scenes view
                       names with (../entityNaming), so the preview cannot
                       drift from what the New Shot button actually produces.
@@ -862,7 +862,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
 
               <div style={{ height: 1, backgroundColor: '#44403c', margin: '4px 0' }} />
 
-              <span className="text-label font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Timing</span>
+              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>Timing</span>
               <div className="grid grid-cols-2 gap-3">
                 <SettingsField label="Frames per second">
                   <SettingsSelect
@@ -886,7 +886,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         }}>
           <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.levels_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.levels_enabled ? SECTION_ACCENT : '#57534e'}` }}>
             <Gamepad2 className="w-3.5 h-3.5" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-label font-mono uppercase tracking-widest font-bold flex-1" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }}>
+            <span className="text-label font-mono uppercase font-semibold flex-1" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }}>
               Levels
             </span>
             <SettingsToggle checked={project.levels_enabled} onChange={v => {
@@ -948,7 +948,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         }}>
           <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.experiences_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.experiences_enabled ? SECTION_ACCENT : '#57534e'}` }}>
             <Sparkles className="w-3.5 h-3.5" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-label font-mono uppercase tracking-widest font-bold flex-1" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }}>
+            <span className="text-label font-mono uppercase font-semibold flex-1" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }}>
               Experiences
             </span>
             <SettingsToggle checked={project.experiences_enabled} onChange={v => update('experiences_enabled', v)} />
@@ -1056,7 +1056,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           {project?.folder_root && (
             <button type="button"
               onClick={() => window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })}
-              className="text-dense font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+              className="text-dense font-mono px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
               style={{ color: SECTION_ACCENT, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               Open
             </button>
@@ -1070,7 +1070,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
                   const res = await pickAndSetProjectFolder(ctx, project)
                   if (!res.ok && res.error) setFolderMsg(res.error)
                 }}
-                className="text-dense font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+                className="text-dense font-mono px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
                 style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 Change
               </button>
@@ -1100,7 +1100,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
             <button type="button"
               onClick={() => { update?.('files_dir', null); refreshMissing() }}
               title="Files resolve from the project folder again; relink afterwards if they moved"
-              className="text-dense font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+              className="text-dense font-mono px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
               style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               Reset
             </button>
@@ -1113,14 +1113,14 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
 
       {/* ── Files ── */}
       <div className="flex items-center justify-between">
-        <span className="text-label font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Project files</span>
+        <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>Project files</span>
         <div className="flex items-center gap-2">
           <input ref={fileInputRef} type="file" multiple onChange={handleUpload} className="hidden" />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-dense font-mono uppercase tracking-wider transition-all hover:brightness-125"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-dense font-mono transition-all hover:brightness-125"
             style={{ backgroundColor: SECTION_ACCENT, color: '#1c1917' }}
           >
             <Upload className="w-3 h-3" />
@@ -1146,7 +1146,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
             {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
           </span>
           <button type="button" onClick={() => setRelinkOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-dense font-mono uppercase tracking-wider transition-all hover:brightness-125 flex-shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-dense font-mono transition-all hover:brightness-125 flex-shrink-0"
             style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
             <FolderSearch className="w-3 h-3" /> Relink…
           </button>
@@ -1198,7 +1198,7 @@ function SettingsSection({ title, icon: Icon, accent, children }) {
     <div className="rounded-lg overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: '1px solid #44403c', borderLeft: `3px solid ${color}` }}>
         {Icon && <Icon className="w-4 h-4" style={{ color }} />}
-        <h3 className="text-label font-mono uppercase tracking-widest font-bold" style={{ color }}>
+        <h3 className="text-label font-mono uppercase font-semibold" style={{ color }}>
           {title}
         </h3>
       </div>
@@ -1210,7 +1210,7 @@ function SettingsSection({ title, icon: Icon, accent, children }) {
 function SettingsField({ label, hint, children }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-label font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>{label}</span>
+      <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>{label}</span>
       {children}
       {hint && <span className="text-dense font-mono" style={{ color: '#57534e' }}>{hint}</span>}
     </div>
@@ -1326,13 +1326,13 @@ function ProjectMiniCard({ project, active, onClick }) {
           ? <Check className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#fb923c' }} />
           : <Folder className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#78716c' }} />}
         <span
-          className="flex-1 text-dense font-mono font-bold truncate"
+          className="flex-1 text-dense font-mono font-semibold truncate"
           style={{ color: active ? '#fb923c' : '#d6d3d1' }}
         >
           {project.title || 'Untitled'}
         </span>
         <span
-          className="px-1 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+          className="px-1 py-0.5 text-label font-mono uppercase rounded-sm flex-shrink-0"
           style={{
             color: '#fff7ed',
             backgroundColor: statusColor,
@@ -1361,7 +1361,7 @@ function Card({ title, icon: Icon, children }) {
       {title && (
         <div className="flex items-center gap-2 mb-3">
           {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
-          <h3 className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
+          <h3 className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
             {title}
           </h3>
         </div>
@@ -1375,7 +1375,7 @@ function StatusPill({ status }) {
   const color = status === 'active' ? '#15803d' : status === 'archived' ? '#57534e' : '#ea580c'
   return (
     <span
-      className="px-2 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm"
+      className="px-2 py-0.5 text-label font-mono uppercase rounded-sm"
       style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
     >
       {status || 'draft'}
@@ -1393,7 +1393,7 @@ function StatusDropdown({ status, onChange }) {
       <select
         value={current}
         onChange={e => onChange(e.target.value)}
-        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-dense font-mono uppercase tracking-wider rounded-sm focus:ring-1 focus:ring-orange-500"
+        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
         style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
       >
         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -1411,8 +1411,8 @@ function Stat({ icon: Icon, label, value }) {
     >
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
       <div className="flex flex-col leading-tight min-w-0">
-        <span className="text-h3 font-mono font-bold truncate" style={{ color: '#d6d3d1' }}>{value}</span>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{label}</span>
+        <span className="text-h3 font-mono font-semibold truncate" style={{ color: '#d6d3d1' }}>{value}</span>
+        <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>{label}</span>
       </div>
     </div>
   )
@@ -1433,7 +1433,7 @@ function ListRow({ title, tag, hint, danger }) {
       )}
       {tag && (
         <span
-          className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm"
+          className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm"
           style={{
             color: danger ? '#fff7ed' : '#fb923c',
             backgroundColor: danger ? '#7f1d1d' : '#1c1917',
@@ -1458,10 +1458,10 @@ function BudgetTile({ label, value, hint, tone = 'neutral' }) {
       className="flex flex-col px-3.5 py-2.5 rounded-sm"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
     >
-      <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#a8a29e' }}>
+      <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
         {label}
       </span>
-      <span className="text-h1 font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       {hint && (
         <span className="text-dense font-mono" style={{ color: '#78716c' }}>{hint}</span>
       )}

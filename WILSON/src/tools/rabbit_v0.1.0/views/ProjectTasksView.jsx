@@ -520,7 +520,7 @@ export default function ProjectTasksView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>No project loaded</span>
+        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>No project loaded</span>
       </div>
     )
   }
@@ -542,7 +542,7 @@ export default function ProjectTasksView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -551,7 +551,7 @@ export default function ProjectTasksView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -571,7 +571,7 @@ export default function ProjectTasksView() {
         {/* Group */}
         <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
           onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: (viewMode === 'kanban' ? kanbanGroup : groupBy) ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -581,7 +581,7 @@ export default function ProjectTasksView() {
         {/* View mode toggle — segmented control */}
         <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -589,7 +589,7 @@ export default function ProjectTasksView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('kanban')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{
               backgroundColor: viewMode === 'kanban' ? '#ea580c' : 'transparent',
               color: viewMode === 'kanban' ? '#fff7ed' : '#78716c',
@@ -625,7 +625,7 @@ export default function ProjectTasksView() {
         {/* Right: count, phase, new task */}
         <div className="flex items-center gap-2 ml-auto">
 
-          <span className="text-label font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {processed.length}/{tasks.length}
           </span>
 
@@ -636,7 +636,7 @@ export default function ProjectTasksView() {
             onClick={handleExportCsv}
             disabled={processed.length === 0}
             title={processed.length === 0 ? 'Nothing to export in the current view' : 'Export the current view as CSV'}
-            className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800 disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800 disabled:opacity-40"
             style={{ color: '#78716c', border: '1px solid #44403c' }}
           >
             <Download className="w-3.5 h-3.5" /> Export
@@ -651,7 +651,7 @@ export default function ProjectTasksView() {
           <GatedAction allowed={canWrite}>
             {/* Phase create */}
             <button type="button" onClick={() => setShowPhaseCreate(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               <Plus className="w-3.5 h-3.5" /> Phase
             </button>
@@ -660,7 +660,7 @@ export default function ProjectTasksView() {
           <GatedAction allowed={canWrite}>
             {/* Key date create */}
             <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
               <Diamond className="w-3.5 h-3.5" /> Key Date
             </button>
@@ -668,7 +668,7 @@ export default function ProjectTasksView() {
 
           <GatedAction allowed={canWrite}>
             <button type="button" onClick={() => handleAddTask()}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono rounded transition-colors"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               <Plus className="w-3.5 h-3.5" /> New task
             </button>
@@ -738,7 +738,7 @@ export default function ProjectTasksView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
@@ -762,7 +762,7 @@ export default function ProjectTasksView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowPhaseCreate(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Create phase</span>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Create phase</span>
             <input autoFocus type="text" value={newPhaseName} onChange={e => setNewPhaseName(e.target.value)}
               placeholder="Phase name..."
               onKeyDown={e => { if (e.key === 'Enter') handleCreatePhase() }}
@@ -876,13 +876,13 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -910,7 +910,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -1009,7 +1009,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
             {/* One wrapper for the whole bulk group rather than six. It must
@@ -1047,7 +1047,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
           </button>
         </div>
         {columns.map(c => (
-          <div key={c.key} className="px-3.5 py-2.5 text-label font-mono uppercase tracking-wider font-semibold text-left"
+          <div key={c.key} className="px-3.5 py-2.5 text-label font-mono uppercase font-semibold text-left"
             style={{ color: '#a8a29e', flex: c.flex, minWidth: 0 }}>
             {c.label}
           </div>
@@ -1144,7 +1144,7 @@ function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-dense font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-dense font-mono rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1236,7 +1236,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
               readOnly={!canWrite}
             />
             <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Start</span>
+              <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>Start</span>
               <input
                 type="date"
                 value={phase.start_date || ''}
@@ -1246,7 +1246,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#292524', color: phase.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
-              <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>End</span>
+              <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>End</span>
               <input
                 type="date"
                 value={phase.end_date || ''}
@@ -1265,7 +1265,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         ) : (
           /* ── Standard group header ── */
           <button type="button" onClick={onToggle} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
-            <span className="text-label font-mono uppercase tracking-wider font-bold"
+            <span className="text-label font-mono uppercase font-semibold"
               style={{ color: groupAccent }}>
               {group.label}
             </span>
@@ -1306,7 +1306,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
   }
   if (readOnly) {
     return (
-      <span className="text-label font-mono uppercase tracking-wider font-bold truncate"
+      <span className="text-label font-mono uppercase font-semibold truncate"
         style={{ color: accent }}>
         {value || 'Untitled phase'}
       </span>
@@ -1321,7 +1321,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
         onBlur={commit}
         onClick={e => e.stopPropagation()}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="px-1.5 py-0.5 text-dense font-mono uppercase tracking-wider font-bold rounded focus:ring-2 focus:ring-orange-500"
+        className="px-1.5 py-0.5 text-dense font-mono font-semibold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: accent, border: '1px solid #44403c', minWidth: 80 }}
       />
     )
@@ -1329,7 +1329,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
   return (
     <button type="button"
       onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true) }}
-      className="text-dense font-mono uppercase tracking-wider font-bold hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors truncate"
+      className="text-dense font-mono font-semibold hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors truncate"
       style={{ color: accent }}
       title="Click to rename phase">
       {value || 'Untitled'}
@@ -1734,7 +1734,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
       <div className="px-3.5 py-3 flex items-center justify-between"
         style={{ borderBottom: `3px solid ${headerAccent}`, flexShrink: 0 }}>
         <div className="flex items-center gap-2.5">
-          <span className="text-label font-mono uppercase tracking-wider font-bold"
+          <span className="text-label font-mono uppercase font-semibold"
             style={{ color: headerAccent }}>
             {group.label}
           </span>
@@ -1811,7 +1811,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Title + actions */}
       <div className="flex items-start justify-between gap-2">
-        <span className="text-dense font-mono leading-snug font-medium" style={{ color: '#e7e5e4' }}>
+        <span className="text-dense font-mono leading-snug" style={{ color: '#e7e5e4' }}>
           {task.title || 'Untitled task'}
         </span>
         <div className="flex items-center gap-0.5 flex-shrink-0"
@@ -1835,11 +1835,11 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Status + Priority */}
       <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-label font-mono uppercase tracking-wider font-semibold" style={{ color: sc }}>
+        <span className="text-label font-mono uppercase font-semibold" style={{ color: sc }}>
           {fmt(task.status || 'waiting_to_start')}
         </span>
         <span style={{ color: '#44403c' }}>&middot;</span>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: pc }}>
+        <span className="text-label font-mono uppercase" style={{ color: pc }}>
           {fmt(task.priority || 'medium')}
         </span>
       </div>
@@ -1952,8 +1952,8 @@ function TaskBigTile({ icon: Icon, label, value, tone = 'neutral' }) {
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
       <div className="flex flex-col min-w-0">
-        <span className="text-label font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+        <span className="text-label font-mono uppercase" style={{ color: colors.label }}>{label}</span>
+        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       </div>
     </div>
   )

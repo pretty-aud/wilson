@@ -40,7 +40,7 @@ export function Btn({ children, onClick, primary = false, danger = false, disabl
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 ${small ? 'px-2 py-1 text-dense' : 'px-3 py-1.5 text-dense'} font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${className}`}
+      className={`inline-flex items-center gap-1.5 ${small ? 'px-2 py-1 text-dense' : 'px-3 py-1.5 text-dense'} font-mono rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${className}`}
       style={{ ...base, ...style }}
       {...rest}
     >
@@ -76,7 +76,7 @@ export function MediaTag({ type, small = false, onClick, title }) {
     <span
       onClick={onClick}
       title={title || meta.label}
-      className={`inline-flex items-center rounded-sm font-mono uppercase tracking-wider ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
+      className={`inline-flex items-center rounded-sm font-mono uppercase ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
       style={{ color: meta.color, backgroundColor: meta.bg, border: `1px solid ${meta.color}33` }}
     >
       {small ? meta.short : meta.label}
@@ -130,7 +130,7 @@ export function FlagMark({ flag, circled, size = 12, muted = false }) {
 export function Chip({ active = false, onClick, children, title, color = null, count = null }) {
   return (
     <button type="button" onClick={onClick} title={title}
-      className="inline-flex items-center gap-1 px-2 py-[3px] text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700 whitespace-nowrap"
+      className="inline-flex items-center gap-1 px-2 py-[3px] text-dense font-mono rounded-sm transition-colors hover:bg-stone-700 whitespace-nowrap"
       style={{
         color: active ? C.bright : C.muted,
         backgroundColor: active ? (color || C.accent) : 'transparent',
@@ -183,7 +183,7 @@ export function Menu({ x, y, items, onClose, minWidth = 200 }) {
       {items.filter(Boolean).map((it, i) => it.divider
         ? <div key={`d${i}`} style={{ borderTop: `1px solid ${C.line}` }} />
         : it.header
-          ? <div key={`h${i}`} className="px-3 py-1.5 text-label font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>{it.header}</div>
+          ? <div key={`h${i}`} className="px-3 py-1.5 text-label font-mono uppercase" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>{it.header}</div>
           : (
             <button key={i} type="button" disabled={it.disabled}
               onClick={() => { if (it.disabled) return; it.onClick?.(); if (!it.keepOpen) onClose?.() }}
@@ -230,7 +230,7 @@ export function Modal({ title, children, footer, onClose, width = 640, subtitle 
         role="dialog" aria-label={title}>
         <div className="flex items-start justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
           <div>
-            <div className="text-label font-mono uppercase tracking-wider" style={{ color: C.bright }}>{title}</div>
+            <div className="text-label font-mono uppercase" style={{ color: C.bright }}>{title}</div>
             {subtitle && <div className="text-dense font-mono mt-0.5" style={{ color: C.dim }}>{subtitle}</div>}
           </div>
           <button type="button" onClick={tryClose} disabled={busy} title="Close" className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.muted }}>
@@ -252,7 +252,7 @@ export function Modal({ title, children, footer, onClose, width = 640, subtitle 
 export function Field({ label, children, hint, inline = false, mixed = false }) {
   return (
     <label className={`flex ${inline ? 'items-center gap-3' : 'flex-col gap-1'} min-w-0`}>
-      <span className="text-label font-mono uppercase tracking-wider flex-shrink-0" style={{ color: mixed ? C.amber : C.dim, minWidth: inline ? 88 : undefined }}>
+      <span className="text-label font-mono uppercase flex-shrink-0" style={{ color: mixed ? C.amber : C.dim, minWidth: inline ? 88 : undefined }}>
         {label}{mixed ? ' · mixed' : ''}
       </span>
       <span className="flex-1 min-w-0">{children}</span>
@@ -320,7 +320,7 @@ export function EmptyState({ Icon, title, body, children, compact = false }) {
   return (
     <div className={`flex flex-col items-center justify-center text-center ${compact ? 'py-8 px-4' : 'py-16 px-8'} h-full`}>
       {Icon && <Icon className="w-8 h-8 mb-3" style={{ color: C.dimmer }} />}
-      <div className="text-label font-mono uppercase tracking-wider" style={{ color: C.muted }}>{title}</div>
+      <div className="text-label font-mono uppercase" style={{ color: C.muted }}>{title}</div>
       {body && <div className="text-dense font-mono mt-1.5 max-w-md leading-relaxed" style={{ color: C.dim }}>{body}</div>}
       {children && <div className="flex items-center gap-2 mt-4 flex-wrap justify-center">{children}</div>}
     </div>

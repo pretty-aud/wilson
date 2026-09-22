@@ -3710,7 +3710,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           <div className="bg-stone-700 text-orange-400 px-2 py-2 flex items-center justify-between">
             <div className="flex items-center gap-1">
               <Layers className="w-3 h-3 text-orange-400" />
-              <span className="font-bold uppercase text-label tracking-wide">Deck Outline</span>
+              <span className="font-semibold uppercase text-label">Deck Outline</span>
             </div>
             <div className="flex items-center gap-1.5">
               <button
@@ -3776,10 +3776,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       className="w-full p-2 text-left hover:bg-stone-700 transition-colors"
                     >
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-dense font-mono text-orange-400 font-bold">#{item.pageNum}</span>
+                        <span className="text-dense font-mono text-orange-400 font-semibold">#{item.pageNum}</span>
                         <span className="text-caption text-stone-500 group-hover:opacity-0 transition-opacity">{item.timestamp}</span>
                       </div>
-                      <p className="text-dense font-medium text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
+                      <p className="text-dense text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
                         {item.title}
                       </p>
                       <p className="text-caption text-stone-500 mt-0.5">{item.layout}</p>
@@ -3802,7 +3802,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         {/* Main Content */}
         <main className="flex-1 min-h-0 p-4 space-y-4 overflow-y-auto bg-stone-900">
           {error && (
-            <div className="p-3 bg-red-900/50 border-2 border-red-600 rounded-sm text-red-300 font-medium text-body">
+            <div className="p-3 bg-red-900/50 border-2 border-red-600 rounded-sm text-red-300 text-body">
               {error}
             </div>
           )}
@@ -3811,7 +3811,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               are applied, so this is a partial failure and should not read as
               a dead generation. Dismissable because it is non-blocking. */}
           {themeError && (
-            <div className="p-3 bg-amber-900/50 border-2 border-amber-600 rounded-sm text-amber-200 font-medium text-body flex items-start justify-between gap-3">
+            <div className="p-3 bg-amber-900/50 border-2 border-amber-600 rounded-sm text-amber-200 text-body flex items-start justify-between gap-3">
               <span>{themeError}</span>
               <button
                 onClick={() => setThemeError('')}
@@ -3829,7 +3829,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               className="bg-stone-700 text-orange-400 px-3 py-2 border-b-2 border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
               onClick={() => setSection1Collapsed(!section1Collapsed)}
             >
-              <h2 className="font-bold uppercase tracking-wide flex items-center justify-between text-label">
+              <h2 className="font-semibold uppercase flex items-center justify-between text-label">
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-dense">1</span>
                   Project Documentation & Deck Context
@@ -3846,7 +3846,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="p-4 space-y-3">
               {/* Project Selection */}
               <div>
-                <label className="block text-label font-bold text-orange-400 mb-0.5 uppercase tracking-wide">
+                <label className="block text-label font-semibold text-orange-400 mb-0.5 uppercase">
                   Project
                 </label>
                 <p className="text-caption text-stone-500 mb-1.5">Link a project to include its documents and assets in generation</p>
@@ -3856,7 +3856,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       value={selectedProjectId}
                       onChange={(e) => { setSelectedProjectId(e.target.value); refreshProjects(); }}
                       onFocus={refreshProjects}
-                      className={`w-full px-3 py-1.5 text-dense bg-stone-900 border-2 border-stone-600 rounded-sm focus:border-orange-500 transition-colors appearance-none cursor-pointer font-medium ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
+                      className={`w-full px-3 py-1.5 text-dense bg-stone-900 border-2 border-stone-600 rounded-sm focus:border-orange-500 transition-colors appearance-none cursor-pointer ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
                     >
                       <option value="" className="text-orange-400">No project selected</option>
                       {projects.map(p => (
@@ -3867,7 +3867,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                   <button
                     onClick={() => setShowNewProjectModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm text-dense font-medium text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-all"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm text-dense text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-all"
                   >
                     <Plus className="w-3 h-3" />
                     New Project
@@ -3897,7 +3897,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                         supporting reference. Click a tag to flip it. */}
                     {((selectedProject.documents || []).length + (selectedProject.visualAssets || []).length) > 0 && (
                       <div className="border-t border-stone-700 pt-1.5">
-                        <p className="text-label uppercase tracking-wider text-stone-500 mb-1">
+                        <p className="text-label uppercase text-stone-500 mb-1">
                           File roles · click to toggle
                         </p>
                         <div className="space-y-0.5">
@@ -3908,7 +3908,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore('documents', doc.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-dense font-mono uppercase tracking-wider transition-colors flex-shrink-0"
+                                  className="px-1.5 py-0.5 rounded-sm text-dense font-mono transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
@@ -3930,7 +3930,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-dense font-mono uppercase tracking-wider transition-colors flex-shrink-0"
+                                  className="px-1.5 py-0.5 rounded-sm text-dense font-mono transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
@@ -3956,7 +3956,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="flex items-start gap-8">
                 {/* File Upload - Multiple files support */}
                 <div className="flex-1">
-                  <label className="block text-label font-bold text-orange-400 mb-0.5 uppercase tracking-wide">
+                  <label className="block text-label font-semibold text-orange-400 mb-0.5 uppercase">
                     Upload Documents
                   </label>
                   <p className="text-caption text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
@@ -3968,7 +3968,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       ) : (
                         <Upload className="w-4 h-4 text-orange-400" />
                       )}
-                      <span className="text-dense font-medium text-orange-400">Choose file</span>
+                      <span className="text-dense text-orange-400">Choose file</span>
                       <span className="text-caption text-stone-500">(PDF, MD, TXT, Images)</span>
                       <input
                         type="file"
@@ -3992,7 +3992,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 ) : (
                                   <FileText className="w-4 h-4 text-orange-500 flex-shrink-0" />
                                 )}
-                                <span className="text-dense font-medium text-stone-300 flex-1 truncate">{fileData.file.name}</span>
+                                <span className="text-dense text-stone-300 flex-1 truncate">{fileData.file.name}</span>
                                 <span className="text-caption text-stone-500 flex-shrink-0">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
                                 <button
                                   onClick={() => removeFile(fileData.id)}
@@ -4030,7 +4030,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div>
                 <div className="flex items-center justify-between mb-0.5">
                   <div className="flex items-center gap-3">
-                    <label className="block text-label font-bold text-orange-400 uppercase tracking-wide">
+                    <label className="block text-label font-semibold text-orange-400 uppercase">
                       Deck Context & Guidelines
                     </label>
                     {/* Theme Generator Checkbox */}
@@ -4041,7 +4041,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       >
                         {enableThemeGen && <Check className="w-2.5 h-2.5 text-orange-400" />}
                       </button>
-                      <span className="text-label text-stone-400 uppercase tracking-wide">Theme Generator</span>
+                      <span className="text-label text-stone-400 uppercase">Theme Generator</span>
                     </div>
                     {/* Use Uploaded Assets Checkbox */}
                     <div className="flex items-center gap-1.5">
@@ -4051,7 +4051,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       >
                         {useUploadedAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
                       </button>
-                      <span className="text-label text-stone-400 uppercase tracking-wide">Use Uploaded Assets</span>
+                      <span className="text-label text-stone-400 uppercase">Use Uploaded Assets</span>
                     </div>
                     {/* Use Project Assets Checkbox */}
                     <div className="flex items-center gap-1.5">
@@ -4061,7 +4061,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       >
                         {useProjectAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
                       </button>
-                      <span className="text-label text-stone-400 uppercase tracking-wide">Use Project Assets</span>
+                      <span className="text-label text-stone-400 uppercase">Use Project Assets</span>
                     </div>
                   </div>
                   {/* Full Deck Toggle */}
@@ -4083,7 +4083,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                         className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${fullDeckMode ? 'left-6' : 'left-1'}`}
                       />
                     </button>
-                    <span className="text-label font-bold text-orange-400 uppercase tracking-wide">Full Deck</span>
+                    <span className="text-label font-semibold text-orange-400 uppercase">Full Deck</span>
                   </div>
                 </div>
                 <p className="text-caption text-stone-500 mb-1.5">
@@ -4113,7 +4113,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <button
                   onClick={generateFullDeck}
                   disabled={isGenerating || !hasFileContent}
-                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-bold text-stone-900 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
+                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
                 >
                   {isGenerating ? (
                     <>
@@ -4138,7 +4138,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               className={`bg-stone-700 px-3 py-2 border-b-2 border-stone-600 ${fullDeckMode ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-stone-600'} transition-colors`}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
             >
-              <h2 className="font-bold uppercase tracking-wide flex items-center justify-between text-label">
+              <h2 className="font-semibold uppercase flex items-center justify-between text-label">
                 <div className={`flex items-center gap-2 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-dense ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
                   Generate Page Outline
@@ -4157,7 +4157,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="flex gap-4">
                 {/* Layout Dropdown */}
                 <div>
-                  <label className={`block text-label font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
+                  <label className={`block text-label font-semibold mb-0.5 uppercase ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                     Slide Layout Type
                   </label>
                   <p className="text-caption text-stone-500 mb-1.5">Choose how content will be arranged on the slide</p>
@@ -4166,7 +4166,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       value={selectedLayout}
                       onChange={(e) => setSelectedLayout(e.target.value)}
                       disabled={fullDeckMode}
-                      className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm appearance-none font-medium text-body ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-orange-400 cursor-pointer focus:border-orange-500'}`}
+                      className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm appearance-none text-body ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-orange-400 cursor-pointer focus:border-orange-500'}`}
                     >
                       <option value="" className="text-orange-400">Select layout...</option>
                       {SLIDE_LAYOUTS.map((layout) => (
@@ -4186,7 +4186,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                 {/* Page Number */}
                 <div>
-                  <label className={`block text-label font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
+                  <label className={`block text-label font-semibold mb-0.5 uppercase ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                     Page #
                   </label>
                   <p className="text-caption text-stone-500 mb-1.5">Single number or range (e.g. 3-7)</p>
@@ -4203,7 +4203,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
               {/* Page Request Prompt - Full Width */}
               <div>
-                <label className={`block text-label font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
+                <label className={`block text-label font-semibold mb-0.5 uppercase ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                   Page Request
                 </label>
                 <p className="text-caption text-stone-500 mb-1.5">
@@ -4232,7 +4232,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <button
                 onClick={generatePageOutline}
                 disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout || fullDeckMode}
-                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-bold text-stone-900 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
+                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
               >
                 {isGenerating ? (
                   <>
@@ -4253,19 +4253,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           {/* Output Section - Below Input */}
           <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
             <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b-2 border-stone-600">
-              <span className="font-bold uppercase text-label tracking-wide">Generated Output</span>
+              <span className="font-semibold uppercase text-label">Generated Output</span>
               {activeTab && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={downloadMarkdown}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-dense font-medium text-white"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-dense text-white"
                   >
                     <Download className="w-3 h-3" />
                     Export .md
                   </button>
                   <button
                     onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-dense font-medium text-white"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-dense text-white"
                   >
                     {copied ? (
                       <>
@@ -4296,7 +4296,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button
                       key={tab.id}
                       onClick={() => setActiveTabId(tab.id)}
-                      className={`flex items-center gap-1 px-3 py-1.5 text-dense font-medium transition-colors whitespace-nowrap ${
+                      className={`flex items-center gap-1 px-3 py-1.5 text-dense transition-colors whitespace-nowrap ${
                         activeTabId === tab.id 
                           ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-[2px] relative z-10' 
                           : 'bg-stone-700 text-stone-400 hover:text-stone-300 border-2 border-stone-600 border-b-0 rounded-t-sm mb-0'
@@ -4339,7 +4339,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="bg-stone-900 px-3 py-2 border-b-2 border-stone-600">
                 <div className="flex items-center gap-2">
                   {/* Title */}
-                  <span className="text-label text-orange-400 uppercase tracking-wide font-bold flex-shrink-0">Edit Output:</span>
+                  <span className="text-label text-orange-400 uppercase font-semibold flex-shrink-0">Edit Output:</span>
                   
                   {/* Revision Prompt Input */}
                   <input
@@ -4379,7 +4379,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <button
                     onClick={regeneratePage}
                     disabled={isRegenerating || !hasFileContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-sm font-bold text-white text-dense uppercase tracking-wide transition-colors flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-sm font-semibold text-white text-dense transition-colors flex-shrink-0"
                   >
                     {isRegenerating ? (
                       <>
@@ -4527,7 +4527,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="w-14 h-14 mb-3 bg-stone-900 rounded-full flex items-center justify-center border-2 border-dashed border-stone-700">
                     <FileText className="w-7 h-7 text-stone-600" />
                   </div>
-                  <p className="font-medium text-body text-stone-500">No output yet</p>
+                  <p className="text-body text-stone-500">No output yet</p>
                   <p className="text-caption mt-1 text-stone-600">Generated page outlines will appear here</p>
                 </div>
               )}
@@ -4544,7 +4544,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   >
                     {/* Original text being replaced */}
                     <div className="px-3 pt-2 pb-1 flex-shrink-0 border-b border-stone-700">
-                      <span className="text-label text-stone-500 uppercase tracking-wide font-bold">Replacing</span>
+                      <span className="text-label text-stone-500 uppercase font-semibold">Replacing</span>
                       <div className="mt-1 max-h-[60px] overflow-y-auto">
                         <p className="text-dense text-stone-400 font-mono whitespace-pre-wrap leading-relaxed">{contextMenu.selectedText}</p>
                       </div>
@@ -4552,7 +4552,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                     {/* Generated rewrite */}
                     <div className="px-3 pt-2 pb-2 flex-1 min-h-0 overflow-y-auto">
-                      <span className="text-label text-orange-400 uppercase tracking-wide font-bold">Rewritten</span>
+                      <span className="text-label text-orange-400 uppercase font-semibold">Rewritten</span>
                       <div className="mt-1">
                         {rewritePreview.isLoading ? (
                           <div className="flex items-center gap-2 py-4 justify-center">
@@ -4576,7 +4576,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <button
                         onClick={handleRewriteReplace}
                         disabled={rewritePreview.isLoading || !rewritePreview.text || rewritePreview.text.startsWith('Error:')}
-                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm text-white font-bold text-dense transition-colors"
+                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm text-white font-semibold text-dense transition-colors"
                       >
                         Replace
                       </button>
@@ -4647,7 +4647,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Settings</span>
+                <span className="font-semibold text-orange-400 uppercase tracking-wide">Settings</span>
               </div>
               <button 
                 onClick={() => setShowSettingsMenu(false)}
@@ -4661,7 +4661,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="flex border-b-2 border-stone-600 flex-shrink-0">
               <button
                 onClick={() => setSettingsTab('prompts')}
-                className={`flex-1 py-2 px-4 text-body font-medium transition-colors ${
+                className={`flex-1 py-2 px-4 text-body transition-colors ${
                   settingsTab === 'prompts' 
                     ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
                     : 'bg-stone-700 text-stone-400 hover:text-stone-300'
@@ -4671,7 +4671,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </button>
               <button
                 onClick={() => setSettingsTab('format')}
-                className={`flex-1 py-2 px-4 text-body font-medium transition-colors ${
+                className={`flex-1 py-2 px-4 text-body transition-colors ${
                   settingsTab === 'format' 
                     ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
                     : 'bg-stone-700 text-stone-400 hover:text-stone-300'
@@ -4698,7 +4698,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <Unlock className="w-4 h-4 text-orange-400" />
                   )
                 )}
-                <span className={`text-label font-bold uppercase tracking-wide ${
+                <span className={`text-label font-semibold uppercase ${
                   (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)
                     ? 'text-stone-500'
                     : 'text-orange-400'
@@ -4707,7 +4707,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`text-label uppercase tracking-wide ${
+                <span className={`text-label uppercase ${
                   (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)
                     ? 'text-stone-500'
                     : 'text-stone-400'
@@ -4748,14 +4748,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <>
                   {/* Page Generation Prompts Section Title */}
                   <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-label font-bold text-stone-500 uppercase tracking-wide">Page Generation Prompts</span>
+                    <span className="text-label font-semibold text-stone-500 uppercase">Page Generation Prompts</span>
                   </div>
                   
                   {/* Single Page System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
                         <p className="text-caption text-stone-500">Core instruction sent as system message for single page generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_sys ? '' : 'rotate-90'}`} />
@@ -4773,7 +4773,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - Generation Rules</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - Generation Rules</span>
                         <p className="text-caption text-stone-500">Formatting rules and constraints for single page output</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_rules ? '' : 'rotate-90'}`} />
@@ -4790,7 +4790,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - API System Message</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - API System Message</span>
                         <p className="text-caption text-stone-500">Core instruction sent as system message for full deck generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_sys ? '' : 'rotate-90'}`} />
@@ -4808,7 +4808,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - Generation Rules</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - Generation Rules</span>
                         <p className="text-caption text-stone-500">Formatting rules and constraints for full deck output</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_rules ? '' : 'rotate-90'}`} />
@@ -4823,14 +4823,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Visual Assets System Prompt Section Title */}
                   <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-label font-bold text-stone-500 uppercase tracking-wide">Visual Assets System Prompt</span>
+                    <span className="text-label font-semibold text-stone-500 uppercase">Visual Assets System Prompt</span>
                   </div>
 
                   {/* Theme Color Generation Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Theme Color Generation</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Theme Color Generation</span>
                         <p className="text-caption text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.theme_prompt ? '' : 'rotate-90'}`} />
@@ -4848,7 +4848,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Shared Rules (All Models)</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Shared Rules (All Models)</span>
                         <p className="text-caption text-stone-500">Common formatting and structure rules applied to all image generation models</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_shared ? '' : 'rotate-90'}`} />
@@ -4865,7 +4865,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Midjourney Prompt</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Midjourney Prompt</span>
                         <p className="text-caption text-stone-500">Model-specific rules for Midjourney v6</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_midjourney ? '' : 'rotate-90'}`} />
@@ -4882,7 +4882,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Flux Prompt</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Flux Prompt</span>
                         <p className="text-caption text-stone-500">Model-specific rules for Flux</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_flux ? '' : 'rotate-90'}`} />
@@ -4899,7 +4899,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Nano Banana Prompt</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Nano Banana Prompt</span>
                         <p className="text-caption text-stone-500">Model-specific rules for Nano Banana</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_nanobanana ? '' : 'rotate-90'}`} />
@@ -4916,7 +4916,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Chat GPT / DALL-E Prompt</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Chat GPT / DALL-E Prompt</span>
                         <p className="text-caption text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_chatgpt ? '' : 'rotate-90'}`} />
@@ -4933,7 +4933,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
                         <p className="text-caption text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_api_sys ? '' : 'rotate-90'}`} />
@@ -4949,7 +4949,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* AI Rewrite Prompts Section Title */}
                   <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-label font-bold text-stone-500 uppercase tracking-wide">AI Rewrite Prompts</span>
+                    <span className="text-label font-semibold text-stone-500 uppercase">AI Rewrite Prompts</span>
                   </div>
                   
                   {Object.entries(REWRITE_LABELS).map(([mode, label]) => {
@@ -4958,7 +4958,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <div key={mode} className="border-b border-stone-700 overflow-hidden">
                         <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                           <div className="text-left">
-                            <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{label}</span>
+                            <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{label}</span>
                             <p className="text-caption text-stone-500">Rewrite prompt for "{label}" mode</p>
                           </div>
                           <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed[collapseKey] ? '' : 'rotate-90'}`} />
@@ -4990,7 +4990,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page Export Schema</span>
+                        <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page Export Schema</span>
                         <p className="text-caption text-stone-500">Markdown structure for individual slide exports</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_fmt ? '' : 'rotate-90'}`} />
@@ -5007,7 +5007,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck Export Schema</span>
+                        <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck Export Schema</span>
                         <p className="text-caption text-stone-500">Markdown structure for complete deck exports</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_fmt ? '' : 'rotate-90'}`} />
@@ -5024,7 +5024,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Visual Deck Export Schema</span>
+                        <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Visual Deck Export Schema</span>
                         <p className="text-caption text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.vis_fmt ? '' : 'rotate-90'}`} />
@@ -5040,7 +5040,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt Export Schema</span>
+                        <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt Export Schema</span>
                         <p className="text-caption text-stone-500">Markdown structure for generated image prompts file</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_fmt ? '' : 'rotate-90'}`} />
@@ -5099,7 +5099,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
+                <span className="font-semibold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
               </div>
               <button
                 onClick={() => setShowHelpModal(false)}
@@ -5120,7 +5120,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     onClick={() => setHelpPage(item.id)}
                     className={`w-full text-left px-3 py-1.5 text-dense transition-colors ${
                       helpPage === item.id
-                        ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
+                        ? 'bg-stone-800 text-orange-400 font-semibold border-l-2 border-orange-500'
                         : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
                     }`}
                   >
@@ -5188,7 +5188,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
           {/* AI Rewrite — shown in both views */}
           <div className="px-3 py-1">
-            <span className="text-label text-stone-500 uppercase tracking-wide font-bold">AI Rewrite</span>
+            <span className="text-label text-stone-500 uppercase font-semibold">AI Rewrite</span>
           </div>
           {Object.entries(REWRITE_LABELS).map(([mode, label]) => (
             <button
@@ -5224,11 +5224,11 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             className="bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl"
             style={{ width: '520px', maxHeight: '85vh', padding: '24px', overflowY: 'auto' }}
           >
-            <h3 className="text-label font-bold uppercase tracking-widest text-orange-400 mb-4">Create New Project</h3>
+            <h3 className="text-label font-semibold uppercase text-orange-400 mb-4">Create New Project</h3>
             <div className="space-y-4">
               {/* Title */}
               <div>
-                <label className="text-label font-bold uppercase tracking-widest text-stone-400 mb-1 block">Project Title</label>
+                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Project Title</label>
                 <input
                   type="text"
                   value={newProjectTitle}
@@ -5242,7 +5242,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
               {/* Description */}
               <div>
-                <label className="text-label font-bold uppercase tracking-widest text-stone-400 mb-1 block">Description</label>
+                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Description</label>
                 <textarea
                   value={newProjectDescription}
                   onChange={(e) => setNewProjectDescription(e.target.value)}
@@ -5256,7 +5256,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               {/* Dates */}
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="text-label font-bold uppercase tracking-widest text-stone-400 mb-1 block">Start Date</label>
+                  <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Start Date</label>
                   <input
                     type="date"
                     value={newProjectStartDate}
@@ -5266,7 +5266,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-label font-bold uppercase tracking-widest text-stone-400 mb-1 block">End Date</label>
+                  <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">End Date</label>
                   <input
                     type="date"
                     value={newProjectEndDate}
@@ -5288,7 +5288,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </p>
               ) : (<>
               <div>
-                <label className="text-label font-bold uppercase tracking-widest text-stone-400 mb-1 block">Documents</label>
+                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Documents</label>
                 <div
                   onClick={() => document.getElementById('new-proj-docs-input')?.click()}
                   className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
@@ -5321,7 +5321,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
               {/* Visual Assets Upload */}
               <div>
-                <label className="text-label font-bold uppercase tracking-widest text-stone-400 mb-1 block">Visual Assets</label>
+                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Visual Assets</label>
                 <div
                   onClick={() => document.getElementById('new-proj-assets-input')?.click()}
                   className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
@@ -5361,7 +5361,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="flex gap-3 mt-5">
               <button
                 onClick={resetNewProjectModal}
-                className="flex-1 px-4 py-2 text-dense font-bold uppercase tracking-wide rounded-sm transition-colors"
+                className="flex-1 px-4 py-2 text-dense font-semibold rounded-sm transition-colors"
                 style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
               >
                 Cancel
@@ -5369,7 +5369,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <button
                 onClick={handleCreateProjectFromModal}
                 disabled={!newProjectTitle.trim()}
-                className="flex-1 px-4 py-2 text-dense font-bold uppercase tracking-wide rounded-sm transition-colors disabled:opacity-40"
+                className="flex-1 px-4 py-2 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
                 style={{ backgroundColor: '#ea580c', color: '#fff' }}
               >
                 Create Project

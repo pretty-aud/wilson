@@ -92,7 +92,7 @@ export default function NewTaskPopup({
     }
   }
 
-  const labelCls = 'text-label font-mono uppercase tracking-wider mb-1 block'
+  const labelCls = 'text-label font-mono uppercase mb-1 block'
   const fieldCls = 'w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500'
   const fieldStyle = { backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }
 
@@ -111,7 +111,7 @@ export default function NewTaskPopup({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#f97316' }}>
+          <span className="text-label font-mono font-semibold uppercase" style={{ color: '#f97316' }}>
             New Task
           </span>
           <button type="button" onClick={onClose} className="text-body font-mono" style={{ color: '#78716c' }}>
@@ -240,7 +240,7 @@ export default function NewTaskPopup({
             </button>
             <button type="button" onClick={handleConfirm}
               disabled={!draft.title.trim() || creating}
-              className="px-4 py-1.5 text-dense font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 text-dense font-mono font-semibold rounded transition-colors disabled:opacity-40"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               {creating ? 'Creating...' : 'Confirm & Create'}
             </button>

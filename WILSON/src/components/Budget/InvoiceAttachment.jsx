@@ -123,7 +123,7 @@ export default function InvoiceAttachment({
 
   return (
     <div className="flex flex-col gap-0.5">
-      <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
+      <label className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
         Invoice File
       </label>
 

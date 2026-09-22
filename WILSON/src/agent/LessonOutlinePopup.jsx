@@ -35,7 +35,7 @@ export default function LessonOutlinePopup({
         <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0 rounded-t-sm">
           <div className="flex items-center gap-2">
             <HeaderIcon className="w-4 h-4 text-orange-400" />
-            <span className="text-label font-bold text-orange-400 uppercase tracking-wide">{headerText}</span>
+            <span className="text-label font-semibold text-orange-400 uppercase">{headerText}</span>
           </div>
           <button onClick={onCancel} className="p-1 hover:bg-stone-700 rounded transition-colors" disabled={loading}>
             <X className="w-4 h-4 text-stone-400" />
@@ -46,10 +46,10 @@ export default function LessonOutlinePopup({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Title / Topic */}
           <div>
-            <div className="text-label font-bold uppercase tracking-wider text-stone-400 mb-1">
+            <div className="text-label font-semibold uppercase text-stone-400 mb-1">
               {isSingleSubject ? 'Topic' : 'Software / Language'}
             </div>
-            <div className="text-h1 font-bold text-orange-400">
+            <div className="text-h1 font-semibold text-orange-400">
               {isSingleSubject ? proposalData.topic : proposalData.softwareName}
             </div>
           </div>
@@ -57,7 +57,7 @@ export default function LessonOutlinePopup({
           {/* Description */}
           {proposalData.description && (
             <div>
-              <div className="text-label font-bold uppercase tracking-wider text-stone-400 mb-1">Description</div>
+              <div className="text-label font-semibold uppercase text-stone-400 mb-1">Description</div>
               <div className="text-body text-stone-300">{proposalData.description}</div>
             </div>
           )}
@@ -73,14 +73,14 @@ export default function LessonOutlinePopup({
           <button
             onClick={onGenerate}
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-green-600 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-semibold rounded-sm hover:bg-green-600 transition-colors disabled:opacity-50"
           >
             <Play className="w-3.5 h-3.5" /> {loading ? generatingLabel : generateLabel}
           </button>
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-stone-600 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-sm hover:bg-stone-600 transition-colors disabled:opacity-50"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Refresh
           </button>
@@ -88,7 +88,7 @@ export default function LessonOutlinePopup({
           <button
             onClick={onCancel}
             disabled={loading}
-            className="px-4 py-2 bg-stone-700 text-stone-300 text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-stone-600 transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-sm hover:bg-stone-600 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>

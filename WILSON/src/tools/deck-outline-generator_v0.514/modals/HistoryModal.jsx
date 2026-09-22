@@ -202,7 +202,7 @@ ${contentBody}
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-stone-800 border-2 border-stone-600 rounded-sm w-[500px] max-h-[80vh] flex flex-col shadow-xl">
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600">
-          <span className="font-bold text-orange-400 uppercase text-label tracking-wide">History Import/Export</span>
+          <span className="font-semibold text-orange-400 uppercase text-label">History Import/Export</span>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded">
             <X className="w-4 h-4 text-stone-400" />
           </button>
@@ -212,13 +212,13 @@ ${contentBody}
           <div className="flex gap-2 mb-4">
             <button
               onClick={() => setMode('export')}
-              className={`flex-1 py-2 px-3 rounded-sm text-body font-medium transition-colors ${mode === 'export' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
+              className={`flex-1 py-2 px-3 rounded-sm text-body transition-colors ${mode === 'export' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
             >
               Export
             </button>
             <button
               onClick={() => setMode('import')}
-              className={`flex-1 py-2 px-3 rounded-sm text-body font-medium transition-colors ${mode === 'import' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
+              className={`flex-1 py-2 px-3 rounded-sm text-body transition-colors ${mode === 'import' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
             >
               Import
             </button>
@@ -233,7 +233,7 @@ ${contentBody}
               {/* Project Name */}
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-label text-stone-500 uppercase tracking-wide font-bold">Project Name</span>
+                  <span className="text-label text-stone-500 uppercase font-semibold">Project Name</span>
                 </div>
                 <div className="flex items-center gap-0 bg-stone-900 border-2 border-stone-600 rounded-sm overflow-hidden">
                   <input
@@ -251,7 +251,7 @@ ${contentBody}
               {/* Export Folder — above checkboxes */}
               <div className="border-t border-stone-600 pt-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-label text-stone-500 uppercase tracking-wide font-bold flex-shrink-0">Export Folder</span>
+                  <span className="text-label text-stone-500 uppercase font-semibold flex-shrink-0">Export Folder</span>
                   {exportFolderPath && (
                     <button
                       onClick={onClearExportFolder}
@@ -273,7 +273,7 @@ ${contentBody}
                   {window.showDirectoryPicker && (
                     <button
                       onClick={onPickExportFolder}
-                      className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 border-2 border-stone-600 rounded-sm text-dense text-stone-300 font-medium transition-colors flex-shrink-0 flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 border-2 border-stone-600 rounded-sm text-dense text-stone-300 transition-colors flex-shrink-0 flex items-center gap-1.5"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       Browse
@@ -329,7 +329,7 @@ ${contentBody}
               {/* Model Dropdown — visible only when image prompts enabled */}
               {enableImgPromptExport && (
                 <div className="px-6">
-                  <label className="block text-label text-stone-500 mb-1 uppercase tracking-wide">Image Generation Model</label>
+                  <label className="block text-label text-stone-500 mb-1 uppercase">Image Generation Model</label>
                   <select
                     value={imgPromptModel}
                     onChange={(e) => setImgPromptModel(e.target.value)}
@@ -352,7 +352,7 @@ ${contentBody}
               <button
                 onClick={handleExport}
                 disabled={history.length === 0 || isGeneratingImgPrompts}
-                className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm font-bold text-white text-body flex items-center justify-center gap-2"
+                className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm font-semibold text-white text-body flex items-center justify-center gap-2"
               >
                 {isGeneratingImgPrompts ? (
                   <>
@@ -371,7 +371,7 @@ ${contentBody}
               <p className="text-body text-stone-400">
                 Import a DECKOUTLINE markdown file to restore history.
               </p>
-              <label className="block w-full py-2 px-4 bg-stone-700 hover:bg-stone-600 rounded-sm font-medium text-stone-300 text-body text-center cursor-pointer border-2 border-dashed border-stone-500">
+              <label className="block w-full py-2 px-4 bg-stone-700 hover:bg-stone-600 rounded-sm text-stone-300 text-body text-center cursor-pointer border-2 border-dashed border-stone-500">
                 Choose DECKOUTLINE.md file
                 <input type="file" className="hidden" accept=".md,.txt" onChange={handleFileUpload} />
               </label>
@@ -385,7 +385,7 @@ ${contentBody}
                   />
                   <button
                     onClick={handleImport}
-                    className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 rounded-sm font-bold text-white text-body"
+                    className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 rounded-sm font-semibold text-white text-body"
                   >
                     Import to History
                   </button>

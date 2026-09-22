@@ -90,7 +90,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
       >
         <div className="bg-stone-700 px-3 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
           <div>
-            <h3 className="font-bold text-orange-400 uppercase tracking-wide" style={{ fontSize: '16px' }}>Resolve Duplicate</h3>
+            <h3 className="font-semibold text-orange-400 uppercase tracking-wide" style={{ fontSize: '16px' }}>Resolve Duplicate</h3>
             <p style={{ fontSize: '14px' }} className="text-stone-400">
               Page #{pageNum} • {currentIndex + 1}/{duplicates.length} conflicts
             </p>
@@ -114,7 +114,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className={`font-bold ${selectedId === item.id ? 'text-orange-400' : 'text-stone-400'}`} style={{ fontSize: '13px' }}>
+                <span className={`font-semibold ${selectedId === item.id ? 'text-orange-400' : 'text-stone-400'}`} style={{ fontSize: '13px' }}>
                   Option {idx + 1} • {item.layout}
                 </span>
                 {hoveredId === item.id && !showPreview && (
@@ -124,7 +124,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               
               <div className="flex-1 bg-stone-950 p-2 rounded border border-stone-700 overflow-hidden flex flex-col">
                 {/* Title styled like visualizer */}
-                <p className={`font-bold truncate ${selectedId === item.id ? 'text-orange-300' : 'text-orange-400/70'}`} style={{ fontSize: '14px' }}>
+                <p className={`font-semibold truncate ${selectedId === item.id ? 'text-orange-300' : 'text-orange-400/70'}`} style={{ fontSize: '14px' }}>
                   {item.title}
                 </p>
                 {/* Subtitle styled like visualizer */}
@@ -167,7 +167,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
           <button
             onClick={handleConfirm}
             disabled={!selectedId}
-            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-sm text-white disabled:text-stone-400 font-bold transition-colors"
+            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-sm text-white disabled:text-stone-400 font-semibold transition-colors"
             style={{ fontSize: '13px' }}
           >
             Continue
@@ -187,7 +187,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
           }}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-label font-bold text-orange-400 uppercase">Preview</span>
+            <span className="text-label font-semibold text-orange-400 uppercase">Preview</span>
             <span className="text-caption text-stone-500">#{previewItem.pageNum} • {previewItem.layout}</span>
           </div>
           <div className="overflow-hidden rounded border-2 border-stone-700" style={{ width: '714px', height: '402px' }}>

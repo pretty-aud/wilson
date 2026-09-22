@@ -325,7 +325,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
             {/* Matches the menu item that opens it ("Share or submit…") — a
                 user who clicked looking for "submit" must land somewhere that
                 still uses the word. */}
-            <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide truncate">Share or submit</h3>
+            <h3 className="text-orange-400 font-semibold text-label uppercase truncate">Share or submit</h3>
             <p className="text-stone-400 text-dense truncate">{course?.name}</p>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-sm shrink-0" aria-label="Close">
@@ -336,7 +336,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* ── who can see this ── */}
           <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-            <h4 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-2">
+            <h4 className="text-label font-semibold text-orange-400 uppercase mb-2">
               Who can see this
             </h4>
 
@@ -368,7 +368,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className={`text-dense font-bold ${active ? 'text-white' : 'text-stone-300'}`}>
+                        <span className={`text-dense font-semibold ${active ? 'text-white' : 'text-stone-300'}`}>
                           {active ? '●' : '○'} {meta.label}
                         </span>
                         {isStandard && <ShieldCheck className="w-3 h-3 text-orange-400" />}
@@ -398,7 +398,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                   // manager decides — so this points at the control that does
                   // it rather than describing a conversation to go and have.
                   <div className="pt-2 mt-1 border-t border-stone-800">
-                    <p className="text-stone-300 text-dense font-bold flex items-center gap-1.5">
+                    <p className="text-stone-300 text-dense font-semibold flex items-center gap-1.5">
                       <ShieldCheck className="w-3 h-3 text-orange-400 shrink-0" />
                       Want this to be the company standard?
                     </p>
@@ -414,7 +414,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
 
           {/* ── who can edit it ── */}
           <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-            <h4 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-1">
+            <h4 className="text-label font-semibold text-orange-400 uppercase mb-1">
               Who can edit it
             </h4>
             <p className="text-stone-500 text-caption mb-2">
@@ -480,7 +480,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       onClick={addEditor}
                       disabled={!pick || !!busy}
-                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-dense font-bold flex items-center gap-1 disabled:opacity-50"
+                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-dense font-semibold flex items-center gap-1 disabled:opacity-50"
                     >
                       {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
                       Add
@@ -511,7 +511,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
               already IS the standard, with no reachable control to clear it. */}
           {(current !== 'company_standard' || !!nom) && course?.is_own !== false && (
             <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-              <h4 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+              <h4 className="text-label font-semibold text-orange-400 uppercase mb-1 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 Put it forward as the company standard
               </h4>
@@ -524,7 +524,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                 <>
                   {nom.status === 'changes_requested' ? (
                     <div className="bg-stone-950 border border-orange-700/60 rounded-sm p-2.5 mb-2">
-                      <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {nom.reviewer_label ?? 'A reviewer'} asked for changes
                         {(nom.revision ?? 1) > 1 ? ` (round ${nom.revision})` : ''}
@@ -565,7 +565,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     type="button"
                     onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
                     disabled={nomBusy}
-                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
+                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Undo2 className="w-3 h-3" />}
                     Withdraw
@@ -597,7 +597,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         type="button"
                         onClick={() => settleNomination('rejected', 'Closed. You can put it forward again later.')}
                         disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Check className="w-3 h-3" /> Accept the decision
                       </button>
@@ -607,7 +607,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         type="button"
                         onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
                         disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Undo2 className="w-3 h-3" /> Withdraw
                       </button>
@@ -617,7 +617,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       onClick={nom ? resubmitNomination : submitNomination}
                       disabled={nomBusy || !pitch.trim() || pitch.length > 4000}
-                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                       {nom
@@ -661,13 +661,13 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
             <div className="flex gap-2">
               <button
                 onClick={() => setConfirmDrop(null)}
-                className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-1.5 rounded-sm hover:bg-stone-600 text-dense font-bold"
+                className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-1.5 rounded-sm hover:bg-stone-600 text-dense font-semibold"
               >
                 Keep it
               </button>
               <button
                 onClick={() => setVisibility(confirmDrop)}
-                className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-1.5 rounded-sm hover:bg-orange-700 text-dense font-bold"
+                className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-1.5 rounded-sm hover:bg-orange-700 text-dense font-semibold"
               >
                 Remove standard
               </button>

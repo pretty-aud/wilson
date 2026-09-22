@@ -121,3 +121,27 @@ describe('the Label step is for labels (the C3b lesson)', () => {
     expect(LABEL_EVIDENCE.some((re) => re.test('text-label uppercase text-ink-2'))).toBe(true);
   });
 });
+
+// ── Pass 2: two weights, and tracking only where the Label step wants it ────
+describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
+  it('has no font-bold (700) and no font-medium (500)', () => {
+    const hits = sweep(/\bfont-(?:bold|medium)\b/g);
+    expect(hits, `weights off the 400/600 axis:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('has no named tracking utility except on a label that kept its capitals', () => {
+    // Eleven eyebrow sites inherit their size from a parent, so they carry no
+    // step and were left whole rather than being given one — giving an
+    // inherited size an explicit 11px is a layout call, not a token swap.
+    // Their tracking stays WITH their capitals; the pair is the exception.
+    const hits = sweep(/\btracking-(?:wide|wider|widest|tight|tighter)\b/g,
+      ({ run }) => !/\buppercase\b/.test(run));
+    expect(hits, `tracking with no capitals to track:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: both weight detectors fire on a real string', () => {
+    expect('a font-bold b'.match(/\bfont-(?:bold|medium)\b/g)).toEqual(['font-bold']);
+    expect('a font-medium b'.match(/\bfont-(?:bold|medium)\b/g)).toEqual(['font-medium']);
+    expect('a font-semibold b'.match(/\bfont-(?:bold|medium)\b/g)).toBeNull();
+  });
+});

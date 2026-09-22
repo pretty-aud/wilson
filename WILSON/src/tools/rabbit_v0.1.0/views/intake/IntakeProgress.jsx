@@ -70,7 +70,7 @@ export default function IntakeProgress({
         ) : (
           <Sparkles className="w-6 h-6" style={{ color: '#fb923c' }} />
         )}
-        <h2 className="text-label font-mono font-bold uppercase tracking-widest" style={{ color: '#fb923c' }}>
+        <h2 className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
           {phase === 'starting' && 'Preparing intake…'}
           {phase === 'running'  && 'Running intake'}
           {phase === 'done'     && 'Intake complete'}
@@ -98,7 +98,7 @@ export default function IntakeProgress({
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+          <div className="flex items-center justify-between text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
             <span>
               {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'
@@ -133,7 +133,7 @@ export default function IntakeProgress({
           <button
             type="button"
             onClick={handleAbort}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono rounded-sm"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             <X className="w-3 h-3" />
@@ -148,7 +148,7 @@ export default function IntakeProgress({
               startedRef.current = false
               onBack?.()
             }}
-            className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
+            className="px-3 py-1.5 text-dense font-mono rounded-sm"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             ← Back to settings

@@ -144,7 +144,7 @@ export default function ModelsSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-label font-bold uppercase tracking-widest text-stone-900">Models</h2>
+          <h2 className="text-label font-semibold uppercase text-stone-900">Models</h2>
           <p className="text-dense text-stone-950 leading-relaxed">
             What every company may choose from, and what each function uses by default.
           </p>
@@ -152,7 +152,7 @@ export default function ModelsSection({ isActive }) {
         <button
           onClick={reload}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
           style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -176,7 +176,7 @@ export default function ModelsSection({ isActive }) {
       )}
 
       {/* ── Catalogue ───────────────────────────────────────────────────────── */}
-      <h3 className="text-label font-bold uppercase tracking-widest mb-2" style={{ color: '#57534e' }}>
+      <h3 className="text-label font-semibold uppercase mb-2" style={{ color: '#57534e' }}>
         Approved catalogue
       </h3>
 
@@ -184,10 +184,10 @@ export default function ModelsSection({ isActive }) {
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr style={{ backgroundColor: '#e7e5e4' }}>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Model</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Name</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e', width: '130px' }}>State</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-right" style={{ color: '#57534e', width: '110px' }} />
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Model</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Name</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e', width: '130px' }}>State</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-right" style={{ color: '#57534e', width: '110px' }} />
             </tr>
           </thead>
           <tbody>
@@ -211,17 +211,17 @@ export default function ModelsSection({ isActive }) {
                   </td>
                   <td className="px-3 py-2 align-top">
                     {retired && (
-                      <span className="text-label font-bold uppercase tracking-wider" style={{ color: '#991b1b' }}>Retired</span>
+                      <span className="text-label font-semibold uppercase" style={{ color: '#991b1b' }}>Retired</span>
                     )}
                     {!retired && m.validation === 'validated' && (
-                      <span className="text-label font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Validated</span>
+                      <span className="text-label font-semibold uppercase" style={{ color: '#57534e' }}>Validated</span>
                     )}
                     {!retired && m.validation !== 'validated' && (
                       // Not a warning about the model — a statement about what we
                       // actually know. It may well be fine; Anthropic just never
                       // confirmed it.
                       <span
-                        className="text-label font-bold uppercase tracking-wider"
+                        className="text-label font-semibold uppercase"
                         style={{ color: '#b45309' }}
                         title="Saved without a positive answer from Anthropic (rate limit, outage, or no platform key). Not necessarily wrong — just never confirmed."
                       >
@@ -233,7 +233,7 @@ export default function ModelsSection({ isActive }) {
                     <button
                       onClick={() => onRetire(m.model_id, !retired)}
                       disabled={busyKey === m.model_id}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-bold uppercase tracking-wider rounded-sm disabled:opacity-40"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-semibold rounded-sm disabled:opacity-40"
                       style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0' }}
                     >
                       {retired ? <><RotateCcw size={11} /> Restore</> : <><Archive size={11} /> Retire</>}
@@ -249,7 +249,7 @@ export default function ModelsSection({ isActive }) {
       {/* Free text is operator-only — D4. Admins and users get a picker. */}
       <form onSubmit={onApprove} className="flex items-end gap-2 flex-wrap mb-6">
         <label className="flex flex-col gap-1">
-          <span className="text-label font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Model ID</span>
+          <span className="text-label font-semibold uppercase" style={{ color: '#57534e' }}>Model ID</span>
           <input
             value={newId}
             onChange={(e) => setNewId(e.target.value)}
@@ -260,7 +260,7 @@ export default function ModelsSection({ isActive }) {
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-label font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Name</span>
+          <span className="text-label font-semibold uppercase" style={{ color: '#57534e' }}>Name</span>
           <input
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
@@ -271,7 +271,7 @@ export default function ModelsSection({ isActive }) {
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-label font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Hint</span>
+          <span className="text-label font-semibold uppercase" style={{ color: '#57534e' }}>Hint</span>
           <input
             value={newHint}
             onChange={(e) => setNewHint(e.target.value)}
@@ -283,7 +283,7 @@ export default function ModelsSection({ isActive }) {
         <button
           type="submit"
           disabled={busyKey === 'new' || !newId.trim() || !newLabel.trim()}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm disabled:opacity-40"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-sm disabled:opacity-40"
           style={{ backgroundColor: '#ea580c', color: '#fff' }}
         >
           <Plus size={12} /> {busyKey === 'new' ? 'Checking…' : 'Add'}
@@ -291,7 +291,7 @@ export default function ModelsSection({ isActive }) {
       </form>
 
       {/* ── Defaults ────────────────────────────────────────────────────────── */}
-      <h3 className="text-label font-bold uppercase tracking-widest mb-1" style={{ color: '#57534e' }}>
+      <h3 className="text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
         Platform defaults
       </h3>
       <p className="text-dense mb-2" style={{ color: '#78716c' }}>
@@ -302,7 +302,7 @@ export default function ModelsSection({ isActive }) {
 
       {[...registryByTool().entries()].map(([tool, entries]) => (
         <div key={tool} className="mb-4">
-          <div className="text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>{tool}</div>
+          <div className="text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>{tool}</div>
           <div className="rounded-sm" style={{ border: '1px solid #d6d3d1' }}>
             {entries.map((entry, i) => {
               const d = defaults[entry.key] ?? {}

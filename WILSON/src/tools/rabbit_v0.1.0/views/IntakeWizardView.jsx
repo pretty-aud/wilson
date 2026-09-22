@@ -230,12 +230,12 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
       <div className="flex items-center justify-between px-6 py-3" style={{ borderBottom: '2px solid #f97316', backgroundColor: '#292524' }}>
         <div className="flex items-center gap-2.5">
           <Plus className="w-4 h-4" style={{ color: '#fb923c' }} />
-          <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
             Create New Project
           </span>
         </div>
         <button type="button" onClick={onCancel}
-          className="px-3 py-1 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+          className="px-3 py-1 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           Cancel
         </button>
@@ -414,13 +414,13 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               e.target.value = ''
             }} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '2px dashed #44403c' }}>
               <Upload className="w-4 h-4" /> Drop or click to add files
             </button>
             {files.length > 0 && (
               <div className="flex flex-col gap-2 mt-1">
-                <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#57534e' }}>
+                <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                   {files.length} file{files.length !== 1 ? 's' : ''} attached
                 </span>
                 {files.map((f, i) => (
@@ -473,12 +473,12 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
         </span>
         <div className="flex items-center gap-3">
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+            className="px-4 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Cancel
           </button>
           <button type="button" onClick={handleReviewAndConfirm} disabled={!canSubmit}
-            className="px-5 py-1.5 text-dense font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+            className="px-5 py-1.5 text-dense font-mono font-semibold rounded transition-colors disabled:opacity-40"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             Review & Create
           </button>
@@ -494,7 +494,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             onClick={e => e.stopPropagation()}>
             <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c' }}>
               <AlertTriangle className="w-4 h-4" style={{ color: '#fb923c' }} />
-              <span className="text-dense font-mono font-bold" style={{ color: '#fb923c' }}>Confirm project creation</span>
+              <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>Confirm project creation</span>
             </div>
             <div className="px-5 py-4 max-h-[60vh] overflow-auto">
               <p className="text-dense font-mono leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
@@ -503,7 +503,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <div className="flex flex-col gap-3">
                 {/* Project info */}
                 <div className="rounded p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                  <span className="text-label font-mono uppercase tracking-widest font-bold mb-0.5" style={{ color: '#57534e' }}>Project</span>
+                  <span className="text-label font-mono uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Project</span>
                   <ConfirmRow label="Name" value={draft.title} />
                   {draft.client_name && <ConfirmRow label="Client" value={draft.client_name} />}
                   {draft.project_code && <ConfirmRow label="Code" value={draft.project_code} />}
@@ -515,7 +515,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 {/* People */}
                 {(draft.director_id || draft.producer_id) && (
                   <div className="rounded p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label font-mono uppercase tracking-widest font-bold mb-0.5" style={{ color: '#57534e' }}>People</span>
+                    <span className="text-label font-mono uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>People</span>
                     {draft.director_id && <ConfirmRow label="Director" value={(tm.members || []).find(m => m.id === draft.director_id)?.name || draft.director_id} />}
                     {draft.producer_id && <ConfirmRow label="Producer" value={(tm.members || []).find(m => m.id === draft.producer_id)?.name || draft.producer_id} />}
                   </div>
@@ -523,7 +523,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 {/* Budget */}
                 {(draft.budget_total || draft.budget_margin_pct || draft.budget_contingency_pct || draft.budget_agency_enabled) && (
                   <div className="rounded p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label font-mono uppercase tracking-widest font-bold mb-0.5" style={{ color: '#57534e' }}>Budget</span>
+                    <span className="text-label font-mono uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Budget</span>
                     <ConfirmRow label="Currency" value={draft.budget_currency} />
                     {draft.budget_total && <ConfirmRow label="Total" value={Number(draft.budget_total).toLocaleString()} />}
                     {draft.budget_margin_pct && <ConfirmRow label="Margin" value={`${draft.budget_margin_pct}%`} />}
@@ -534,7 +534,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 {/* Details */}
                 {(draft.description || draft.notes) && (
                   <div className="rounded p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label font-mono uppercase tracking-widest font-bold mb-0.5" style={{ color: '#57534e' }}>Details</span>
+                    <span className="text-label font-mono uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Details</span>
                     {draft.description && <ConfirmRow label="Description" value={draft.description} />}
                     {draft.notes && <ConfirmRow label="Notes" value={draft.notes} />}
                   </div>
@@ -542,7 +542,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 {/* Files */}
                 {files.length > 0 && (
                   <div className="rounded p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label font-mono uppercase tracking-widest font-bold mb-0.5" style={{ color: '#57534e' }}>Attachments</span>
+                    <span className="text-label font-mono uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Attachments</span>
                     <ConfirmRow label="Files" value={`${files.length} file${files.length !== 1 ? 's' : ''}`} />
                   </div>
                 )}
@@ -550,12 +550,12 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             </div>
             <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
               <button type="button" onClick={() => setShowConfirm(false)}
-                className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+                className="px-4 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
                 Go back
               </button>
               <button type="button" onClick={handleConfirmCreate} disabled={creating}
-                className="px-5 py-1.5 text-dense font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+                className="px-5 py-1.5 text-dense font-mono font-semibold rounded transition-colors disabled:opacity-40"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
                 {creating ? 'Creating...' : 'Confirm & Create'}
               </button>
@@ -572,7 +572,7 @@ function SectionCard({ icon, title, children }) {
     <div className="rounded-md flex flex-col gap-4 p-4" style={{ backgroundColor: '#292524', border: '1px solid #3a3733' }}>
       <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid #3a3733' }}>
         <span style={{ color: '#fb923c' }}>{icon}</span>
-        <span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>{title}</span>
+        <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>{title}</span>
       </div>
       {children}
     </div>
@@ -582,7 +582,7 @@ function SectionCard({ icon, title, children }) {
 function FormField({ label, required, children }) {
   return (
     <div>
-      <label className="block text-label font-mono uppercase tracking-wider mb-1.5" style={{ color: '#78716c' }}>
+      <label className="block text-label font-mono uppercase mb-1.5" style={{ color: '#78716c' }}>
         {label}{required && <span style={{ color: '#ef4444' }}> *</span>}
       </label>
       {children}
@@ -594,7 +594,7 @@ function ConfirmRow({ label, value }) {
   const isLong = value && value.length > 60
   return (
     <div className={isLong ? 'flex flex-col gap-0.5' : 'flex gap-3'}>
-      <span className="text-label font-mono uppercase tracking-wider flex-shrink-0" style={{ color: '#57534e', width: isLong ? undefined : 90 }}>{label}</span>
+      <span className="text-label font-mono uppercase flex-shrink-0" style={{ color: '#57534e', width: isLong ? undefined : 90 }}>{label}</span>
       <span className={`text-dense font-mono ${isLong ? '' : 'truncate'}`} style={{ color: '#d6d3d1', whiteSpace: isLong ? 'pre-wrap' : undefined }}>{value}</span>
     </div>
   )
@@ -623,8 +623,8 @@ function StepIndicator({ step }) {
                 opacity: done || active ? 1 : 0.5,
               }}
             >
-              <span className="text-dense font-mono font-bold">{i + 1}</span>
-              <span className="text-label font-mono uppercase tracking-wider">{s.label}</span>
+              <span className="text-dense font-mono font-semibold">{i + 1}</span>
+              <span className="text-label font-mono uppercase">{s.label}</span>
             </div>
             {i < STEPS.length - 1 && (
               <span className="text-dense" style={{ color: '#78716c' }}>›</span>
@@ -652,7 +652,7 @@ function NoProjectGate({ onNewProject }) {
         to pick an existing project, or create a new one below.
       </div>
       <button type="button" onClick={onNewProject}
-        className="flex items-center gap-1.5 px-5 py-2 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+        className="flex items-center gap-1.5 px-5 py-2 text-dense font-mono rounded transition-colors"
         style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
         <Plus className="w-3.5 h-3.5" /> New project
       </button>

@@ -145,7 +145,7 @@ export default function AuditSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-label font-bold uppercase tracking-widest text-stone-900">Platform audit</h2>
+          <h2 className="text-label font-semibold uppercase text-stone-900">Platform audit</h2>
           <p className="text-dense text-stone-950 leading-relaxed">
             Append-only. Teardown certificates outlive the company they name.
           </p>
@@ -154,7 +154,7 @@ export default function AuditSection({ isActive }) {
           <select
             value={action}
             onChange={(e) => { setAction(e.target.value); reload(e.target.value) }}
-            className="px-2 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense font-semibold rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
           >
             {ACTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
@@ -162,7 +162,7 @@ export default function AuditSection({ isActive }) {
           <button
             onClick={() => reload(action)}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -185,11 +185,11 @@ export default function AuditSection({ isActive }) {
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr style={{ backgroundColor: '#e7e5e4' }}>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e', width: '150px' }}>When</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Action</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Company</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Operator</th>
-              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Detail</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e', width: '150px' }}>When</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Action</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Company</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Operator</th>
+              <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Detail</th>
             </tr>
           </thead>
           <tbody>
@@ -221,7 +221,7 @@ export default function AuditSection({ isActive }) {
                         style={{ width: 7, height: 7, backgroundColor: SEVERITY_DOT[r.severity] ?? '#a8a29e' }}
                       />
                       <span
-                        className="text-label font-bold uppercase tracking-wider"
+                        className="text-label font-semibold uppercase"
                         style={{ color: LOUD.has(r.action) ? '#991b1b' : '#57534e' }}
                       >
                         {r.action.replace('workspace.', '').replace('ai_key.', 'key ').replace('.', ' ')}

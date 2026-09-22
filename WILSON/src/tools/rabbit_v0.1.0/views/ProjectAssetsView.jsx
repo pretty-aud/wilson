@@ -373,7 +373,7 @@ export default function ProjectAssetsView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
           No project loaded
         </span>
       </div>
@@ -388,7 +388,7 @@ export default function ProjectAssetsView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -397,7 +397,7 @@ export default function ProjectAssetsView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {ASSET_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -417,7 +417,7 @@ export default function ProjectAssetsView() {
         {/* Group */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {ASSET_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -427,7 +427,7 @@ export default function ProjectAssetsView() {
         {/* View mode toggle — segmented control */}
         <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -435,7 +435,7 @@ export default function ProjectAssetsView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{
               backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent',
               color: viewMode === 'gallery' ? '#fff7ed' : '#78716c',
@@ -488,13 +488,13 @@ export default function ProjectAssetsView() {
 
         {/* Right: count + add asset */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {processed.length}/{assets.length}
           </span>
 
           <GatedAction allowed={canWrite}>
             <button type="button" onClick={handleAddAsset}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono rounded-sm transition-colors"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               <Plus className="w-3.5 h-3.5" /> New asset
             </button>
@@ -546,7 +546,7 @@ export default function ProjectAssetsView() {
                 {collapsedGroups.has(g.key)
                   ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(groupBy, g.key) }}>
+                <span className="text-label font-mono uppercase font-semibold" style={{ color: groupAccent(groupBy, g.key) }}>
                   {g.label}
                 </span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -590,7 +590,7 @@ export default function ProjectAssetsView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
@@ -711,13 +711,13 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -745,7 +745,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -845,7 +845,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
             {/* See ProjectTasksView's equivalent: one wrapper with the parent
@@ -884,7 +884,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
         {/* Thumbnail spacer */}
         <div style={{ width: rowH, flexShrink: 0 }} />
         {columns.map(c => (
-          <div key={c.key} className="px-3.5 py-2.5 text-label font-mono uppercase tracking-wider font-semibold text-left"
+          <div key={c.key} className="px-3.5 py-2.5 text-label font-mono uppercase font-semibold text-left"
             style={{ color: '#a8a29e', flex: c.flex, minWidth: 0 }}>
             {c.label}
           </div>
@@ -905,7 +905,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                 {collapsed
                   ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: accent }}>
+                <span className="text-label font-mono uppercase font-semibold" style={{ color: accent }}>
                   {g.label}
                 </span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -972,7 +972,7 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-dense font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-dense font-mono rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1282,7 +1282,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <span className="text-h1 font-mono font-bold" style={{ color: '#57534e' }}>
+          <span className="text-h1 font-mono font-semibold" style={{ color: '#57534e' }}>
             {initials}
           </span>
         )}
@@ -1311,7 +1311,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           </>
         )}
         <div
-          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded"
+          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-label font-mono uppercase rounded"
           style={{ color: sc, backgroundColor: '#1c1917', border: `1px solid ${sc}33` }}>
           {fmt(asset.status || 'not_started')}
         </div>
@@ -1326,7 +1326,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           placeholder="Untitled"
           readOnly={readOnly}
         />
-        <div className="flex items-center justify-between text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
           {phaseLabel && <span className="truncate max-w-[100px]">{'\u00B7'} {phaseLabel}</span>}
         </div>
@@ -1496,7 +1496,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <Boxes className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
               Create New Asset
             </span>
           </div>
@@ -1511,7 +1511,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Name */}
             <div>
-              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Name *</label>
+              <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Name *</label>
               <input
                 autoFocus
                 type="text"
@@ -1526,7 +1526,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {/* Type + Status row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Type</label>
+                <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Type</label>
                 <select value={draft.type} onChange={e => patch({ type: e.target.value })}
                   className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
@@ -1534,7 +1534,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                 </select>
               </div>
               <div>
-                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Status</label>
+                <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Status</label>
                 <select value={draft.status} onChange={e => patch({ status: e.target.value })}
                   className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
@@ -1545,7 +1545,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Phase */}
             <div>
-              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Phase</label>
+              <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Phase</label>
               <select value={draft.phase_id} onChange={e => patch({ phase_id: e.target.value })}
                 className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
@@ -1557,14 +1557,14 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {/* Dates row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Start Date</label>
+                <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Start Date</label>
                 <input type="date" value={draft.start_date} onChange={e => patch({ start_date: e.target.value })}
                   className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}
                 />
               </div>
               <div>
-                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Due Date</label>
+                <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Due Date</label>
                 <input type="date" value={draft.due_date} onChange={e => patch({ due_date: e.target.value })}
                   className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.due_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}
@@ -1574,7 +1574,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Description */}
             <div>
-              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Description</label>
+              <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Description</label>
               <textarea
                 value={draft.description}
                 onChange={e => patch({ description: e.target.value })}
@@ -1587,7 +1587,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Task template selector */}
             <div>
-              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Task Template</label>
+              <label className="text-label font-mono uppercase mb-1 block" style={{ color: '#78716c' }}>Task Template</label>
               <select
                 value={selectedTemplateId}
                 onChange={e => setSelectedTemplateId(e.target.value)}
@@ -1606,7 +1606,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {previewTasks.length > 0 && (
               <div className="rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
                 <div className="px-3 py-1.5" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                  <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+                  <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
                     Tasks to be created ({previewTasks.length})
                   </span>
                 </div>
@@ -1622,7 +1622,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                           {fmt(t.role_slug)}
                         </span>
                       )}
-                      <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#f4a261' }}>
+                      <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#f4a261' }}>
                         {t.bid_days || 0}d
                       </span>
                     </div>
@@ -1658,7 +1658,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             </button>
             <button type="button" onClick={handleConfirm}
               disabled={!draft.name.trim() || creating}
-              className="px-4 py-1.5 text-dense font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 text-dense font-mono font-semibold rounded transition-colors disabled:opacity-40"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               {creating ? 'Creating...' : 'Confirm & Create'}
             </button>
@@ -1854,13 +1854,13 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                   style={{ width: 120, height: 120, objectFit: 'cover', display: 'block' }}
                 />
               ) : (
-                <span className="text-h1 font-mono font-bold" style={{ color: '#57534e' }}>
+                <span className="text-h1 font-mono font-semibold" style={{ color: '#57534e' }}>
                   {(asset.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('')}
                 </span>
               )}
             </div>
             <div className="flex flex-col gap-1.5 pt-1">
-              <div className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+              <div className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                 Thumbnail
               </div>
               <div className="flex items-center gap-2">
@@ -2083,7 +2083,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
 
           {/* Tasks section */}
           <div className="mb-2">
-            <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
               Tasks ({tasks.length})
             </span>
           </div>
@@ -2210,7 +2210,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
 function PropField({ label, value, children }) {
   return (
     <div>
-      <div className="text-label font-mono uppercase tracking-wider mb-0.5" style={{ color: '#78716c' }}>
+      <div className="text-label font-mono uppercase mb-0.5" style={{ color: '#78716c' }}>
         {label}
       </div>
       {children || (
@@ -2226,7 +2226,7 @@ function PropField({ label, value, children }) {
 function Th({ children, style: extraStyle }) {
   return (
     <th
-      className="px-3 py-2.5 text-label font-mono uppercase tracking-wider font-semibold text-left"
+      className="px-3 py-2.5 text-label font-mono uppercase font-semibold text-left"
       style={{ color: '#a8a29e', ...extraStyle }}
     >
       {children}

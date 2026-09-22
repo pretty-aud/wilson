@@ -80,7 +80,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
           <FileClock className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
           <div className="flex-1 min-w-0">
-            <div className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+            <div className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
               File activity
             </div>
             <div className="text-dense font-mono truncate" style={{ color: '#78716c' }}>
@@ -142,7 +142,7 @@ function FileEventCard({ evt }) {
     <div className="rounded px-3 py-2.5 flex flex-col gap-1.5"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-label font-mono uppercase tracking-wider font-bold"
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-label font-mono uppercase font-semibold"
           style={{ color: meta.color, backgroundColor: `${meta.color}1a`, border: `1px solid ${meta.color}40` }}>
           <Icon className="w-3 h-3" /> {meta.label}
         </span>

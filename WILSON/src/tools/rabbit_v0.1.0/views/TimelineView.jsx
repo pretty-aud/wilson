@@ -664,7 +664,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
           No project loaded
         </span>
       </div>
@@ -1420,7 +1420,7 @@ const OverviewPane = forwardRef(function OverviewPane({
             <>
               <div className="flex items-center gap-1.5">
                 <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }} />
-                <div className="text-dense font-bold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
+                <div className="text-dense font-semibold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
                   {hoverPopup.row.label || 'Untitled milestone'}
                 </div>
               </div>
@@ -1436,7 +1436,7 @@ const OverviewPane = forwardRef(function OverviewPane({
             </>
           ) : (
             <>
-              <div className="text-label font-bold uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
+              <div className="text-label font-semibold uppercase truncate" style={{ color: '#fb923c' }}>
                 {hoverPopup.row.label || 'Untitled phase'}
               </div>
               <div className="text-dense mt-1" style={{ color: '#d6d3d1' }}>
@@ -2286,7 +2286,7 @@ function DetailPane({
               backgroundColor: '#1c1917',
             }}
           >
-            <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#57534e' }}>
+            <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
               Phase / Task
             </span>
           </div>
@@ -2446,7 +2446,7 @@ function DetailPane({
                 <span
                   className={`text-dense font-mono truncate ${
                     r.kind === 'phase'
-                      ? (r.isSubgroup ? 'font-medium' : 'font-semibold')
+                      ? (r.isSubgroup ? '' : 'font-semibold')
                       : ''
                   }`}
                   style={{ color: r.kind === 'phase' ? '#fb923c' : '#78716c' }}
@@ -2486,7 +2486,7 @@ function DetailPane({
                 >
                   {tick.topLabel && (
                     <span
-                      className="text-dense font-mono font-medium whitespace-nowrap"
+                      className="text-dense font-mono whitespace-nowrap"
                       style={{ color: '#fb923c', marginTop: 4, lineHeight: 1 }}
                     >
                       {tick.topLabel}
@@ -3796,7 +3796,7 @@ function DetailBar({
       {width > 32 && (
         <span
           className={`text-label font-mono truncate pointer-events-none overflow-hidden ${
-            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-bold uppercase tracking-wider' : '')
+            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-semibold uppercase' : '')
           }`}
           style={{ color: tone.fg }}
         >
@@ -3895,7 +3895,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           style={{ borderBottom: '1px solid #fb923c', backgroundColor: '#7c2d12' }}
         >
           <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#fed7aa' }} />
-          <span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fed7aa' }}>
+          <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fed7aa' }}>
             Task outside phase window
           </span>
         </div>
@@ -3913,7 +3913,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onClampTask}
-            className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
             style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
           >
             Clamp task
@@ -3921,7 +3921,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onExtendPhase}
-            className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
           >
             Extend phase
@@ -4153,7 +4153,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
+          <span className="text-label font-mono uppercase font-semibold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset
@@ -4591,7 +4591,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 if (!parentAsset) return null
                 return (
                   <div className="mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
-                    <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+                    <div className="text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>
                       Asset: {parentAsset.name || 'Untitled'}
                     </div>
                     <FileManager
@@ -4631,7 +4631,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 type="button"
                 onClick={handleDelete}
                 disabled={saving}
-                className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+                className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-30"
                 style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
               >
                 <Trash2 className="w-3 h-3" />
@@ -4644,7 +4644,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               type="button"
               onClick={() => !saving && onClose()}
               disabled={saving}
-              className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+              className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-30"
               style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
             >
               {canWrite ? 'Cancel' : 'Close'}
@@ -4654,7 +4654,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+                className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-30"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
               >
                 <Save className="w-3 h-3" />
@@ -4681,7 +4681,7 @@ function emptyMilestoneDraft({ date, phase_id } = {}) {
 function Field({ label, children }) {
   return (
     <div>
-      <label className="block text-label font-mono uppercase tracking-widest mb-1" style={{ color: '#a8a29e' }}>
+      <label className="block text-label font-mono uppercase mb-1" style={{ color: '#a8a29e' }}>
         {label}
       </label>
       {children}
@@ -4859,7 +4859,7 @@ function DetailZoomToolbar({
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-2.5 py-1 text-dense font-mono rounded-sm transition-colors"
             style={{
               color: zoomId === z.id ? '#fff7ed' : '#78716c',
               backgroundColor: zoomId === z.id ? '#ea580c' : 'transparent',
@@ -4881,7 +4881,7 @@ function DetailZoomToolbar({
         title="Center the detail timeline on today"
       >
         <Crosshair className="w-3 h-3" />
-        <span className="text-label font-mono uppercase tracking-wider">Today</span>
+        <span className="text-label font-mono uppercase">Today</span>
       </button>
 
       <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
@@ -4923,7 +4923,7 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('asc')}
-          className="px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+          className="px-2 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800"
           style={{
             color: sortOrder === 'asc' ? '#fb923c' : '#57534e',
           }}
@@ -4934,7 +4934,7 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('desc')}
-          className="px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+          className="px-2 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800"
           style={{
             color: sortOrder === 'desc' ? '#fb923c' : '#57534e',
           }}
@@ -4951,7 +4951,7 @@ function DetailZoomToolbar({
           <button
             type="button"
             onClick={onNewPhase}
-            className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+            className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800"
             style={{ color: '#78716c' }}
           >
             <Plus className="w-3 h-3" />
@@ -4963,7 +4963,7 @@ function DetailZoomToolbar({
           <button
             type="button"
             onClick={onNewMilestone}
-            className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+            className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800"
             style={{ color: '#f59e0b' }}
           >
             <Diamond className="w-3 h-3" />
@@ -4974,7 +4974,7 @@ function DetailZoomToolbar({
           <button
             type="button"
             onClick={onNewTask}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded-sm transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
           >
             <Plus className="w-3 h-3" />
@@ -5043,7 +5043,7 @@ function HolidaysEditor({ holidays, onChange }) {
 
   return (
     <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-      <label className="block text-h3 font-bold mb-1 text-orange-400">
+      <label className="block text-h3 font-semibold mb-1 text-orange-400">
         Holidays / Blocked Days
       </label>
       <p className="text-dense text-stone-500 mb-3">
@@ -5069,7 +5069,7 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={() => { if (newDate) { addDate(newDate, newTitle); setNewDate(''); setNewTitle('') } }}
-          className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+          className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm flex-shrink-0"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
         >
           <Plus className="w-3 h-3" />
@@ -5083,7 +5083,7 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm"
           style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
           <Upload className="w-3 h-3" />
@@ -5092,7 +5092,7 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm"
           style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
           <Download className="w-3 h-3" />
@@ -5191,7 +5191,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
           <div className="flex items-center gap-2">
             <SettingsIcon className="w-5 h-5 text-orange-400" />
-            <span className="font-bold text-orange-400 uppercase tracking-wide">RABBIT Settings</span>
+            <span className="font-semibold text-orange-400 uppercase tracking-wide">RABBIT Settings</span>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded transition-colors">
             <X className="w-5 h-5 text-stone-400" />
@@ -5202,7 +5202,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         <div className="flex shrink-0">
           <button
             onClick={() => setSettingsTab('settings')}
-            className={`flex-1 px-4 py-2 text-body font-bold transition-colors border-b-2 ${
+            className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${
               settingsTab === 'settings'
                 ? 'text-orange-400 border-orange-500 bg-stone-900'
                 : 'text-stone-400 border-transparent bg-stone-700'
@@ -5212,7 +5212,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
           </button>
           <button
             onClick={() => setSettingsTab('prompts')}
-            className={`flex-1 px-4 py-2 text-body font-bold transition-colors border-b-2 ${
+            className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${
               settingsTab === 'prompts'
                 ? 'text-orange-400 border-orange-500 bg-stone-900'
                 : 'text-stone-400 border-transparent bg-stone-700'
@@ -5228,12 +5228,12 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
             {isLocked
               ? <Lock className="w-4 h-4 text-stone-500" />
               : <Unlock className="w-4 h-4 text-orange-400" />}
-            <span className={`text-label font-bold uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
+            <span className={`text-label font-semibold uppercase ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
               {isLocked ? 'Locked' : 'Unlocked'}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-label uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
+            <span className={`text-label uppercase ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
               {isLocked ? 'Read Only' : 'Editable'}
             </span>
             <button
@@ -5255,10 +5255,10 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
           {settingsTab === 'settings' && (
             <div className={toolsLocked ? 'opacity-60 pointer-events-none' : ''}>
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-h3 font-bold mb-2 text-orange-400">Timeline Display</label>
+                <label className="block text-h3 font-semibold mb-2 text-orange-400">Timeline Display</label>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-dense font-bold text-stone-300">Show weekends</div>
+                    <div className="text-dense font-semibold text-stone-300">Show weekends</div>
                     <p className="text-dense text-stone-500 mt-1">
                       When OFF, Saturday + Sunday columns are hidden from the day-view gantt entirely.
                       When ON, weekends get a soft tint so they read as non-work days.
@@ -5275,7 +5275,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 </div>
               </div>
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-h3 font-bold mb-2 text-orange-400">About</label>
+                <label className="block text-h3 font-semibold mb-2 text-orange-400">About</label>
                 <p className="text-dense text-stone-500">
                   RABBIT is WILSON's resource allocation tool. Settings are scoped to the
                   current browser profile and persist via localStorage.
@@ -5284,14 +5284,14 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
 
               {/* ── Task Templates ── */}
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-h3 font-bold mb-2 text-orange-400">Task Templates</label>
+                <label className="block text-h3 font-semibold mb-2 text-orange-400">Task Templates</label>
                 <p className="text-dense text-stone-500 mb-3">
                   Create and manage reusable task templates that can be applied when creating new assets.
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowTemplateManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
                   style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 >
                   <ListChecks className="w-3.5 h-3.5" />
@@ -5301,7 +5301,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
 
               {/* ── Project Type Defaults ── */}
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-h3 font-bold mb-2 text-orange-400">Project Type Defaults</label>
+                <label className="block text-h3 font-semibold mb-2 text-orange-400">Project Type Defaults</label>
                 <p className="text-dense text-stone-500 mb-3">
                   When creating a new project, these databases will be toggled on by default based on the project type.
                   You can override these per-project in the Project Control Panel.
@@ -5309,10 +5309,10 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
                   {/* Header row */}
                   <div className="flex items-center px-3 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                    <span className="flex-1 text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Type</span>
-                    <span className="w-16 text-label font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Scenes</span>
-                    <span className="w-16 text-label font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Levels</span>
-                    <span className="w-16 text-label font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Exp.</span>
+                    <span className="flex-1 text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>Type</span>
+                    <span className="w-16 text-label font-mono uppercase font-semibold text-center" style={{ color: '#78716c' }}>Scenes</span>
+                    <span className="w-16 text-label font-mono uppercase font-semibold text-center" style={{ color: '#78716c' }}>Levels</span>
+                    <span className="w-16 text-label font-mono uppercase font-semibold text-center" style={{ color: '#78716c' }}>Exp.</span>
                   </div>
                   {/* Rows — one per project type */}
                   {PROJECT_TYPE_LIST.map(type => {
@@ -5372,7 +5372,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors"
                   >
                     <div className="text-left">
-                      <span className={`text-label font-bold uppercase tracking-wide ${promptsLocked ? 'text-stone-500' : 'text-orange-400'}`}>
+                      <span className={`text-label font-semibold uppercase ${promptsLocked ? 'text-stone-500' : 'text-orange-400'}`}>
                         {s.title}
                       </span>
                       <p className="text-dense text-stone-500">{s.desc}</p>
@@ -5428,7 +5428,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               type="button"
               onClick={onOpenHelp}
               title="Open RABBIT help & documentation"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-dense font-bold uppercase tracking-wide transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-dense font-semibold transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
             >
               <HelpCircle className="w-3.5 h-3.5" />
               Help
@@ -5460,7 +5460,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-orange-400" />
-            <span className="font-bold text-orange-400 uppercase tracking-wide">
+            <span className="font-semibold text-orange-400 uppercase tracking-wide">
               Help & Documentation
             </span>
           </div>
@@ -5477,7 +5477,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
                   onClick={() => setHelpPage(item.id)}
                   className={`w-full text-left px-3 py-1.5 text-dense transition-colors ${
                     helpPage === item.id
-                      ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
+                      ? 'bg-stone-800 text-orange-400 font-semibold border-l-2 border-orange-500'
                       : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
                   }`}
                 >
@@ -5525,7 +5525,7 @@ function ZoomControls({ zoomId, onChange }) {
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-2 py-0.5 text-dense font-mono uppercase tracking-wider"
+            className="px-2 py-0.5 text-dense font-mono"
             style={{
               color: zoomId === z.id ? '#fff7ed' : '#a8a29e',
               backgroundColor: zoomId === z.id ? '#ea580c' : '#1c1917',
@@ -5596,7 +5596,7 @@ function SummaryBand({
     >
       {/* Title */}
       <CalendarDays className="w-4 h-4 flex-shrink-0" style={{ color: '#57534e' }} />
-      <span className="text-label font-mono uppercase tracking-widest font-medium flex-shrink-0" style={{ color: '#78716c' }}>
+      <span className="text-label font-mono uppercase font-semibold flex-shrink-0" style={{ color: '#78716c' }}>
         Timeline
       </span>
 
@@ -5622,7 +5622,7 @@ function SummaryBand({
             type="button"
             onClick={onMinimapFitProject}
             title="Fit minimap to project start/end"
-            className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors"
             style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <Maximize2 className="w-3 h-3" />
@@ -5632,13 +5632,13 @@ function SummaryBand({
             type="button"
             onClick={onMinimapCenterToday}
             title="Center minimap on today"
-            className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors"
             style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <Crosshair className="w-3 h-3" />
             Today
           </button>
-          <span className="text-label font-mono uppercase tracking-wider ml-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase ml-1" style={{ color: '#78716c' }}>
             Zoom
           </span>
           <span className="text-dense font-mono" style={{ color: '#78716c' }}>6mo</span>
@@ -5717,8 +5717,8 @@ function SummaryTile({ icon: Icon, label, value, tone }) {
   return (
     <div className="flex items-center gap-1.5 px-1.5 py-1">
       <Icon className="w-3 h-3" style={{ color: colors.icon }} />
-      <span className="text-dense font-mono font-medium" style={{ color: colors.value }}>{value}</span>
-      <span className="text-label font-mono uppercase tracking-wider" style={{ color: colors.label }}>{label}</span>
+      <span className="text-dense font-mono" style={{ color: colors.value }}>{value}</span>
+      <span className="text-label font-mono uppercase" style={{ color: colors.label }}>{label}</span>
     </div>
   )
 }

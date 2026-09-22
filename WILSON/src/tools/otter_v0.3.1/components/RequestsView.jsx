@@ -74,7 +74,7 @@ function fmt(iso) {
 function StatusChip({ status }) {
   const st = STATUS_STYLE[status] ?? STATUS_STYLE.open
   return (
-    <span className={`text-label font-bold uppercase tracking-wider ${st.color} flex items-center gap-1.5 shrink-0`}>
+    <span className={`text-label font-semibold uppercase ${st.color} flex items-center gap-1.5 shrink-0`}>
       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: st.dot }} />
       {st.label}
     </span>
@@ -392,7 +392,7 @@ export default function RequestsView({
   }, [noms, userId, isApprover])
 
   const sectionHeader = (icon, text, count) => (
-    <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide mb-2 flex items-center gap-1.5">
+    <h3 className="text-orange-400 font-semibold text-label uppercase mb-2 flex items-center gap-1.5">
       {icon} {text}{count != null ? <span className="text-stone-500">· {count}</span> : null}
     </h3>
   )
@@ -404,7 +404,7 @@ export default function RequestsView({
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-white font-bold text-h1 flex items-center gap-2">
+            <h2 className="text-white font-semibold text-h1 flex items-center gap-2">
               <GitPullRequestArrow className="w-5 h-5 text-orange-400" />
               {isAdmin || isManager ? 'Company library — requests' : 'My change requests'}
             </h2>
@@ -422,7 +422,7 @@ export default function RequestsView({
           <button
             onClick={refreshAll}
             disabled={loading}
-            className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+            className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 shrink-0"
           >
             {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
             Refresh
@@ -507,7 +507,7 @@ export default function RequestsView({
                             className="w-full text-left px-3 py-2 flex items-start gap-2"
                           >
                             <span className="min-w-0 flex-1">
-                              <span className="block text-dense font-bold text-stone-200">
+                              <span className="block text-dense font-semibold text-stone-200">
                                 {r.target_name ?? 'A company standard course'}
                               </span>
                               <span className="block text-dense font-mono truncate text-stone-500">
@@ -520,7 +520,7 @@ export default function RequestsView({
 
                           {isOpen && (
                             <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                              <p className="text-label font-bold uppercase tracking-wider mb-1 text-stone-500">
+                              <p className="text-label font-semibold uppercase mb-1 text-stone-500">
                                 What they changed, and why
                               </p>
                               <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{r.summary}</p>
@@ -533,7 +533,7 @@ export default function RequestsView({
                                     <button
                                       type="button"
                                       onClick={() => openTheirCourse(r)}
-                                      className="underline font-bold text-orange-400 inline-flex items-center gap-0.5"
+                                      className="underline font-semibold text-orange-400 inline-flex items-center gap-0.5"
                                     >
                                       Open their course <ExternalLink className="w-2.5 h-2.5" />
                                     </button>
@@ -569,14 +569,14 @@ export default function RequestsView({
                                     <button
                                       onClick={() => { setDecide(null); setDiff(null) }}
                                       disabled={busy}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={() => approve(r)}
                                       disabled={busy || diff?.loading}
-                                      className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                                     >
                                       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
                                       Archive, then apply
@@ -599,14 +599,14 @@ export default function RequestsView({
                                     <button
                                       onClick={() => { setDecide(null); setNote('') }}
                                       disabled={busy}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={() => decline(r)}
                                       disabled={busy || !note.trim()}
-                                      className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                                     >
                                       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                                       Send it back
@@ -624,13 +624,13 @@ export default function RequestsView({
                                     onClick={() => { setDecide({ id: r.id, action: 'approve' }); setNote(''); loadDiff(r) }}
                                     disabled={!r.source_readable}
                                     title={r.source_readable ? undefined : 'Their course no longer exists — there is nothing to apply'}
-                                    className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     <Check className="w-3 h-3" /> Approve
                                   </button>
                                   <button
                                     onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}
-                                    className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                    className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5"
                                   >
                                     <X className="w-3 h-3" /> Decline
                                   </button>
@@ -661,7 +661,7 @@ export default function RequestsView({
                           className="w-full text-left px-3 py-2 flex items-start gap-2"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block text-dense font-bold text-stone-200">
+                            <span className="block text-dense font-semibold text-stone-200">
                               {r.target_name ?? 'A company standard course'}
                             </span>
                             <span className="block text-dense font-mono truncate text-stone-500">
@@ -673,7 +673,7 @@ export default function RequestsView({
                         </button>
                         {isOpen && (
                           <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                            <p className="text-label font-bold uppercase tracking-wider mb-1 text-stone-500">
+                            <p className="text-label font-semibold uppercase mb-1 text-stone-500">
                               What they changed, and why
                             </p>
                             <p className="text-dense whitespace-pre-wrap mb-2 text-stone-300">{r.summary}</p>
@@ -726,7 +726,7 @@ export default function RequestsView({
                           className="w-full text-left px-3 py-2 flex items-start gap-2"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block text-dense font-bold text-stone-200">
+                            <span className="block text-dense font-semibold text-stone-200">
                               {n.course_name ?? 'A course'}
                               {(n.revision ?? 1) > 1 && (
                                 <span className="text-stone-500 font-normal"> · round {n.revision}</span>
@@ -741,7 +741,7 @@ export default function RequestsView({
 
                         {isOpen && (
                           <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                            <p className="text-label font-bold uppercase tracking-wider mb-1 text-stone-500">
+                            <p className="text-label font-semibold uppercase mb-1 text-stone-500">
                               Why it should be the standard
                             </p>
                             <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
@@ -770,7 +770,7 @@ export default function RequestsView({
                                       <button
                                         type="button"
                                         onClick={() => openNominatedCourse(n)}
-                                        className="underline font-bold text-orange-400 inline-flex items-center gap-0.5"
+                                        className="underline font-semibold text-orange-400 inline-flex items-center gap-0.5"
                                       >
                                         Open their course <ExternalLink className="w-2.5 h-2.5" />
                                       </button>
@@ -796,14 +796,14 @@ export default function RequestsView({
                                       <button
                                         onClick={() => setNomDecide(null)}
                                         disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
                                       >
                                         Cancel
                                       </button>
                                       <button
                                         onClick={() => approveNom(n)}
                                         disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                                       >
                                         {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
                                         Make it the standard
@@ -826,14 +826,14 @@ export default function RequestsView({
                                       <button
                                         onClick={() => { setNomDecide(null); setNomNote('') }}
                                         disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
                                       >
                                         Cancel
                                       </button>
                                       <button
                                         onClick={() => declineNom(n)}
                                         disabled={nomBusy || !nomNote.trim()}
-                                        className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                                       >
                                         {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                                         Send it back
@@ -849,13 +849,13 @@ export default function RequestsView({
                                   <div className="flex gap-2">
                                     <button
                                       onClick={() => { setNomDecide({ id: n.id, action: 'approve' }); setNomNote('') }}
-                                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5"
                                     >
                                       <Check className="w-3 h-3" /> Approve
                                     </button>
                                     <button
                                       onClick={() => { setNomDecide({ id: n.id, action: 'decline' }); setNomNote('') }}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5"
                                     >
                                       <X className="w-3 h-3" /> Decline
                                     </button>
@@ -882,7 +882,7 @@ export default function RequestsView({
                     {nomDecided.map(n => (
                       <li key={n.id} className="bg-stone-900/40 border border-stone-800 rounded-sm px-3 py-2 flex items-start gap-2">
                         <span className="min-w-0 flex-1">
-                          <span className="block text-dense font-bold text-stone-400">
+                          <span className="block text-dense font-semibold text-stone-400">
                             {n.course_name ?? 'A course'}
                             <span className="font-normal text-stone-600"> · {n.proposer_label ?? 'someone'}</span>
                           </span>
@@ -922,7 +922,7 @@ export default function RequestsView({
                       >
                         <div className="px-3 py-2 flex items-start gap-2">
                           <span className="min-w-0 flex-1">
-                            <span className="block text-dense font-bold text-stone-200">
+                            <span className="block text-dense font-semibold text-stone-200">
                               {r.target_name ?? 'A company standard course'}
                               {(r.revision ?? 1) > 1 && (
                                 <span className="text-stone-500 font-normal"> · round {r.revision}</span>
@@ -939,7 +939,7 @@ export default function RequestsView({
 
                           {needsMe && (
                             <div className="bg-stone-950 border border-orange-700/40 rounded-sm p-2.5 mb-2">
-                              <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                              <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                                 <MessageSquareWarning className="w-3.5 h-3.5" />
                                 {r.reviewer_label ?? 'An admin'} asked for changes
                               </p>
@@ -969,7 +969,7 @@ export default function RequestsView({
                               {r.source_course_id ? (
                                 <button
                                   onClick={() => openMyDialog(r)}
-                                  className={`px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5 ${needsMe
+                                  className={`px-3 py-1.5 text-dense font-semibold rounded-sm flex items-center gap-1.5 ${needsMe
                                     ? 'bg-orange-600 text-white border-2 border-orange-700 hover:bg-orange-700'
                                     : 'bg-stone-700 text-stone-300 border-2 border-stone-600 hover:bg-stone-600'}`}
                                 >
@@ -980,7 +980,7 @@ export default function RequestsView({
                                 <button
                                   onClick={() => settleWithoutFork(r, 'rejected')}
                                   disabled={busy}
-                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                                   title="Your copy of the course no longer exists, so resubmitting is not possible"
                                 >
                                   {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
@@ -990,7 +990,7 @@ export default function RequestsView({
                                 <button
                                   onClick={() => settleWithoutFork(r, 'withdrawn')}
                                   disabled={busy}
-                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                                   title="Your copy of the course no longer exists, so editing or resubmitting is not possible"
                                 >
                                   {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
@@ -1013,7 +1013,7 @@ export default function RequestsView({
                 <button
                   type="button"
                   onClick={() => setShowDecided(v => !v)}
-                  className="text-stone-500 text-dense font-bold uppercase tracking-wide hover:text-stone-300 flex items-center gap-1.5"
+                  className="text-stone-500 text-dense font-semibold hover:text-stone-300 flex items-center gap-1.5"
                 >
                   Decided · {decided.length} {showDecided ? '▾' : '▸'}
                 </button>
@@ -1022,7 +1022,7 @@ export default function RequestsView({
                     {decided.map(r => (
                       <li key={r.id} className="bg-stone-900/40 border border-stone-800 rounded-sm px-3 py-2 flex items-start gap-2">
                         <span className="min-w-0 flex-1">
-                          <span className="block text-dense font-bold text-stone-400">
+                          <span className="block text-dense font-semibold text-stone-400">
                             {r.target_name ?? 'A company standard course'}
                             <span className="font-normal text-stone-600"> · {r.proposer_label ?? 'someone'}</span>
                           </span>

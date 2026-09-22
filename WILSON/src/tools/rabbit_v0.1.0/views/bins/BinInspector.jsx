@@ -36,7 +36,7 @@ function Section({ title, children, open = true, onToggle, right = null }) {
   const heading = (
     <>
       {onToggle ? (open ? <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />) : null}
-      <span className="text-label font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
+      <span className="text-label font-mono uppercase flex-1 truncate" style={{ color: C.dim }}>{title}</span>
     </>
   )
   return (
@@ -106,7 +106,7 @@ export default function BinInspector({
   if (!rows.length) {
     return (
       <div className="flex-shrink-0 h-full flex flex-col" style={{ width, borderLeft: `1px solid ${C.line}`, backgroundColor: C.bg }}>
-        <div className="px-3 py-2 text-label font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Inspector</div>
+        <div className="px-3 py-2 text-label font-mono uppercase" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Inspector</div>
         <div className="flex-1 flex items-center justify-center px-6 text-center text-dense font-mono leading-relaxed" style={{ color: C.dimmer }}>
           Select a file to preview it and log it. Shift-click or drag to select several and edit them together.
         </div>
@@ -122,7 +122,7 @@ export default function BinInspector({
   return (
     <div className="flex-shrink-0 h-full flex flex-col overflow-hidden" style={{ width, borderLeft: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="px-3 py-2 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="text-label font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>
+        <span className="text-label font-mono uppercase flex-1 truncate" style={{ color: C.dim }}>
           {single ? 'Inspector' : `${rows.length} files selected`}
         </span>
         {canWrite && <IconBtn Icon={Trash2} title={single ? 'Remove from bin (Delete)' : `Remove ${rows.length} from bin (Delete)`} onClick={() => onRemove?.(rows.map(r => r.id))} danger size={3} />}
@@ -160,7 +160,7 @@ export default function BinInspector({
                       <span className="truncate flex-1" style={{ color: C.text }} title={`${scene?.name ? scene.name + ' · ' : ''}#${shot.shot_number ?? '—'} ${shot.name || 'Untitled shot'}${take.notes ? ' — ' + take.notes : ''}`}>
                         {scene?.name ? <span style={{ color: C.dim }}>{scene.name} · </span> : null}#{shot.shot_number ?? '—'} {shot.name || 'Untitled shot'}
                       </span>
-                      <span className="px-1 rounded-sm text-label uppercase tracking-wider flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
+                      <span className="px-1 rounded-sm text-label uppercase flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
                         {take.role === 'primary' && <Star className="w-2 h-2" style={{ fill: meta.color }} />}{meta.label}
                       </span>
                       <IconBtn Icon={ExternalLink} title="Open the shot in Scenes" size={3} onClick={() => navigateTo({ view: 'scenes', shotId: shot.id, projectId })} />
@@ -254,7 +254,7 @@ export default function BinInspector({
 function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={`${label} (${hint})`}
-      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
+      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
       style={{ color: active ? C.bright : C.muted, backgroundColor: active ? color : 'transparent', border: `1px solid ${active ? color : C.line}` }}>
       <Icon className="w-3 h-3" /> {label}
     </button>

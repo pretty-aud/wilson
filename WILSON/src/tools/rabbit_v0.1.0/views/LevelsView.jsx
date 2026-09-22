@@ -267,7 +267,7 @@ export default function LevelsView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
           No project loaded
         </span>
       </div>
@@ -281,7 +281,7 @@ export default function LevelsView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -290,7 +290,7 @@ export default function LevelsView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -307,7 +307,7 @@ export default function LevelsView() {
         {/* Group */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -317,7 +317,7 @@ export default function LevelsView() {
         {/* View mode toggle */}
         <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -325,7 +325,7 @@ export default function LevelsView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono transition-colors"
             style={{
               backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent',
               color: viewMode === 'gallery' ? '#fff7ed' : '#78716c',
@@ -374,12 +374,12 @@ export default function LevelsView() {
 
         {/* Right: count + add button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {sorted.length}/{levels.length}
           </span>
 
           <button type="button" onClick={() => setShowCreatePopup(true)}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             <Plus className="w-3.5 h-3.5" /> New level
           </button>
@@ -400,7 +400,7 @@ export default function LevelsView() {
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
           <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+            className="px-3 py-1.5 text-dense font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
           <button type="button" onClick={() => setShowSaveDialog(false)}
             className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
@@ -421,7 +421,7 @@ export default function LevelsView() {
                   {collapsedGroups.has(g.key)
                     ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                     : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                  <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
+                  <span className="text-label font-mono uppercase font-semibold" style={{ color: groupAccent(g.key) }}>
                     {g.label}
                   </span>
                   <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -499,7 +499,7 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
   if (levels.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
           No levels yet
         </span>
       </div>
@@ -515,18 +515,18 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
            : someSelected ? <MinusSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
            : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
         </span>
-        <span className="flex-[2] text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Name</span>
-        <span className="w-28 text-label font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-16 text-label font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Assets</span>
-        <span className="w-16 text-label font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Tasks</span>
-        <span className="flex-[2] text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Description</span>
+        <span className="flex-[2] text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>Name</span>
+        <span className="w-28 text-label font-mono uppercase font-semibold text-center" style={{ color: '#78716c' }}>Status</span>
+        <span className="w-16 text-label font-mono uppercase font-semibold text-center" style={{ color: '#78716c' }}>Assets</span>
+        <span className="w-16 text-label font-mono uppercase font-semibold text-center" style={{ color: '#78716c' }}>Tasks</span>
+        <span className="flex-[2] text-label font-mono uppercase font-semibold" style={{ color: '#78716c' }}>Description</span>
         <span className="w-20" />
 
         {/* Bulk action bar */}
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <BulkSelect label="Status" options={LEVEL_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
@@ -567,7 +567,7 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
             <select
               value={lv.status || 'not_started'}
               onChange={e => ctx?.updateLevel?.(lv.id, { status: e.target.value })}
-              className="px-1.5 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+              className="px-1.5 py-0.5 text-dense font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
               style={{
                 color: statusColor(lv.status),
                 backgroundColor: 'rgba(0,0,0,0.3)',
@@ -624,7 +624,7 @@ function LevelGallery({ levels, gallerySize, onOpenDetail, onRequestDelete }) {
   if (levels.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
           No levels yet
         </span>
       </div>
@@ -651,11 +651,11 @@ function LevelGallery({ levels, gallerySize, onOpenDetail, onRequestDelete }) {
           </div>
           {/* Info */}
           <div className="px-3 py-2.5 flex flex-col gap-1">
-            <span className="text-dense font-mono truncate font-bold" style={{ color: '#e7e5e4' }}>
+            <span className="text-dense font-mono truncate font-semibold" style={{ color: '#e7e5e4' }}>
               {lv.name || 'Untitled level'}
             </span>
             <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm"
+              <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm"
                 style={{ color: statusColor(lv.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(lv.status)}30` }}>
                 {fmt(lv.status || 'not_started')}
               </span>
@@ -770,7 +770,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
             <Gamepad2 className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-mono font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-h3 font-mono font-semibold" style={{ color: '#fb923c' }}>
               {level.name || 'Untitled level'}
             </span>
           </div>
@@ -857,7 +857,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
               </div>
             </div>
             <div>
-              <label className="block text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Start Date</label>
+              <label className="block text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>Start Date</label>
               <input
                 type="date"
                 value={level.start_date || ''}
@@ -870,7 +870,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
               />
             </div>
             <div>
-              <label className="block text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Due Date</label>
+              <label className="block text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>Due Date</label>
               <input
                 type="date"
                 value={level.end_date || ''}
@@ -895,11 +895,11 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-dense font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-dense font-mono text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setDescDraft(level.description || ''); setEditingDesc(false) }}
-                    className="text-dense font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-dense font-mono text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
@@ -924,11 +924,11 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-dense font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-dense font-mono text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setNotesDraft(level.notes || ''); setEditingNotes(false) }}
-                    className="text-dense font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-dense font-mono text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
@@ -948,12 +948,12 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button"
             onClick={() => { onClose(); onRequestDelete({ id: level.id, name: level.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-red-900/30"
             style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
             <Trash2 className="w-3.5 h-3.5" /> Delete level
           </button>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Close
           </button>
@@ -977,7 +977,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
-            <span className="text-dense font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
+            <span className="text-dense font-mono font-semibold" style={{ color: '#ef4444' }}>{title}</span>
           </div>
         </div>
         <div className="px-5 py-4">
@@ -985,10 +985,10 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
         </div>
         <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
           <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
+            className="px-4 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-red-800"
             style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>Delete</button>
         </div>
       </div>
@@ -1026,7 +1026,7 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '3px solid #fb923c' }}>
           <div className="flex items-center gap-2.5">
             <Gamepad2 className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-mono font-bold" style={{ color: '#fb923c' }}>New Level</span>
+            <span className="text-h3 font-mono font-semibold" style={{ color: '#fb923c' }}>New Level</span>
           </div>
           <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
@@ -1058,7 +1058,7 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
             <FieldLabel>Files</FieldLabel>
             <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               <Upload className="w-3.5 h-3.5" /> Add files
             </button>
@@ -1079,10 +1079,10 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense font-mono rounded transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
           <button type="button" onClick={handleConfirm} disabled={!name.trim()}
-            className="px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+            className="px-4 py-1.5 text-dense font-mono rounded transition-colors disabled:opacity-40"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Confirm & Create</button>
         </div>
       </div>
@@ -1145,13 +1145,13 @@ function LevelFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -1176,7 +1176,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -1214,7 +1214,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
   return (
     <select defaultValue="" onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-dense font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-dense font-mono rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
       <option value="" disabled>{label}</option>
       {allowEmpty && <option value="">None</option>}
@@ -1288,7 +1288,7 @@ function PopupInlineText({ value, placeholder, onCommit }) {
 
 function FieldLabel({ children }) {
   return (
-    <label className="block text-label font-mono uppercase tracking-wider font-bold mb-1.5" style={{ color: '#78716c' }}>
+    <label className="block text-label font-mono uppercase font-semibold mb-1.5" style={{ color: '#78716c' }}>
       {children}
     </label>
   )

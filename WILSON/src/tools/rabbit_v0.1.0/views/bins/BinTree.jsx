@@ -52,7 +52,7 @@ export default function BinTree({
   return (
     <div className="flex flex-col flex-shrink-0 h-full select-none" style={{ width, borderRight: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="flex items-center justify-between px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Bins</span>
+        <span className="text-label font-mono uppercase" style={{ color: C.dim }}>Bins</span>
         <button type="button" title="New bin" disabled={!canWrite} onClick={() => onCreateBin?.(null)}
           className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.accentText, border: `1px solid ${C.line}` }}>
           <Plus className="w-3 h-3" />

@@ -98,7 +98,7 @@ export default function UndoToast() {
         type="button"
         onClick={handleUndo}
         disabled={busy}
-        className="flex items-center gap-1.5 px-4 rounded-sm text-dense font-mono uppercase tracking-wider font-bold transition-colors"
+        className="flex items-center gap-1.5 px-4 rounded-sm text-dense font-mono font-semibold transition-colors"
         style={{
           minHeight: 32,
           color: '#fff7ed',

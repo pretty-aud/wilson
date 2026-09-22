@@ -188,7 +188,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
       >
         <div className="bg-stone-700 px-4 py-2.5 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
           <div className="min-w-0">
-            <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide">Suggest a change</h3>
+            <h3 className="text-orange-400 font-semibold text-label uppercase">Suggest a change</h3>
             <p className="text-stone-400 text-dense truncate">
               to the company standard{standardName ? `: ${standardName}` : ''}
             </p>
@@ -220,7 +220,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   {/* The admin answered: their note, then two ways forward. */}
                   {isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/60 rounded-sm p-3">
-                      <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {existing.reviewer_label ?? 'An admin'} asked for changes
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
@@ -237,7 +237,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
                   {existing && !isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/50 rounded-sm p-2.5">
-                      <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-0.5">
+                      <p className="text-orange-400 text-label font-semibold uppercase mb-0.5">
                         You already have a request open
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
                       </p>
@@ -248,7 +248,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   )}
 
                   <div>
-                    <label className="block text-label font-bold text-orange-400 mb-1 uppercase tracking-wide">
+                    <label className="block text-label font-semibold text-orange-400 mb-1 uppercase">
                       What did you change, and why?
                     </label>
                     <textarea
@@ -304,7 +304,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               <button
                 onClick={withdraw}
                 disabled={busy}
-                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Undo2 className="w-3 h-3" /> Withdraw
               </button>
@@ -313,7 +313,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               <button
                 onClick={acceptDecision}
                 disabled={busy}
-                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Check className="w-3 h-3" /> Accept the decision
               </button>
@@ -321,14 +321,14 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
             <div className="flex-1" />
             <button
               onClick={onClose}
-              className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold"
+              className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold"
             >
               Close
             </button>
             <button
               onClick={submit}
               disabled={busy || !summary.trim() || tooLong}
-              className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
               {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}

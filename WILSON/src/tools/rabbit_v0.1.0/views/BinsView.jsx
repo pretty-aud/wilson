@@ -677,7 +677,7 @@ export default function BinsView() {
             <div className="min-w-0 flex items-center gap-2">
               {currentBin ? <ColorDot color={currentBin.color} size={10} /> : <Layers className="w-3.5 h-3.5" style={{ color: C.accentText }} />}
               <div className="min-w-0">
-                <div className="text-label font-mono uppercase tracking-wider truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
+                <div className="text-label font-mono uppercase truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
                   {currentBin ? currentBin.name : 'All files'}
                   {currentBin && <span className="ml-2 text-dense normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
                 </div>
@@ -753,7 +753,7 @@ export default function BinsView() {
               {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)} count={countWhere(f => f.shoot_day === d)}>{d}</Chip>)}
               {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)} count={countWhere(f => f.scene_id === s)}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
               {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)} count={countWhere(f => (f.tags || []).includes(t))}>#{t}</Chip>)}
-              {filterCount > 0 && <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-dense font-mono uppercase tracking-wider ml-2 hover:underline" style={{ color: C.accentText }}>clear {filterCount}</button>}
+              {filterCount > 0 && <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-dense font-mono ml-2 hover:underline" style={{ color: C.accentText }}>clear {filterCount}</button>}
               {filterValues.types.length === 0 && <span className="text-dense font-mono" style={{ color: C.dimmer }}>Nothing to filter yet.</span>}
             </div>
           )}
@@ -762,7 +762,7 @@ export default function BinsView() {
           <div className="flex-1 min-h-0 flex flex-col relative">
             {dragOver && (
               <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" style={{ backgroundColor: 'rgba(234,88,12,0.12)', border: `2px dashed ${C.accent}` }}>
-                <div className="px-4 py-2 rounded-sm text-label font-mono uppercase tracking-wider" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
+                <div className="px-4 py-2 rounded-sm text-label font-mono uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
                   Drop to add to {currentBin ? `"${currentBin.name}"` : 'a new bin'}
                 </div>
               </div>
@@ -824,7 +824,7 @@ export default function BinsView() {
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Copy to (as an instance)' }, ...binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds([...selection], t.id) }))] })}><Copy className="w-3 h-3" /> Copy to</Btn>
                   <Btn small danger onClick={() => removeIds([...selection])} title="Remove from bin (Delete)"><Trash2 className="w-3 h-3" /> Remove</Btn>
                 </>}
-                <button type="button" onClick={clearSelection} className="ml-auto text-dense font-mono uppercase tracking-wider hover:underline" style={{ color: C.dim }}>clear <Kbd>Esc</Kbd></button>
+                <button type="button" onClick={clearSelection} className="ml-auto text-dense font-mono hover:underline" style={{ color: C.dim }}>clear <Kbd>Esc</Kbd></button>
               </div>
             )}
           </div>
@@ -872,7 +872,7 @@ function RenameBar({ row, onCommit, onCancel }) {
   return (
     <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-sm shadow-2xl" style={{ backgroundColor: C.panel, border: `1px solid ${C.accentBorder}` }}>
       <Edit3 className="w-3 h-3" style={{ color: C.accentText }} />
-      <span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Rename</span>
+      <span className="text-label font-mono uppercase" style={{ color: C.dim }}>Rename</span>
       <input autoFocus value={v} onChange={e => setV(e.target.value)}
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { const t = v.trim(); if (t) onCommit(t); else onCancel() } if (e.key === 'Escape') onCancel() }}
         className="flex-1 px-2 py-1 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"

@@ -139,7 +139,7 @@ export default function TaskTemplateManager({ onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
           <div className="flex items-center gap-2">
-            <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
               Task Templates
             </span>
             <span className="text-dense font-mono px-1.5 py-0.5 rounded" style={{ color: '#a8a29e', backgroundColor: '#1c1917' }}>
@@ -149,7 +149,7 @@ export default function TaskTemplateManager({ onClose }) {
           <div className="flex items-center gap-2">
             {canCreate && (
               <button type="button" onClick={handleCreate}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 title={newTemplateProjectId
                   ? 'Creates a template pinned to the project you have open'
@@ -237,7 +237,7 @@ export default function TaskTemplateManager({ onClose }) {
                         </span>
                       </Td>
                       <Td style={{ textAlign: 'center' }}>
-                        <span className="text-dense font-mono font-bold" style={{ color: '#f4a261' }}>
+                        <span className="text-dense font-mono font-semibold" style={{ color: '#f4a261' }}>
                           {stats.totalDays}d
                         </span>
                       </Td>
@@ -250,7 +250,7 @@ export default function TaskTemplateManager({ onClose }) {
                       <Td style={{ textAlign: 'right' }}>
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" onClick={() => setEditingId(isEditing ? null : tmpl.id)}
-                            className="px-2 py-1 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+                            className="px-2 py-1 text-dense font-mono rounded transition-colors"
                             style={{
                               color: isEditing ? '#fff7ed' : '#fb923c',
                               backgroundColor: isEditing ? '#ea580c' : 'transparent',
@@ -387,7 +387,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
           <div className="flex items-center gap-2">
-            <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>
               {readOnly ? 'View Template' : 'Edit Template'}
             </span>
             <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
@@ -401,7 +401,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
 
         {/* Description */}
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #292524' }}>
-          <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Description</div>
+          <div className="text-label font-mono uppercase mb-1" style={{ color: '#78716c' }}>Description</div>
           {editingDesc && !readOnly ? (
             <textarea
               autoFocus
@@ -429,12 +429,12 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
         {/* Tasks table */}
         <div className="flex-1 overflow-auto px-5 py-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
               Tasks ({localTasks.length})
             </span>
             {!readOnly && (
               <button type="button" onClick={handleAddTask}
-                className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
                 <Plus className="w-3 h-3" /> Add Task
               </button>
@@ -451,10 +451,10 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
             <div>
               {/* Header */}
               <div className="flex gap-1 px-1 py-1.5" style={{ borderBottom: '2px solid #44403c' }}>
-                <div className="text-label font-mono uppercase tracking-wider font-semibold" style={{ color: '#a8a29e', flex: 3 }}>Task Name</div>
-                <div className="text-label font-mono uppercase tracking-wider font-semibold" style={{ color: '#a8a29e', flex: 1.5 }}>Role</div>
-                <div className="text-label font-mono uppercase tracking-wider font-semibold text-center" style={{ color: '#a8a29e', flex: 0.8 }}>Days</div>
-                <div className="text-label font-mono uppercase tracking-wider font-semibold" style={{ color: '#a8a29e', flex: 2 }}>Depends On</div>
+                <div className="text-label font-mono uppercase font-semibold" style={{ color: '#a8a29e', flex: 3 }}>Task Name</div>
+                <div className="text-label font-mono uppercase font-semibold" style={{ color: '#a8a29e', flex: 1.5 }}>Role</div>
+                <div className="text-label font-mono uppercase font-semibold text-center" style={{ color: '#a8a29e', flex: 0.8 }}>Days</div>
+                <div className="text-label font-mono uppercase font-semibold" style={{ color: '#a8a29e', flex: 2 }}>Depends On</div>
                 <div style={{ width: 28 }} />
               </div>
 
@@ -628,7 +628,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
                       backgroundColor: checked ? '#ea580c' : 'transparent',
                       border: `1px solid ${checked ? '#ea580c' : '#44403c'}`,
                     }}>
-                    {checked && <span className="text-dense text-white font-bold">{'\u2713'}</span>}
+                    {checked && <span className="text-dense text-white font-semibold">{'\u2713'}</span>}
                   </span>
                   <span className="text-dense font-mono truncate">
                     {dep.name || 'Untitled'}
@@ -665,7 +665,7 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
           border: `1px solid ${isProjectSpecific ? '#ea580c' : '#44403c'}`,
         }}
         title={isProjectSpecific ? 'Project-specific' : 'Global (all projects)'}>
-        {isProjectSpecific && <span className="text-dense text-white font-bold">{'\u2713'}</span>}
+        {isProjectSpecific && <span className="text-dense text-white font-semibold">{'\u2713'}</span>}
       </button>
       {isProjectSpecific ? (
         <select
@@ -705,7 +705,7 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(template.name); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-dense font-mono font-bold rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-0.5 text-dense font-mono font-semibold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
@@ -713,7 +713,7 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(template.name || ''); setEditing(true) }}
-      className="text-dense font-mono font-bold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors"
+      className="text-dense font-mono font-semibold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors"
       style={{ color: '#e7e5e4', cursor: readOnly ? 'default' : 'pointer' }}>
       {template.name || 'Untitled'}
     </button>
@@ -772,7 +772,7 @@ function ConfirmDeleteDialog({ onConfirm, onCancel }) {
         <div className="px-5 py-4">
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="w-4 h-4" style={{ color: '#fca5a5' }} />
-            <span className="text-dense font-mono font-bold" style={{ color: '#fca5a5' }}>Delete Template?</span>
+            <span className="text-dense font-mono font-semibold" style={{ color: '#fca5a5' }}>Delete Template?</span>
           </div>
           <p className="text-dense font-mono" style={{ color: '#a8a29e' }}>
             This action cannot be undone. The template and all its tasks will be permanently removed.
@@ -801,7 +801,7 @@ function ConfirmDeleteDialog({ onConfirm, onCancel }) {
 // ───────────────────────────────────────────────���─────
 function Th({ children, style: extra }) {
   return (
-    <th className="px-3 py-2.5 text-label font-mono uppercase tracking-wider font-semibold text-left"
+    <th className="px-3 py-2.5 text-label font-mono uppercase font-semibold text-left"
       style={{ color: '#a8a29e', borderBottom: '2px solid #44403c', ...extra }}>
       {children}
     </th>

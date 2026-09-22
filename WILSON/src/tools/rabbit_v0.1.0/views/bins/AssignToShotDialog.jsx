@@ -97,7 +97,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
           )}
           {shown.map(g => (
             <div key={g.key}>
-              <div className="flex items-center gap-2 px-3 py-1 text-label font-mono uppercase tracking-wider" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 px-3 py-1 text-label font-mono uppercase" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
                 <Film className="w-3 h-3" /> {g.scene ? `${g.scene.scene_number != null ? `Sc ${g.scene.scene_number} · ` : ''}${g.scene.name || 'Untitled scene'}` : 'Shots without a scene'}
                 {g.key === preferSceneId && <span className="normal-case tracking-normal" style={{ color: C.dim }}>· where these files are logged</span>}
               </div>
@@ -112,7 +112,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
                     <span className="w-8 text-dense font-mono tabular-nums text-right flex-shrink-0" style={{ color: C.dim }}>#{shot.shot_number ?? '—'}</span>
                     <span className="flex-1 min-w-0 truncate text-dense font-mono" style={{ color: C.bright }}>{shot.name || 'Untitled shot'}</span>
                     {shot.framing && <span className="text-label font-mono uppercase flex-shrink-0" style={{ color: C.dim }}>{shot.framing}</span>}
-                    <span className="px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded-sm flex-shrink-0" style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>{String(shot.status || 'not_started').replace(/_/g, ' ')}</span>
+                    <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-sm flex-shrink-0" style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>{String(shot.status || 'not_started').replace(/_/g, ' ')}</span>
                     <span className="w-36 text-right text-dense font-mono flex-shrink-0" style={{ color: t?.ofThese ? C.accentText : C.dimmer }}>
                       {t ? `${t.total} take${t.total === 1 ? '' : 's'}${t.ofThese ? ` · ${allIn ? (nFiles === 1 ? 'already assigned' : 'all of these already') : `${t.ofThese} of these already`}` : ''}` : 'no takes yet'}
                     </span>

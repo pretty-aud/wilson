@@ -422,7 +422,7 @@ export default function TeamView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+        <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
           No project loaded
         </span>
       </div>
@@ -443,7 +443,7 @@ export default function TeamView() {
       <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -452,7 +452,7 @@ export default function TeamView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {TEAM_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -470,7 +470,7 @@ export default function TeamView() {
 
         {/* Group */}
         <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense font-mono rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {TEAM_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -498,11 +498,11 @@ export default function TeamView() {
 
         {/* Right: count + assign button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+          <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
             {processed.length}/{teamAssignments.length} member{teamAssignments.length === 1 ? '' : 's'}
           </span>
           <button type="button" onClick={openPicker}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense font-mono rounded-sm"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             <UserPlus className="w-3 h-3" /> Assign Members
           </button>
@@ -549,7 +549,7 @@ export default function TeamView() {
                           onClick={() => toggleGroup(g.key)}
                           style={{ borderBottom: '1px solid #292524' }}>
                           {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} /> : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
-                          <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{g.label}</span>
+                          <span className="text-label font-mono font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
                           <span className="text-dense font-mono" style={{ color: '#57534e' }}>{g.members.length}</span>
                         </div>
                       </td>
@@ -570,7 +570,7 @@ export default function TeamView() {
         <>
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 rounded-sm overflow-hidden" style={{ transform: 'translate(-50%, -50%)', backgroundColor: '#292524', border: '1px solid #44403c', padding: 24, minWidth: 300 }}>
-            <div className="text-label font-mono uppercase tracking-wider mb-3" style={{ color: '#fb923c' }}>Save current view</div>
+            <div className="text-label font-mono uppercase mb-3" style={{ color: '#fb923c' }}>Save current view</div>
             <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
               placeholder="View name…"
@@ -578,10 +578,10 @@ export default function TeamView() {
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowSaveDialog(false)}
-                className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+                className="px-3 py-1.5 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
               <button type="button" onClick={saveCurrentView}
-                className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
+                className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
             </div>
           </div>
@@ -724,7 +724,7 @@ function ProjectMembersPanel({ ctx }) {
         <div className="rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
           <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
             <Users className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
               Project Roster
             </span>
             <span className="ml-auto text-dense font-mono" style={{ color: '#78716c' }}>
@@ -921,7 +921,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
             Assign Team Members
           </span>
           <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm" style={{ color: '#a8a29e' }}>
@@ -944,7 +944,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
             <button
               type="button"
               onClick={selected.size === filtered.length ? selectNone : selectAll}
-              className="text-dense font-mono uppercase tracking-wider px-2 py-1 rounded-sm hover:bg-stone-700 transition-colors whitespace-nowrap"
+              className="text-dense font-mono px-2 py-1 rounded-sm hover:bg-stone-700 transition-colors whitespace-nowrap"
               style={{ color: '#a8a29e' }}
             >
               {selected.size === filtered.length ? 'None' : 'All'}
@@ -1011,7 +1011,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+              className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}
             >
               Cancel
@@ -1020,7 +1020,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
               type="button"
               onClick={handleConfirm}
               disabled={selected.size === 0 || assigning}
-              className="px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-dense font-mono rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 color: '#fff7ed',
                 backgroundColor: '#ea580c',
@@ -1065,7 +1065,7 @@ function MemberAvatar({ member, size = 24 }) {
 // ─── Table atoms (dark theme) ───
 function Th({ children }) {
   return (
-    <th className="px-4 py-2.5 text-label font-mono uppercase tracking-widest text-left" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
+    <th className="px-4 py-2.5 text-label font-mono uppercase text-left" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
       {children}
     </th>
   )
@@ -1129,12 +1129,12 @@ function TeamFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
       })}
       <div className="flex items-center gap-2">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3 h-3" /> Add filter
         </button>
         <button type="button" onClick={onClose}
-          className="px-2.5 py-1 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="px-2.5 py-1 text-dense font-mono rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#78716c', border: '1px solid #44403c' }}>
           Done
         </button>
@@ -1191,7 +1191,7 @@ function TeamSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
             )}
           </div>
           <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
-            className="w-full px-3 py-2 text-dense font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors text-left"
+            className="w-full px-3 py-2 text-dense font-mono hover:bg-stone-700 transition-colors text-left"
             style={{ color: '#fb923c', borderTop: '1px solid #44403c' }}>
             <Save className="w-3 h-3 inline-block mr-1.5" /> Save current view
           </button>

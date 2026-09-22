@@ -50,7 +50,7 @@ export default function BinFileTable({
       <div className="sticky top-0 z-10 grid items-center px-2" style={{ gridTemplateColumns: template, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}`, minWidth: 'max-content' }}>
         {cols.map(c => (
           <button key={c.id} type="button" disabled={!c.sortable} onClick={() => c.sortable && onSort?.(c.id)}
-            className={`flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? 'hover:text-stone-200' : 'cursor-default'}`}
+            className={`flex items-center gap-1 px-2 py-1.5 text-dense font-mono ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? 'hover:text-stone-200' : 'cursor-default'}`}
             style={{ color: sort?.field === c.id ? C.accentText : C.dim }}>
             {c.label}
             {sort?.field === c.id && (sort.dir === 'desc' ? <ArrowDown className="w-2.5 h-2.5" /> : <ArrowUp className="w-2.5 h-2.5" />)}

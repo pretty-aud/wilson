@@ -100,7 +100,7 @@ export function VisibilityBadge({ course, visibility, showPersonal = false, comp
 
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-label font-bold uppercase tracking-wide shrink-0 max-w-[160px]"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-label font-semibold uppercase shrink-0 max-w-[160px]"
       style={{ background: s.bg, color: s.fg, border: `1px solid ${s.bd}` }}
       title={hint}
     >
@@ -137,7 +137,7 @@ export function MetadataOnlyBadge({ course }) {
   if (!course || course.can_read_content !== false) return null
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-label font-bold uppercase tracking-wide shrink-0"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-label font-semibold uppercase shrink-0"
       style={{ background: 'rgba(120,113,108,0.2)', color: '#a8a29e', border: '1px dashed rgba(120,113,108,0.6)' }}
       title="You can see that this course exists. Its contents stay private to its owner."
     >
@@ -157,7 +157,7 @@ export function ReadOnlyBadge({ course }) {
   if (!course || course.can_write !== false || course.can_read_content === false) return null
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-label font-bold uppercase tracking-wide shrink-0"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-label font-semibold uppercase shrink-0"
       style={{ background: 'rgba(120,113,108,0.2)', color: '#a8a29e', border: '1px solid rgba(120,113,108,0.5)' }}
       title="You can study this course. Only its owner, an admin, or someone they have given edit access can change it."
     >

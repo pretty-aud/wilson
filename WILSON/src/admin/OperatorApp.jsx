@@ -118,7 +118,7 @@ export default function OperatorApp() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
         <div style={{ maxWidth: '380px' }}>
-          <h1 className="text-label font-bold uppercase tracking-widest mb-2" style={{ color: '#f4a261' }}>
+          <h1 className="text-label font-semibold uppercase mb-2" style={{ color: '#f4a261' }}>
             Could not verify operator status
           </h1>
           <p className="text-dense leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
@@ -127,7 +127,7 @@ export default function OperatorApp() {
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm"
+            className="px-3 py-1.5 text-dense font-semibold rounded-sm"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             Retry
@@ -141,7 +141,7 @@ export default function OperatorApp() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
         <div style={{ maxWidth: '380px' }}>
-          <h1 className="text-label font-bold uppercase tracking-widest mb-2" style={{ color: '#f4a261' }}>
+          <h1 className="text-label font-semibold uppercase mb-2" style={{ color: '#f4a261' }}>
             Not a platform operator
           </h1>
           <p className="text-dense leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
@@ -151,7 +151,7 @@ export default function OperatorApp() {
           </p>
           <button
             onClick={handleSignOut}
-            className="px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm"
+            className="px-3 py-1.5 text-dense font-semibold rounded-sm"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             Sign out
@@ -172,14 +172,14 @@ export default function OperatorApp() {
         className="flex items-center justify-between px-6 py-2 flex-shrink-0"
         style={{ backgroundColor: '#1c1917' }}
       >
-        <span className="text-label font-bold uppercase tracking-widest" style={{ color: '#f4a261' }}>
+        <span className="text-label font-semibold uppercase" style={{ color: '#f4a261' }}>
           WILSON Operator Console
         </span>
         <div className="flex items-center gap-3">
           <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{email}</span>
           <button
             onClick={handleSignOut}
-            className="flex items-center gap-1.5 px-2 py-1 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-dense font-semibold rounded-sm transition-colors"
             style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: '#f4a261' }}
           >
             <LogOut size={12} /> Sign out
@@ -197,7 +197,7 @@ export default function OperatorApp() {
               <button
                 key={key}
                 onClick={() => setSection(key)}
-                className="flex items-center gap-2 px-3 py-2 text-dense font-bold uppercase tracking-wider text-left transition-colors"
+                className="flex items-center gap-2 px-3 py-2 text-dense font-semibold text-left transition-colors"
                 style={section === key
                   ? { backgroundColor: 'rgba(234, 88, 12, 0.18)', color: '#1c1917', borderLeft: '3px solid #ea580c' }
                   : { backgroundColor: 'transparent', color: '#57534e', borderLeft: '3px solid transparent' }}

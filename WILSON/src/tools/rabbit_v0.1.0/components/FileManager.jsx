@@ -764,7 +764,7 @@ export default function FileManager({
       {/* Header bar */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
             Files ({assetFiles.length})
           </span>
           {/* Opening an OS explorer window only means anything when the file
@@ -801,7 +801,7 @@ export default function FileManager({
             type="button"
             onClick={() => (managed ? handleAddManagedFiles() : cloudInputRef.current?.click())}
             disabled={copying}
-            className="flex items-center gap-1 px-2 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:brightness-110 transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 text-dense font-mono rounded-sm hover:brightness-110 transition-colors"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',
@@ -1193,7 +1193,7 @@ export default function FileManager({
 // ── Table atoms ──
 function Th({ children }) {
   return (
-    <th className="px-2 py-1.5 text-label font-mono uppercase tracking-wider text-left" style={{ color: '#fb923c' }}>
+    <th className="px-2 py-1.5 text-label font-mono uppercase text-left" style={{ color: '#fb923c' }}>
       {children}
     </th>
   )
