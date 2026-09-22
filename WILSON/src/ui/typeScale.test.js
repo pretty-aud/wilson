@@ -146,18 +146,84 @@ const TRANSITION_ALL = /\btransition-all\b/g;
    space is not `var(`, and the exemption silently inverts: every token read
    in the file was reported as a defect. It cost this file's own control one
    red run to find. Consume nothing before deciding. */
-const CSS_OFF_SIZE = /font-size:(?!\s*var\(--text-)\s*[^;}]+/g;
-const CSS_OFF_LEADING = /line-height:(?!\s*var\(--text-)\s*[^;}]+/g;
-const CSS_OFF_WEIGHT = /font-weight:(?!\s*(?:400|600)\s*[;}]|\s*var\(--text-)\s*[^;}]+/g;
-/** §3.1: "Measure 60 to 66ch, set in `ch`." */
-const CSS_MEASURE = /max-width:\s*(?:6[0-6])ch\b/;
+/* 🚨 `\s*` BEFORE THE COLON AND `i` ON EVERY ONE, because `font-size : 1.5rem`
+   and `FONT-SIZE: 1.5rem` are both legal CSS and both were invisible to the
+   first draft. The `\s*` goes BEFORE the colon and never between the colon and
+   the lookahead — see the next comment, which is the opposite trap.
 
-/** Every `.lesson-content` rule in `index.css`, comments removed first so a
- *  brace inside prose cannot invent or swallow one. */
-function lessonRules() {
-  const css = readFileSync('src/index.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ');
-  return css.match(/\.lesson-content[^{}]*\{[^{}]*\}/g) || [];
+   🚨 AND `!important` IS PART OF THE VALUE. `font-weight: 600 !important`
+   was reported as a DEFECT, because the exemption demanded `[;}]` directly
+   after the digits. This very block already carries two `!important`
+   declarations, so the idiom is live here — and a guard that goes red on the
+   system's own vocabulary teaches the next session to weaken the regex
+   instead of fixing the CSS. */
+const END = String.raw`\s*(?:!important\s*)?[;}]`;
+const CSS_OFF_SIZE = new RegExp(String.raw`font-size\s*:(?!\s*var\(--text-)\s*[^;}]+`, 'gi');
+const CSS_OFF_LEADING = new RegExp(String.raw`line-height\s*:(?!\s*var\(--text-)\s*[^;}]+`, 'gi');
+const CSS_OFF_WEIGHT = new RegExp(
+  String.raw`font-weight\s*:(?!\s*(?:400|600)${END}|\s*var\(--text-)\s*[^;}]+`, 'gi');
+
+/* 🚨 THE SHORTHAND IS THE ROOT; THE THREE ABOVE ARE SPELLINGS OF IT.
+   `font: 700 1.5rem/1.7 sans-serif` sets size, leading AND weight in one
+   declaration and was silent to all three detectors at once. That is this
+   file's own rule 2 — "anchor on the utility ROOT, not on one spelling" —
+   restated for CSS, and T1 wrote all three detectors without noticing it.
+   A reading surface has no business using the shorthand, so this bans it
+   outright rather than trying to parse it. */
+const CSS_SHORTHAND = /(?:^|[;{])\s*font\s*:/gi;
+/** §3.1: "Measure 60 to 66ch, set in `ch`." Either the literal or the token
+ *  that carries it — `--measure-reading` is 66ch and is asserted to be in the
+ *  band by its own case below, so a rule reading it is in the band too. */
+const CSS_MEASURE = /max-width\s*:\s*(?:(?:6[0-6])ch\b|var\(--measure-reading\))/i;
+/** The band itself, so the token cannot drift out of it unnoticed. */
+const MEASURE_TOKEN = /--measure-reading:\s*(6[0-6])ch\s*;/;
+
+/**
+ * Every `.lesson-content` rule in `index.css`.
+ *
+ * 🚨 A REGEX CANNOT DO THIS AND THE FIRST VERSION PROVED IT. T1 shipped
+ * `/\.lesson-content[^{}]*\{[^{}]*\}/g`, and `[^{}]*\}` cannot cross a nested
+ * brace — so a rule written with CSS nesting (legal in Tailwind v4 and every
+ * current browser) or wrapping an `@media` does not get TRUNCATED, it
+ * DISAPPEARS, taking its declarations with it. A reviewer rewrote two real
+ * rules with nesting, left a live `font-size: 1.5rem` and `font-weight: 700`
+ * inside them, and every assertion below — INCLUDING its control — stayed
+ * green. That is the `(0 test)` failure mode this file has now met three
+ * times on this branch, reached by nothing worse than a routine CSS
+ * modernisation.
+ *
+ * So: walk the braces and count depth. `source` is a parameter so a control
+ * can run the REAL pipeline over a synthetic stylesheet — the whole point of
+ * finding 2 against the first draft was that nothing proved this function's
+ * output ever reaches a detector.
+ *
+ * The `(?![\w-])` after the class name stops `.lesson-content-wrapper` being
+ * swept in as if it were part of this block.
+ */
+function extractLessonRules(source) {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const out = [];
+  const head = /\.lesson-content(?![\w-])[^{};]*\{/g;
+  let m;
+  while ((m = head.exec(css))) {
+    let depth = 1, i = m.index + m[0].length;
+    for (; i < css.length && depth > 0; i++) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') depth--;
+    }
+    out.push(css.slice(m.index, i));
+    head.lastIndex = i;
+  }
+  return out;
 }
+/* Read once. Six uncached reads of a 113 KB file is trap 12 in miniature, and
+   the block beside this one already computes its rows at module scope. */
+let LESSON_RULES = null;
+const lessonRules = () => (LESSON_RULES ??= extractLessonRules(readFileSync('src/index.css', 'utf8')));
+/** The selectors this block is REQUIRED to carry. A rule that vanishes from
+ *  the sweep takes its name with it, so naming them is what makes a
+ *  disappearance loud rather than silent. */
+const LESSON_SELECTORS = ['h1', 'h2', 'h3', ' p ', 'li', 'code', 'pre', 'blockquote', 'th', 'td'];
 const WHITE_GROUND = /\bbg-white(?:\/\d+)?\b/g;
 const OFF_SPACING = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y)-\[[\d.]+(?:px|rem|em)\]/g;
 /* The INVARIANT ("no vh in any padding"), not the shape of today's ternary:
@@ -347,64 +413,151 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
 });
 
 describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () => {
-  it('CONTROL: the stylesheet is actually being read', () => {
-    // If this block is ever renamed or deleted, every assertion below goes
-    // green over nothing. That is the `(0 test)` failure mode one level down.
-    expect(lessonRules().length).toBeGreaterThanOrEqual(15);
-    expect(lessonRules().join(' ')).toContain('.lesson-content h1');
+  const lessonCss = () => lessonRules().join('\n');
+
+  it('CONTROL: the stylesheet is actually being read, rule for rule', () => {
+    /* 🚨 EXACT, NOT A FLOOR. T1 shipped `>= 15` over a 17-rule block, which
+       left two rules free to disappear in silence — and a reviewer made two
+       disappear, with a live `font-size: 1.5rem` inside them, while this
+       control stayed green. A floor on a COUNT OF RULES guards nothing:
+       rules are not a quantity that is supposed to trend downwards. */
+    expect(lessonRules().length).toBe(17);
+    const css = lessonCss();
+    for (const sel of LESSON_SELECTORS) {
+      expect(css, `the .lesson-content ${sel.trim()} rule is missing from the sweep`)
+        .toContain(`.lesson-content ${sel.trim()}`);
+    }
+    // Nesting is what made rules vanish. The extractor walks it now; this says
+    // no one has to rely on that being right in this block.
+    expect(css.match(/\{[^{}]*\{/), 'a nested block appeared in .lesson-content').toBe(null);
   });
 
   it('every font-size in .lesson-content is a step token', () => {
-    const css = lessonRules().join('\n');
-    const hits = css.match(CSS_OFF_SIZE) || [];
+    const hits = lessonCss().match(CSS_OFF_SIZE) || [];
     expect(hits, `off-token sizes in the lesson surface:\n${hits.join('\n')}`).toEqual([]);
   });
 
   it('every line-height in .lesson-content is the step own (§3.1: one leading)', () => {
-    const css = lessonRules().join('\n');
-    const hits = css.match(CSS_OFF_LEADING) || [];
+    const hits = lessonCss().match(CSS_OFF_LEADING) || [];
     expect(hits, `hand-set leadings:\n${hits.join('\n')}`).toEqual([]);
   });
 
   it('every font-weight in .lesson-content is on the 400/600 axis', () => {
-    const css = lessonRules().join('\n');
-    const hits = css.match(CSS_OFF_WEIGHT) || [];
+    const hits = lessonCss().match(CSS_OFF_WEIGHT) || [];
     expect(hits, `weights off the axis:\n${hits.join('\n')}`).toEqual([]);
   });
 
-  it('the reading surface has a measure, and it is 60-66ch', () => {
-    expect(lessonRules().join('\n')).toMatch(CSS_MEASURE);
+  it('the font shorthand is not used — it would hide all three at once', () => {
+    const hits = lessonCss().match(CSS_SHORTHAND) || [];
+    expect(hits, `the font shorthand sets size, leading and weight invisibly:\n${hits.join('\n')}`)
+      .toEqual([]);
+  });
+
+  it('the measure is on the PROSE rule, and the token is in §3.1s band', () => {
+    /* 🚨 NOT "somewhere in the block". T1 asserted `CSS_MEASURE` against the
+       whole joined string, so a reviewer put the prose back to 74ch, dropped a
+       66ch onto `pre code`, and the assertion stayed green over the exact
+       before-value this bundle exists to have removed. The measure has to be
+       on the rule that carries the paragraphs. */
+    const prose = lessonRules().filter((r) => /(^|[\s,(])p([\s,)]|$)/.test(r.slice(0, r.indexOf('{'))));
+    expect(prose.length, 'no .lesson-content rule selects `p`').toBeGreaterThan(0);
+    expect(prose.some((r) => CSS_MEASURE.test(r)),
+      `no rule selecting p carries a 60-66ch measure:\n${prose.join('\n')}`).toBe(true);
+    expect(readFileSync('src/index.css', 'utf8'), '--measure-reading is outside §3.1s band')
+      .toMatch(MEASURE_TOKEN);
+  });
+
+  it('CONTROL: the whole pipeline reports a planted defect, not just the regex', () => {
+    /* 🚨 THIS IS THE ONE T1 DID NOT HAVE, AND IT IS WHY THE REST WERE BLIND.
+       Every case in the control below tests a regex against a string typed in
+       THIS FILE. Nothing proved that extract -> join -> match ever reaches a
+       detector at all — which is rule 1 of this file's own header, and is
+       exactly the demonstration a reviewer used to prove T0's border
+       assertion inert. `bareLabelsRaw(false)` and `hardCodedInline(re, false)`
+       already re-run their real pipelines; this is the third. */
+    const clean = `
+      .lesson-content h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); }
+      .lesson-content p { font-size: var(--text-body); max-width: var(--measure-reading); }
+    `;
+    expect(extractLessonRules(clean).length).toBe(2);
+    expect(extractLessonRules(clean).join('\n').match(CSS_OFF_SIZE)).toBe(null);
+
+    // One planted defect per detector, through the REAL extractor.
+    const dirty = `
+      .lesson-content h1 { font-size: 1.5rem; }
+      .lesson-content h2 { line-height: 1.7; }
+      .lesson-content h3 { font-weight: 700; }
+      .lesson-content pre { font: 700 1.5rem/1.7 sans-serif; }
+    `;
+    const out = extractLessonRules(dirty).join('\n');
+    expect(out.match(CSS_OFF_SIZE), 'pipeline missed a hard-coded size').toHaveLength(1);
+    expect(out.match(CSS_OFF_LEADING), 'pipeline missed a hand-set leading').toHaveLength(1);
+    expect(out.match(CSS_OFF_WEIGHT), 'pipeline missed an off-axis weight').toHaveLength(1);
+    expect(out.match(CSS_SHORTHAND), 'pipeline missed the font shorthand').toHaveLength(1);
+
+    // …and the nesting that used to make a whole rule vanish is now walked.
+    const nested = '.lesson-content h2 { color: #fb923c; & { font-size: 1.5rem; } }';
+    expect(extractLessonRules(nested).length, 'a nested rule vanished from the sweep').toBe(1);
+    expect(extractLessonRules(nested).join('\n').match(CSS_OFF_SIZE),
+      'a defect inside a nested block escaped').toHaveLength(1);
+
+    // `.lesson-content-wrapper` is a different class and must not be swept in.
+    expect(extractLessonRules('.lesson-content-wrapper { font-size: 99rem; }')).toEqual([]);
   });
 
   it('CONTROL: each stylesheet detector fires on the defect it replaced', () => {
     // These are the REAL values this surface carried before T1, measured in a
     // browser with a lesson open: h1 1.5rem/700, h3 1.1rem, code 0.9em,
-    // p line-height 1.7, li 1.6.
+    // p line-height 1.7, li 1.6. The spaced and upper-case spellings are the
+    // ones the first draft was silent over; every one is legal CSS.
     for (const s of ['font-size: 1.5rem;', 'font-size: 1.1rem;', 'font-size: 0.9em;',
-                     'font-size: 16px;', 'font-size: 0.85rem;']) {
+      'font-size: 16px;', 'font-size: 0.85rem;',
+      'font-size : 1.5rem;', 'FONT-SIZE: 1.5rem;', 'font-size:1.5rem;']) {
       expect(fires(CSS_OFF_SIZE, s), s).toBe(true);
     }
-    expect(fires(CSS_OFF_SIZE, 'font-size: var(--text-body);')).toBe(false);
+    for (const s of ['font-size: var(--text-body);', 'font-size:var(--text-dense);',
+      'font-size : var(--text-h2);']) {
+      expect(fires(CSS_OFF_SIZE, s), s).toBe(false);
+    }
 
-    for (const s of ['line-height: 1.7;', 'line-height: 1.6;', 'line-height: 1.5;']) {
+    for (const s of ['line-height: 1.7;', 'line-height: 1.6;', 'line-height: 1.5;',
+      'line-height : 1.7;', 'LINE-HEIGHT: 1.7;']) {
       expect(fires(CSS_OFF_LEADING, s), s).toBe(true);
     }
     expect(fires(CSS_OFF_LEADING, 'line-height: var(--text-body--line-height);')).toBe(false);
 
-    for (const s of ['font-weight: 700;', 'font-weight: bold;', 'font-weight: 500;']) {
+    for (const s of ['font-weight: 700;', 'font-weight: bold;', 'font-weight: 500;',
+      'font-weight : 700;', 'FONT-WEIGHT: 700;', 'font-weight: bolder;']) {
       expect(fires(CSS_OFF_WEIGHT, s), s).toBe(true);
     }
     for (const s of ['font-weight: 600;', 'font-weight: 400;',
-                     'font-weight: var(--text-h2--font-weight);']) {
+      'font-weight: var(--text-h2--font-weight);',
+      'font-weight: 600 !important;', 'font-weight: 400 !important;',
+      'font-weight : 600;']) {
       expect(fires(CSS_OFF_WEIGHT, s), s).toBe(false);
+    }
+
+    for (const s of ['font: 700 1.5rem/1.7 sans-serif;', '{ font:14px/1.4 Geist;',
+      '; FONT: bold 1em serif;']) {
+      expect(fires(CSS_SHORTHAND, s), s).toBe(true);
+    }
+    for (const s of ['font-size: 14px;', 'font-family: var(--font-sans);',
+      'font-weight: 600;']) {
+      expect(fires(CSS_SHORTHAND, s), s).toBe(false);
     }
 
     // The measure has a BAND, so both edges have to be checked: 74ch was the
     // real before-value and it must not satisfy the assertion.
-    expect(CSS_MEASURE.test('max-width: 66ch;')).toBe(true);
-    expect(CSS_MEASURE.test('max-width: 60ch;')).toBe(true);
-    expect(CSS_MEASURE.test('max-width: 74ch;')).toBe(false);
-    expect(CSS_MEASURE.test('max-width: 59ch;')).toBe(false);
+    for (const s of ['max-width: 66ch;', 'max-width: 60ch;', 'max-width:63ch;',
+      'max-width: var(--measure-reading);']) {
+      expect(CSS_MEASURE.test(s), s).toBe(true);
+    }
+    for (const s of ['max-width: 74ch;', 'max-width: 59ch;', 'max-width: 6ch;',
+      'max-width: 160ch;', 'max-width: 66chx;', 'max-width: 66.5ch;']) {
+      expect(CSS_MEASURE.test(s), s).toBe(false);
+    }
+    expect(MEASURE_TOKEN.test('  --measure-reading: 66ch;')).toBe(true);
+    expect(MEASURE_TOKEN.test('  --measure-reading: 74ch;')).toBe(false);
   });
 });
 
@@ -569,7 +722,17 @@ const IN_ASSERTED_SCOPE = (file) => IN_T3_SCOPE(file) || T1_LANE.test(file);
    that RESETS rather than sets. A bare `0` is on the list because §3.1 gives
    five of the seven steps zero tracking, so `letterSpacing: 0` states the
    system's own default rather than inventing a number. */
-const ON_SYSTEM_VALUE = /(?:TYPE|LEADING|TRACKING|WEIGHT)\s*\.\s*[a-z0-9]+|\bTYPE_FLOOR\b|\bFONT_(?:MONO|SANS)\b|var\(--(?:text|font)-|\bAUTH_[A-Z_]+\b|\b(?:inherit|initial|unset|revert|normal|none)\b|^\s*0\s*$/;
+/* 🚨 THE KEYWORD ARM IS ANCHORED, and it was not. Unanchored, `\b(?:inherit|
+   initial|unset|revert|normal|none)\b` matched anywhere in the value
+   EXPRESSION, so any conditional whose TEST mentions one of the six words
+   exempted both of its arms:
+       fontSize: mode === 'normal' ? 14 : 16        <- both arms hidden
+       fontSize: icon === 'none' ? 12 : 18          <- both arms hidden
+       letterSpacing: kind === 'initial' ? '0.2em' : '0.1em'
+   A keyword that RESETS is the whole value or it is not a reset. Before T1
+   this covered T3's surfaces only; `IN_ASSERTED_SCOPE` extends it over D.O.G.
+   and O.T.T.E.R. too, which is why T1 is the one fixing it. */
+const ON_SYSTEM_VALUE = /(?:TYPE|LEADING|TRACKING|WEIGHT)\s*\.\s*[a-z0-9]+|\bTYPE_FLOOR\b|\bFONT_(?:MONO|SANS)\b|var\(--(?:text|font)-|\bAUTH_[A-Z_]+\b|^\s*['"]?(?:inherit|initial|unset|revert|normal|none)['"]?\s*$|^\s*0\s*$/;
 
 /* The three declarations that can carry a hard-coded type value. `fontWeight`
    is NOT among them: it has its own ratchet above, and 400/600 written as
@@ -607,14 +770,17 @@ const INLINE_TYPE_EXCEPTIONS = [
       + 'alignment, proved at 0.00px by scripts/ui-caret-check.mjs, and not a '
       + 'scale value (§3.1 tracks two steps and this is neither of them)',
   },
-  {
-    file: 'src/tools/otter_v0.3.1/Otter.jsx',
-    marker: 'scrollBeyondLastLine',
-    sites: 1,
-    why: "Monaco's editor option, not CSS: `fontSize` on that object is a "
-      + 'NUMBER on a third-party API, so a token string would break the '
-      + 'editor outright — and 14 is the Body step already (T1)',
-  },
+  /* 🚨 T1 ADDED A THIRD ENTRY HERE AND A REVIEWER DELETED IT, RIGHTLY.
+     `Otter.jsx`'s Monaco editor takes `fontSize` as a NUMBER, so T1
+     allowlisted a hard-coded 14 on the grounds that "a token string would
+     break the editor". True of a string, and beside the point: `tokens.js`
+     builds `TYPE` with `Number(THEME['text-body'].replace('px',''))`, so
+     `TYPE.body` IS the number 14 and `ON_SYSTEM_VALUE` already accepts it.
+     The entry bought nothing and cost a permanent 800-character exempt window
+     in the largest file in T1's lane. `Otter.jsx` now reads `TYPE.body` and
+     the exemption is gone — which also makes T1's lane an HONEST empty-scope
+     assertion rather than one whose only member was excused. The best fix is
+     the one that deletes machinery. */
 ];
 
 /** Inline type declarations whose VALUE is hard-coded. `applyExceptions` is a
@@ -657,6 +823,19 @@ describe('the inline half: every type value reads a token (T3)', () => {
   it('R.A.B.B.I.T. inline type does not grow while T2 works it down', () => {
     const hits = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING]
       .flatMap((re) => hardCodedInline(re, true, (f) => T2_LANE.test(f)));
+    /* 🚨 A RATCHET NEEDS A DENOMINATOR. `T2_LANE` is a path regex over a
+       directory whose name carries a VERSION — `rabbit_v0.1.0` — and this
+       repo has already shipped `v0.514`, `v0.3.1` and `v0.1.0` in paths. A
+       reviewer bumped the directory to `v0.1.1` and the count went 77 -> 0
+       with the assertion still green: a rename would have taken 77 live
+       hard-coded declarations out from under the only thing watching them.
+       So the premise is asserted too — this lane exists, and it is non-empty
+       and falling, not absent and therefore "clean". */
+    expect(tree().filter((t) => T2_LANE.test(t.file)).length,
+      'T2_LANE matches no files — the lane was renamed and this ratchet is watching nothing')
+      .toBeGreaterThan(50);
+    expect(hits.length, 'T2 has finished: delete the lane constants and widen IN_ASSERTED_SCOPE')
+      .toBeGreaterThan(0);
     expect(hits.length, `hard-coded inline type in T2's lane:\n${hits.join('\n')}`)
       .toBeLessThanOrEqual(T2_INLINE_RESIDUE);
   });
@@ -732,6 +911,27 @@ describe('the inline half: every type value reads a token (T3)', () => {
     // And the sweep really reaches T3's files, so "no hits" is not "no scan".
     expect(tree().filter((t) => IN_T3_SCOPE(t.file)).length).toBeGreaterThan(100);
     expect(sweep(INLINE_SIZE).length).toBeGreaterThan(20);
+
+    /* T1 (2026-09-22) widened the asserted scope by one lane but left this
+       control still exercising only `IN_T3_SCOPE`, though its title claims
+       all three. Two lane regexes with no control is how a directory rename
+       turns a live assertion into a green no-op — see the T2 ratchet, where
+       a reviewer demonstrated exactly that. */
+    expect(T1_LANE.test('src/tools/otter_v0.3.1/Otter.jsx')).toBe(true);
+    expect(T1_LANE.test('src/tools/deck-outline-generator_v0.514/modals/DuplicateResolverModal.jsx')).toBe(true);
+    expect(T1_LANE.test('src/tools/rabbit_v0.1.0/views/TeamView.jsx')).toBe(false);
+    expect(T2_LANE.test('src/tools/rabbit_v0.1.0/views/TeamView.jsx')).toBe(true);
+    expect(T2_LANE.test('src/tools/otter_v0.3.1/Otter.jsx')).toBe(false);
+    // Both lanes exist in the tree, so neither predicate is silently empty.
+    expect(tree().filter((t) => T1_LANE.test(t.file)).length).toBeGreaterThan(10);
+    expect(tree().filter((t) => T2_LANE.test(t.file)).length).toBeGreaterThan(50);
+    // The widening is real: T1's lane is inside the hard assertion now.
+    expect(IN_ASSERTED_SCOPE('src/tools/otter_v0.3.1/Otter.jsx')).toBe(true);
+    expect(IN_ASSERTED_SCOPE('src/tools/rabbit_v0.1.0/views/TeamView.jsx')).toBe(false);
+    // Every in-scope file belongs to exactly one of the three lanes.
+    const orphans = tree().filter((t) =>
+      !IN_T3_SCOPE(t.file) && !T1_LANE.test(t.file) && !T2_LANE.test(t.file));
+    expect(orphans.map((t) => t.file), 'a tool directory belongs to no lane').toEqual([]);
   });
 });
 
