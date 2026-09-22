@@ -56,7 +56,7 @@ import { HOME_BAR_HEIGHT } from '../../layout/pages'
 // with its export names kept, so its 30 importers are unaffected.
 import {
   INK_LIGHT, RULE_LIGHT, SIGNAL, SIGNAL_FILL, ON_FILL, GROUND_LIGHT, FONT_MONO,
-  DANGER_LIGHT, TYPE, RADIUS_CONTROL, CONTROL_MD,
+  DANGER_LIGHT, TYPE, LEADING, TRACKING, WEIGHT, RADIUS_CONTROL, CONTROL_MD,
 } from '../../ui/tokens'
 
 // Timings — the intro's rhythm (see header note on their origin).
@@ -520,8 +520,8 @@ export const AUTH_ERROR_INK = DANGER_LIGHT
 export const AUTH_TEXT_STYLE = {
   color: AUTH_INK,
   fontSize: `${TYPE.body}px`,
-  lineHeight: 1.5,
-  fontWeight: 400,
+  lineHeight: LEADING.body,
+  fontWeight: WEIGHT.body,
 }
 
 // ── Shared field kit (Session 43 §A7) ───────────────────────────────────────
@@ -586,12 +586,16 @@ export const AUTH_FIELD_WIDTH = '240px'
 // The page title, at the H1 step. Sentence case (Q2) — the screens rendered
 // LOGIN / RESET PASSWORD / NEW PASSWORD / WELCOME at 24px with +0.18em, which
 // is the transition title's voice used for a page heading.
+// T3: all four columns of the step now come from one place. The size was
+// already `TYPE.h1`; the leading, the tracking and the weight were 1.2,
+// '0.01em' and 600 restated from `@theme` by hand — three chances for this
+// screen to drift off the H1 step with nothing going red.
 export const AUTH_TITLE_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.h1}px`,
-  lineHeight: 1.2,
-  letterSpacing: '0.01em',
-  fontWeight: 600,
+  lineHeight: LEADING.h1,
+  letterSpacing: TRACKING.h1,
+  fontWeight: WEIGHT.h1,
 }
 
 // The one surviving uppercase role on this surface (Q2): a field label is the
@@ -604,9 +608,11 @@ export const AUTH_TITLE_STYLE = {
 export const AUTH_LABEL_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.label}px`,
-  lineHeight: 1.3,
-  letterSpacing: '0.06em',
-  fontWeight: 600,
+  lineHeight: LEADING.label,
+  letterSpacing: TRACKING.label,
+  fontWeight: WEIGHT.label,
+  // The Label step is the ONE role that keeps its capitals (§3.1, and T0's
+  // map: `uppercase` under 18px stays upper). This is not a leftover.
   textTransform: 'uppercase',
 }
 
@@ -633,6 +639,41 @@ export const AUTH_INPUT_STYLE = {
   // visibly differed from row to row. Measured, not eyeballed. If this value
   // moves, the metrics object at the bottom of this file moves with it.
   lineHeight: '1.2',
+}
+
+// ── The one-time-code field (T3) ────────────────────────────────────────────
+// MfaSection and LoginScreen each render this field, and D2 matched them by
+// writing the same two values into both: `letterSpacing` to space the digits
+// apart so they can be read back off a phone, and `textIndent` at exactly the
+// same amount to undo the phantom trailing space that tracking adds after the
+// last glyph (a centred tracked string is otherwise offset left by half the
+// tracking, ~3px at this size).
+//
+// 🚨 THE TWO PROPERTIES MUST BE THE SAME VALUE, and that is the whole reason
+// this is one object rather than a `AUTH_CODE_TRACKING` constant used twice:
+// a constant would let one of them move. It is one number, spent twice, and
+// the optical centring is only correct while they agree.
+//
+// The tracking is FUNCTIONAL, not decorative, so it is not one of the two
+// tracked steps in §3.1 and does not belong in `@theme` — T0 left the
+// operator console's copy for the same reason ("functional, not decorative").
+//
+// ⚠️ There is a THIRD copy of this field, in `src/admin/OperatorLogin.jsx`
+// (an arbitrary 0.4em tracking utility, and no `textIndent` at all, so it is
+// both a different number and missing the correction). Q14 puts the operator
+// console out of D2's scope and out of this bundle's; it is an open item in
+// T3's hand-off, carried forward from D2's. When someone takes it, this is
+// what to point at.
+//
+// The class is described rather than quoted on purpose: `ui-audit.mjs`
+// greps source text, so spelling it here would have added a hit to the
+// arbitrary-tracking row and made a comment look like a fourth copy. T0's
+// remainder notes already carry two hits that are only comments.
+const AUTH_CODE_TRACK = '0.35em'
+export const AUTH_CODE_FIELD_STYLE = {
+  ...AUTH_INPUT_STYLE,
+  letterSpacing: AUTH_CODE_TRACK,
+  textIndent: AUTH_CODE_TRACK,
 }
 
 // Primary action. The history is kept because each step was a correction.
@@ -887,6 +928,39 @@ export function AuthField({ label, children }) {
 // (The pre-session comment records those two row heights as 36.17px against
 // 31.06px, which is the defect the explicit line-height fixed; they are equal
 // now and stay equal because both layers read the same two keys.)
+//
+// ── T3, 2026-09-22: re-measured, and the measurement is a script now ───────
+// Plan §5 asks T3 to re-prove this and plan §8 risk 8 says why ("depends on
+// font metrics"). Every number above still holds, at BOTH window sizes:
+//
+//   node scripts/ui-caret-check.mjs 5244 1440 900     ✓ 0.00px on every axis
+//   node scripts/ui-caret-check.mjs 5244 1280 700     ✓ 0.00px on every axis
+//
+// It exits non-zero when any axis moves, so the claim above stops being a
+// number someone has to trust and becomes one anyone can reproduce.
+//
+// 🚨 AND THE ROW HEIGHT IS ONLY COMPARABLE AT A STATED DEVICE PIXEL RATIO.
+// The 27.80px above is DPR 1, where the 1px bottom border is 1 CSS px
+// (16.8 + 4 + 6 + 1). Measured in a browser pane at DPR 1.5 the same border
+// snaps to one DEVICE pixel — 0.667 CSS px — and the row reads 27.46. That
+// is a difference in the BORDER's rasterisation, not a drift between the
+// layers: every other number still measures 0.00 there. A session that
+// compares 27.46 against this comment and concludes the row moved will be
+// chasing nothing. The script prints the DPR and the border width for
+// exactly that reason.
+//
+// The three ways it was proved able to fail, each caught by a DIFFERENT one
+// of its three independent checks — which is the argument for keeping all
+// three rather than the one that looks most direct:
+//
+//   the mask's family swapped to the sans   25 bullets − 25 asterisks
+//     (the load-bearing monospace)          = −27.65px, while the eight
+//                                           metrics still AGREED and both
+//                                           boxes still matched exactly
+//   only the mask's tracking moved          −3.50px, and the metrics check
+//     (0.18em → 0.19em)                     named `letterSpacing` too
+//   the wrapper's width back to `22ch`      field-width parity broke, while
+//     (the pre-D2 shape, AUTH-22)           the glyphs and metrics stayed clean
 //
 // If any of those numbers is not 0.00 the mask and the caret have separated,
 // and the failure mode is a person who cannot tell how much of their password

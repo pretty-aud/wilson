@@ -477,7 +477,11 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
-            Total: <span style={{ color: '#f4a261', fontWeight: 'bold' }}>
+            {/* 600, not `bold`. The faces are declared `font-weight: 400 600`
+                (index.css @font-face), so `bold` asks for 700 and CLAMPS to
+                600 — it has always rendered as 600 while the source claimed a
+                weight the system does not have. Zero visual change. */}
+            Total: <span style={{ color: '#f4a261', fontWeight: 600 }}>
               {localTasks.reduce((sum, t) => sum + (t.bid_days || 0), 0)}d
             </span>
           </span>

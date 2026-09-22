@@ -38,7 +38,16 @@ const pill = {
   color: 'var(--color-ink)',
   border: '1px solid var(--color-rule)',
   boxShadow: 'var(--shadow-float)',
-  fontFamily: 'var(--)',
+  // 🚨 There was a `fontFamily: 'var(--)'` here and it has never done
+  // anything. `--` is not a custom-property name, so the declaration is
+  // invalid and CSSOM drops it: the badge's style attribute never carried a
+  // font-family at all (measured — `el.getAttribute('style')` has no
+  // `font-family`, and `probe.style.fontFamily = 'var(--)'` leaves the
+  // property empty). It computed to Geist regardless, by inheritance from
+  // `html { font-family: var(--font-sans) }`, which is exactly why nobody
+  // noticed. Deleted rather than repointed at `var(--font-sans)`, for the
+  // reason D2 gave when it deleted AuthShell's family key: a surface that
+  // inherits the app face does not restate it.
   fontSize: 'var(--text-label)',
   lineHeight: 'var(--text-label--line-height)',
   letterSpacing: 'var(--text-label--letter-spacing)',

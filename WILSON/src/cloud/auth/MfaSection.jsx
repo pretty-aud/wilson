@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldCheck, ShieldOff, Copy, Check } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import AuthShell, {
-  AUTH_TEXT_STYLE, AUTH_PROSE_STYLE, AUTH_INPUT_STYLE,
+  AUTH_TEXT_STYLE, AUTH_PROSE_STYLE, AUTH_CODE_FIELD_STYLE,
   AUTH_BUTTON_STYLE, AUTH_BUTTON_BUSY_STYLE, AUTH_ERROR_STYLE,
   AUTH_LINK_STYLE, AUTH_HINT_STYLE,
   AUTH_GAP_WITHIN_FIELD, AUTH_GAP_BETWEEN_FIELDS, AUTH_GAP_BETWEEN_BLOCKS,
@@ -338,13 +338,15 @@ export function MfaEnrollPanel({ onEnrolled }) {
             : <Copy size={ICON.sm} className="flex-shrink-0" aria-hidden="true" />}
         </button>
       )}
-      {/* One field treatment across every auth surface (AUTH_INPUT_STYLE), at
-          the code field's own narrower measure.
+      {/* One field treatment across every auth surface, at the code field's
+          own narrower measure. T3 moved the two values below into
+          AUTH_CODE_FIELD_STYLE, which LoginScreen's copy of this field now
+          shares, so "the two values move together or not at all" is true by
+          construction rather than by two sessions remembering.
 
           AUTH-24: CSS adds tracking AFTER the final glyph as well as between
           glyphs, so a centred tracked string sits half the tracking value left
-          of optical centre. `textIndent` equal to the tracking restores it.
-          The two values move together or not at all. */}
+          of optical centre. `textIndent` equal to the tracking restores it. */}
       <input
         type="text"
         inputMode="numeric"
@@ -355,10 +357,8 @@ export function MfaEnrollPanel({ onEnrolled }) {
         placeholder="000000"
         aria-label="Authenticator code"
         style={{
-          ...AUTH_INPUT_STYLE,
+          ...AUTH_CODE_FIELD_STYLE,
           width: 160,
-          letterSpacing: '0.35em',
-          textIndent: '0.35em',
         }}
       />
       {/* AUTH-15: one error ink for the family. The two reds this file used to

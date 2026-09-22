@@ -2,10 +2,11 @@
 /**
  * UI overhaul — the six before/after pages, at both window sizes.
  *
- *   node scripts/ui-shots.mjs <before|after> [port] [outDir] [prefix]
+ *   node scripts/ui-shots.mjs <before|after> [port] [outDir]
  *
- * Writes `docs/sessions/handoffs/img/<prefix>-<phase>-<page>-<W>x<H>.png`,
- * prefix defaulting to `t0`.
+ * Writes `docs/sessions/handoffs/img/<prefix>-<phase>-<page>-<W>x<H>.png`.
+ * The prefix and the page set come from UI_SHOTS_PREFIX / UI_SHOTS_PAGES
+ * (see below); both default to exactly what T0 shipped.
  *
  * WHY A SCRIPT AND NOT THE BROWSER PANE. Twelve shots per phase is twelve
  * images into a session's context for no reading benefit — the shots are for
@@ -30,23 +31,29 @@ import { join } from 'node:path';
 
 const phase = process.argv[2];
 if (!['before', 'after'].includes(phase)) {
-  console.error('usage: node scripts/ui-shots.mjs <before|after> [port] [outDir] [prefix]');
+  console.error('usage: [UI_SHOTS_PREFIX=x] [UI_SHOTS_PAGES=a,b] node scripts/ui-shots.mjs <before|after> [port] [outDir]');
   process.exit(1);
 }
 const PORT = process.argv[3] || '5241';
 const OUT = process.argv[4] || 'docs/sessions/handoffs/img';
-/* The filename prefix. Defaults to `t0` so this script's own committed shots
-   keep reproducing byte-for-byte; T1 passes `t1`, and so on. It was a
-   hard-coded literal until T1, which meant the second bundle to run this
-   would have silently overwritten the first bundle's before/after pair. */
-const PREFIX = process.argv[5] || 't0';
 const BASE = `http://localhost:${PORT}`;
 const SIZES = [[1440, 900], [1280, 700]];
+
+/* T2 (2026-09-22): the file name carried a hard-coded `t0-`, and the page set
+   was T0's six. Both are now overridable and BOTH DEFAULT TO EXACTLY WHAT THEY
+   WERE, so `node scripts/ui-shots.mjs before 5241` still writes T0's twelve
+   files with T0's names.
+     UI_SHOTS_PREFIX=t2               the file-name prefix
+     UI_SHOTS_PAGES=rabbit-intake,…   which pages, by key (default: T0's six)
+   A lane whose surface is a TAB inside a project cannot reach it by URL — see
+   `driveToTab` — which is why the page set is a registry rather than a list of
+   paths. */
+const PREFIX = process.env.UI_SHOTS_PREFIX || 't0';
 
 /* Six pages. `rabbit-timeline` is the one that needs driving rather than a
    URL: R.A.B.B.I.T. opens on its project list and Timeline is a tab inside a
    project, so the fixture project has to be opened first. */
-const PAGES = [
+const ALL_PAGES = [
   { key: 'home', path: '/' },
   { key: 'settings', path: '/settings' },
   { key: 'dog', path: '/dog' },
@@ -60,7 +67,26 @@ const PAGES = [
      empty course library is what you screenshot, you have photographed the
      wrong thing — T0 trap 16 on a third surface. */
   { key: 'otter-lesson', path: '/otter', drive: driveToLesson },
+  /* T2's surfaces. Three of the four files in its bundle draw here; the
+     fourth, `ProjectFilesTable`, is drawn by BOTH `rabbit-intake` and
+     `files`, which is why it belongs to B4 and not to a lane. */
+  { key: 'rabbit-intake', path: '/rabbit', drive: driveToTab('Intake') },
+  { key: 'rabbit-team', path: '/rabbit', drive: driveToTab('Team') },
+  { key: 'rabbit-summary', path: '/rabbit', drive: driveToTab('Summary') },
+  /* `ProjectFilesTable` draws itself TWICE over, and only this page shows the
+     second one: `ProjectDetailPanel` passes `warm`, the light-surface variant,
+     where the same `fontSize: w ? 12 : 10` ternary takes its other arm. A shot
+     of the dark one alone would have proved half of that file. */
+  { key: 'projects', path: '/project-manager', drive: driveToProject },
 ];
+
+const DEFAULT_KEYS = ['home', 'settings', 'dog', 'otter', 'files', 'rabbit-timeline'];
+const WANTED = (process.env.UI_SHOTS_PAGES || DEFAULT_KEYS.join(',')).split(',').map((s) => s.trim());
+const PAGES = WANTED.map((k) => {
+  const p = ALL_PAGES.find((x) => x.key === k);
+  if (!p) { console.error(`unknown page key: ${k}`); process.exit(1); }
+  return p;
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -156,6 +182,48 @@ async function driveToTimeline(page) {
   const tl = await clickByText(page, 'Timeline');
   await sleep(4500);
   if (!picked || !tl) console.log(`    (drive: project=${picked} timeline=${tl})`);
+}
+
+/**
+ * The same three steps for any other R.A.B.B.I.T. tab: land on Summary, pick
+ * the fixture project, open the tab. Every one of the eleven tabs is an empty
+ * state until a project is chosen (trap 16 — the first two runs of this script
+ * screenshotted "No project selected" at both sizes and the PNGs looked
+ * plausible), so the project step is not optional for any of them.
+ */
+/**
+ * Open the fixture project's detail panel on the Projects page.
+ *
+ * 🚨 NOT `clickByText`. That one queries `button` only — correct everywhere
+ * else, and useless here, because the Projects list is a real `<table>` and
+ * the row is a `<tr>`. The first run of this drive reported success (the
+ * project NAME is on the page) and screenshotted the list with no panel open.
+ * So: click the row, and require it to be VISIBLE, which is what keeps
+ * App.jsx's every-page-rendered-at-once from resolving a twin on a page nobody
+ * is looking at.
+ */
+async function driveToProject(page) {
+  const picked = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('tr, [role="row"]')];
+    const hit = rows.find((r) => (r.textContent || '').includes('Salt Hours') && r.offsetParent !== null);
+    if (!hit) return false;
+    (hit.querySelector('td') || hit).click();
+    return true;
+  });
+  await sleep(4500);
+  if (!picked) console.log('    (drive: project row=false)');
+}
+
+function driveToTab(label) {
+  return async function drive(page) {
+    await clickByText(page, 'Summary');
+    await sleep(2500);
+    const picked = await clickByText(page, 'Salt Hours', false);
+    await sleep(3500);
+    const tab = await clickByText(page, label);
+    await sleep(4000);
+    if (!picked || !tab) console.log(`    (drive: project=${picked} ${label}=${tab})`);
+  };
 }
 
 const browser = await chromium.launch();
