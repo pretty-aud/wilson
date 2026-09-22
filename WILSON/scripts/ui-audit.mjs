@@ -68,6 +68,10 @@ export const PATTERNS = [
   ['fontWeight 500/700 (inline)',    /fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/g],
   ['border-2',                       /\bborder-2\b/g],
   ['rounded-sm/md/lg/xl/2xl',        /\brounded-(?:sm|md|lg|xl|2xl)\b/g],
+  /* Added by T0 after pass 3: the bare `rounded` is Tailwind's 4px, which
+     §3.3 deletes along with 2, 5, 8 and 10. It was missing from the first
+     draft of this table and is 431 sites in 27 files at `6471480`. */
+  ['rounded (bare, 4px)',            /\brounded(?![-\w])/g],
   ['rounded-full',                   /\brounded-full\b/g],
   ['rounded-[…] (arbitrary)',        /\brounded-\[[^\]]+\]/g],
   ['transition-all',                 /\btransition-all\b/g],
