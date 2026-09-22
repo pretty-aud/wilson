@@ -87,7 +87,18 @@ const INLINE_WEIGHT_RESIDUE = 11;
    columns in a hand-off have to be the same measurement or they are not a
    before and an after. */
 const INLINE_SIZE = /fontSize\s*:(?!\s*['"]?var\(--text-)\s*/g;
-const INLINE_SIZE_RESIDUE = 57;   // 68 before T1. T2 owns 34, T3 owns 22.
+
+/* 🚨 53, AND IT IS DELIBERATELY NOT THE AUDIT'S NUMBER. `ui-audit.mjs` counts
+   the bare key (`/fontSize\s*:/g`) and reports 57; four of those are
+   `fontSize: 'var(--text-dense)'` and friends — sites lane D and Foundation
+   already moved ONTO the scale, which are the one spelling that is not a
+   defect. The audit is a coarse census and is right to be; a ratchet has to
+   be exact or it is slack, and slack is how a ratchet stops ratcheting.
+   Found by a mutant: with this set to 57 a planted inline size did not go
+   red, because there were four spare notches. */
+/* 53 = 31 R.A.B.B.I.T. (T2; `IntakePrepare.jsx` alone is 23) + 21 shell,
+   auth and admin (T3) + the 1 exempted Monaco option in T1's own lane. */
+const INLINE_SIZE_RESIDUE = 53;
 
 /** T1's lane, plan §5 Wave 1: D.O.G. and O.T.T.E.R. */
 const T1_LANE = /^src\/tools\/(?:deck-outline-generator_v0\.514|otter_v0\.3\.1)\//;
