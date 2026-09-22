@@ -89,7 +89,7 @@ export default function UndoToast() {
       onMouseLeave={() => setHovered(false)}
     >
       {/* Message */}
-      <span className="flex-1 text-[11px] font-mono truncate" style={{ color: '#e7e5e4' }}>
+      <span className="flex-1 text-dense font-mono truncate" style={{ color: '#e7e5e4' }}>
         {toast.message}
       </span>
 
@@ -98,7 +98,7 @@ export default function UndoToast() {
         type="button"
         onClick={handleUndo}
         disabled={busy}
-        className="flex items-center gap-1.5 px-4 rounded-sm text-[11px] font-mono uppercase tracking-wider font-bold transition-colors"
+        className="flex items-center gap-1.5 px-4 rounded-sm text-dense font-mono uppercase tracking-wider font-bold transition-colors"
         style={{
           minHeight: 32,
           color: '#fff7ed',

@@ -158,12 +158,12 @@ export default function OperatorLogin({ onSignedIn }) {
       <div className="w-full" style={{ maxWidth: '380px' }}>
         <div className="mb-6">
           <h1
-            className="text-sm font-bold uppercase tracking-widest"
+            className="text-label font-bold uppercase tracking-widest"
             style={{ color: '#f4a261' }}
           >
             WILSON Operator Console
           </h1>
-          <p className="text-xs mt-1" style={{ color: '#a8a29e' }}>
+          <p className="text-dense mt-1" style={{ color: '#a8a29e' }}>
             Platform administration. Not the company admin terminal.
           </p>
         </div>
@@ -175,7 +175,7 @@ export default function OperatorLogin({ onSignedIn }) {
         >
           {stage === 'auth' ? (
             <>
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+              <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
                 Email
               </label>
               <input
@@ -184,10 +184,10 @@ export default function OperatorLogin({ onSignedIn }) {
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setError('') }}
                 disabled={busy}
-                className="w-full px-3 py-2 mb-4 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 mb-4 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+              <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
                 Password
               </label>
               <input
@@ -196,13 +196,13 @@ export default function OperatorLogin({ onSignedIn }) {
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError('') }}
                 disabled={busy}
-                className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
             </>
           ) : (
             <>
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+              <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
                 Authenticator code
               </label>
               <input
@@ -213,14 +213,14 @@ export default function OperatorLogin({ onSignedIn }) {
                 value={code}
                 onChange={(e) => { setCode(e.target.value); setError('') }}
                 disabled={busy}
-                className="w-full px-3 py-2 text-lg font-mono tracking-[0.4em] text-center rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 text-body font-mono tracking-[0.4em] text-center rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: 'rgba(0,0,0,0.35)', color: '#fde8d0', border: 'none' }}
               />
             </>
           )}
 
           {error && (
-            <p className="text-[11px] mt-3 leading-relaxed" style={{ color: '#fca5a5' }}>
+            <p className="text-dense mt-3 leading-relaxed" style={{ color: '#fca5a5' }}>
               {error}
             </p>
           )}
@@ -228,7 +228,7 @@ export default function OperatorLogin({ onSignedIn }) {
           <button
             type="submit"
             disabled={busy}
-            className="w-full mt-5 px-3 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="w-full mt-5 px-3 py-2 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             {busy ? 'Working…' : stage === 'auth' ? 'Sign in' : 'Verify'}

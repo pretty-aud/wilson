@@ -47,11 +47,11 @@ export default function DiffView({
         {/* Header */}
         <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0 rounded-t-sm">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-orange-400 uppercase tracking-wide">
+            <span className="text-label font-bold text-orange-400 uppercase tracking-wide">
               {isBulk ? `Change ${bulkIndex + 1} of ${bulkTotal}` : 'Proposed Changes'}
             </span>
             {lessonTitle && (
-              <span className="text-xs text-stone-400 font-mono">
+              <span className="text-dense text-stone-400 font-mono">
                 {subjectTitle ? `${subjectTitle} → ` : ''}{lessonTitle}
               </span>
             )}
@@ -68,15 +68,15 @@ export default function DiffView({
             return (
               <div key={idx} className="border border-stone-700 rounded-sm overflow-hidden">
                 <div className="bg-stone-800 px-3 py-1.5 border-b border-stone-700">
-                  <span className="text-xs font-bold text-stone-400 uppercase tracking-wide">
+                  <span className="text-label font-bold text-stone-400 uppercase tracking-wide">
                     {change.field === 'content' ? 'Content' : change.field}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 divide-x divide-stone-700">
                   {/* Original */}
                   <div className="p-3">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-red-400 mb-2">Original</div>
-                    <div className="text-sm text-stone-300 font-mono whitespace-pre-wrap leading-relaxed">
+                    <div className="text-label font-bold uppercase tracking-wider text-red-400 mb-2">Original</div>
+                    <div className="text-body text-stone-300 font-mono whitespace-pre-wrap leading-relaxed">
                       {origHighlighted.map((w, i) => (
                         <span key={i} className={w.type === 'removed' ? 'bg-red-900/50 text-red-300 line-through' : ''}>
                           {w.text}
@@ -86,8 +86,8 @@ export default function DiffView({
                   </div>
                   {/* Proposed */}
                   <div className="p-3">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-green-400 mb-2">Proposed</div>
-                    <div className="text-sm text-stone-300 font-mono whitespace-pre-wrap leading-relaxed">
+                    <div className="text-label font-bold uppercase tracking-wider text-green-400 mb-2">Proposed</div>
+                    <div className="text-body text-stone-300 font-mono whitespace-pre-wrap leading-relaxed">
                       {propHighlighted.map((w, i) => (
                         <span key={i} className={w.type === 'added' ? 'bg-green-900/50 text-green-300' : ''}>
                           {w.text}
@@ -109,18 +109,18 @@ export default function DiffView({
               onChange={e => setEditInstruction(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && editInstruction.trim()) { onEdit(editInstruction); setEditMode(false); setEditInstruction(''); } }}
               placeholder="Tell the agent what to change..."
-              className="flex-1 bg-stone-800 text-stone-200 border border-stone-600 rounded-sm px-3 py-1.5 text-sm font-mono focus:border-orange-500"
+              className="flex-1 bg-stone-800 text-stone-200 border border-stone-600 rounded-sm px-3 py-1.5 text-body font-mono focus:border-orange-500"
               autoFocus
             />
             <button
               onClick={() => { if (editInstruction.trim()) { onEdit(editInstruction); setEditMode(false); setEditInstruction(''); } }}
-              className="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold uppercase rounded-sm hover:bg-orange-700 transition-colors"
+              className="px-3 py-1.5 bg-orange-600 text-white text-dense font-bold uppercase rounded-sm hover:bg-orange-700 transition-colors"
             >
               Send
             </button>
             <button
               onClick={() => { setEditMode(false); setEditInstruction(''); }}
-              className="px-3 py-1.5 bg-stone-700 text-stone-300 text-xs font-bold uppercase rounded-sm hover:bg-stone-600 transition-colors"
+              className="px-3 py-1.5 bg-stone-700 text-stone-300 text-dense font-bold uppercase rounded-sm hover:bg-stone-600 transition-colors"
             >
               Cancel
             </button>
@@ -131,20 +131,20 @@ export default function DiffView({
         <div className="px-4 py-3 border-t-2 border-stone-600 flex items-center gap-2 shrink-0">
           <button
             onClick={onApply}
-            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-xs font-bold uppercase tracking-wide rounded-sm hover:bg-green-600 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-green-600 transition-colors"
           >
             <Check className="w-3.5 h-3.5" /> Apply Changes
           </button>
           <button
             onClick={onReject}
-            className="flex items-center gap-1.5 px-4 py-2 bg-red-800 text-white text-xs font-bold uppercase tracking-wide rounded-sm hover:bg-red-700 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 bg-red-800 text-white text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-red-700 transition-colors"
           >
             <X className="w-3.5 h-3.5" /> Reject
           </button>
           {!editMode && (
             <button
               onClick={() => setEditMode(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-xs font-bold uppercase tracking-wide rounded-sm hover:bg-stone-600 transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-stone-600 transition-colors"
             >
               <Pencil className="w-3.5 h-3.5" /> Edit & Resubmit
             </button>
@@ -154,13 +154,13 @@ export default function DiffView({
             <>
               <button
                 onClick={onSkip}
-                className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-xs font-bold uppercase tracking-wide rounded-sm hover:bg-stone-600 transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-stone-600 transition-colors"
               >
                 <SkipForward className="w-3.5 h-3.5" /> Skip
               </button>
               <button
                 onClick={onApplyAll}
-                className="flex items-center gap-1.5 px-4 py-2 bg-orange-700 text-white text-xs font-bold uppercase tracking-wide rounded-sm hover:bg-orange-600 transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2 bg-orange-700 text-white text-dense font-bold uppercase tracking-wide rounded-sm hover:bg-orange-600 transition-colors"
               >
                 <CheckCheck className="w-3.5 h-3.5" /> Apply All Remaining
               </button>

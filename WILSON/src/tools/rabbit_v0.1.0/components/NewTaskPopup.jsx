@@ -92,8 +92,8 @@ export default function NewTaskPopup({
     }
   }
 
-  const labelCls = 'text-[9.5px] font-mono uppercase tracking-wider mb-1 block'
-  const fieldCls = 'w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500'
+  const labelCls = 'text-label font-mono uppercase tracking-wider mb-1 block'
+  const fieldCls = 'w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500'
   const fieldStyle = { backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }
 
   return (
@@ -111,10 +111,10 @@ export default function NewTaskPopup({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#f97316' }}>
+          <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#f97316' }}>
             New Task
           </span>
-          <button type="button" onClick={onClose} className="text-[13px] font-mono" style={{ color: '#78716c' }}>
+          <button type="button" onClick={onClose} className="text-body font-mono" style={{ color: '#78716c' }}>
             &#10005;
           </button>
         </div>
@@ -220,7 +220,7 @@ export default function NewTaskPopup({
             every earlier failure look like an inert button. */}
         {error && (
           <div
-            className="mx-5 mb-3 px-3 py-2 text-[11.5px] font-mono rounded"
+            className="mx-5 mb-3 px-3 py-2 text-dense font-mono rounded"
             style={{ color: '#fecaca', backgroundColor: 'rgba(153,27,27,0.25)', border: '1px solid #991b1b' }}
           >
             {error}
@@ -229,18 +229,18 @@ export default function NewTaskPopup({
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <span className="text-[10.5px] font-mono" style={{ color: '#57534e' }}>
+          <span className="text-dense font-mono" style={{ color: '#57534e' }}>
             Nothing is saved until you confirm.
           </span>
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose}
-              className="px-4 py-1.5 text-[11.5px] font-mono rounded transition-colors"
+              className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               Cancel
             </button>
             <button type="button" onClick={handleConfirm}
               disabled={!draft.title.trim() || creating}
-              className="px-4 py-1.5 text-[11.5px] font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 text-dense font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               {creating ? 'Creating...' : 'Confirm & Create'}
             </button>

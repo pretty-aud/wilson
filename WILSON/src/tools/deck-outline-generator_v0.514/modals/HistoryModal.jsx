@@ -202,7 +202,7 @@ ${contentBody}
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-stone-800 border-2 border-stone-600 rounded-sm w-[500px] max-h-[80vh] flex flex-col shadow-xl">
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600">
-          <span className="font-bold text-orange-400 uppercase text-sm tracking-wide">History Import/Export</span>
+          <span className="font-bold text-orange-400 uppercase text-label tracking-wide">History Import/Export</span>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded">
             <X className="w-4 h-4 text-stone-400" />
           </button>
@@ -212,13 +212,13 @@ ${contentBody}
           <div className="flex gap-2 mb-4">
             <button
               onClick={() => setMode('export')}
-              className={`flex-1 py-2 px-3 rounded-sm text-sm font-medium transition-colors ${mode === 'export' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
+              className={`flex-1 py-2 px-3 rounded-sm text-body font-medium transition-colors ${mode === 'export' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
             >
               Export
             </button>
             <button
               onClick={() => setMode('import')}
-              className={`flex-1 py-2 px-3 rounded-sm text-sm font-medium transition-colors ${mode === 'import' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
+              className={`flex-1 py-2 px-3 rounded-sm text-body font-medium transition-colors ${mode === 'import' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
             >
               Import
             </button>
@@ -226,36 +226,36 @@ ${contentBody}
           
           {mode === 'export' ? (
             <div className="space-y-3">
-              <p className="text-sm text-stone-400">
+              <p className="text-body text-stone-400">
                 Export all {history.length} page(s) as a DECKOUTLINE markdown file.
               </p>
 
               {/* Project Name */}
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] text-stone-500 uppercase tracking-wide font-bold">Project Name</span>
+                  <span className="text-label text-stone-500 uppercase tracking-wide font-bold">Project Name</span>
                 </div>
                 <div className="flex items-center gap-0 bg-stone-900 border-2 border-stone-600 rounded-sm overflow-hidden">
                   <input
                     type="text"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 bg-transparent text-xs font-mono text-orange-400"
+                    className="flex-1 px-2.5 py-1.5 bg-transparent text-dense font-mono text-orange-400"
                     placeholder="Deck"
                     spellCheck={false}
                   />
-                  <span className="px-2 py-1.5 text-xs font-mono text-stone-500 bg-stone-800 border-l border-stone-600 flex-shrink-0">_DECKOUTLINE.md</span>
+                  <span className="px-2 py-1.5 text-caption font-mono text-stone-500 bg-stone-800 border-l border-stone-600 flex-shrink-0">_DECKOUTLINE.md</span>
                 </div>
               </div>
 
               {/* Export Folder — above checkboxes */}
               <div className="border-t border-stone-600 pt-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] text-stone-500 uppercase tracking-wide font-bold flex-shrink-0">Export Folder</span>
+                  <span className="text-label text-stone-500 uppercase tracking-wide font-bold flex-shrink-0">Export Folder</span>
                   {exportFolderPath && (
                     <button
                       onClick={onClearExportFolder}
-                      className="text-[10px] text-stone-600 hover:text-red-400 transition-colors ml-auto"
+                      className="text-dense text-stone-600 hover:text-red-400 transition-colors ml-auto"
                       title="Reset to browser downloads"
                     >
                       Reset
@@ -264,7 +264,7 @@ ${contentBody}
                 </div>
                 <div className="flex items-center gap-2">
                   <div
-                    className="flex-1 px-2.5 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-xs font-mono truncate"
+                    className="flex-1 px-2.5 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-dense font-mono truncate"
                     style={{ color: exportFolderPath ? '#f4a261' : '#78716c' }}
                     title={exportFolderPath || 'Browser downloads folder'}
                   >
@@ -273,7 +273,7 @@ ${contentBody}
                   {window.showDirectoryPicker && (
                     <button
                       onClick={onPickExportFolder}
-                      className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 border-2 border-stone-600 rounded-sm text-xs text-stone-300 font-medium transition-colors flex-shrink-0 flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 border-2 border-stone-600 rounded-sm text-dense text-stone-300 font-medium transition-colors flex-shrink-0 flex items-center gap-1.5"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       Browse
@@ -281,10 +281,10 @@ ${contentBody}
                   )}
                 </div>
                 {exportDirHandle && (
-                  <p className="text-[10px] text-stone-500 mt-1">Files will be saved directly to this folder.</p>
+                  <p className="text-caption text-stone-500 mt-1">Files will be saved directly to this folder.</p>
                 )}
                 {exportFolderPath && !exportDirHandle && (
-                  <p className="text-[10px] text-amber-600 mt-1">Folder access expired. Click Browse to re-select.</p>
+                  <p className="text-dense text-amber-600 mt-1">Folder access expired. Click Browse to re-select.</p>
                 )}
               </div>
 
@@ -298,7 +298,7 @@ ${contentBody}
                   >
                     {includeVisExport && <Check className="w-3 h-3 text-orange-400" />}
                   </button>
-                  <span className="text-xs text-stone-400">Include theme colors & deck visual description</span>
+                  <span className="text-dense text-stone-400">Include theme colors & deck visual description</span>
                 </div>
 
                 {/* Image Prompt Export Checkbox */}
@@ -309,7 +309,7 @@ ${contentBody}
                   >
                     {enableImgPromptExport && <Check className="w-3 h-3 text-orange-400" />}
                   </button>
-                  <span className="text-xs text-stone-400">Generate Image Prompts</span>
+                  <span className="text-dense text-stone-400">Generate Image Prompts</span>
                 </div>
 
                 {/* Export Visual Assets Checkbox — only visible when placement is active */}
@@ -321,7 +321,7 @@ ${contentBody}
                     >
                       {includeVisAssets && <Check className="w-3 h-3 text-orange-400" />}
                     </button>
-                    <span className="text-xs text-stone-400">Export Placed Visual Assets</span>
+                    <span className="text-dense text-stone-400">Export Placed Visual Assets</span>
                   </div>
                 )}
               </div>
@@ -329,11 +329,11 @@ ${contentBody}
               {/* Model Dropdown — visible only when image prompts enabled */}
               {enableImgPromptExport && (
                 <div className="px-6">
-                  <label className="block text-[10px] text-stone-500 mb-1 uppercase tracking-wide">Image Generation Model</label>
+                  <label className="block text-label text-stone-500 mb-1 uppercase tracking-wide">Image Generation Model</label>
                   <select
                     value={imgPromptModel}
                     onChange={(e) => setImgPromptModel(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:border-orange-500 cursor-pointer"
+                    className="w-full px-3 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 cursor-pointer"
                   >
                     <option value="midjourney">Midjourney</option>
                     <option value="flux">Flux</option>
@@ -345,14 +345,14 @@ ${contentBody}
 
               {/* Error message */}
               {imgPromptError && (
-                <p className="text-xs text-red-400 px-1">{imgPromptError}</p>
+                <p className="text-dense text-red-400 px-1">{imgPromptError}</p>
               )}
 
               {/* Export Button — below checkboxes and dropdown */}
               <button
                 onClick={handleExport}
                 disabled={history.length === 0 || isGeneratingImgPrompts}
-                className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm font-bold text-white text-sm flex items-center justify-center gap-2"
+                className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm font-bold text-white text-body flex items-center justify-center gap-2"
               >
                 {isGeneratingImgPrompts ? (
                   <>
@@ -368,10 +368,10 @@ ${contentBody}
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-stone-400">
+              <p className="text-body text-stone-400">
                 Import a DECKOUTLINE markdown file to restore history.
               </p>
-              <label className="block w-full py-2 px-4 bg-stone-700 hover:bg-stone-600 rounded-sm font-medium text-stone-300 text-sm text-center cursor-pointer border-2 border-dashed border-stone-500">
+              <label className="block w-full py-2 px-4 bg-stone-700 hover:bg-stone-600 rounded-sm font-medium text-stone-300 text-body text-center cursor-pointer border-2 border-dashed border-stone-500">
                 Choose DECKOUTLINE.md file
                 <input type="file" className="hidden" accept=".md,.txt" onChange={handleFileUpload} />
               </label>
@@ -380,12 +380,12 @@ ${contentBody}
                   <textarea
                     value={importText}
                     onChange={(e) => setImportText(e.target.value)}
-                    className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-xs font-mono resize-none"
+                    className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-dense font-mono resize-none"
                     placeholder="Or paste DECKOUTLINE content here..."
                   />
                   <button
                     onClick={handleImport}
-                    className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 rounded-sm font-bold text-white text-sm"
+                    className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 rounded-sm font-bold text-white text-body"
                   >
                     Import to History
                   </button>
@@ -395,7 +395,7 @@ ${contentBody}
                 <textarea
                   value={importText}
                   onChange={(e) => setImportText(e.target.value)}
-                  className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-xs font-mono resize-none"
+                  className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-sm text-stone-300 text-dense font-mono resize-none"
                   placeholder="Or paste DECKOUTLINE content here..."
                 />
               )}

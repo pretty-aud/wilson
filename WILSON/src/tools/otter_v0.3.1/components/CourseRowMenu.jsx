@@ -182,7 +182,7 @@ export default function CourseRowMenu({
               key={item.key}
               role="menuitem"
               onClick={() => { setOpen(false); item.run?.(course) }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-stone-300 hover:bg-stone-600 hover:text-white transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-dense text-stone-300 hover:bg-stone-600 hover:text-white transition-colors text-left"
             >
               <item.Icon className="w-3 h-3 shrink-0" /> {item.label}
             </button>
@@ -194,7 +194,7 @@ export default function CourseRowMenu({
               <button
                 role="menuitem"
                 onClick={() => { setOpen(false); onTrash?.(course) }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-stone-300 hover:bg-red-900/40 hover:text-red-300 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-dense text-stone-300 hover:bg-red-900/40 hover:text-red-300 transition-colors text-left"
               >
                 <Trash2 className="w-3 h-3 shrink-0" /> Move to trash
               </button>

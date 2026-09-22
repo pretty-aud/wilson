@@ -141,7 +141,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
           className="flex items-center justify-between gap-4 px-3 py-1.5"
           style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
         >
-          <span className="text-[10px] font-mono uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
             {label}
           </span>
           <button
@@ -158,14 +158,14 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
         <div className="flex items-center justify-center" style={{ minWidth: 480, minHeight: 270 }}>
           {status === 'unavailable' ? (
             <div className="flex flex-col items-center gap-3 p-8 text-center">
-              <span className="text-[11px] font-mono" style={{ color: '#d6d3d1', maxWidth: 380 }}>
+              <span className="text-dense font-mono" style={{ color: '#d6d3d1', maxWidth: 380 }}>
                 {detail}
               </span>
               {managed && onOpenExternally && (
                 <button
                   type="button"
                   onClick={() => { onOpenExternally(); onClose?.() }}
-                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:brightness-110"
+                  className="flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm hover:brightness-110"
                   style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 >
                   <ExternalLink className="w-3 h-3" />

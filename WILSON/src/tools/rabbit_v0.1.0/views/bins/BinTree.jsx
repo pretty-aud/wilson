@@ -52,7 +52,7 @@ export default function BinTree({
   return (
     <div className="flex flex-col flex-shrink-0 h-full select-none" style={{ width, borderRight: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="flex items-center justify-between px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: C.dim }}>Bins</span>
+        <span className="text-label font-mono uppercase tracking-wider" style={{ color: C.dim }}>Bins</span>
         <button type="button" title="New bin" disabled={!canWrite} onClick={() => onCreateBin?.(null)}
           className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.accentText, border: `1px solid ${C.line}` }}>
           <Plus className="w-3 h-3" />
@@ -68,7 +68,7 @@ export default function BinTree({
           onDrop={e => handleDrop(e, null)}
         />
         {rows.length === 0 && (
-          <div className="px-3 py-3 text-[10.5px] font-mono leading-relaxed" style={{ color: C.dimmer }}>
+          <div className="px-3 py-3 text-dense font-mono leading-relaxed" style={{ color: C.dimmer }}>
             No bins yet. Make one with +, or drop a folder on the empty page.
           </div>
         )}
@@ -91,7 +91,7 @@ export default function BinTree({
           />
         ))}
       </div>
-      <div className="px-3 py-2 text-[9.5px] font-mono leading-relaxed flex-shrink-0" style={{ color: C.dimmer, borderTop: `1px solid ${C.line}` }}>
+      <div className="px-3 py-2 text-dense font-mono leading-relaxed flex-shrink-0" style={{ color: C.dimmer, borderTop: `1px solid ${C.line}` }}>
         Drop files or folders on a bin. Drag a bin onto another to nest it.
       </div>
     </div>
@@ -102,7 +102,7 @@ function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick
   return (
     <div role="treeitem" aria-selected={active}
       onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-[5px] cursor-pointer text-[11.5px] font-mono transition-colors"
+      className="flex items-center gap-1.5 pr-2 py-[5px] cursor-pointer text-dense font-mono transition-colors"
       style={{
         paddingLeft: 10 + depth * 14,
         color: active ? C.bright : C.text,
@@ -113,7 +113,7 @@ function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick
       <Icon className="w-3 h-3 flex-shrink-0" style={{ color: active ? C.accentText : C.dim }} />
       <span className="flex-1 truncate">{label}</span>
       {offline > 0 && <span title={`${offline} offline`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
-      <span className="text-[9.5px] tabular-nums" style={{ color: C.dimmer }}>{count}</span>
+      <span className="text-dense tabular-nums" style={{ color: C.dimmer }}>{count}</span>
     </div>
   )
 }
@@ -131,7 +131,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
       onClick={onSelect} onContextMenu={onContextMenu}
       onDoubleClick={e => { e.stopPropagation(); if (canWrite) onRenameStart?.() }}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-[5px] cursor-pointer text-[11.5px] font-mono transition-colors group"
+      className="flex items-center gap-1.5 pr-2 py-[5px] cursor-pointer text-dense font-mono transition-colors group"
       style={{
         paddingLeft: 10 + depth * 14,
         color: active ? C.bright : C.text,
@@ -148,13 +148,13 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
           onClick={e => e.stopPropagation()}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onRename(draft.trim() || bin.name) } if (e.key === 'Escape') { e.preventDefault(); onRenameCancel() } }}
           onBlur={() => onRename(draft.trim() || bin.name)}
-          className="flex-1 min-w-0 px-1 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="flex-1 min-w-0 px-1 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
       ) : (
         <span className="flex-1 truncate" title={bin.description || bin.name}>{bin.name || 'Untitled'}</span>
       )}
       {offline > 0 && <span title={`${offline} offline`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
-      <span className="text-[9.5px] tabular-nums" style={{ color: C.dimmer }}>{count}</span>
+      <span className="text-dense tabular-nums" style={{ color: C.dimmer }}>{count}</span>
     </div>
   )
 }

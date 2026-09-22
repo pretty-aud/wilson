@@ -145,7 +145,7 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
     >
       <Icon style={{ width: iconPx, height: iconPx, color: '#a8a29e' }} />
       {size === 'large' && label && (
-        <span className="text-[8.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
           {label}
         </span>
       )}

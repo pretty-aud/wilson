@@ -325,8 +325,8 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
             {/* Matches the menu item that opens it ("Share or submit…") — a
                 user who clicked looking for "submit" must land somewhere that
                 still uses the word. */}
-            <h3 className="text-orange-400 font-bold text-sm uppercase tracking-wide truncate">Share or submit</h3>
-            <p className="text-stone-400 text-[11px] truncate">{course?.name}</p>
+            <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide truncate">Share or submit</h3>
+            <p className="text-stone-400 text-dense truncate">{course?.name}</p>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-sm shrink-0" aria-label="Close">
             <X className="w-4 h-4 text-stone-400" />
@@ -336,14 +336,14 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* ── who can see this ── */}
           <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-            <h4 className="text-[11px] font-bold text-orange-400 uppercase tracking-wide mb-2">
+            <h4 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-2">
               Who can see this
             </h4>
 
             {tiers.length === 0 ? (
               <div className="flex items-center gap-2">
                 <VisibilityBadge visibility={current} showPersonal />
-                <p className="text-stone-500 text-[11px]">
+                <p className="text-stone-500 text-caption">
                   {current === 'company_standard'
                     ? 'Only an admin can change a company standard course.'
                     : 'Only the owner or an admin can change this.'}
@@ -368,7 +368,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold ${active ? 'text-white' : 'text-stone-300'}`}>
+                        <span className={`text-dense font-bold ${active ? 'text-white' : 'text-stone-300'}`}>
                           {active ? '●' : '○'} {meta.label}
                         </span>
                         {isStandard && <ShieldCheck className="w-3 h-3 text-orange-400" />}
@@ -376,12 +376,12 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                           <Loader2 className="w-3 h-3 animate-spin text-orange-400 ml-auto" />
                         )}
                       </div>
-                      <p className="text-stone-500 text-[10px] mt-0.5">{meta.blurb}</p>
+                      <p className="text-stone-500 text-caption mt-0.5">{meta.blurb}</p>
                     </button>
                   )
                 })}
                 {role === 'admin' ? (
-                  <p className="text-stone-600 text-[10px] pt-1">
+                  <p className="text-stone-600 text-caption pt-1">
                     Company standard is admin-only, and there can be just one per topic.
                   </p>
                 ) : (
@@ -398,11 +398,11 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                   // manager decides — so this points at the control that does
                   // it rather than describing a conversation to go and have.
                   <div className="pt-2 mt-1 border-t border-stone-800">
-                    <p className="text-stone-300 text-[10px] font-bold flex items-center gap-1.5">
+                    <p className="text-stone-300 text-dense font-bold flex items-center gap-1.5">
                       <ShieldCheck className="w-3 h-3 text-orange-400 shrink-0" />
                       Want this to be the company standard?
                     </p>
-                    <p className="text-stone-500 text-[10px] mt-0.5 leading-relaxed">
+                    <p className="text-stone-500 text-dense mt-0.5 leading-relaxed">
                       Only an admin or a manager can set that tier — but you can put this
                       course forward for it, at the bottom of this dialog.
                     </p>
@@ -414,22 +414,22 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
 
           {/* ── who can edit it ── */}
           <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-            <h4 className="text-[11px] font-bold text-orange-400 uppercase tracking-wide mb-1">
+            <h4 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-1">
               Who can edit it
             </h4>
-            <p className="text-stone-500 text-[10px] mb-2">
+            <p className="text-stone-500 text-caption mb-2">
               The owner and workspace admins can always edit. Anyone you add here can too —
               but they cannot add anyone else.
             </p>
 
             {loading ? (
-              <p className="text-stone-500 text-[11px] flex items-center gap-1.5">
+              <p className="text-stone-500 text-caption flex items-center gap-1.5">
                 <Loader2 className="w-3 h-3 animate-spin" /> Loading…
               </p>
             ) : (
               <>
                 {editors.length === 0 ? (
-                  <p className="text-stone-600 text-[11px] italic mb-2">No one else has edit access.</p>
+                  <p className="text-stone-600 text-caption italic mb-2">No one else has edit access.</p>
                 ) : (
                   <ul className="space-y-1 mb-2">
                     {editors.map(ed => (
@@ -437,7 +437,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         key={ed.user_id}
                         className="flex items-center gap-2 bg-stone-950 border border-stone-700 rounded-sm px-2 py-1"
                       >
-                        <span className="text-stone-300 text-[11px] truncate flex-1">
+                        <span className="text-stone-300 text-dense truncate flex-1">
                           {ed.label}
                           {!ed.is_active && <span className="text-stone-600 ml-1">(deactivated)</span>}
                         </span>
@@ -465,7 +465,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       value={pick}
                       onChange={e => setPick(e.target.value)}
                       disabled={!!busy || candidates.length === 0}
-                      className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-2 py-1 text-[11px] focus:border-orange-500 disabled:opacity-50"
+                      className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-2 py-1 text-dense focus:border-orange-500 disabled:opacity-50"
                     >
                       <option value="">
                         {candidates.length === 0 ? 'Everyone already has access' : 'Choose someone…'}
@@ -480,14 +480,14 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       onClick={addEditor}
                       disabled={!pick || !!busy}
-                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-[11px] font-bold flex items-center gap-1 disabled:opacity-50"
+                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-dense font-bold flex items-center gap-1 disabled:opacity-50"
                     >
                       {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
                       Add
                     </button>
                   </div>
                 ) : (
-                  <p className="text-stone-600 text-[10px] italic">
+                  <p className="text-stone-600 text-caption italic">
                     Only this course&apos;s owner can give someone edit access to a personal course.
                   </p>
                 )}
@@ -511,34 +511,34 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
               already IS the standard, with no reachable control to clear it. */}
           {(current !== 'company_standard' || !!nom) && course?.is_own !== false && (
             <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-              <h4 className="text-[11px] font-bold text-orange-400 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+              <h4 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-1 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 Put it forward as the company standard
               </h4>
 
               {nomLoading ? (
-                <p className="text-stone-500 text-[11px] flex items-center gap-1.5">
+                <p className="text-stone-500 text-caption flex items-center gap-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" /> Loading…
                 </p>
               ) : nom ? (
                 <>
                   {nom.status === 'changes_requested' ? (
                     <div className="bg-stone-950 border border-orange-700/60 rounded-sm p-2.5 mb-2">
-                      <p className="text-orange-400 text-[10px] font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {nom.reviewer_label ?? 'A reviewer'} asked for changes
                         {(nom.revision ?? 1) > 1 ? ` (round ${nom.revision})` : ''}
                       </p>
-                      <p className="text-stone-200 text-[12px] whitespace-pre-wrap mb-1">
+                      <p className="text-stone-200 text-dense whitespace-pre-wrap mb-1">
                         “{nom.review_note}”
                       </p>
-                      <p className="text-stone-500 text-[10px]">
+                      <p className="text-stone-500 text-caption">
                         Improve the course, update the note below, and resubmit — or accept
                         the decision to close it.
                       </p>
                     </div>
                   ) : (
-                    <p className="text-stone-500 text-[10px] mb-2">
+                    <p className="text-stone-500 text-caption mb-2">
                       Put forward and waiting on a reviewer
                       {(nom.revision ?? 1) > 1 ? ` · round ${nom.revision}` : ''}. You can edit
                       the note below, or withdraw it.
@@ -546,7 +546,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                   )}
                 </>
               ) : (
-                <p className="text-stone-500 text-[10px] mb-2 leading-relaxed">
+                <p className="text-stone-500 text-dense mb-2 leading-relaxed">
                   Anyone can put a course forward. An admin or a manager decides. While it is
                   under review they can open this course read-only, even if it is just for
                   you — that access ends when the nomination is decided.
@@ -557,7 +557,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                   left to submit, everything left to tidy up. */}
               {!nomLoading && current === 'company_standard' && nom && (
                 <div className="flex items-center gap-2">
-                  <p className="text-stone-400 text-[10px] flex-1">
+                  <p className="text-stone-400 text-dense flex-1">
                     This course is already the company standard, so there is nothing left to
                     put forward — but your nomination is still open in the review queue.
                   </p>
@@ -565,7 +565,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     type="button"
                     onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
                     disabled={nomBusy}
-                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Undo2 className="w-3 h-3" />}
                     Withdraw
@@ -580,13 +580,13 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     onChange={e => setPitch(e.target.value)}
                     disabled={nomBusy}
                     placeholder="Why should this be the company's official course on this topic?"
-                    className="w-full h-20 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] resize-none focus:border-orange-500 placeholder-stone-600 disabled:opacity-60"
+                    className="w-full h-20 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600 disabled:opacity-60"
                   />
                   <div className="flex justify-between items-center mt-1 mb-2">
-                    <span className="text-stone-600 text-[10px]">
+                    <span className="text-stone-600 text-caption">
                       This is what the reviewer reads first.
                     </span>
-                    <span className={`text-[10px] ${pitch.length > 4000 ? 'text-red-400' : 'text-stone-600'}`}>
+                    <span className={`text-caption ${pitch.length > 4000 ? 'text-red-400' : 'text-stone-600'}`}>
                       {pitch.length} / 4000
                     </span>
                   </div>
@@ -597,7 +597,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         type="button"
                         onClick={() => settleNomination('rejected', 'Closed. You can put it forward again later.')}
                         disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Check className="w-3 h-3" /> Accept the decision
                       </button>
@@ -607,7 +607,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         type="button"
                         onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
                         disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Undo2 className="w-3 h-3" /> Withdraw
                       </button>
@@ -617,7 +617,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       onClick={nom ? resubmitNomination : submitNomination}
                       disabled={nomBusy || !pitch.trim() || pitch.length > 4000}
-                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                       {nom
@@ -631,7 +631,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
               {nomDone && !error && (
                 <div className="mt-2 bg-green-900/25 border-2 border-green-800 rounded-sm p-2 flex items-center gap-2">
                   <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                  <p className="text-green-300 text-[11px]">{nomDone}</p>
+                  <p className="text-green-300 text-dense">{nomDone}</p>
                 </div>
               )}
             </section>
@@ -640,13 +640,13 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
           {error && (
             <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-              <p className="text-red-300 text-[11px]">{error}</p>
+              <p className="text-red-300 text-dense">{error}</p>
             </div>
           )}
           {notice && !error && (
             <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-center gap-2">
               <Check className="w-4 h-4 text-green-400 shrink-0" />
-              <p className="text-green-300 text-[11px]">{notice}</p>
+              <p className="text-green-300 text-dense">{notice}</p>
             </div>
           )}
         </div>
@@ -654,20 +654,20 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
         {/* leaving company standard — the one genuinely consequential move */}
         {confirmDrop && (
           <div className="border-t-2 border-stone-600 bg-stone-900 p-3 shrink-0">
-            <p className="text-stone-300 text-[11px] mb-2">
+            <p className="text-stone-300 text-dense mb-2">
               Remove this as the company standard? People will stop being offered it instead of
               generating their own course. Existing copies are not affected.
             </p>
             <div className="flex gap-2">
               <button
                 onClick={() => setConfirmDrop(null)}
-                className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-1.5 rounded-sm hover:bg-stone-600 text-[11px] font-bold"
+                className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-1.5 rounded-sm hover:bg-stone-600 text-dense font-bold"
               >
                 Keep it
               </button>
               <button
                 onClick={() => setVisibility(confirmDrop)}
-                className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-1.5 rounded-sm hover:bg-orange-700 text-[11px] font-bold"
+                className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-1.5 rounded-sm hover:bg-orange-700 text-dense font-bold"
               >
                 Remove standard
               </button>

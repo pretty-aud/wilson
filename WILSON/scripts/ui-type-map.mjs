@@ -158,8 +158,18 @@ export function classifySite(file, px, run, tag = '') {
         rules these and the kit's split is 13 small / 14 normal. */
   if (CONTROL_TAGS.test(tag)) return px <= 12.5 ? 'text-dense' : 'text-body';
 
-  /* 1. Label, and nothing else can reach it. */
-  if (LABEL_EVIDENCE.some((re) => re.test(run))) return 'text-label';
+  /* 1. Label, and nothing else can reach it — but only at label sizes.
+        §3.1 gives Label "table headers, field labels, eyebrows, Kbd, status
+        badges", and not one of those is ever set at 16px or more. A big
+        uppercase run is a heading shouting, not a label, and the fix for a
+        heading that shouts is sentence case (Q2), not an 11px heading.
+        Measured: 2 sites, both real. R.A.B.B.I.T.'s client estimate sets the
+        project title in an 18px uppercase <h2>; the naive rule put a
+        client-facing document title at 11px. */
+  if (LABEL_EVIDENCE.some((re) => re.test(run))) {
+    if (px < 16) return 'text-label';
+    return px >= 18 ? 'text-h1' : 'text-h2';
+  }
 
   const heading = HEADING_WEIGHT.test(run) || HEADING_TAGS.test(tag);
 

@@ -68,7 +68,7 @@ const NODE_TYPE_COLORS = {
 function NodeTypeBadge({ type }) {
   const color = NODE_TYPE_COLORS[type] || '#a8a29e';
   return (
-    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide shrink-0"
+    <span className="inline-block px-1.5 py-0.5 rounded text-label font-bold uppercase tracking-wide shrink-0"
       style={{ background: `${color}20`, color, border: `1px solid ${color}40` }}>
       {type || 'Any'}
     </span>
@@ -2860,7 +2860,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="relative" ref={editMenuRef}>
           <button
             onClick={() => setEditMenuOpen(prev => !prev)}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
               editMenuOpen ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
             }`}
           >
@@ -2871,37 +2871,37 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <button
                 onClick={() => { undoDeleteSubject(); setEditMenuOpen(false); }}
                 disabled={deletedSubjectsStack.length === 0}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
+                className={`w-full flex items-center gap-2 px-3 py-2 text-body ${
                   deletedSubjectsStack.length === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-stone-300 hover:bg-stone-600 hover:text-white'
                 }`}
               >
                 <RotateCcw className="w-3 h-3" /> Undo Delete
                 {deletedSubjectsStack.length > 0 && (
-                  <span className="ml-auto text-xs text-stone-500">({deletedSubjectsStack.length})</span>
+                  <span className="ml-auto text-caption text-stone-500">({deletedSubjectsStack.length})</span>
                 )}
               </button>
               <button
                 onClick={() => { redoDeleteSubject(); setEditMenuOpen(false); }}
                 disabled={redoSubjectsStack.length === 0}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
+                className={`w-full flex items-center gap-2 px-3 py-2 text-body ${
                   redoSubjectsStack.length === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-stone-300 hover:bg-stone-600 hover:text-white'
                 }`}
               >
                 <ArrowRight className="w-3 h-3" /> Redo Delete
                 {redoSubjectsStack.length > 0 && (
-                  <span className="ml-auto text-xs text-stone-500">({redoSubjectsStack.length})</span>
+                  <span className="ml-auto text-caption text-stone-500">({redoSubjectsStack.length})</span>
                 )}
               </button>
               <div className="border-t border-stone-600 my-1" />
               <button
                 onClick={() => { setShowImportModal(true); setEditMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-stone-300 hover:bg-stone-600 hover:text-white"
+                className="w-full flex items-center gap-2 px-3 py-2 text-body text-stone-300 hover:bg-stone-600 hover:text-white"
               >
                 <Upload className="w-3 h-3" /> Import Subjects
               </button>
               <button
                 onClick={() => { exportAll(); setEditMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-stone-300 hover:bg-stone-600 hover:text-white"
+                className="w-full flex items-center gap-2 px-3 py-2 text-body text-stone-300 hover:bg-stone-600 hover:text-white"
               >
                 <Download className="w-3 h-3" /> Export All
               </button>
@@ -2915,7 +2915,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {/* Search */}
         <button
           onClick={() => setShowSearchModal(true)}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             showSearchModal ? 'text-orange-400 border-orange-500 bg-stone-900' :
             'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
           }`}
@@ -2933,7 +2933,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               setActiveSubject(null);
             });
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             currentView === 'library' && !activeSoftwareSlug ? 'text-orange-400 border-orange-500 bg-stone-900' :
             'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
           }`}
@@ -2944,7 +2944,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {/* Quiz */}
         <button
           onClick={() => { loadQuizSelectionData(); navigateTo('quiz'); }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             currentView === 'quiz' ? 'text-orange-400 border-orange-500 bg-stone-900' :
             'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
           }`}
@@ -2963,7 +2963,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               navigateTo('hotkeys');
             }
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             currentView === 'hotkeys' && activeSoftware?.type !== 'coding_language'
               ? 'text-orange-400 border-orange-500 bg-stone-900'
               : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
@@ -2983,7 +2983,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             }
             navigateTo('nodes');
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             currentView === 'nodes'
               ? 'text-orange-400 border-orange-500 bg-stone-900'
               : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
@@ -3003,7 +3003,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               navigateTo('hotkeys');
             }
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             currentView === 'hotkeys' && activeSoftware?.type === 'coding_language'
               ? 'text-orange-400 border-orange-500 bg-stone-900'
               : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
@@ -3019,7 +3019,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {cloudMode && (
           <button
             onClick={() => navigateTo('requests')}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
               currentView === 'requests'
                 ? 'text-orange-400 border-orange-500 bg-stone-900'
                 : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
@@ -3037,7 +3037,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="ml-auto" />
         <button
           onClick={() => navigateTo('validator')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-body font-medium transition-colors border-b-2 ${
             currentView === 'validator'
               ? 'text-orange-400 border-orange-500 bg-stone-900'
               : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
@@ -3112,7 +3112,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {generatingSubjects.size > 0 && (
         <div className="fixed bottom-12 left-[440px] z-30 w-[280px] bg-stone-800 border-2 border-stone-600 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] overflow-hidden">
           <div className="bg-stone-700 px-3 py-1.5 flex items-center justify-between">
-            <span className="text-orange-400 text-xs font-bold flex items-center gap-1.5">
+            <span className="text-orange-400 text-dense font-bold flex items-center gap-1.5">
               <Loader2 className="w-3 h-3 animate-spin" /> Generating ({generatingSubjects.size})
             </span>
           </div>
@@ -3120,8 +3120,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {Array.from(generatingSubjects.entries()).map(([slug, entry]) => (
               <div key={slug} className="px-3 py-2 border-t border-stone-700 flex items-center gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs font-bold truncate">{entry.title}</p>
-                  <p className="text-stone-400 text-[10px] flex items-center gap-1">
+                  <p className="text-white text-dense font-bold truncate">{entry.title}</p>
+                  <p className="text-stone-400 text-dense flex items-center gap-1">
                     {entry.cancelled ? (
                       <span className="text-red-400">Cancelling...</span>
                     ) : (
@@ -3172,7 +3172,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     <button
                       key={item.id}
                       onClick={() => setHelpPage(item.id)}
-                      className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
+                      className={`w-full text-left px-3 py-1.5 text-dense transition-colors ${
                         helpPage === item.id
                           ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
                           : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
@@ -3183,7 +3183,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   ))}
                 </div>
                 <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-xs text-stone-500 font-mono">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</span>
+                  <span className="text-caption text-stone-500 font-mono">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</span>
                 </div>
               </nav>
               <div className="flex-1 overflow-y-auto p-5 wilson-dark-scroll">
@@ -3240,11 +3240,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {showQuizLeaveConfirm && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
           <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 max-w-sm w-full mx-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]">
-            <h3 className="text-orange-400 font-bold text-lg mb-2">Leave Quiz?</h3>
-            <p className="text-stone-400 text-sm mb-6">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
+            <h3 className="text-orange-400 font-bold text-h1 mb-2">Leave Quiz?</h3>
+            <p className="text-stone-400 text-body mb-6">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
             <div className="flex gap-3">
-              <button onClick={() => setShowQuizLeaveConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm font-bold">Stay</button>
-              <button onClick={confirmLeaveQuiz} className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-2 rounded-sm hover:bg-orange-700 transition-colors text-sm font-bold">Leave Quiz</button>
+              <button onClick={() => setShowQuizLeaveConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body font-bold">Stay</button>
+              <button onClick={confirmLeaveQuiz} className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-2 rounded-sm hover:bg-orange-700 transition-colors text-body font-bold">Leave Quiz</button>
             </div>
           </div>
         </div>
@@ -3288,9 +3288,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   }
                 }}
                 placeholder="Search lessons, hotkeys, functions, nodes..."
-                className="flex-1 bg-transparent text-white text-lg placeholder-stone-500"
+                className="flex-1 bg-transparent text-white text-body placeholder-stone-500"
               />
-              <span className="text-stone-500 text-xs shrink-0">
+              <span className="text-stone-500 text-caption shrink-0">
                 {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
               </span>
               <button onClick={() => setShowSearchModal(false)} className="p-1 hover:bg-stone-700 rounded-sm">
@@ -3300,8 +3300,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           </div>
           <div className="flex-1 flex overflow-hidden">
             <div className="w-[280px] shrink-0 border-r-2 border-stone-600 overflow-y-auto bg-stone-900">
-              {searchQuery.length < 2 && <div className="px-4 py-8 text-center text-stone-600 text-sm">Type at least 2 characters to search</div>}
-              {searchQuery.length >= 2 && searchResults.length === 0 && <div className="px-4 py-8 text-center text-stone-600 text-sm">No matches found</div>}
+              {searchQuery.length < 2 && <div className="px-4 py-8 text-center text-stone-600 text-body">Type at least 2 characters to search</div>}
+              {searchQuery.length >= 2 && searchResults.length === 0 && <div className="px-4 py-8 text-center text-stone-600 text-body">No matches found</div>}
               {searchResults.map((r, i) => (
                 <button
                   key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
@@ -3309,11 +3309,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   className={`w-full text-left px-3 py-2.5 border-b border-stone-700 transition-colors ${selectedSearchResult === i ? 'bg-stone-700' : 'hover:bg-stone-800'}`}
                 >
                   <div className="flex items-center gap-1.5">
-                    <p className="text-white text-xs font-bold truncate flex-1">{r.lessonTitle}</p>
-                    {r.resultType && <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</span>}
+                    <p className="text-white text-dense font-bold truncate flex-1">{r.lessonTitle}</p>
+                    {r.resultType && <span className="text-label px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</span>}
                   </div>
-                  <p className="text-stone-500 text-[10px] truncate">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</p>
-                  <p className="text-orange-400 text-[10px] mt-0.5">{r.matches} match{r.matches !== 1 ? 'es' : ''}</p>
+                  <p className="text-stone-500 text-dense truncate">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</p>
+                  <p className="text-orange-400 text-dense mt-0.5">{r.matches} match{r.matches !== 1 ? 'es' : ''}</p>
                 </button>
               ))}
             </div>
@@ -3327,14 +3327,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <div className="mb-4 pb-3 border-b border-stone-700">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-orange-400 font-bold text-sm">{r.lessonTitle}</h3>
-                        <p className="text-stone-500 text-xs">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
+                        <h3 className="text-orange-400 font-bold text-h3">{r.lessonTitle}</h3>
+                        <p className="text-stone-500 text-caption">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
                       </div>
-                      <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold border-2 border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
+                      <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-sm text-dense font-bold border-2 border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
                         {r.resultType === 'hotkeys' ? 'Go to Hotkeys' : r.resultType === 'functions' ? 'Go to Functions' : r.resultType === 'nodes' ? 'Go to Nodes' : 'Go to Lesson'}
                       </button>
                     </div>
-                    <p className="text-orange-400 text-xs mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
+                    <p className="text-orange-400 text-dense mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
                   </div>
                 );
 
@@ -3348,15 +3348,15 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         if (!hasMatch) return null;
                         return (
                           <div key={ci} className="mb-4">
-                            <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-2">{cat.category}</h4>
+                            <h4 className="text-orange-400 font-bold uppercase tracking-wide text-label mb-2">{cat.category}</h4>
                             <div className="bg-stone-800 border border-stone-600 rounded-sm overflow-hidden">
                               <table className="w-full">
                                 <thead>
                                   <tr style={{ background: '#44403c' }}>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
+                                    <th className="text-left text-label font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
+                                    <th className="text-left text-label font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
+                                    <th className="text-left text-label font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
+                                    <th className="text-left text-label font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -3364,10 +3364,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                     const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
                                     return (
                                       <tr key={si} className={`border-b border-stone-700 last:border-0 transition-colors ${isMatch ? 'bg-orange-500/10' : 'opacity-40'}`}>
-                                        <td className="p-2 text-xs" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-[10px] border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-[10px] border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                                        <td className="p-2 text-[10px]" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
+                                        <td className="p-2 text-dense" style={{ color: '#d6d3d1' }}>{s.action}</td>
+                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
+                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
+                                        <td className="p-2 text-dense" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
                                       </tr>
                                     );
                                   })}
@@ -3388,16 +3388,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {header}
                       {r.matchedCategories.map((cat, ci) => (
                         <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-2">{cat.category}</h4>
+                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-label mb-2">{cat.category}</h4>
                           <div className="space-y-2">
                             {cat.functions.map((f, fi) => (
                               <div key={fi} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
-                                <code className="font-mono font-bold text-xs" style={{ color: '#fb923c' }}>{f.name}</code>
-                                {f.syntax && <pre className="border rounded-sm px-2 py-1.5 mb-2 mt-1.5 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                                {f.parameters && <div className="mb-1.5"><span className="text-[10px] font-bold uppercase tracking-wide block mb-0.5" style={{ color: '#78716c' }}>Parameters:</span><span className="text-[10px] whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                                {f.returns && <div className="mb-1.5"><span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-[10px] whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                                {f.description && <p className="text-[10px] mb-1.5 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                                {f.example && <pre className="border rounded-sm px-2 py-1.5 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
+                                <code className="font-mono font-bold text-dense" style={{ color: '#fb923c' }}>{f.name}</code>
+                                {f.syntax && <pre className="border rounded-sm px-2 py-1.5 mb-2 mt-1.5 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
+                                {f.parameters && <div className="mb-1.5"><span className="text-label font-bold uppercase tracking-wide block mb-0.5" style={{ color: '#78716c' }}>Parameters:</span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
+                                {f.returns && <div className="mb-1.5"><span className="text-label font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
+                                {f.description && <p className="text-dense mb-1.5 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
+                                {f.example && <pre className="border rounded-sm px-2 py-1.5 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
                               </div>
                             ))}
                           </div>
@@ -3414,19 +3414,19 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {header}
                       {r.matchedCategories.map((mc, ci) => (
                         <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-1">{mc.category}</h4>
-                          <p className="text-stone-600 text-[10px] mb-2">{mc.system}</p>
+                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-label mb-1">{mc.category}</h4>
+                          <p className="text-stone-600 text-caption mb-2">{mc.system}</p>
                           <div className="space-y-2">
                             {mc.nodes.map((node, ni) => (
                               <div key={ni} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
-                                <div className="font-mono font-bold text-xs mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
-                                <p className="text-[10px] mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
+                                <div className="font-mono font-bold text-dense mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
+                                <p className="text-dense mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
                                 {Array.isArray(node.inputs) && node.inputs.length > 0 && (
                                   <div className="mb-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Inputs</span>
+                                    <span className="text-label font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Inputs</span>
                                     <div className="space-y-0.5">
                                       {node.inputs.filter(Boolean).map((inp, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-[10px]">
+                                        <div key={k} className="flex items-start gap-1.5 text-dense">
                                           <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
                                           <NodeTypeBadge type={inp.type} />
                                           <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
@@ -3437,10 +3437,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                 )}
                                 {Array.isArray(node.outputs) && node.outputs.length > 0 && (
                                   <div className="mb-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Outputs</span>
+                                    <span className="text-label font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Outputs</span>
                                     <div className="space-y-0.5">
                                       {node.outputs.filter(Boolean).map((out, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-[10px]">
+                                        <div key={k} className="flex items-start gap-1.5 text-dense">
                                           <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
                                           <NodeTypeBadge type={out.type} />
                                           <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
@@ -3451,7 +3451,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                 )}
                                 {node.notes && (
                                   <div className="border-t border-stone-700 pt-1.5 mt-1.5">
-                                    <span className="text-[10px] italic" style={{ color: '#78716c' }}>{node.notes}</span>
+                                    <span className="text-dense italic" style={{ color: '#78716c' }}>{node.notes}</span>
                                   </div>
                                 )}
                               </div>
@@ -3478,7 +3478,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 return (
                   <div>
                     {header}
-                    <pre className="text-stone-300 text-xs leading-relaxed whitespace-pre-wrap font-sans">
+                    <pre className="text-stone-300 text-dense leading-relaxed whitespace-pre-wrap font-sans">
                       {parts.map((part, i) =>
                         part.highlight
                           ? <mark key={i} className="bg-orange-500/30 text-orange-300 rounded-sm px-0.5">{part.text}</mark>
@@ -3488,7 +3488,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   </div>
                 );
               })() : (
-                <div className="flex items-center justify-center h-full text-stone-600 text-sm">
+                <div className="flex items-center justify-center h-full text-stone-600 text-body">
                   {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
                 </div>
               )}
@@ -3514,7 +3514,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />
         <button
           onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-sm font-bold text-white bg-orange-600 hover:bg-orange-700 border-b-2 border-stone-600 transition-colors shrink-0"
+          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-body font-bold text-white bg-orange-600 hover:bg-orange-700 border-b-2 border-stone-600 transition-colors shrink-0"
         >
           <Plus className="w-4 h-4" /> New
         </button>
@@ -3541,16 +3541,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           ) : softwareList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
               <Plus className="w-8 h-8 text-stone-600 mb-2" />
-              <p className="text-stone-500 text-xs mb-3">No courses yet</p>
-              <p className="text-stone-600 text-[10px]">Click &quot;New&quot; above to create your first course</p>
+              <p className="text-stone-500 text-caption mb-3">No courses yet</p>
+              <p className="text-stone-600 text-caption">Click &quot;New&quot; above to create your first course</p>
             </div>
           ) : visibleCourses.length === 0 ? (
             // A filter that silently shows an empty column reads as data loss.
             <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
-              <p className="text-stone-500 text-xs mb-2">Nothing here yet</p>
+              <p className="text-stone-500 text-caption mb-2">Nothing here yet</p>
               <button
                 onClick={() => setCourseFilter('all')}
-                className="text-orange-400 hover:text-orange-300 text-[10px] underline"
+                className="text-orange-400 hover:text-orange-300 text-dense underline"
               >
                 Show all courses
               </button>
@@ -3601,7 +3601,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                           ? <ChevronDown className="w-3 h-3 text-orange-400 flex-shrink-0" />
                           : <ChevronRight className="w-3 h-3 text-stone-500 flex-shrink-0" />
                       }
-                      <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${
+                      <span className={`text-label font-bold uppercase tracking-wider truncate ${
                         !openable ? 'text-stone-600' : isActive ? 'text-orange-400' : 'text-stone-400'
                       }`}>
                         {sw.name}
@@ -3649,10 +3649,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                 if (!isStub) setCurrentView('study');
                                 else setCurrentView('library');
                               }}
-                              className="flex-1 text-left py-1.5 pl-6 pr-1 text-[11px] min-w-0"
+                              className="flex-1 text-left py-1.5 pl-6 pr-1 text-dense min-w-0"
                             >
                               <span className="truncate block">
-                                {sub.subject_order != null && <span className="text-orange-500 font-bold text-xs mr-1">{String(sub.subject_order).padStart(2, '0')} ·</span>}
+                                {sub.subject_order != null && <span className="text-orange-500 font-bold text-dense mr-1">{String(sub.subject_order).padStart(2, '0')} ·</span>}
                                 {sub.title}
                                 {isStub && <span className="text-stone-600 ml-1">[outline]</span>}
                               </span>
@@ -3678,14 +3678,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {rowCanWrite ? (
                         <button
                           onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                          className="w-full text-left py-1.5 text-[10px] text-stone-600 hover:text-stone-400 transition-colors flex items-center gap-1"
+                          className="w-full text-left py-1.5 text-dense text-stone-600 hover:text-stone-400 transition-colors flex items-center gap-1"
                           style={{ paddingLeft: '24px', paddingRight: '8px' }}
                         >
                           <Plus className="w-2.5 h-2.5" /> Add subject
                         </button>
                       ) : (
                         // Answers the question the missing buttons raise.
-                        <p className="py-1.5 text-[10px] text-stone-600 italic" style={{ paddingLeft: '24px', paddingRight: '8px' }}>
+                        <p className="py-1.5 text-caption text-stone-600 italic" style={{ paddingLeft: '24px', paddingRight: '8px' }}>
                           Read only — study it, or make your own copy.
                         </p>
                       )}
@@ -3722,17 +3722,17 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         return (
           <aside className="w-[220px] shrink-0 border-r-2 border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
             <div className="p-3 border-b-2 border-stone-700 shrink-0">
-              <h3 className="text-orange-400 font-bold text-xs truncate">Shortcut Groups</h3>
-              <p className="text-stone-500 text-[10px] mt-1">{hotkeys.length} categories</p>
+              <h3 className="text-orange-400 font-bold text-dense truncate">Shortcut Groups</h3>
+              <p className="text-stone-500 text-caption mt-1">{hotkeys.length} categories</p>
             </div>
             <div className="flex-1 overflow-y-auto">
               {hotkeys.map((cat, i) => (
                 <button key={i} onClick={() => scrollToCategory(hotkeyScrollRef, `hk-cat-${i}`)}
-                  className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
+                  className="w-full text-left px-3 py-2 text-dense flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
                   style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}>
                   <Keyboard className="w-3 h-3 text-stone-500 shrink-0" />
                   <span className="truncate">{cat.category}</span>
-                  <span className="ml-auto text-stone-600 text-[10px]">{cat.shortcuts.length}</span>
+                  <span className="ml-auto text-stone-600 text-caption">{cat.shortcuts.length}</span>
                 </button>
               ))}
             </div>
@@ -3750,17 +3750,17 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       return (
         <aside className="w-[220px] shrink-0 border-r-2 border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
           <div className="p-3 border-b-2 border-stone-700 shrink-0">
-            <h3 className="text-orange-400 font-bold text-xs truncate">Node Groups</h3>
-            <p className="text-stone-500 text-[10px] mt-1">{activeSys?.system || 'No system'}</p>
+            <h3 className="text-orange-400 font-bold text-dense truncate">Node Groups</h3>
+            <p className="text-stone-500 text-caption mt-1">{activeSys?.system || 'No system'}</p>
           </div>
           <div className="flex-1 overflow-y-auto">
             {categories.filter(cat => cat && Array.isArray(cat.nodes) && cat.nodes.length > 0).map((cat, i) => (
               <button key={i} onClick={() => scrollToCategory(nodeScrollRef, `node-cat-${i}`)}
-                className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
+                className="w-full text-left px-3 py-2 text-dense flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
                 style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}>
                 <Share2 className="w-3 h-3 text-stone-500 shrink-0" />
                 <span className="truncate">{cat.category}</span>
-                <span className="ml-auto text-stone-600 text-[10px]">{cat.nodes.length}</span>
+                <span className="ml-auto text-stone-600 text-caption">{cat.nodes.length}</span>
               </button>
             ))}
           </div>
@@ -3775,18 +3775,18 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <aside className="w-[220px] shrink-0 border-r-2 border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
         <div className="p-3 border-b-2 border-stone-700 shrink-0">
-          <h3 className="text-orange-400 font-bold text-xs truncate">{activeSubject.title}</h3>
+          <h3 className="text-orange-400 font-bold text-dense truncate">{activeSubject.title}</h3>
           <div className="mt-1.5 bg-stone-700 rounded-sm h-1.5 overflow-hidden">
             <div className="bg-orange-500 h-full transition-all" style={{ width: `${progress}%` }} />
           </div>
-          <p className="text-stone-500 text-[10px] mt-1">{progress}% complete</p>
+          <p className="text-stone-500 text-caption mt-1">{progress}% complete</p>
         </div>
         <div className="flex-1 overflow-y-auto">
           {(activeSubject.sections || []).map(section => (
             <div key={section.id}>
               <button
                 onClick={() => setExpandedSubjectSections(prev => ({ ...prev, [section.id]: !prev[section.id] }))}
-                className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 transition-colors font-bold"
+                className="w-full text-left px-3 py-2 text-dense flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 transition-colors font-bold"
                 style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}
               >
                 {expandedSubjectSections[section.id]
@@ -3802,7 +3802,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <button
                     key={lesson.id}
                     onClick={() => { setSelectedLessonId(lesson.id); setCurrentView('study'); }}
-                    className={`w-full text-left pl-7 pr-3 py-1.5 text-[11px] flex items-center gap-2 transition-colors ${
+                    className={`w-full text-left pl-7 pr-3 py-1.5 text-dense flex items-center gap-2 transition-colors ${
                       isActive
                         ? 'bg-stone-900 text-orange-400 border-l-2 border-orange-500'
                         : 'text-stone-400 hover:text-stone-300 hover:bg-stone-800 border-l-2 border-transparent'
@@ -3824,7 +3824,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="mt-auto border-t-2 border-stone-700 shrink-0">
             <button
               onClick={() => setCurrentView('sources')}
-              className="w-full text-left px-3 py-2.5 text-[11px] flex items-center gap-2 text-stone-400 hover:text-orange-400 hover:bg-stone-800 transition-colors"
+              className="w-full text-left px-3 py-2.5 text-dense flex items-center gap-2 text-stone-400 hover:text-orange-400 hover:bg-stone-800 transition-colors"
             >
               <BookOpen className="w-3.5 h-3.5 shrink-0" />
               <span>Sources ({activeSubject.sources.length})</span>
@@ -3844,8 +3844,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       return (
         <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-          <p className="text-red-300 text-sm flex-1">{sharingError}</p>
-          <button onClick={() => setSharingError(null)} className="text-red-400 hover:text-red-200 text-xs font-bold">
+          <p className="text-red-300 text-body flex-1">{sharingError}</p>
+          <button onClick={() => setSharingError(null)} className="text-red-400 hover:text-red-200 text-dense font-bold">
             Dismiss
           </button>
         </div>
@@ -3854,8 +3854,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="mb-4 bg-green-900/25 border-2 border-green-800 rounded-sm p-3 flex items-center gap-2">
         <Check className="w-4 h-4 text-green-400 shrink-0" />
-        <p className="text-green-300 text-sm flex-1">{sharingNotice}</p>
-        <button onClick={() => setSharingNotice(null)} className="text-green-400 hover:text-green-200 text-xs font-bold">
+        <p className="text-green-300 text-body flex-1">{sharingNotice}</p>
+        <button onClick={() => setSharingNotice(null)} className="text-green-400 hover:text-green-200 text-dense font-bold">
           Dismiss
         </button>
       </div>
@@ -3888,12 +3888,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             <div className="flex items-center justify-between mb-6">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-2xl font-bold text-orange-400">{activeSoftware.name}</h2>
+                  <h2 className="text-h1 font-bold text-orange-400">{activeSoftware.name}</h2>
                   {cloudMode && <VisibilityBadge course={activeCourseRow} />}
                   {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
                   {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
                 </div>
-                <p className="text-stone-500 text-sm flex items-center gap-2">
+                <p className="text-stone-500 text-body flex items-center gap-2">
                   <span>
                     {subjectList.length} subjects
                     {activeCanWrite ? ' -- Click to study, hover to manage or remove' : ' -- Click to study'}
@@ -3927,7 +3927,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       }
                     }}
                     disabled={subjectList.filter(s => s.is_stub).every(s => generatingSubjects.has(s.slug))}
-                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:opacity-50"
+                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-body disabled:opacity-50"
                   >
                     {generatingSubjects.size > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
                     Generate All Outlines
@@ -3936,7 +3936,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 {activeCanWrite && (
                   <button
                     onClick={() => setShowImportModal(true)}
-                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm"
+                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-body"
                   >
                     <Upload className="w-4 h-4" /> Import
                   </button>
@@ -3965,7 +3965,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {subjectList.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-                <h3 className="text-xl font-bold text-orange-400 mb-2">No subjects yet</h3>
+                <h3 className="text-h1 font-bold text-orange-400 mb-2">No subjects yet</h3>
                 <p className="text-stone-500 mb-6">Add a subject to start learning about {activeSoftware.name}.</p>
               </div>
             ) : (
@@ -3984,10 +3984,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-stone-700/50">
                       <div className="flex items-center gap-2">
                         {sub.subject_order != null && (
-                          <span className="bg-orange-600/20 text-orange-400 text-sm font-bold font-mono px-2 py-0.5 rounded-sm border border-orange-600/30">{String(sub.subject_order).padStart(2, '0')}</span>
+                          <span className="bg-orange-600/20 text-orange-400 text-h3 font-bold font-mono px-2 py-0.5 rounded-sm border border-orange-600/30">{String(sub.subject_order).padStart(2, '0')}</span>
                         )}
-                        <span className="bg-stone-700 px-2 py-0.5 rounded-sm text-orange-400 uppercase font-bold text-[10px]">{sub.skill_level}</span>
-                        {sub.is_stub && <span className="bg-stone-700 text-stone-400 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm border border-stone-600">Outline</span>}
+                        <span className="bg-stone-700 px-2 py-0.5 rounded-sm text-orange-400 uppercase font-bold text-label">{sub.skill_level}</span>
+                        {sub.is_stub && <span className="bg-stone-700 text-stone-400 text-label uppercase font-bold px-1.5 py-0.5 rounded-sm border border-stone-600">Outline</span>}
                       </div>
                       {activeCanWrite && (
                         <button
@@ -4001,24 +4001,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     </div>
                     {/* Body */}
                     <div className="flex flex-col flex-1 px-4 py-3 min-h-0">
-                      <h3 className={`font-bold text-base leading-tight mb-1.5 line-clamp-2 transition-colors ${sub.is_stub ? 'text-stone-400' : 'text-white group-hover:text-orange-400'}`}>
+                      <h3 className={`font-bold text-h2 leading-tight mb-1.5 line-clamp-2 transition-colors ${sub.is_stub ? 'text-stone-400' : 'text-white group-hover:text-orange-400'}`}>
                         {sub.title}
                       </h3>
                       <p
-                        className="text-stone-500 text-sm line-clamp-2 cursor-default"
+                        className="text-stone-500 text-body line-clamp-2 cursor-default"
                         title={sub.description}
                       >{sub.description}</p>
                       <div className="flex-1" />
                       {sub.is_stub && !activeCanWrite ? (
                         // An outline you cannot fill in. Saying so beats a
                         // Generate button that the database will refuse.
-                        <p className="mt-2 text-stone-600 text-[11px] italic">
+                        <p className="mt-2 text-stone-600 text-caption italic">
                           Outline only — the owner hasn&apos;t written this yet.
                         </p>
                       ) : sub.is_stub ? (
                         <div className="mt-2">
                           {subjectErrors[sub.slug] && !generatingSubjects.has(sub.slug) && (
-                            <p className="text-red-400 text-[10px] mb-1 truncate" title={subjectErrors[sub.slug]}>
+                            <p className="text-red-400 text-dense mb-1 truncate" title={subjectErrors[sub.slug]}>
                               ⚠ {subjectErrors[sub.slug]}
                             </p>
                           )}
@@ -4029,14 +4029,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                               generateSubjectContent(sub.slug);
                             }}
                             disabled={generatingSubjects.has(sub.slug)}
-                            className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-sm font-bold disabled:opacity-50"
+                            className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-body font-bold disabled:opacity-50"
                           >
                             {generatingSubjects.has(sub.slug) ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
                             {generatingSubjects.has(sub.slug) ? 'Generating...' : subjectErrors[sub.slug] ? 'Retry' : 'Generate Content'}
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between mt-2 text-xs text-stone-500">
+                        <div className="flex items-center justify-between mt-2 text-caption text-stone-500">
                           {sub.lessons_count != null && <span>{sub.lessons_count} lessons</span>}
                           {sub.created_at && <span>{new Date(sub.created_at).toLocaleDateString()}</span>}
                         </div>
@@ -4061,13 +4061,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="max-w-6xl mx-auto">
           {renderSharingBanner()}
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-orange-400">Course Library</h2>
+            <h2 className="text-h1 font-bold text-orange-400">Course Library</h2>
             <div className="flex items-center gap-3">
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-stone-800 text-stone-300 border-2 border-stone-600 rounded-sm px-3 py-1.5 text-sm">
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-stone-800 text-stone-300 border-2 border-stone-600 rounded-sm px-3 py-1.5 text-body">
                 <option value="date">Sort by Date</option>
                 <option value="name">Sort by Name</option>
               </select>
-              <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm">
+              <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-body">
                 <Upload className="w-4 h-4" /> Import
               </button>
               <button
@@ -4083,7 +4083,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             // "No courses yet" here would read as data loss.
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-              <h3 className="text-xl font-bold text-orange-400 mb-2">Nothing under this filter</h3>
+              <h3 className="text-h1 font-bold text-orange-400 mb-2">Nothing under this filter</h3>
               <p className="text-stone-500 mb-6 max-w-md">
                 You have {softwareList.length} course{softwareList.length === 1 ? '' : 's'}, but none match
                 &ldquo;{filtersFor(appRole).find(f => f.key === courseFilter)?.label ?? courseFilter}&rdquo;.
@@ -4098,11 +4098,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           ) : sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-              <h3 className="text-xl font-bold text-orange-400 mb-2">No courses yet</h3>
+              <h3 className="text-h1 font-bold text-orange-400 mb-2">No courses yet</h3>
               <p className="text-stone-500 mb-6 max-w-md">Create your first learning path by telling O.T.T.E.R. what software or language you want to learn.</p>
               <button
                 onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-                className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
+                className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold text-body shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
               >
                 <Plus className="w-6 h-6" /> Create Your First Course
               </button>
@@ -4146,7 +4146,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       only 38-16 = 22px of right padding to clear the trigger.
                       pr-6 (24px) still cleared it, by 2px; pr-8 (32px) restores
                       the ~10px breathing gap the old 22px trigger had. */}
-                  <h3 className={`font-bold text-lg leading-tight pr-8 transition-colors mb-2 ${
+                  <h3 className={`font-bold text-h1 leading-tight pr-8 transition-colors mb-2 ${
                     openable ? 'text-white group-hover:text-orange-400' : 'text-stone-500'
                   }`}>{sw.name}</h3>
                   {cloudMode && (
@@ -4157,8 +4157,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       <OwnerBadge course={sw} />
                     </div>
                   )}
-                  <div className="flex items-center gap-3 text-xs text-stone-500 mt-2"><span>{sw.subject_count} subjects</span></div>
-                  {sw.created_at && <p className="text-stone-600 text-xs mt-2">{new Date(sw.created_at).toLocaleDateString()}</p>}
+                  <div className="flex items-center gap-3 text-caption text-stone-500 mt-2"><span>{sw.subject_count} subjects</span></div>
+                  {sw.created_at && <p className="text-stone-600 text-caption mt-2">{new Date(sw.created_at).toLocaleDateString()}</p>}
                 </div>
               );
             };
@@ -4168,8 +4168,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <div>
                     <div className="flex items-center gap-2 mb-4">
                       <Keyboard className="w-5 h-5 text-orange-400" />
-                      <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm">Software</h3>
-                      <span className="text-stone-600 text-xs">({software.length})</span>
+                      <h3 className="text-orange-400 font-bold uppercase tracking-wide text-label">Software</h3>
+                      <span className="text-stone-600 text-caption">({software.length})</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{software.map(renderCard)}</div>
                   </div>
@@ -4178,8 +4178,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <div>
                     <div className="flex items-center gap-2 mb-4">
                       <Braces className="w-5 h-5 text-orange-400" />
-                      <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm">Languages</h3>
-                      <span className="text-stone-600 text-xs">({languages.length})</span>
+                      <h3 className="text-orange-400 font-bold uppercase tracking-wide text-label">Languages</h3>
+                      <span className="text-stone-600 text-caption">({languages.length})</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{languages.map(renderCard)}</div>
                   </div>
@@ -4209,7 +4209,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="h-full overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold text-orange-400 mb-2">
+          <h2 className="text-h1 font-bold text-orange-400 mb-2">
             {isCourseMode ? (isExistingSoftware ? `Add Subjects to ${exactMatch.name}` : 'New Software Course') : `Add Subject to ${activeSoftware?.name || 'Software'}`}
           </h2>
           <p className="text-stone-400 mb-6">
@@ -4221,24 +4221,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           </p>
           <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
             {/* Mode selector */}
-            <label className="block text-xs font-bold text-orange-400 mb-2 uppercase tracking-wide">Mode</label>
+            <label className="block text-label font-bold text-orange-400 mb-2 uppercase tracking-wide">Mode</label>
             <div className="flex gap-3 mb-5">
               <button onClick={() => setPromptMode('course')} disabled={generating}
                 className={`flex-1 p-3 rounded-sm border-2 transition-colors text-left ${isCourseMode ? 'bg-orange-600/15 border-orange-500 text-white' : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'}`}>
-                <div className="font-bold text-sm">{isCourseMode ? '\u25CF ' : '\u25CB '}New Course</div>
-                <div className="text-xs mt-1 text-stone-400">Generate 5-10 subject outlines for a software/language.</div>
+                <div className="font-bold text-h3">{isCourseMode ? '\u25CF ' : '\u25CB '}New Course</div>
+                <div className="text-dense mt-1 text-stone-400">Generate 5-10 subject outlines for a software/language.</div>
               </button>
               <button onClick={() => setPromptMode('subject')} disabled={generating}
                 className={`flex-1 p-3 rounded-sm border-2 transition-colors text-left ${!isCourseMode ? 'bg-orange-600/15 border-orange-500 text-white' : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'}`}>
-                <div className="font-bold text-sm">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add Subject</div>
-                <div className="text-xs mt-1 text-stone-400">Focused single-topic lesson added to existing course.</div>
+                <div className="font-bold text-h3">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add Subject</div>
+                <div className="text-dense mt-1 text-stone-400">Focused single-topic lesson added to existing course.</div>
               </button>
             </div>
 
             {/* Software name input with autocomplete (course mode) */}
             {isCourseMode && (
               <div className="relative mb-4">
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">Software / Language Name</label>
+                <label className="block text-label font-bold text-orange-400 mb-1 uppercase tracking-wide">Software / Language Name</label>
                 <input
                   ref={softwareInputRef} type="text" value={softwareNameInput}
                   onChange={e => { setSoftwareNameInput(e.target.value); setShowSoftwareDropdown(true); }}
@@ -4246,21 +4246,21 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   onBlur={() => setTimeout(() => setShowSoftwareDropdown(false), 200)}
                   placeholder="e.g., Python, Blender, Photoshop..."
                   disabled={generating}
-                  className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors placeholder-stone-600"
+                  className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-body focus:border-orange-500 transition-colors placeholder-stone-600"
                 />
                 {showSoftwareDropdown && softwareNameInput.trim() && filteredSoftware.length > 0 && (
                   <div className="absolute left-0 right-0 top-full mt-1 bg-stone-700 border-2 border-stone-600 rounded-sm shadow-lg z-50 max-h-[200px] overflow-y-auto">
                     {filteredSoftware.map(sw => (
                       <button key={sw.slug}
                         onMouseDown={(e) => { e.preventDefault(); setSoftwareNameInput(sw.name); setShowSoftwareDropdown(false); }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-stone-600 transition-colors flex items-center justify-between ${sw.name.toLowerCase() === softwareNameLower ? 'text-orange-400 font-bold' : 'text-stone-300'}`}>
+                        className={`w-full text-left px-3 py-2 text-body hover:bg-stone-600 transition-colors flex items-center justify-between ${sw.name.toLowerCase() === softwareNameLower ? 'text-orange-400 font-bold' : 'text-stone-300'}`}>
                         <span>{sw.name}</span>
-                        <span className="text-stone-500 text-xs">{sw.subject_count} subjects</span>
+                        <span className="text-stone-500 text-caption">{sw.subject_count} subjects</span>
                       </button>
                     ))}
                   </div>
                 )}
-                {isExistingSoftware && <p className="text-orange-400/70 text-xs mt-1">Existing course -- new subjects will be added, basics skipped.</p>}
+                {isExistingSoftware && <p className="text-orange-400/70 text-dense mt-1">Existing course -- new subjects will be added, basics skipped.</p>}
 
                 {/* ── The fork offer ──────────────────────────────────────────
                     Inline in the flow the user is already in, the moment the
@@ -4275,10 +4275,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     <div className="flex items-start gap-2">
                       <ShieldCheck className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-orange-300 text-xs font-bold mb-0.5">
+                        <p className="text-orange-300 text-dense font-bold mb-0.5">
                           Your company already has a course for this
                         </p>
-                        <p className="text-stone-400 text-[11px] mb-2">
+                        <p className="text-stone-400 text-dense mb-2">
                           &ldquo;{standardMatch.name}&rdquo; is the company standard
                           ({standardMatch.subject_count} subjects). Start from that instead of
                           generating a new one — you get your own copy to edit, and you can send
@@ -4288,12 +4288,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                           <button
                             onClick={() => forkCourse(standardMatch)}
                             disabled={forkBusy || generating}
-                            className="flex items-center gap-1.5 bg-orange-600 text-white border-2 border-orange-700 px-3 py-1.5 rounded-sm hover:bg-orange-700 transition-colors text-[11px] font-bold disabled:opacity-50"
+                            className="flex items-center gap-1.5 bg-orange-600 text-white border-2 border-orange-700 px-3 py-1.5 rounded-sm hover:bg-orange-700 transition-colors text-dense font-bold disabled:opacity-50"
                           >
                             {forkBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
                             Use the company standard
                           </button>
-                          <span className="text-stone-600 text-[10px] self-center">
+                          <span className="text-stone-600 text-caption self-center">
                             or carry on below to generate your own
                           </span>
                         </div>
@@ -4313,7 +4313,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 being a third choice everyone has to reason past here. */}
             {isCourseMode && cloudMode && !isExistingSoftware && (
               <div className="mb-4">
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">
+                <label className="block text-label font-bold text-orange-400 mb-1 uppercase tracking-wide">
                   Who is this for?
                 </label>
                 <div className="flex gap-3">
@@ -4331,13 +4331,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                             : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'
                         }`}
                       >
-                        <div className="font-bold text-sm">{active ? '● ' : '○ '}{meta.label}</div>
-                        <div className="text-xs mt-1 text-stone-400">{meta.blurb}</div>
+                        <div className="font-bold text-h3">{active ? '● ' : '○ '}{meta.label}</div>
+                        <div className="text-dense mt-1 text-stone-400">{meta.blurb}</div>
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-stone-600 text-[10px] mt-1">
+                <p className="text-stone-600 text-caption mt-1">
                   You can change this later from the course&apos;s menu.
                 </p>
               </div>
@@ -4346,12 +4346,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {/* Subject mode: software dropdown selector */}
             {!isCourseMode && (
               <div className="relative mb-4">
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">Software / Language</label>
+                <label className="block text-label font-bold text-orange-400 mb-1 uppercase tracking-wide">Software / Language</label>
                 {softwareList.length === 0 ? (
-                  <p className="text-stone-500 text-sm">No courses yet. Create a course first.</p>
+                  <p className="text-stone-500 text-body">No courses yet. Create a course first.</p>
                 ) : (
                   <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }} disabled={generating}
-                    className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors">
+                    className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-body focus:border-orange-500 transition-colors">
                     <option value="" disabled>Select a software/language...</option>
                     {softwareList.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
                   </select>
@@ -4360,7 +4360,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             )}
 
             {/* Prompt textarea */}
-            <label className="block text-sm font-bold text-orange-400 mb-2 uppercase tracking-wide">
+            <label className="block text-label font-bold text-orange-400 mb-2 uppercase tracking-wide">
               {isCourseMode ? 'Description (optional)' : 'What specific topic?'}
             </label>
             <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
@@ -4369,27 +4369,27 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               disabled={generating} />
 
             {/* Reference URLs */}
-            <label className="block text-xs font-bold text-orange-400 mt-4 mb-2 uppercase tracking-wide">Reference URLs (optional)</label>
-            <p className="text-stone-500 text-[10px] mb-2">Add URLs for O.T.T.E.R. to reference when creating lessons. Reduces web search time.</p>
+            <label className="block text-label font-bold text-orange-400 mt-4 mb-2 uppercase tracking-wide">Reference URLs (optional)</label>
+            <p className="text-stone-500 text-caption mb-2">Add URLs for O.T.T.E.R. to reference when creating lessons. Reduces web search time.</p>
             <div className="flex gap-2 mb-2">
               <input type="text" value={referenceUrlInput}
                 onChange={e => setReferenceUrlInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReferenceUrl(); } }}
                 placeholder="https://docs.example.com/guide"
                 disabled={generating || fetchingUrl}
-                className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-1.5 text-sm focus:border-orange-500 transition-colors placeholder-stone-600" />
+                className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-1.5 text-body focus:border-orange-500 transition-colors placeholder-stone-600" />
               <button onClick={addReferenceUrl} disabled={generating || fetchingUrl || !referenceUrlInput.trim()}
-                className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:opacity-50 flex items-center gap-1">
+                className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-body disabled:opacity-50 flex items-center gap-1">
                 {fetchingUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Add
               </button>
             </div>
             {referenceUrls.length > 0 && (
               <div className="space-y-1 mb-3">
                 {referenceUrls.map((ref, i) => (
-                  <div key={i} className="flex items-center gap-2 bg-stone-900 border border-stone-700 rounded-sm px-2 py-1 text-[11px]">
+                  <div key={i} className="flex items-center gap-2 bg-stone-900 border border-stone-700 rounded-sm px-2 py-1 text-dense">
                     <Link className="w-3 h-3 text-stone-500 shrink-0" />
                     <span className={`truncate flex-1 ${ref.error ? 'text-red-400' : 'text-stone-300'}`}>{ref.title || ref.url}</span>
-                    {ref.error && <span className="text-red-500 text-[10px]">Failed</span>}
+                    {ref.error && <span className="text-red-500 text-dense">Failed</span>}
                     {!ref.error && <Check className="w-3 h-3 text-green-500 shrink-0" />}
                     <button onClick={() => {
                         const updated = referenceUrls.filter((_, j) => j !== i);
@@ -4405,11 +4405,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {/* Skill level */}
             <div className="mt-4 flex items-center gap-4">
               <div>
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">Skill Level</label>
+                <label className="block text-label font-bold text-orange-400 mb-1 uppercase tracking-wide">Skill Level</label>
                 <div className="flex gap-2">
                   {['beginner', 'intermediate', 'advanced'].map(level => (
                     <button key={level} onClick={() => setSkillLevel(level)} disabled={generating}
-                      className={`px-3 py-1.5 rounded-sm text-sm font-bold uppercase border-2 transition-colors ${skillLevel === level ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
+                      className={`px-3 py-1.5 rounded-sm text-body font-bold uppercase border-2 transition-colors ${skillLevel === level ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
                       {level}
                     </button>
                   ))}
@@ -4420,7 +4420,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {genError && (
               <div className="mt-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <p className="text-red-300 text-sm">{genError}</p>
+                <p className="text-red-300 text-body">{genError}</p>
               </div>
             )}
 
@@ -4438,8 +4438,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div className="mt-6 bg-stone-900 border-2 border-stone-600 rounded-sm p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-orange-400 text-sm font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genPhase}</span>
-                    <span className="text-stone-400 text-sm font-mono">{formatTime(genElapsed)}</span>
+                    <span className="text-orange-400 text-h3 font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genPhase}</span>
+                    <span className="text-stone-400 text-body font-mono">{formatTime(genElapsed)}</span>
                   </div>
                   <div className="w-full bg-stone-700 rounded-sm h-2 overflow-hidden border border-stone-600">
                     <div className="h-full bg-orange-500 transition-all duration-1000 ease-out" style={{ width: `${pct}%` }} />
@@ -4451,7 +4451,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {!generating && (
               <button onClick={isCourseMode ? generateCourse : generateSingleSubject}
                 disabled={isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug)}
-                className={`mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-sm border-2 font-bold text-lg transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] ${
+                className={`mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-sm border-2 font-bold text-body transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] ${
                   (isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug))
                     ? 'bg-stone-700 text-stone-500 border-stone-600 cursor-not-allowed' : 'bg-orange-600 text-white border-orange-700 hover:bg-orange-700'
                 }`}>
@@ -4475,7 +4475,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="max-w-3xl mx-auto text-center py-20">
             <BookOpen className="w-12 h-12 text-stone-600 mx-auto mb-3" />
             <p className="text-stone-500">No sources available for this subject.</p>
-            <button onClick={() => setCurrentView('study')} className="mt-4 text-orange-400 hover:text-orange-300 text-sm">← Back to lessons</button>
+            <button onClick={() => setCurrentView('study')} className="mt-4 text-orange-400 hover:text-orange-300 text-body">← Back to lessons</button>
           </div>
         </div>
       );
@@ -4485,11 +4485,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-orange-400">Works Cited</h2>
-              <p className="text-stone-500 text-sm">{activeSubject.title} — {activeSubject.sources.length} source{activeSubject.sources.length !== 1 ? 's' : ''}</p>
+              <h2 className="text-h1 font-bold text-orange-400">Works Cited</h2>
+              <p className="text-stone-500 text-body">{activeSubject.title} — {activeSubject.sources.length} source{activeSubject.sources.length !== 1 ? 's' : ''}</p>
             </div>
             <button onClick={() => setCurrentView('study')}
-              className="flex items-center gap-2 text-stone-400 hover:text-orange-400 transition-colors text-sm">
+              className="flex items-center gap-2 text-stone-400 hover:text-orange-400 transition-colors text-body">
               <ArrowLeft className="w-4 h-4" /> Back to lessons
             </button>
           </div>
@@ -4500,8 +4500,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 <div className="flex items-start gap-3">
                   <ExternalLink className="w-4 h-4 text-stone-500 group-hover:text-orange-400 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-bold text-orange-400 transition-colors">{src.title || 'Untitled Source'}</h3>
-                    <p className="text-xs text-stone-500 truncate mt-1">{src.url}</p>
+                    <h3 className="text-h3 font-bold text-orange-400 transition-colors">{src.title || 'Untitled Source'}</h3>
+                    <p className="text-dense text-stone-500 truncate mt-1">{src.url}</p>
                   </div>
                 </div>
               </a>
@@ -4523,30 +4523,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       return (
         <div className="h-full overflow-y-auto p-6">
           <div className="max-w-4xl mx-auto">
-            <div className="flex items-center gap-1.5 text-xs mb-2">
+            <div className="flex items-center gap-1.5 text-dense mb-2">
               <span className="text-orange-400/70 font-bold">{activeSoftware?.name}</span>
               <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
               <span className="text-stone-400">{activeSubject.title}</span>
               <span className="text-stone-600 ml-1">[outline]</span>
             </div>
-            <h2 className="text-2xl font-bold text-orange-400 mb-2">{activeSubject.title}</h2>
+            <h2 className="text-h1 font-bold text-orange-400 mb-2">{activeSubject.title}</h2>
             <p className="text-stone-400 mb-6">{activeSubject.description}</p>
             <div className="bg-stone-800 border-2 border-dashed border-stone-600 rounded-sm p-6 mb-6">
-              <h3 className="text-stone-300 font-bold text-sm uppercase tracking-wide mb-4">Section Outlines</h3>
+              <h3 className="text-stone-300 font-bold text-label uppercase tracking-wide mb-4">Section Outlines</h3>
               {activeSubject.section_outlines?.length > 0 ? (
                 <div className="space-y-3">
                   {activeSubject.section_outlines.map((outline, i) => (
                     <div key={i} className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-                      <h4 className="text-white font-bold text-sm">{outline.title}</h4>
-                      <p className="text-stone-400 text-xs mt-1">{outline.description}</p>
-                      <span className="text-stone-500 text-xs">{outline.lesson_count} lessons planned</span>
+                      <h4 className="text-white font-bold text-h3">{outline.title}</h4>
+                      <p className="text-stone-400 text-dense mt-1">{outline.description}</p>
+                      <span className="text-stone-500 text-caption">{outline.lesson_count} lessons planned</span>
                     </div>
                   ))}
                 </div>
-              ) : <p className="text-stone-500 text-sm">No section outlines available.</p>}
+              ) : <p className="text-stone-500 text-body">No section outlines available.</p>}
             </div>
             <button onClick={() => generateSubjectContent(activeSubject.slug)} disabled={generatingSubjects.has(activeSubject.slug)}
-              className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-lg font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50">
+              className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-body font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50">
               {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="w-5 h-5 animate-spin" /> : <GraduationCap className="w-5 h-5" />}
               {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate Full Content'}
             </button>
@@ -4555,8 +4555,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div className="mt-4 bg-stone-900 border-2 border-stone-600 rounded-sm p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-orange-400 text-sm font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genEntry?.phase || 'Working...'}</span>
-                    <span className="text-stone-400 text-sm font-mono">{Math.floor((genEntry?.elapsed || 0) / 60)}:{String((genEntry?.elapsed || 0) % 60).padStart(2, '0')}</span>
+                    <span className="text-orange-400 text-h3 font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genEntry?.phase || 'Working...'}</span>
+                    <span className="text-stone-400 text-body font-mono">{Math.floor((genEntry?.elapsed || 0) / 60)}:{String((genEntry?.elapsed || 0) % 60).padStart(2, '0')}</span>
                   </div>
                   <div className="w-full bg-stone-700 rounded-sm h-2 overflow-hidden border border-stone-600">
                     <div className="h-full bg-orange-500 animate-pulse" style={{ width: '100%', opacity: 0.6 }} />
@@ -4567,7 +4567,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {genError && (
               <div className="mt-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <p className="text-red-300 text-sm">{genError}</p>
+                <p className="text-red-300 text-body">{genError}</p>
               </div>
             )}
           </div>
@@ -4585,7 +4585,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       <div className="h-full overflow-y-auto bg-stone-900">
         {selectedLesson ? (
           <div className="p-6 max-w-4xl">
-            <div className="flex items-center gap-1.5 text-xs mb-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-dense mb-2 flex-wrap">
               <span className="text-orange-400/70 font-bold">{activeSoftware?.name}</span>
               <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
               <span className="text-stone-500">{activeSubject?.title}</span>
@@ -4593,7 +4593,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
               <span className="text-stone-400">{selectedLesson.title}</span>
             </div>
-            <h2 className="text-2xl font-bold text-orange-400 mb-1">{selectedLesson.title}</h2>
+            <h2 className="text-h1 font-bold text-orange-400 mb-1">{selectedLesson.title}</h2>
             <div className="lesson-content mb-8">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                 code({ node, inline, className, children, ...props }) {
@@ -4617,32 +4617,32 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             </div>
             {selectedLesson.key_takeaways?.length > 0 && (
               <div className="bg-stone-800 border-2 border-orange-600 rounded-sm p-4 mb-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <h3 className="text-orange-400 font-bold text-sm uppercase tracking-wide mb-2 flex items-center gap-2"><Star className="w-4 h-4" /> Key Takeaways</h3>
+                <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide mb-2 flex items-center gap-2"><Star className="w-4 h-4" /> Key Takeaways</h3>
                 <ul className="space-y-1">
                   {selectedLesson.key_takeaways.map((t, i) => (
-                    <li key={i} className="text-stone-300 text-sm flex items-start gap-2"><Check className="w-3 h-3 text-orange-500 mt-1 shrink-0" /> {t}</li>
+                    <li key={i} className="text-stone-300 text-body flex items-start gap-2"><Check className="w-3 h-3 text-orange-500 mt-1 shrink-0" /> {t}</li>
                   ))}
                 </ul>
               </div>
             )}
             {selectedLesson.practice_prompt && (
               <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 mb-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <h3 className="text-stone-300 font-bold text-sm uppercase tracking-wide mb-2 flex items-center gap-2"><Lightbulb className="w-4 h-4 text-yellow-500" /> Practice Exercise</h3>
-                <p className="text-stone-400 text-sm">{selectedLesson.practice_prompt}</p>
+                <h3 className="text-stone-300 font-bold text-label uppercase tracking-wide mb-2 flex items-center gap-2"><Lightbulb className="w-4 h-4 text-yellow-500" /> Practice Exercise</h3>
+                <p className="text-stone-400 text-body">{selectedLesson.practice_prompt}</p>
               </div>
             )}
             <div className="flex items-center justify-between border-t-2 border-stone-700 pt-4">
               <button onClick={() => toggleLessonComplete(selectedLesson.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-sm border-2 font-bold text-sm transition-colors ${completedLessons.includes(selectedLesson.id) ? 'bg-green-800 text-green-200 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600 hover:bg-stone-600'}`}>
+                className={`flex items-center gap-2 px-4 py-2 rounded-sm border-2 font-bold text-body transition-colors ${completedLessons.includes(selectedLesson.id) ? 'bg-green-800 text-green-200 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600 hover:bg-stone-600'}`}>
                 <Check className="w-4 h-4" /> {completedLessons.includes(selectedLesson.id) ? 'Completed' : 'Mark Complete'}
               </button>
               <div className="flex gap-2">
                 <button disabled={currentIdx <= 0} onClick={() => navigateLesson(-1)}
-                  className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
+                  className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
                   <ArrowLeft className="w-4 h-4" /> Previous
                 </button>
                 <button disabled={currentIdx >= allLessons.length - 1} onClick={() => navigateLesson(1)}
-                  className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
+                  className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
                   Next <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
@@ -4685,25 +4685,25 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="flex items-center border-b-2 border-stone-600 bg-stone-800 shrink-0">
             {hasMcContent && (
               <button onClick={() => setQuizTab('mc')}
-                className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${quizTab === 'mc' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
+                className={`px-4 py-2 text-body font-bold transition-colors border-b-2 ${quizTab === 'mc' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
                 Multiple Choice ({quizQuestions.filter((_, i) => !quizQuestions[i]?.code_snippet).length})
               </button>
             )}
             {hasMcContent && quizQuestions.some(q => q.code_snippet) && (
               <button onClick={() => setQuizTab('codeId')}
-                className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${quizTab === 'codeId' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
+                className={`px-4 py-2 text-body font-bold transition-colors border-b-2 ${quizTab === 'codeId' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
                 Code Identification
               </button>
             )}
             {hasChallengeContent && (
               <button onClick={() => setQuizTab('codeWrite')}
-                className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${quizTab === 'codeWrite' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
+                className={`px-4 py-2 text-body font-bold transition-colors border-b-2 ${quizTab === 'codeWrite' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
                 Code Writing ({challenges.length})
               </button>
             )}
             <div className="ml-auto pr-4">
               <button onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); setQuizSaveState(null); }}
-                className="text-stone-400 hover:text-stone-300 text-xs font-bold flex items-center gap-1">
+                className="text-stone-400 hover:text-stone-300 text-dense font-bold flex items-center gap-1">
                 <ArrowLeft className="w-3 h-3" /> Back to Selection
               </button>
             </div>
@@ -4730,8 +4730,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       <div className="h-full flex flex-col">
         <div className="flex items-center justify-between px-6 py-3 bg-stone-800 border-b-2 border-stone-600 shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-orange-400">Quiz Center</h2>
-            <p className="text-stone-500 text-xs">Select software/languages and subjects to quiz yourself on</p>
+            <h2 className="text-h1 font-bold text-orange-400">Quiz Center</h2>
+            <p className="text-stone-500 text-caption">Select software/languages and subjects to quiz yourself on</p>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-6">
@@ -4739,7 +4739,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {softwareList.length === 0 ? (
               <div className="text-center py-20">
                 <GraduationCap className="w-16 h-16 text-stone-600 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-orange-400 mb-2">No Courses Available</h3>
+                <h3 className="text-h1 font-bold text-orange-400 mb-2">No Courses Available</h3>
                 <p className="text-stone-500">Create a course first to start quizzing yourself.</p>
               </div>
             ) : (
@@ -4766,8 +4766,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                               {(isAllSelected || selectedSubs.size > 0) && <Check className="w-3 h-3 text-white" />}
                             </div>
                             <div>
-                              <h3 className="text-white font-bold text-sm">{sw.name}</h3>
-                              <div className="flex items-center gap-2 text-xs text-stone-500">
+                              <h3 className="text-white font-bold text-h3">{sw.name}</h3>
+                              <div className="flex items-center gap-2 text-caption text-stone-500">
                                 <span>{subjects.length} subjects</span>
                                 {isCoding && <span className="bg-stone-700 px-1.5 py-0.5 rounded-sm text-stone-400">coding</span>}
                               </div>
@@ -4803,29 +4803,29 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                   <div className={`w-4 h-4 rounded-sm border-2 flex items-center justify-center shrink-0 transition-colors ${subSelected ? 'bg-orange-500 border-orange-600' : 'border-stone-500 bg-stone-900'}`}>
                                     {subSelected && <Check className="w-2.5 h-2.5 text-white" />}
                                   </div>
-                                  <span className={`text-sm ${subSelected ? 'text-orange-300' : 'text-stone-400'}`}>{sub.title}</span>
-                                  <span className="text-stone-600 text-xs ml-auto">{sub.skill_level}</span>
+                                  <span className={`text-body ${subSelected ? 'text-orange-300' : 'text-stone-400'}`}>{sub.title}</span>
+                                  <span className="text-stone-600 text-caption ml-auto">{sub.skill_level}</span>
                                 </div>
                               );
                             })}
                           </div>
                         )}
-                        {subjects.length === 0 && <div className="px-4 py-3 text-stone-600 text-xs italic">No generated subjects yet.</div>}
+                        {subjects.length === 0 && <div className="px-4 py-3 text-stone-600 text-caption italic">No generated subjects yet.</div>}
                       </div>
                     );
                   })}
                 </div>
                 {hasSelections && (
                   <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                    <h3 className="text-white font-bold text-sm mb-1">Quiz Type</h3>
-                    <p className="text-stone-500 text-xs mb-3">Select one or more question types</p>
+                    <h3 className="text-white font-bold text-h3 mb-1">Quiz Type</h3>
+                    <p className="text-stone-500 text-caption mb-3">Select one or more question types</p>
                     <div className="flex flex-wrap gap-2 mb-4">
                       {[{ key: 'mc', label: 'Multiple Choice', always: true }, { key: 'codeId', label: 'Code Identification', always: false }, { key: 'codeWrite', label: 'Code Writing', always: false }].map(({ key, label, always }) => {
                         if (!always && !hasCodingSelected) return null;
                         const selected = quizTypes.has(key);
                         return (
                           <button key={key} onClick={() => { setQuizTypes(prev => { const next = new Set(prev); if (next.has(key)) { next.delete(key); } else { next.add(key); } if (next.size === 0) return prev; return next; }); }}
-                            className={`px-4 py-2 rounded-sm text-sm font-bold border-2 transition-colors flex items-center gap-2 ${selected ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
+                            className={`px-4 py-2 rounded-sm text-body font-bold border-2 transition-colors flex items-center gap-2 ${selected ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
                             <div className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center ${selected ? 'border-white bg-white/20' : 'border-stone-500'}`}>
                               {selected && <Check className="w-2.5 h-2.5 text-white" />}
                             </div>
@@ -4834,7 +4834,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         );
                       })}
                     </div>
-                    {quizError && <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3"><p className="text-red-300 text-sm">{quizError}</p></div>}
+                    {quizError && <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3"><p className="text-red-300 text-body">{quizError}</p></div>}
                     <button onClick={() => generateQuiz(quizTypes)} disabled={quizLoading || quizTypes.size === 0}
                       className="w-full bg-orange-600 text-white py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                       {quizLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GraduationCap className="w-5 h-5" />}
@@ -4842,7 +4842,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     </button>
                   </div>
                 )}
-                {!hasSelections && <div className="text-center py-4"><p className="text-stone-500 text-sm">Select at least one software/language or subject above to start a quiz.</p></div>}
+                {!hasSelections && <div className="text-center py-4"><p className="text-stone-500 text-body">Select at least one software/language or subject above to start a quiz.</p></div>}
               </>
             )}
           </div>
@@ -4857,15 +4857,15 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div>
         <div className="flex items-center justify-between mb-4">
-          <span className="text-stone-500 text-sm">Question {currentQuestion + 1} of {quizQuestions.length}</span>
-          <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-sm ${q.difficulty === 'easy' ? 'bg-green-900 text-green-400' : q.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{q.difficulty}</span>
+          <span className="text-stone-500 text-body">Question {currentQuestion + 1} of {quizQuestions.length}</span>
+          <span className={`text-label font-bold uppercase px-2 py-0.5 rounded-sm ${q.difficulty === 'easy' ? 'bg-green-900 text-green-400' : q.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{q.difficulty}</span>
         </div>
         {q.code_snippet && (
           <div className="mb-4">
             <SyntaxHighlighter style={oneDark} language={q.language || 'javascript'} customStyle={{ borderRadius: '2px', border: '2px solid #57534e' }}>{q.code_snippet}</SyntaxHighlighter>
           </div>
         )}
-        <h3 className="text-white text-lg font-bold mb-4">{q.question}</h3>
+        <h3 className="text-white text-h1 font-bold mb-4">{q.question}</h3>
         <div className="space-y-2 mb-6">
           {q.options.map((opt, i) => {
             const isSelected = selectedAnswer === i;
@@ -4882,7 +4882,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             );
           })}
         </div>
-        {showExplanation && <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 mb-4"><p className="text-stone-300 text-sm">{q.explanation}</p></div>}
+        {showExplanation && <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 mb-4"><p className="text-stone-300 text-body">{q.explanation}</p></div>}
         {showExplanation && (
           <button onClick={nextQuestion} className="bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 font-bold transition-colors">
             {currentQuestion + 1 >= quizQuestions.length ? 'See Results' : 'Next Question'}
@@ -4903,7 +4903,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             zeroes the score, so before this the only copy of a result was the
             number on this screen and the most obvious next click destroyed
             it. */}
-        <div className="mb-6 text-xs h-4">
+        <div className="mb-6 text-dense h-4">
           {quizSaveState === 'saving' && <span className="text-stone-500">Saving your result…</span>}
           {quizSaveState === 'saved' && <span className="text-stone-500">Saved to your quiz history (kept for 30 days).</span>}
           {quizSaveState?.error && (
@@ -4926,16 +4926,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div>
         <div className="flex items-center justify-between mb-4">
-          <span className="text-stone-500 text-sm">Challenge {currentChallenge + 1} of {challenges.length}</span>
-          <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-sm ${ch.difficulty === 'easy' ? 'bg-green-900 text-green-400' : ch.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{ch.difficulty}</span>
+          <span className="text-stone-500 text-body">Challenge {currentChallenge + 1} of {challenges.length}</span>
+          <span className={`text-label font-bold uppercase px-2 py-0.5 rounded-sm ${ch.difficulty === 'easy' ? 'bg-green-900 text-green-400' : ch.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{ch.difficulty}</span>
         </div>
-        <h3 className="text-white text-lg font-bold mb-2">{ch.title}</h3>
-        <p className="text-stone-400 mb-4 text-sm">{ch.description}</p>
+        <h3 className="text-white text-h1 font-bold mb-2">{ch.title}</h3>
+        <p className="text-stone-400 mb-4 text-body">{ch.description}</p>
         {ch.test_cases?.length > 0 && (
           <div className="mb-4 bg-stone-800 border-2 border-stone-600 rounded-sm p-3">
-            <h4 className="text-stone-300 text-xs font-bold uppercase tracking-wide mb-2">Test Cases</h4>
+            <h4 className="text-stone-300 text-label font-bold uppercase tracking-wide mb-2">Test Cases</h4>
             {ch.test_cases.map((tc, i) => (
-              <div key={i} className="text-stone-400 text-xs mb-1">
+              <div key={i} className="text-stone-400 text-dense mb-1">
                 <span className="text-stone-500">Input:</span> {tc.input} &rarr; <span className="text-stone-500">Expected:</span> {tc.expected_output}
               </div>
             ))}
@@ -4947,12 +4947,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         </div>
         <div className="flex items-center gap-2 mb-4">
           {ch.hints?.length > 0 && hintsShown < ch.hints.length && (
-            <button onClick={() => setHintsShown(h => h + 1)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm">
+            <button onClick={() => setHintsShown(h => h + 1)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-body">
               <HelpCircle className="w-4 h-4" /> Show Hint ({hintsShown}/{ch.hints.length})
             </button>
           )}
           {!showSolution && !showSolutionConfirm && (
-            <button onClick={() => setShowSolutionConfirm(true)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm">
+            <button onClick={() => setShowSolutionConfirm(true)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-body">
               <Eye className="w-4 h-4" /> Show Solution
             </button>
           )}
@@ -4960,7 +4960,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {hintsShown > 0 && (
           <div className="space-y-2 mb-4">
             {ch.hints.slice(0, hintsShown).map((hint, i) => (
-              <div key={i} className="bg-stone-800 border-2 border-yellow-700 rounded-sm p-3 text-sm text-stone-300">
+              <div key={i} className="bg-stone-800 border-2 border-yellow-700 rounded-sm p-3 text-body text-stone-300">
                 <span className="text-yellow-500 font-bold">Hint {i + 1}:</span> {hint}
               </div>
             ))}
@@ -4968,26 +4968,26 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         )}
         {showSolutionConfirm && !showSolution && (
           <div className="bg-stone-800 border-2 border-orange-600 rounded-sm p-4 mb-4">
-            <p className="text-stone-300 text-sm mb-3">Are you sure? Try a bit more first!</p>
+            <p className="text-stone-300 text-body mb-3">Are you sure? Try a bit more first!</p>
             <div className="flex gap-2">
-              <button onClick={() => { setShowSolution(true); setShowSolutionConfirm(false); }} className="bg-orange-600 text-white px-3 py-1 rounded-sm text-sm border-2 border-orange-700">Show it</button>
-              <button onClick={() => setShowSolutionConfirm(false)} className="bg-stone-700 text-stone-300 px-3 py-1 rounded-sm text-sm border-2 border-stone-600">Keep trying</button>
+              <button onClick={() => { setShowSolution(true); setShowSolutionConfirm(false); }} className="bg-orange-600 text-white px-3 py-1 rounded-sm text-body border-2 border-orange-700">Show it</button>
+              <button onClick={() => setShowSolutionConfirm(false)} className="bg-stone-700 text-stone-300 px-3 py-1 rounded-sm text-body border-2 border-stone-600">Keep trying</button>
             </div>
           </div>
         )}
         {showSolution && (
           <div className="mb-4">
-            <h4 className="text-green-400 text-sm font-bold uppercase tracking-wide mb-2">Solution</h4>
+            <h4 className="text-green-400 text-label font-bold uppercase tracking-wide mb-2">Solution</h4>
             <SyntaxHighlighter style={oneDark} language={codeLang} customStyle={{ borderRadius: '2px', border: '2px solid #57534e' }}>{ch.solution}</SyntaxHighlighter>
           </div>
         )}
         <div className="flex items-center justify-between border-t-2 border-stone-700 pt-4">
           <button disabled={currentChallenge <= 0} onClick={() => { setCurrentChallenge(c => c - 1); setUserCode(challenges[currentChallenge - 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}
-            className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
+            className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
             <ArrowLeft className="w-4 h-4" /> Previous
           </button>
           <button disabled={currentChallenge >= challenges.length - 1} onClick={() => { setCurrentChallenge(c => c + 1); setUserCode(challenges[currentChallenge + 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}
-            className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
+            className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
             Next <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -5021,21 +5021,21 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="h-full overflow-y-auto p-6" ref={functionScrollRef}>
           <div className="max-w-5xl mx-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-orange-400">Functions Reference</h2>
+              <h2 className="text-h1 font-bold text-orange-400">Functions Reference</h2>
               <div className="relative">
                 <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input type="text" value={functionSearch} onChange={e => setFunctionSearch(e.target.value)} placeholder="Search functions..."
-                  className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 transition-colors w-64" />
+                  className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-body focus:border-orange-500 transition-colors w-64" />
               </div>
             </div>
             <div className="flex items-center gap-3 mb-6">
               <Braces className="w-4 h-4 text-stone-500 shrink-0" />
               <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
+                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-body focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
                 {codingLanguages.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
               </select>
-              <span className="text-stone-500 text-sm">-- Built-in functions, methods & constructs</span>
+              <span className="text-stone-500 text-body">-- Built-in functions, methods & constructs</span>
             </div>
             {filtered.length === 0 ? (
               <div className="text-center py-12">
@@ -5044,16 +5044,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               </div>
             ) : filtered.map((cat, i) => (
               <div key={i} className="mb-8" data-cat-id={`func-cat-${i}`}>
-                <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm mb-3">{cat.category}</h3>
+                <h3 className="text-orange-400 font-bold uppercase tracking-wide text-label mb-3">{cat.category}</h3>
                 <div className="space-y-3">
                   {cat.functions.map((f, j) => (
                     <div key={j} className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                      <code className="font-mono font-bold text-sm" style={{ color: '#fb923c' }}>{f.name}</code>
-                      {f.syntax && <pre className="border rounded-sm px-3 py-2 mb-3 mt-2 font-mono text-xs overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                      {f.parameters && <div className="mb-2"><span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Parameters:</span><span className="text-xs whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                      {f.returns && <div className="mb-2"><span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-xs whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                      {f.description && <p className="text-xs mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                      {f.example && <pre className="border rounded-sm px-3 py-2 font-mono text-xs overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
+                      <code className="font-mono font-bold text-h3" style={{ color: '#fb923c' }}>{f.name}</code>
+                      {f.syntax && <pre className="border rounded-sm px-3 py-2 mb-3 mt-2 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
+                      {f.parameters && <div className="mb-2"><span className="text-label font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Parameters:</span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
+                      {f.returns && <div className="mb-2"><span className="text-label font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
+                      {f.description && <p className="text-dense mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
+                      {f.example && <pre className="border rounded-sm px-3 py-2 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
                     </div>
                   ))}
                 </div>
@@ -5079,17 +5079,17 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       <div className="h-full overflow-y-auto p-6" ref={hotkeyScrollRef}>
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-orange-400">Keyboard Shortcuts</h2>
+            <h2 className="text-h1 font-bold text-orange-400">Keyboard Shortcuts</h2>
             <div className="relative">
               <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input type="text" value={hotkeySearch} onChange={e => setHotkeySearch(e.target.value)} placeholder="Search shortcuts..."
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 transition-colors w-64" />
+                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-body focus:border-orange-500 transition-colors w-64" />
             </div>
           </div>
           <div className="flex items-center gap-3 mb-6">
             <Keyboard className="w-4 h-4 text-stone-500 shrink-0" />
             <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
+              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-body focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
               {softwareApps.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
             </select>
@@ -5101,24 +5101,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             </div>
           ) : filteredHk.map((cat, i) => (
             <div key={i} className="mb-6" data-cat-id={`hk-cat-${i}`}>
-              <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm mb-2">{cat.category}</h3>
+              <h3 className="text-orange-400 font-bold uppercase tracking-wide text-label mb-2">{cat.category}</h3>
               <div className="bg-stone-800 border-2 border-stone-600 rounded-sm overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
                 <table className="w-full">
                   <thead>
                     <tr style={{ background: '#44403c' }}>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
+                      <th className="text-left text-label font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
+                      <th className="text-left text-label font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
+                      <th className="text-left text-label font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
+                      <th className="text-left text-label font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {cat.shortcuts.map((s, j) => (
                       <tr key={j} className="border-b border-stone-700 last:border-0 hover:bg-stone-700/50 transition-colors">
-                        <td className="p-3 text-sm" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-sm text-xs border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-sm text-xs border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                        <td className="p-3 text-xs" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
+                        <td className="p-3 text-body" style={{ color: '#d6d3d1' }}>{s.action}</td>
+                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-sm text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
+                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-sm text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
+                        <td className="p-3 text-dense" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -5166,11 +5166,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="max-w-5xl mx-auto">
           {/* Header with title + search */}
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-orange-400">Nodes Reference</h2>
+            <h2 className="text-h1 font-bold text-orange-400">Nodes Reference</h2>
             <div className="relative">
               <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input type="text" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)} placeholder="Search nodes..."
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 transition-colors w-64" />
+                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-body focus:border-orange-500 transition-colors w-64" />
             </div>
           </div>
 
@@ -5178,7 +5178,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="flex items-center gap-3 mb-4">
             <Share2 className="w-4 h-4 text-stone-500 shrink-0" />
             <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) { selectSoftware(e.target.value); setActiveNodeSystem(null); } }}
-              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
+              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-body focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
               {nodeCapable.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
             </select>
@@ -5192,12 +5192,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 const totalNodes = (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0);
                 return (
                   <button key={sys.system} onClick={() => setActiveNodeSystem(sys.system)}
-                    className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px] ${
+                    className={`px-4 py-2 text-body font-medium transition-colors border-b-2 -mb-[2px] ${
                       isActive
                         ? 'text-orange-400 border-orange-500 bg-stone-900'
                         : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-800'
                     }`}>
-                    {sys.system} <span className="text-stone-600 text-xs ml-1">({totalNodes})</span>
+                    {sys.system} <span className="text-stone-600 text-caption ml-1">({totalNodes})</span>
                   </button>
                 );
               })}
@@ -5217,19 +5217,19 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             </div>
           ) : filtered.map((cat, i) => (
             <div key={i} className="mb-8" data-cat-id={`node-cat-${i}`}>
-              <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm mb-3">{cat.category}</h3>
+              <h3 className="text-orange-400 font-bold uppercase tracking-wide text-label mb-3">{cat.category}</h3>
               <div className="space-y-3">
                 {cat.nodes.map((node, j) => (
                   <div key={j} className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                    <div className="font-mono font-bold text-sm mb-2" style={{ color: '#fb923c' }}>{node.name}</div>
-                    <p className="text-xs mb-3 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
+                    <div className="font-mono font-bold text-h3 mb-2" style={{ color: '#fb923c' }}>{node.name}</div>
+                    <p className="text-dense mb-3 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
 
                     {Array.isArray(node.inputs) && node.inputs.length > 0 && (
                       <div className="mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wide block mb-1.5" style={{ color: '#78716c' }}>Inputs</span>
+                        <span className="text-label font-bold uppercase tracking-wide block mb-1.5" style={{ color: '#78716c' }}>Inputs</span>
                         <div className="space-y-1">
                           {node.inputs.filter(Boolean).map((inp, k) => (
-                            <div key={k} className="flex items-start gap-2 text-xs">
+                            <div key={k} className="flex items-start gap-2 text-dense">
                               <span className="font-mono shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
                               <NodeTypeBadge type={inp.type} />
                               <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
@@ -5241,10 +5241,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
                     {Array.isArray(node.outputs) && node.outputs.length > 0 && (
                       <div className="mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wide block mb-1.5" style={{ color: '#78716c' }}>Outputs</span>
+                        <span className="text-label font-bold uppercase tracking-wide block mb-1.5" style={{ color: '#78716c' }}>Outputs</span>
                         <div className="space-y-1">
                           {node.outputs.filter(Boolean).map((out, k) => (
-                            <div key={k} className="flex items-start gap-2 text-xs">
+                            <div key={k} className="flex items-start gap-2 text-dense">
                               <span className="font-mono shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
                               <NodeTypeBadge type={out.type} />
                               <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
@@ -5256,7 +5256,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
                     {node.notes && (
                       <div className="border-t border-stone-700 pt-2 mt-2">
-                        <span className="text-xs italic" style={{ color: '#78716c' }}>{node.notes}</span>
+                        <span className="text-dense italic" style={{ color: '#78716c' }}>{node.notes}</span>
                       </div>
                     )}
                   </div>
@@ -5302,11 +5302,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           {/* Tabs */}
           <div className="flex shrink-0">
             <button onClick={() => setSettingsTab('prompts')}
-              className={`flex-1 px-4 py-2 text-sm font-bold transition-colors border-b-2 ${settingsTab === 'prompts' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
+              className={`flex-1 px-4 py-2 text-body font-bold transition-colors border-b-2 ${settingsTab === 'prompts' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
               System Prompts
             </button>
             <button onClick={() => setSettingsTab('tools')}
-              className={`flex-1 px-4 py-2 text-sm font-bold transition-colors border-b-2 ${settingsTab === 'tools' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
+              className={`flex-1 px-4 py-2 text-body font-bold transition-colors border-b-2 ${settingsTab === 'tools' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
               Tool Settings
             </button>
           </div>
@@ -5315,12 +5315,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
               {isLocked ? <Lock className="w-4 h-4 text-stone-500" /> : <Unlock className="w-4 h-4 text-orange-400" />}
-              <span className={`text-xs font-bold uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
+              <span className={`text-label font-bold uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
                 {isLocked ? 'Locked' : 'Unlocked'}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`text-[10px] uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
+              <span className={`text-label uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
                 {isLocked ? 'Read Only' : 'Editable'}
               </span>
               <button onClick={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
@@ -5338,7 +5338,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
           {/* Footer */}
           <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between">
-            <p className="text-[10px] text-stone-500 flex-1">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
+            <p className="text-caption text-stone-500 flex-1">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
             <button
               onClick={() => setShowHelpModal(true)}
               className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-sm transition-colors"
@@ -5369,8 +5369,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             <button onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
               className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
               <div className="text-left">
-                <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{s.title}</span>
-                <p className="text-[10px] text-stone-500">{s.desc}</p>
+                <span className={`text-label font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{s.title}</span>
+                <p className="text-caption text-stone-500">{s.desc}</p>
               </div>
               <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${promptSections[s.key] ? 'rotate-90' : ''}`} />
             </button>
@@ -5378,11 +5378,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="px-3 pb-3 pt-2">
                 <textarea value={editingPrompts[s.key] || ''} onChange={e => setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))}
                   disabled={promptsTabLocked}
-                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                 <button onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}
-                  className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                  className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                 <button onClick={savePrompts} disabled={promptsTabLocked}
-                  className={`mt-1 ml-3 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Save</button>
+                  className={`mt-1 ml-3 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Save</button>
               </div>
             )}
           </div>
@@ -5396,13 +5396,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       <div className={toolsTabLocked ? 'opacity-60' : ''}>
         {/* Storage Location */}
         <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-          <label className={`block text-sm font-bold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
+          <label className={`block text-h3 font-bold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
           {/* S30: a refused settings write used to leave the field showing the
               new value with nothing saved. Now it says so. */}
           {settingsError && (
             <div className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded-sm border border-red-800/50 bg-red-950/30">
               <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
-              <span className="text-xs text-red-300 leading-relaxed">
+              <span className="text-dense text-red-300 leading-relaxed">
                 <span className="font-bold">Not saved.</span> {settingsError}
               </span>
             </div>
@@ -5410,7 +5410,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="flex items-center gap-2">
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
               disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-xs font-mono focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
+              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-dense font-mono focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
             {/* Session 12: this button used to POST /api/browse-folder, a
                 route that never existed on ANY host — it was dead everywhere
                 (same class as S11's unreachable renderDeleteConfirm). The
@@ -5423,27 +5423,27 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   if (dir) saveSettings({ storageLocation: dir });
                 } catch (e) { console.error('Browse folder failed:', e); }
               }} className="bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
-                <FolderOpen className="w-4 h-4" /><span className="text-xs font-bold">Browse</span>
+                <FolderOpen className="w-4 h-4" /><span className="text-dense font-bold">Browse</span>
               </button>
             )}
           </div>
-          <p className="text-stone-600 text-[10px] mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
+          <p className="text-stone-600 text-caption mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
         </div>
 
         {/* Data management */}
         <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-          <label className={`block text-sm font-bold mb-3 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Data Management</label>
+          <label className={`block text-h3 font-bold mb-3 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Data Management</label>
           <div className="space-y-2">
             <button onClick={exportAll} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:cursor-not-allowed disabled:opacity-50">
+              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
               <Download className="w-4 h-4" /> Export All Data
             </button>
             <button onClick={() => setShowImportModal(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:cursor-not-allowed disabled:opacity-50">
+              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
               <Upload className="w-4 h-4" /> Import Data
             </button>
             <button onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-red-900/30 text-red-400 border-2 border-red-800 px-3 py-2 rounded-sm hover:bg-red-900/50 transition-colors text-sm disabled:cursor-not-allowed disabled:opacity-50">
+              className="w-full flex items-center gap-2 bg-red-900/30 text-red-400 border-2 border-red-800 px-3 py-2 rounded-sm hover:bg-red-900/50 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
               <Trash2 className="w-4 h-4" /> Clear All Data
             </button>
           </div>
@@ -5461,19 +5461,19 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowImportModal(false)}>
         <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[480px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-lg mb-4">Import Data</h3>
+          <h3 className="text-white font-bold text-h1 mb-4">Import Data</h3>
           <div className={`border-2 border-dashed rounded-sm p-8 text-center transition-colors ${importDragOver ? 'border-orange-500 bg-orange-600/10' : 'border-stone-600'}`}
             onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
             onDragLeave={() => setImportDragOver(false)}
             onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
             <FileJson className="w-10 h-10 text-stone-500 mx-auto mb-3" />
             <p className="text-stone-400 mb-3">Drag and drop a .json file here</p>
-            <label className="inline-flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-4 py-2 rounded-sm cursor-pointer hover:bg-stone-600 transition-colors text-sm">
+            <label className="inline-flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-4 py-2 rounded-sm cursor-pointer hover:bg-stone-600 transition-colors text-body">
               <Upload className="w-4 h-4" /> Choose File
               <input type="file" accept=".json" className="hidden" onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
             </label>
           </div>
-          <button onClick={() => setShowImportModal(false)} className="mt-4 w-full bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
+          <button onClick={() => setShowImportModal(false)} className="mt-4 w-full bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body">Cancel</button>
         </div>
       </div>
     );
@@ -5490,10 +5490,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteConfirm(null)}>
         <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-lg mb-2">
+          <h3 className="text-white font-bold text-h1 mb-2">
             {cloudMode ? 'Move to trash' : 'Delete course'}
           </h3>
-          <p className="text-stone-400 text-sm mb-6">
+          <p className="text-stone-400 text-body mb-6">
             {cloudMode ? (
               <>
                 <span className="text-stone-300 font-bold">{course?.name ?? 'This course'}</span> and
@@ -5507,8 +5507,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             )}
           </p>
           <div className="flex gap-2">
-            <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">
+            <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body">Cancel</button>
+            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-body font-bold">
               {cloudMode ? 'Move to trash' : 'Delete'}
             </button>
           </div>
@@ -5522,13 +5522,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteSubjectConfirm(null)}>
         <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-lg mb-2">Delete Subject</h3>
-          <p className="text-stone-400 text-sm mb-2">Are you sure you want to delete:</p>
-          <p className="text-orange-400 font-bold text-sm mb-4 truncate">&quot;{title}&quot;</p>
-          <p className="text-stone-500 text-xs mb-6">This will permanently remove this subject and its lessons. This cannot be undone.</p>
+          <h3 className="text-white font-bold text-h1 mb-2">Delete Subject</h3>
+          <p className="text-stone-400 text-body mb-2">Are you sure you want to delete:</p>
+          <p className="text-orange-400 font-bold text-h3 mb-4 truncate">&quot;{title}&quot;</p>
+          <p className="text-stone-500 text-caption mb-6">This will permanently remove this subject and its lessons. This cannot be undone.</p>
           <div className="flex gap-2">
-            <button onClick={() => setShowDeleteSubjectConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-            <button onClick={() => deleteSubject(softwareSlug, subjectSlug)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">Delete Subject</button>
+            <button onClick={() => setShowDeleteSubjectConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body">Cancel</button>
+            <button onClick={() => deleteSubject(softwareSlug, subjectSlug)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-body font-bold">Delete Subject</button>
           </div>
         </div>
       </div>
@@ -5539,16 +5539,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
         <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-bold text-lg mb-2">Clear All Data</h3>
-          <p className="text-stone-400 text-sm mb-6">This will delete ALL courses, subjects, and progress. Are you sure?</p>
+          <h3 className="text-white font-bold text-h1 mb-2">Clear All Data</h3>
+          <p className="text-stone-400 text-body mb-6">This will delete ALL courses, subjects, and progress. Are you sure?</p>
           <div className="flex gap-2">
-            <button onClick={() => setShowClearConfirm(false)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
+            <button onClick={() => setShowClearConfirm(false)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body">Cancel</button>
             <button onClick={async () => {
               for (const sw of softwareList) { await otterFetch(`/api/software/${sw.slug}`, { method: 'DELETE' }); }
               setActiveSoftwareSlug(null); setActiveSoftware(null); setSubjectList([]); setActiveSubjectSlug(null); setActiveSubject(null);
               setSoftwareHotkeys(null); setSoftwareFunctions(null); setActiveProgress(null); setReferenceUrls([]);
               invalidateCache(); loadSoftwareList(); setShowClearConfirm(false); setCurrentView('library');
-            }} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">Clear Everything</button>
+            }} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-body font-bold">Clear Everything</button>
           </div>
         </div>
       </div>
@@ -5559,12 +5559,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
         <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[440px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-bold text-lg mb-2">Duplicate Found</h3>
-          <p className="text-stone-400 text-sm mb-6">A course with this name already exists.</p>
+          <h3 className="text-white font-bold text-h1 mb-2">Duplicate Found</h3>
+          <p className="text-stone-400 text-body mb-6">A course with this name already exists.</p>
           <div className="space-y-2">
-            <button onClick={() => handleDuplicateResolve('replace')} className="w-full bg-orange-600 text-white border-2 border-orange-700 py-2 rounded-sm hover:bg-orange-700 transition-colors text-sm font-bold">Replace Existing</button>
-            <button onClick={() => handleDuplicateResolve('keep')} className="w-full bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Keep Both</button>
-            <button onClick={() => handleDuplicateResolve('cancel')} className="w-full bg-stone-700 text-stone-400 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
+            <button onClick={() => handleDuplicateResolve('replace')} className="w-full bg-orange-600 text-white border-2 border-orange-700 py-2 rounded-sm hover:bg-orange-700 transition-colors text-body font-bold">Replace Existing</button>
+            <button onClick={() => handleDuplicateResolve('keep')} className="w-full bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body">Keep Both</button>
+            <button onClick={() => handleDuplicateResolve('cancel')} className="w-full bg-stone-700 text-stone-400 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-body">Cancel</button>
           </div>
         </div>
       </div>

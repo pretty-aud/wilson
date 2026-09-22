@@ -145,8 +145,8 @@ export default function AuditSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900">Platform audit</h2>
-          <p className="text-xs text-stone-950 leading-relaxed">
+          <h2 className="text-label font-bold uppercase tracking-widest text-stone-900">Platform audit</h2>
+          <p className="text-dense text-stone-950 leading-relaxed">
             Append-only. Teardown certificates outlive the company they name.
           </p>
         </div>
@@ -154,7 +154,7 @@ export default function AuditSection({ isActive }) {
           <select
             value={action}
             onChange={(e) => { setAction(e.target.value); reload(e.target.value) }}
-            className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
           >
             {ACTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
@@ -162,7 +162,7 @@ export default function AuditSection({ isActive }) {
           <button
             onClick={() => reload(action)}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -171,12 +171,12 @@ export default function AuditSection({ isActive }) {
       </div>
 
       {missing && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
           platform_audit is not deployed in this environment yet (migration 0028).
         </p>
       )}
       {error && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
           {error}
         </p>
       )}
@@ -185,17 +185,17 @@ export default function AuditSection({ isActive }) {
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr style={{ backgroundColor: '#e7e5e4' }}>
-              <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e', width: '150px' }}>When</th>
-              <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Action</th>
-              <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Company</th>
-              <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Operator</th>
-              <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Detail</th>
+              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e', width: '150px' }}>When</th>
+              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Action</th>
+              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Company</th>
+              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Operator</th>
+              <th className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>Detail</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && !missing && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-xs" style={{ color: '#78716c' }}>
+                <td colSpan={5} className="px-3 py-6 text-center text-dense" style={{ color: '#78716c' }}>
                   Nothing recorded yet.
                 </td>
               </tr>
@@ -211,8 +211,8 @@ export default function AuditSection({ isActive }) {
                   style={{ borderBottom: '1px solid #e7e5e4' }}
                 >
                   <td className="px-3 py-2 align-top">
-                    <div className="text-[11px] font-mono" style={{ color: '#1c1917' }}>{d.toLocaleDateString()}</div>
-                    <div className="text-[10px] font-mono" style={{ color: '#78716c' }}>{d.toLocaleTimeString()}</div>
+                    <div className="text-dense font-mono" style={{ color: '#1c1917' }}>{d.toLocaleDateString()}</div>
+                    <div className="text-dense font-mono" style={{ color: '#78716c' }}>{d.toLocaleTimeString()}</div>
                   </td>
                   <td className="px-3 py-2 align-top">
                     <span className="inline-flex items-center gap-1.5">
@@ -221,7 +221,7 @@ export default function AuditSection({ isActive }) {
                         style={{ width: 7, height: 7, backgroundColor: SEVERITY_DOT[r.severity] ?? '#a8a29e' }}
                       />
                       <span
-                        className="text-[10px] font-bold uppercase tracking-wider"
+                        className="text-label font-bold uppercase tracking-wider"
                         style={{ color: LOUD.has(r.action) ? '#991b1b' : '#57534e' }}
                       >
                         {r.action.replace('workspace.', '').replace('ai_key.', 'key ').replace('.', ' ')}
@@ -229,19 +229,19 @@ export default function AuditSection({ isActive }) {
                     </span>
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <div className="text-[11px]" style={{ color: '#1c1917' }}>{r.workspace_name ?? '—'}</div>
+                    <div className="text-dense" style={{ color: '#1c1917' }}>{r.workspace_name ?? '—'}</div>
                     {r.workspace_slug && (
-                      <code className="text-[10px] font-mono" style={{ color: '#78716c' }}>{r.workspace_slug}</code>
+                      <code className="text-dense font-mono" style={{ color: '#78716c' }}>{r.workspace_slug}</code>
                     )}
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>{r.actor_label ?? '—'}</span>
+                    <span className="text-dense font-mono" style={{ color: '#57534e' }}>{r.actor_label ?? '—'}</span>
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <div className="text-[11px]" style={{ color: '#1c1917' }}>{r.message}</div>
+                    <div className="text-dense" style={{ color: '#1c1917' }}>{r.message}</div>
                     {open && r.context && Object.keys(r.context).length > 0 && (
                       <pre
-                        className="mt-1 text-[10px] font-mono p-2 rounded-sm whitespace-pre-wrap break-all"
+                        className="mt-1 text-dense font-mono p-2 rounded-sm whitespace-pre-wrap break-all"
                         style={{ backgroundColor: 'rgba(120,70,30,0.10)', color: '#57534e' }}
                       >{JSON.stringify(r.context, null, 2)}</pre>
                     )}
@@ -253,7 +253,7 @@ export default function AuditSection({ isActive }) {
         </table>
       </div>
       {rows.length >= PAGE && (
-        <p className="text-[10px] mt-2" style={{ color: '#78716c' }}>
+        <p className="text-dense mt-2" style={{ color: '#78716c' }}>
           Showing the most recent {PAGE} entries.
         </p>
       )}

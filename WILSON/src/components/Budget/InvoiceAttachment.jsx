@@ -123,7 +123,7 @@ export default function InvoiceAttachment({
 
   return (
     <div className="flex flex-col gap-0.5">
-      <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
+      <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
         Invoice File
       </label>
 
@@ -133,7 +133,7 @@ export default function InvoiceAttachment({
         <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-sm"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
           <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-          <span className="flex-1 text-[10.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{name}</span>
+          <span className="flex-1 text-dense font-mono truncate" style={{ color: '#d6d3d1' }}>{name}</span>
           {(isCloudRef(path) || canOpenLegacy) && (
             <button type="button" onClick={handleOpen} disabled={busy}
               className="p-0.5 hover:bg-stone-700 rounded transition-colors"
@@ -150,7 +150,7 @@ export default function InvoiceAttachment({
         </div>
       ) : (
         <button type="button" onClick={() => inputRef.current?.click()} disabled={busy || disabled}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
           style={{ border: '1px solid #44403c', color: '#a8a29e' }}>
           {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paperclip className="w-3 h-3" />}
           {busy ? 'Uploading…' : 'Attach Invoice'}
@@ -160,14 +160,14 @@ export default function InvoiceAttachment({
       {/* A legacy row points at a path on one particular machine. Say so —
           the old code just made the button do nothing. */}
       {desktopOnlyLegacy && !canOpenLegacy && (
-        <span className="text-[9px] font-mono leading-snug" style={{ color: '#78716c' }}>
+        <span className="text-dense font-mono leading-snug" style={{ color: '#78716c' }}>
           Saved by the desktop app to a folder on that computer. Re-attach it here
           to make it available everywhere.
         </span>
       )}
 
       {error && (
-        <span className="flex items-start gap-1 text-[9px] font-mono leading-snug" style={{ color: '#ef4444' }}>
+        <span className="flex items-start gap-1 text-dense font-mono leading-snug" style={{ color: '#ef4444' }}>
           <AlertCircle className="w-2.5 h-2.5 mt-px flex-shrink-0" />
           {error}
         </span>

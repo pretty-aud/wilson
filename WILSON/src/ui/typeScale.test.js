@@ -1,0 +1,123 @@
+// =============================================================================
+// typeScale.test.js — the codemod's own guard (plan §7's grep audit, as a test)
+//
+// WHY THIS FILE EXISTS. T0's passes tripped no existing guard, and that is
+// correct — no test in this repo pinned a type size. It is also exactly the
+// hole C3c named: "the case half of the pass had no guard at all, and a mutant
+// proved it". A codemod that moves 2,582 sites and leaves nothing behind to
+// hold them will be undone one careless `text-xs` at a time.
+//
+// So this asserts the INVARIANTS the passes establish, over the same scope the
+// passes ran on, using the same modules the passes used. If a later session
+// reintroduces an off-scale size or puts body copy back on the Label step,
+// this goes red with the file and the line.
+//
+// Every block carries a CONTROL: a synthetic source string with the defect in
+// it, asserted to be DETECTED. Without that, "0 violations" is equally
+// consistent with "the detector is broken" — F4's trap 13, an assertion that
+// cannot fail.
+// =============================================================================
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { sourceFiles } from '../../scripts/ui-audit.mjs';
+import { protectedRanges, isProtected } from '../../scripts/ui-source-regions.mjs';
+import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
+import { enclosingRun, enclosingTag } from '../../scripts/ui-type-inventory.mjs';
+
+/* The Label step used WITHOUT `uppercase`, on purpose, by name and reason.
+   A bare count would let a new offender in whenever an old one left; naming
+   the files makes the exception a decision someone has to edit. */
+const BARE_LABEL_EXCEPTIONS = {
+  'src/components/HelpPage.jsx':
+    'the version footer — a version number has no case to convert (D2)',
+};
+
+/** Off-scale size tokens. `text-label` and friends deliberately do not match. */
+const OFF_SCALE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|2xl|3xl)\b)/g;
+/* 🚨 The lookbehind is load-bearing. `\btext-label\b` matches INSIDE
+   `var(--text-label)` — `-` is a non-word character, so there is a word
+   boundary right before `text`. Four CSS-variable reads in DevFixturesBadge
+   were reported as case-less labels before this. */
+const SCALE_STEP = /(?<![-\w])text-(?:h1|h2|h3|body|dense|caption|label)\b/g;
+
+/** Collect matches of `re` across the scope, skipping protected regions. */
+function sweep(re, judge) {
+  const out = [];
+  for (const file of sourceFiles()) {
+    const src = readFileSync(file, 'utf8');
+    const guarded = protectedRanges(src);
+    const r = new RegExp(re.source, 'g');
+    let m;
+    while ((m = r.exec(src))) {
+      if (isProtected(guarded, m.index)) continue;
+      const run = enclosingRun(src, m.index) || '';
+      const tag = enclosingTag(src, m.index);
+      const line = src.slice(0, m.index).split('\n').length;
+      if (!judge || judge({ token: m[0], run, tag, file })) {
+        out.push(`${file}:${line}  ${m[0]}  [${run.replace(/\s+/g, ' ').slice(0, 90)}]`);
+      }
+    }
+  }
+  return out;
+}
+
+describe('type scale — no size off the seven steps (C7, plan §3.1)', () => {
+  it('has no text-[Npx] and no text-xs…3xl in converted source', () => {
+    const hits = sweep(OFF_SCALE);
+    expect(hits, `off-scale sizes:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: the detector finds an off-scale size when one is present', () => {
+    const src = 'const a = <p className="text-[10.5px] text-stone-500">x</p>';
+    expect(src.match(new RegExp(OFF_SCALE.source, 'g'))).toEqual(['text-[10.5px]']);
+  });
+
+  it('CONTROL: the detector does NOT flag a scale step', () => {
+    const src = 'const a = <p className="text-dense text-ink-2">x</p>';
+    expect(src.match(new RegExp(OFF_SCALE.source, 'g'))).toBeNull();
+  });
+
+  it('CONTROL: the sweep reads real files and finds the steps the passes wrote', () => {
+    // Guards the scope itself: an empty file list would make every assertion
+    // above pass vacuously.
+    expect(sourceFiles().length).toBeGreaterThan(200);
+    expect(sweep(SCALE_STEP).length).toBeGreaterThan(2000);
+  });
+});
+
+describe('the Label step is for labels (the C3b lesson)', () => {
+  it('every text-label site still carries its uppercase', () => {
+    const bare = sweep(SCALE_STEP, ({ token, run, tag }) =>
+      token === 'text-label'
+      && !LABEL_EVIDENCE.some((re) => re.test(run))
+      && !CONTROL_TAGS.test(tag));
+    const unexpected = bare.filter(
+      (hit) => !Object.keys(BARE_LABEL_EXCEPTIONS).some((f) => hit.startsWith(`${f}:`)));
+    expect(unexpected, `text-label sites with no uppercase:\n${unexpected.join('\n')}`)
+      .toEqual([]);
+  });
+
+  it('CONTROL: each named bare-label exception is still really there', () => {
+    // An allowlist nobody checks becomes a list of files that no longer exist.
+    const bare = sweep(SCALE_STEP, ({ token, run, tag }) =>
+      token === 'text-label'
+      && !LABEL_EVIDENCE.some((re) => re.test(run))
+      && !CONTROL_TAGS.test(tag));
+    for (const f of Object.keys(BARE_LABEL_EXCEPTIONS)) {
+      expect(bare.some((hit) => hit.startsWith(`${f}:`)), `${f} is allowlisted but clean now`).toBe(true);
+    }
+  });
+
+  it('no uppercase site sits on a running-text step', () => {
+    const shouting = sweep(SCALE_STEP, ({ token, run, tag }) =>
+      (token === 'text-body' || token === 'text-caption')
+      && /\buppercase\b/.test(run)
+      && !CONTROL_TAGS.test(tag));
+    expect(shouting, `uppercase on a running-text step:\n${shouting.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: the label rule distinguishes the two cases', () => {
+    expect(LABEL_EVIDENCE.some((re) => re.test('text-label text-ink-2'))).toBe(false);
+    expect(LABEL_EVIDENCE.some((re) => re.test('text-label uppercase text-ink-2'))).toBe(true);
+  });
+});

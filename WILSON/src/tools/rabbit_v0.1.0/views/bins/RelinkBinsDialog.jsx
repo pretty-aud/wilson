@@ -77,12 +77,12 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
     <Modal title="Relink offline files" onClose={onClose} width={720} busy={phase === 'applying'}
       subtitle={`${offlineRows.length} file${offlineRows.length === 1 ? '' : 's'} cannot be found at ${offlineRows.length === 1 ? 'its' : 'their'} recorded path`}
       footer={<>
-        {error && <span className="text-[10.5px] font-mono mr-auto flex items-center gap-1.5" style={{ color: '#fca5a5' }}><AlertTriangle className="w-3 h-3" /> {error}</span>}
+        {error && <span className="text-dense font-mono mr-auto flex items-center gap-1.5" style={{ color: '#fca5a5' }}><AlertTriangle className="w-3 h-3" /> {error}</span>}
         <Btn onClick={onClose} disabled={phase === 'applying'}>{phase === 'done' ? 'Close' : 'Cancel'}</Btn>
         {phase !== 'done' && <Btn primary onClick={apply} disabled={phase !== 'review' || applyCount === 0}><Link2 className="w-3 h-3" /> Relink {applyCount || ''}</Btn>}
       </>}>
       {phase === 'done' && result ? (
-        <div className="flex flex-col gap-2 text-[11px] font-mono" style={{ color: C.text }}>
+        <div className="flex flex-col gap-2 text-dense font-mono" style={{ color: C.text }}>
           <div className="flex items-center gap-2" style={{ color: C.green }}><Check className="w-4 h-4" /> {result.updated?.length || 0} file{(result.updated?.length || 0) === 1 ? '' : 's'} relinked{(result.updated?.length || 0) > (result.sent || 0) ? ' (instances included)' : ''}.</div>
           {result.failed?.length > 0 && <div style={{ color: C.amber }}>{result.failed.length} could not be relinked: {result.failed.map(f => f.reason).join(', ')}.</div>}
         </div>
@@ -90,13 +90,13 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Btn primary onClick={pick} disabled={phase === 'scanning'}><FolderSearch className="w-3 h-3" /> Choose the folder they moved to…</Btn>
-            {phase === 'scanning' && <span className="flex items-center gap-2 text-[10.5px] font-mono" style={{ color: C.muted }}><Spinner /> Walking {folder}…</span>}
+            {phase === 'scanning' && <span className="flex items-center gap-2 text-dense font-mono" style={{ color: C.muted }}><Spinner /> Walking {folder}…</span>}
           </div>
           {roots?.length > 0 && (
             <div className="rounded-sm" style={{ border: `1px solid ${C.line}` }}>
-              <div className="px-2 py-1 text-[9.5px] font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Known folders — scanned on open after a drive is plugged back in; scan one now, or forget it</div>
+              <div className="px-2 py-1 text-label font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Known folders — scanned on open after a drive is plugged back in; scan one now, or forget it</div>
               {roots.map(r => (
-                <div key={r.id} className="flex items-center gap-2 px-2 py-1 text-[10.5px] font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
+                <div key={r.id} className="flex items-center gap-2 px-2 py-1 text-dense font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <span className="flex-1 truncate" style={{ color: C.text }} title={r.path}>{r.path}</span>
                   <Btn small onClick={() => doScan(r.path)} disabled={phase === 'scanning'}><RefreshCw className="w-3 h-3" /> Scan</Btn>
                   {onForgetRoot && <Btn small onClick={() => onForgetRoot(r.id).catch(e => setError(e?.message || String(e)))} disabled={phase === 'scanning' || phase === 'applying'} title="Forget this folder: it is no longer scanned on open. Files already in bins are untouched.">Forget</Btn>}
@@ -109,7 +109,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
               const prop = match?.proposals.find(p => p.id === r.id)
               const amb = match?.ambiguous.find(a => a.id === r.id)
               return (
-                <div key={r.id} className="px-2 py-1.5 text-[10.5px] font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
+                <div key={r.id} className="px-2 py-1.5 text-dense font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <div className="flex items-center gap-1.5 truncate" style={{ color: C.text }}>
                     {prop ? <Check className="w-3 h-3 flex-shrink-0" style={{ color: C.green }} /> : amb ? <AlertTriangle className="w-3 h-3 flex-shrink-0" style={{ color: C.amber }} /> : <Unplug className="w-3 h-3 flex-shrink-0" style={{ color: match ? C.dimmer : C.amber }} />}
                     <span className="truncate">{r.display_name || r.original_name}</span>
@@ -128,7 +128,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
               )
             })}
           </div>
-          {scan?.truncated && <div className="text-[10px] font-mono flex items-center gap-1.5" style={{ color: C.amber }}><AlertTriangle className="w-3 h-3" /> The folder was too large to walk completely.</div>}
+          {scan?.truncated && <div className="text-dense font-mono flex items-center gap-1.5" style={{ color: C.amber }}><AlertTriangle className="w-3 h-3" /> The folder was too large to walk completely.</div>}
         </div>
       )}
     </Modal>

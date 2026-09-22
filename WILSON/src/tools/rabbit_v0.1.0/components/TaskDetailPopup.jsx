@@ -181,7 +181,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
             <ListChecks className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-[14px] font-mono font-bold" style={{ color: '#fb923c' }}>
+            <span className="text-h3 font-mono font-bold" style={{ color: '#fb923c' }}>
               {task.title || 'Untitled task'}
             </span>
           </div>
@@ -295,7 +295,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 {!linkedAsset && !linkedShot && !(scenesOn && linkedScene) && (
                   <div className="px-3 py-6 text-center">
                     <FolderOpen className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-                    <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+                    <p className="text-label font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
                       Link an asset, scene, or shot to see files here
                     </p>
                   </div>
@@ -322,7 +322,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Status</FieldLabel>
                 <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                   {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                 </select>
@@ -330,7 +330,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Priority</FieldLabel>
                 <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: pc, border: '1px solid #44403c' }}>
                   {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
                 </select>
@@ -344,14 +344,14 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   // read-only. A select here would render blank and its
                   // only option would write asset_id = NULL into a
                   // NOT NULL column (Session 8 review finding).
-                  <div className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded"
+                  <div className="w-full px-2.5 py-1.5 text-dense font-mono rounded"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', opacity: 0.85 }}
                     title="Open the project in R.A.B.B.I.T. to re-link this task">
                     {task.asset?.name || 'Linked asset'}
                   </div>
                 ) : (
                   <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: task.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -361,7 +361,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Phase</FieldLabel>
                 <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -377,7 +377,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                     // Clear shot if scene changed
                     handleUpdate({ scene_id: v, shot_id: null })
                   }}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: task.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
@@ -388,7 +388,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <div>
                   <FieldLabel>Shot</FieldLabel>
                   <select value={task.shot_id || ''} onChange={e => handleUpdate({ shot_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: task.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
@@ -399,7 +399,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <div>
                   <FieldLabel>Level</FieldLabel>
                   <select value={task.level_id || ''} onChange={e => handleUpdate({ level_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: task.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
@@ -410,7 +410,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <div>
                   <FieldLabel>Experience</FieldLabel>
                   <select value={task.experience_id || ''} onChange={e => handleUpdate({ experience_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: task.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
@@ -421,7 +421,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Assignee</FieldLabel>
                 <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -430,7 +430,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Reviewer</FieldLabel>
                 <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.reviewer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -448,7 +448,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                       assigned_position: entry ? entry.role_label : null,
                     })
                   }}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {roleEntries.map(r => (
@@ -458,7 +458,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   ))}
                 </select>
                 {task.assigned_role_slug && !currentRoleEntry && (
-                  <div className="text-[9px] font-mono mt-0.5" style={{ color: '#fca5a5' }}>
+                  <div className="text-dense font-mono mt-0.5" style={{ color: '#fca5a5' }}>
                     Role "{fmt(task.assigned_role_slug)}" not found in rate card
                   </div>
                 )}
@@ -467,13 +467,13 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <FieldLabel>Bid days</FieldLabel>
                 <input type="number" value={task.bid_days ?? ''} min={0} step={0.5}
                   onChange={e => { const n = parseFloat(e.target.value); handleUpdate({ bid_days: isNaN(n) ? null : n }) }}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.bid_days != null ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   placeholder="--" />
               </div>
               <div>
                 <FieldLabel>Bid total</FieldLabel>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-mono rounded"
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded"
                   style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: bidTotal != null ? '#4ade80' : '#57534e', minHeight: 34 }}>
                   <DollarSign className="w-3 h-3 flex-shrink-0" style={{ opacity: 0.6 }} />
                   {bidTotal != null
@@ -482,7 +482,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                     : '--'}
                 </div>
                 {dayRate != null && (
-                  <div className="text-[9px] font-mono mt-0.5" style={{ color: '#57534e' }}>
+                  <div className="text-dense font-mono mt-0.5" style={{ color: '#57534e' }}>
                     {fmt(task.assigned_role_slug || '')} @ ${Number(dayRate).toLocaleString()}/day
                   </div>
                 )}
@@ -490,13 +490,13 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Start date</FieldLabel>
                 <input type="date" value={task.start_date || ''} onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
               </div>
               <div>
                 <FieldLabel>End date</FieldLabel>
                 <input type="date" value={task.end_date || ''} onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.end_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
               </div>
             </div>
@@ -515,12 +515,12 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   }}
                   onKeyDown={e => { if (e.key === 'Escape') { setDescDraft(task.description || ''); setEditingDesc(false) } }}
                   rows={4}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
+                  className="w-full px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               ) : (
                 <button type="button" onClick={() => { setDescDraft(task.description || ''); setEditingDesc(true) }}
-                  className="w-full text-left px-3 py-2 text-[12px] font-mono rounded hover:bg-stone-700/40 transition-colors min-h-[60px]"
+                  className="w-full text-left px-3 py-2 text-dense font-mono rounded hover:bg-stone-700/40 transition-colors min-h-[60px]"
                   style={{ color: task.description ? '#f4a261' : '#57534e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
                   {task.description || 'Click to add a description...'}
                 </button>
@@ -541,12 +541,12 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   }}
                   onKeyDown={e => { if (e.key === 'Escape') { setNotesDraft(task.notes || ''); setEditingNotes(false) } }}
                   rows={3}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
+                  className="w-full px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               ) : (
                 <button type="button" onClick={() => { setNotesDraft(task.notes || ''); setEditingNotes(true) }}
-                  className="w-full text-left px-3 py-2 text-[12px] font-mono rounded hover:bg-stone-700/40 transition-colors min-h-[48px]"
+                  className="w-full text-left px-3 py-2 text-dense font-mono rounded hover:bg-stone-700/40 transition-colors min-h-[48px]"
                   style={{ color: task.notes ? '#f4a261' : '#57534e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
                   {task.notes || 'Click to add notes...'}
                 </button>
@@ -566,13 +566,13 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 vetoed the delete (Dashboard's confirm) — keep the popup open. */}
             <button type="button"
               onClick={() => { if (ctx?.deleteTask?.(task.id) !== false) onClose() }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
               <Trash2 className="w-3.5 h-3.5" /> Delete task
             </button>
           </GatedAction>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
+            className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             Done
           </button>
@@ -597,7 +597,7 @@ function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColo
           ? <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
           : <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />}
         {Icon && <Icon className="w-3 h-3 flex-shrink-0" style={{ color: accentColor || '#fb923c' }} />}
-        <span className="text-[10px] font-mono uppercase tracking-wider truncate" style={{ color: accentColor || '#fb923c' }}>
+        <span className="text-label font-mono uppercase tracking-wider truncate" style={{ color: accentColor || '#fb923c' }}>
           {label}
         </span>
       </button>
@@ -615,7 +615,7 @@ function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColo
 function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setEditingFileName, setFileNameDraft, setFileNameOverride }) {
   return (
     <div className="mb-2">
-      <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+      <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
         Upload file name
       </div>
       {editingFileName ? (
@@ -627,13 +627,13 @@ function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setE
             if (e.key === 'Enter') { setEditingFileName(false); setFileNameOverride(fileNameDraft) }
             if (e.key === 'Escape') { setEditingFileName(false); setFileNameDraft(fileNameOverride) }
           }}
-          className="w-full px-2 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+          className="w-full px-2 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
         />
       ) : (
         <button type="button"
           onClick={() => { setFileNameDraft(fileNameOverride); setEditingFileName(true) }}
-          className="w-full text-left px-2 py-1 text-[11px] font-mono rounded hover:bg-stone-700/40 transition-colors truncate"
+          className="w-full text-left px-2 py-1 text-dense font-mono rounded hover:bg-stone-700/40 transition-colors truncate"
           style={{ color: fileNameOverride ? '#f4a261' : '#57534e', border: '1px dashed #44403c' }}>
           {fileNameOverride || 'Uses original file name'}
         </button>
@@ -646,7 +646,7 @@ function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setE
 // ── Field label ──
 function FieldLabel({ children }) {
   return (
-    <div className="text-[10px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+    <div className="text-label font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
       {children}
     </div>
   )
@@ -666,13 +666,13 @@ function PopupInlineText({ value, placeholder, onCommit }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-2.5 py-1.5 text-[14px] font-mono font-bold rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-2.5 py-1.5 text-body font-mono font-bold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-[14px] font-mono font-bold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded transition-colors"
+      className="text-body font-mono font-bold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded transition-colors"
       style={{ color: value ? '#fb923c' : '#57534e' }}>
       {value || placeholder || '\u2014'}
     </button>

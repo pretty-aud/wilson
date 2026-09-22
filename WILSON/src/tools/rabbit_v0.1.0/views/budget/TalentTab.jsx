@@ -101,21 +101,21 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[9.5px] font-mono uppercase tracking-widest truncate" style={{ color: '#fb923c' }}>{lineName} / {colLabel}</span>
+        <span className="text-label font-mono uppercase tracking-widest truncate" style={{ color: '#fb923c' }}>{lineName} / {colLabel}</span>
         <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Amount ({currency})</label>
+        <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Amount ({currency})</label>
         <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice #</label>
+        <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice #</label>
         <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)} placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
       </div>
       <InvoiceAttachment
@@ -128,11 +128,11 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
       />
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={handleSave}
-          className="flex-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider font-bold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider font-bold rounded-sm"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         {actual?.id && onDelete && (
           <button type="button" onClick={() => onDelete(actual.id)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
+            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
             style={{ color: '#ef4444', border: '1px solid #7f1d1d' }}>Clear</button>
         )}
       </div>
@@ -171,7 +171,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261', textAlign: type === 'number' ? 'right' : 'left' }}
       />
     )
@@ -179,7 +179,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
 
   return (
     <button type="button" onClick={start} disabled={disabled}
-      className="w-full text-left px-1 py-0.5 text-[11.5px] font-mono rounded-sm transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
+      className="w-full text-left px-1 py-0.5 text-dense font-mono rounded-sm transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
       style={{ color: value ? '#d6d3d1' : '#57534e', textAlign: type === 'number' ? 'right' : 'left' }}>
       {type === 'number' ? (value || placeholder || '\u2014') : (value || placeholder || '\u2014')}
     </button>
@@ -215,37 +215,37 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
+        <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
         <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
+        <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
+        <label className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider font-bold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider font-bold rounded-sm"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Default
         </button>
@@ -364,7 +364,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>Loading talent...</span>
+        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>Loading talent...</span>
       </div>
     )
   }
@@ -373,12 +373,12 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4">
         <Star className="w-10 h-10" style={{ color: '#44403c' }} />
-        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>No talent budget lines yet</span>
-        <p className="text-[10.5px] font-mono text-center max-w-md" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>No talent budget lines yet</span>
+        <p className="text-dense font-mono text-center max-w-md" style={{ color: '#78716c' }}>
           Add talent performers manually. Use the Talent Type column to tag each performer. Agent representation fees are set per row.
         </p>
         <button type="button" onClick={handleAddTalent}
-          className="flex items-center gap-1.5 px-4 py-2 text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1.5 px-4 py-2 text-dense font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> Add Talent
         </button>
@@ -403,23 +403,23 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 px-1 flex-wrap">
         <button type="button" onClick={handleAddTalent}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> Add Talent
         </button>
-        <span className="text-[10.5px] font-mono" style={{ color: '#57534e' }}>Agent fees are per-row</span>
+        <span className="text-dense font-mono" style={{ color: '#57534e' }}>Agent fees are per-row</span>
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-[10.5px] font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-dense font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Margin: {defaultMarginPct}%
           </span>
         )}
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-[10.5px] font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-dense font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Contingency: {defaultContPct}%
           </span>
         )}
         <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2 py-0.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Reset M/C
         </button>
@@ -431,22 +431,22 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
 
           {/* ═══ HEADER ROW ═══ */}
           <div className="flex" style={{ backgroundColor: '#292524', borderBottom: '2px solid #57534e' }}>
-            <div style={{ width: W_NAME }} className="px-3 py-2"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Name</span></div>
-            <div style={{ width: W_TTYPE }} className="px-2 py-2"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Type</span></div>
-            <div style={{ width: W_RATE }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Rate</span></div>
-            <div style={{ width: W_DAYS }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Days</span></div>
-            <div style={{ width: W_SUB }}  className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Subtotal</span></div>
-            <div style={{ width: W_AGPCT }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Agent %</span></div>
-            <div style={{ width: W_MARGIN }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Margin</span></div>
-            <div style={{ width: W_CONT }}  className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Conting.</span></div>
-            <div style={{ width: W_BID }}  className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Bid Total</span></div>
+            <div style={{ width: W_NAME }} className="px-3 py-2"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Name</span></div>
+            <div style={{ width: W_TTYPE }} className="px-2 py-2"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Type</span></div>
+            <div style={{ width: W_RATE }} className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Rate</span></div>
+            <div style={{ width: W_DAYS }} className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Days</span></div>
+            <div style={{ width: W_SUB }}  className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Subtotal</span></div>
+            <div style={{ width: W_AGPCT }} className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Agent %</span></div>
+            <div style={{ width: W_MARGIN }} className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Margin</span></div>
+            <div style={{ width: W_CONT }}  className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Conting.</span></div>
+            <div style={{ width: W_BID }}  className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Bid Total</span></div>
             <div style={{ width: W_DEL }} />
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Variance</span></div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Actual</span></div>
+            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Variance</span></div>
+            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-label font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Actual</span></div>
             {colHeaders.map((label, i) => (
               <div key={i} style={{ width: W_COL, backgroundColor: '#1f1d1a' }} className="px-1 py-2 text-center">
-                <span className="text-[8.5px] font-mono uppercase tracking-widest" style={{ color: '#64748b' }}>{label}</span>
+                <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#64748b' }}>{label}</span>
               </div>
             ))}
           </div>
@@ -475,7 +475,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                   <div style={{ width: W_TTYPE, backgroundColor: '#1c1917' }} className="px-1 py-2 flex items-center">
                     <select value={line.talent_type || 'actor'}
                       onChange={e => updateLine(line.id, { talent_type: e.target.value })}
-                      className="w-full px-1 py-0.5 text-[10px] font-mono rounded-sm cursor-pointer focus:ring-1 focus:ring-orange-500 appearance-none"
+                      className="w-full px-1 py-0.5 text-dense font-mono rounded-sm cursor-pointer focus:ring-1 focus:ring-orange-500 appearance-none"
                       style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#d6d3d1' }}>
                       {TALENT_TYPE_OPTIONS.map(t => (
                         <option key={t.value} value={t.value}>{t.label}</option>
@@ -488,7 +488,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                   <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
                     <InlineCell value={line.days} type="number" placeholder="0" onChange={v => updateLine(line.id, { days: v })} />
                   </div>
-                  <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[11.5px] font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                     <span style={{ color: comp.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{comp.subtotal > 0 ? fmtCurrency(comp.subtotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_AGPCT, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
@@ -500,14 +500,14 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                     const mAmt = (comp.bidTotal || 0) * mPct / 100
                     const cAmt = (comp.bidTotal || 0) * cPct / 100
                     return (<>
-                      <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[10.5px] font-mono text-right flex items-center justify-end">
+                      <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                         <button type="button" onClick={e => handleMcCellClick(e, line.id)}
                           className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
                           style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
                           {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
                         </button>
                       </div>
-                      <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[10.5px] font-mono text-right flex items-center justify-end">
+                      <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                         <button type="button" onClick={e => handleMcCellClick(e, line.id)}
                           className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
                           style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
@@ -516,7 +516,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                       </div>
                     </>)
                   })()}
-                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[11.5px] font-mono text-right font-bold flex items-center justify-end">
+                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right font-bold flex items-center justify-end">
                     <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? fmtCurrency(comp.bidTotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_DEL, backgroundColor: '#1c1917' }} className="flex items-center justify-center opacity-0 group-hover/trow:opacity-100 transition-opacity">
@@ -527,7 +527,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                   {/* Divider */}
                   <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
                   {/* Variance + Actual cells */}
-                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-[11.5px] font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                     <span style={{
                       color: (comp.bidTotal > 0 || comp.actualTotal > 0)
                         ? (comp.variance > 0 ? '#fca5a5' : comp.variance < 0 ? '#86efac' : '#78716c')
@@ -538,7 +538,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                         : '\u2014'}
                     </span>
                   </div>
-                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-[11.5px] font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                     <span style={{ color: comp.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.actualTotal > 0 ? fmtCurrency(comp.actualTotal, currency) : '\u2014'}</span>
                   </div>
                   {/* Period cells — click opens fixed popover */}
@@ -550,7 +550,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                         className="px-1 py-2 flex items-center justify-center">
                         <button type="button"
                           onClick={e => handleCellClick(e, line.id, colIdx)}
-                          className="relative w-full text-[10.5px] font-mono rounded-sm py-0.5 transition-colors hover:bg-stone-700"
+                          className="relative w-full text-dense font-mono rounded-sm py-0.5 transition-colors hover:bg-stone-700"
                           style={{
                             color: cellActual?.value ? '#d6d3d1' : '#44403c',
                             border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
@@ -587,25 +587,25 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
 
           {/* ═══ GRAND TOTAL ═══ */}
           <div className="flex" style={{ borderTop: '2px solid #fb923c' }}>
-            <div style={{ width: W_NAME + W_TTYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-2.5 text-[12.5px] font-mono font-bold uppercase tracking-wider">
+            <div style={{ width: W_NAME + W_TTYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-2.5 text-label font-mono font-bold uppercase tracking-wider">
               <span style={{ color: '#fb923c' }}>Grand Total</span>
             </div>
-            <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11.5px] font-mono text-right font-bold">
+            <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-bold">
               <span style={{ color: '#a8a29e' }}>{fmtCurrency(totals.subtotal, currency)}</span>
             </div>
             <div style={{ width: W_AGPCT, backgroundColor: '#292524' }} />
-            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11.5px] font-mono text-right font-bold">
+            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-bold">
               <span style={{ color: totals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.marginTotal > 0 ? `+${fmtCurrency(totals.marginTotal, currency)}` : '\u2014'}</span>
             </div>
-            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11.5px] font-mono text-right font-bold">
+            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-bold">
               <span style={{ color: totals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.contTotal > 0 ? `+${fmtCurrency(totals.contTotal, currency)}` : '\u2014'}</span>
             </div>
-            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[12.5px] font-mono text-right font-bold">
+            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-bold">
               <span style={{ color: '#d6d3d1' }}>{fmtCurrency(totals.bid, currency)}</span>
             </div>
             <div style={{ width: W_DEL, backgroundColor: '#292524' }} />
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-[12.5px] font-mono text-right font-bold">
+            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono text-right font-bold">
               <span style={{
                 color: totals.variance > 0 ? '#fca5a5' : totals.variance < 0 ? '#86efac' : '#a8a29e',
               }}>
@@ -614,7 +614,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                   : '\u2014'}
               </span>
             </div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-[12.5px] font-mono text-right font-bold">
+            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono text-right font-bold">
               <span style={{ color: '#d6d3d1' }}>{totals.actual > 0 ? fmtCurrency(totals.actual, currency) : '\u2014'}</span>
             </div>
             <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
@@ -674,15 +674,15 @@ function TalentDetailField({ label, value, placeholder, onChange, wide }) {
 
   return (
     <div className={`flex flex-col gap-0.5 ${wide ? 'flex-1 min-w-[200px]' : ''}`} style={{ width: wide ? undefined : 150 }}>
-      <span className="text-[8.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>{label}</span>
+      <span className="text-label font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>{label}</span>
       {editing ? (
         <input ref={ref} type="text" value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false) }}
-          className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="px-1.5 py-0.5 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#d6d3d1' }} />
       ) : (
         <button type="button" onClick={start}
-          className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm text-left truncate transition-colors hover:bg-stone-800"
+          className="px-1.5 py-0.5 text-dense font-mono rounded-sm text-left truncate transition-colors hover:bg-stone-800"
           style={{ color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
           {value || placeholder || '\u2014'}
         </button>
@@ -701,8 +701,8 @@ function SummaryTile({ label, value, tone = 'neutral' }) {
   return (
     <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-[11.5px] font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-label font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
+      <span className="text-h1 font-mono font-bold" style={{ color: colors.text }}>{value}</span>
     </div>
   )
 }

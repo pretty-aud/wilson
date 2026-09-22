@@ -187,8 +187,8 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
           }}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-bold text-orange-400 uppercase">Preview</span>
-            <span className="text-xs text-stone-500">#{previewItem.pageNum} • {previewItem.layout}</span>
+            <span className="text-label font-bold text-orange-400 uppercase">Preview</span>
+            <span className="text-caption text-stone-500">#{previewItem.pageNum} • {previewItem.layout}</span>
           </div>
           <div className="overflow-hidden rounded border-2 border-stone-700" style={{ width: '714px', height: '402px' }}>
             <div style={{ width: '714px', height: '402px' }}>

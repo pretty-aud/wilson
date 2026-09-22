@@ -23,7 +23,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
   if (!list.length) {
     return (
       <button type="button" onClick={open} title={canWrite ? 'Assign takes from the bins' : 'No takes assigned'}
-        className="inline-flex items-center gap-1 px-1.5 rounded-sm text-[9px] font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors"
+        className="inline-flex items-center gap-1 px-1.5 rounded-sm text-dense font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors"
         style={{ height, color: C.dimmer, border: `1px dashed ${C.line}` }}>
         {canWrite ? <><Plus style={{ width: 10, height: 10 }} /> takes</> : '—'}
       </button>
@@ -42,9 +42,9 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
         </span>
       ))}
       {extra > 0 && (
-        <span className="text-[9px] font-mono px-1 rounded-sm" style={{ color: C.muted, backgroundColor: C.panel, border: `1px solid ${C.line}` }}>+{extra}</span>
+        <span className="text-dense font-mono px-1 rounded-sm" style={{ color: C.muted, backgroundColor: C.panel, border: `1px solid ${C.line}` }}>+{extra}</span>
       )}
-      <span className="text-[9.5px] font-mono tabular-nums ml-0.5" style={{ color: C.muted }}>{list.length}</span>
+      <span className="text-dense font-mono tabular-nums ml-0.5" style={{ color: C.muted }}>{list.length}</span>
     </button>
   )
 }

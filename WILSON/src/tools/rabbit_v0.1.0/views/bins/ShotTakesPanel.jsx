@@ -27,14 +27,14 @@ function NoteInput({ take, canWrite, onUpdate }) {
   if (key !== cur) { setKey(cur); setDraft(take.notes || '') }
   return (
     <TextInput value={draft} onChange={setDraft} disabled={!canWrite} placeholder="Why this take…"
-      className="!py-0.5 !text-[10.5px]"
+      className="!py-0.5 !text-dense"
       onCommit={() => { const v = draft.trim(); if (v !== (take.notes || '')) onUpdate(take.id, { notes: v }) }} />
   )
 }
 
 function RoleLegend() {
   return (
-    <div className="flex items-start gap-2 text-[9.5px] font-mono" style={{ color: C.dimmer }}>
+    <div className="flex items-start gap-2 text-dense font-mono" style={{ color: C.dimmer }}>
       <Info className="w-3 h-3 flex-shrink-0 mt-px" />
       <div className="grid gap-x-4 gap-y-0.5" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
         {TAKE_ROLES.map(r => (
@@ -64,7 +64,7 @@ export default function ShotTakesPanel({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10.5px] font-mono" style={{ color: C.muted }}>
+        <span className="text-dense font-mono" style={{ color: C.muted }}>
           {list.length === 0 ? 'No takes assigned' : `${list.length} take${list.length === 1 ? '' : 's'}`}
           {summary.parts > 0 && <span style={{ color: TAKE_ROLE_META.part.color }}> · {summary.parts} part{summary.parts === 1 ? '' : 's'}</span>}
           {summary.alts > 0 && <span style={{ color: C.dim }}> · {summary.alts} alt{summary.alts === 1 ? '' : 's'}</span>}
@@ -81,7 +81,7 @@ export default function ShotTakesPanel({
       </div>
 
       {list.length === 0 ? (
-        <div className="px-3 py-4 text-center text-[10.5px] font-mono rounded-sm leading-relaxed" style={{ color: C.dim, backgroundColor: C.deep, border: `1px dashed ${C.line}` }}>
+        <div className="px-3 py-4 text-center text-dense font-mono rounded-sm leading-relaxed" style={{ color: C.dim, backgroundColor: C.deep, border: `1px dashed ${C.line}` }}>
           Assign the bin files this shot is cut from. The first becomes the primary take; a shot rebuilt from several takes lists them in order as parts.
         </div>
       ) : (
@@ -92,15 +92,15 @@ export default function ShotTakesPanel({
             return (
               <div key={take.id} className="flex items-start gap-2.5 px-2.5 py-2"
                 style={{ backgroundColor: isPrimary ? 'rgba(234,88,12,0.06)' : C.bg, borderBottom: i < list.length - 1 ? `1px solid ${C.faint}` : 'none', borderLeft: `3px solid ${meta.color}` }}>
-                <span className="text-[10px] font-mono tabular-nums pt-2 w-4 text-right flex-shrink-0" style={{ color: C.dimmer }}>{i + 1}</span>
+                <span className="text-dense font-mono tabular-nums pt-2 w-4 text-right flex-shrink-0" style={{ color: C.dimmer }}>{i + 1}</span>
                 <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={72} height={41} />
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="truncate text-[11.5px] font-mono" style={{ color: C.bright }} title={file.display_name || file.original_name}>{file.display_name || file.original_name}</span>
+                    <span className="truncate text-dense font-mono" style={{ color: C.bright }} title={file.display_name || file.original_name}>{file.display_name || file.original_name}</span>
                     {isPrimary && <Star className="w-3 h-3 flex-shrink-0" style={{ color: C.accentText, fill: C.accentText }} />}
-                    {file.online === false && <span className="text-[9px] font-mono uppercase" style={{ color: C.amber }}>offline</span>}
+                    {file.online === false && <span className="text-label font-mono uppercase" style={{ color: C.amber }}>offline</span>}
                   </div>
-                  <div className="truncate text-[9.5px] font-mono" style={{ color: C.dim }}>
+                  <div className="truncate text-dense font-mono" style={{ color: C.dim }}>
                     {[slateLine(file), techLine(file), binPathFor?.(file.bin_id)].filter(Boolean).join(' · ') || file.original_name}
                   </div>
                   <NoteInput take={take} canWrite={canWrite} onUpdate={onUpdate} />
@@ -109,7 +109,7 @@ export default function ShotTakesPanel({
                   {/* A shot's only take is always its primary (the server keeps it so); the
                       choice is offered once there is a second take (review round 2). */}
                   <span title={list.length === 1 ? 'A shot’s only take is always its primary. Add a second take to choose roles.' : undefined}>
-                    <Select value={take.role} disabled={!canWrite || list.length === 1} className="!w-24 !py-0.5 !text-[10px]"
+                    <Select value={take.role} disabled={!canWrite || list.length === 1} className="!w-24 !py-0.5 !text-dense"
                       options={TAKE_ROLES.map(r => ({ value: r, label: TAKE_ROLE_META[r].label }))}
                       onChange={v => v && v !== take.role && onUpdate(take.id, { role: v })} />
                   </span>

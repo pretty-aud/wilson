@@ -74,7 +74,7 @@ function fmt(iso) {
 function StatusChip({ status }) {
   const st = STATUS_STYLE[status] ?? STATUS_STYLE.open
   return (
-    <span className={`text-[10px] font-bold uppercase tracking-wider ${st.color} flex items-center gap-1.5 shrink-0`}>
+    <span className={`text-label font-bold uppercase tracking-wider ${st.color} flex items-center gap-1.5 shrink-0`}>
       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: st.dot }} />
       {st.label}
     </span>
@@ -392,7 +392,7 @@ export default function RequestsView({
   }, [noms, userId, isApprover])
 
   const sectionHeader = (icon, text, count) => (
-    <h3 className="text-orange-400 font-bold text-[11px] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+    <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide mb-2 flex items-center gap-1.5">
       {icon} {text}{count != null ? <span className="text-stone-500">· {count}</span> : null}
     </h3>
   )
@@ -404,11 +404,11 @@ export default function RequestsView({
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-white font-bold text-lg flex items-center gap-2">
+            <h2 className="text-white font-bold text-h1 flex items-center gap-2">
               <GitPullRequestArrow className="w-5 h-5 text-orange-400" />
               {isAdmin || isManager ? 'Company library — requests' : 'My change requests'}
             </h2>
-            <p className="text-stone-500 text-[11px] mt-0.5">
+            <p className="text-stone-500 text-caption mt-0.5">
               {isAdmin
                 ? 'Courses put forward to become the company standard, and suggested changes to the standards you already have.'
                 : isManager
@@ -422,7 +422,7 @@ export default function RequestsView({
           <button
             onClick={refreshAll}
             disabled={loading}
-            className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+            className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50 shrink-0"
           >
             {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
             Refresh
@@ -432,7 +432,7 @@ export default function RequestsView({
         {error && (
           <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-red-300 text-[11px] flex-1">{error}</p>
+            <p className="text-red-300 text-dense flex-1">{error}</p>
             <button onClick={() => setError(null)} aria-label="Dismiss">
               <X className="w-3 h-3 text-red-400" />
             </button>
@@ -442,7 +442,7 @@ export default function RequestsView({
         {applied && !error && (
           <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-start gap-2">
             <Check className="w-4 h-4 text-green-400 shrink-0" />
-            <p className="text-green-300 text-[11px] flex-1">
+            <p className="text-green-300 text-dense flex-1">
               Applied to “{applied.name}”
               {applied.updates != null
                 ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added`
@@ -458,7 +458,7 @@ export default function RequestsView({
         {nomError && (
           <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-red-300 text-[11px] flex-1">{nomError}</p>
+            <p className="text-red-300 text-dense flex-1">{nomError}</p>
             <button onClick={() => setNomError(null)} aria-label="Dismiss">
               <X className="w-3 h-3 text-red-400" />
             </button>
@@ -468,7 +468,7 @@ export default function RequestsView({
         {promoted && !nomError && (
           <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-start gap-2">
             <ShieldCheck className="w-4 h-4 text-green-400 shrink-0" />
-            <p className="text-green-300 text-[11px] flex-1">
+            <p className="text-green-300 text-dense flex-1">
               “{promoted.name}” is now the company standard, live for everyone.
               {promoted.superseded
                 ? ` “${promoted.superseded}” stood down and is now shared with the company — nothing was deleted.`
@@ -481,7 +481,7 @@ export default function RequestsView({
         )}
 
         {loading && rows.length === 0 ? (
-          <p className="text-stone-500 text-[11px] flex items-center gap-1.5 py-8 justify-center">
+          <p className="text-stone-500 text-caption flex items-center gap-1.5 py-8 justify-center">
             <Loader2 className="w-3 h-3 animate-spin" /> Loading…
           </p>
         ) : (
@@ -491,7 +491,7 @@ export default function RequestsView({
               <section>
                 {sectionHeader(null, 'For your review', toReview.length)}
                 {toReview.length === 0 ? (
-                  <p className="text-stone-600 text-[11px] italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
+                  <p className="text-stone-600 text-caption italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
                     Nothing is waiting on you. When someone suggests a change to a company
                     standard course, it lands here.
                   </p>
@@ -507,10 +507,10 @@ export default function RequestsView({
                             className="w-full text-left px-3 py-2 flex items-start gap-2"
                           >
                             <span className="min-w-0 flex-1">
-                              <span className="block text-[12px] font-bold text-stone-200">
+                              <span className="block text-dense font-bold text-stone-200">
                                 {r.target_name ?? 'A company standard course'}
                               </span>
-                              <span className="block text-[11px] font-mono truncate text-stone-500">
+                              <span className="block text-dense font-mono truncate text-stone-500">
                                 {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                                 {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                               </span>
@@ -520,13 +520,13 @@ export default function RequestsView({
 
                           {isOpen && (
                             <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                              <p className="text-[10px] font-bold uppercase tracking-wider mb-1 text-stone-500">
+                              <p className="text-label font-bold uppercase tracking-wider mb-1 text-stone-500">
                                 What they changed, and why
                               </p>
-                              <p className="text-[12px] whitespace-pre-wrap mb-3 text-stone-300">{r.summary}</p>
+                              <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{r.summary}</p>
 
                               {r.source_readable ? (
-                                <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
                                   <Eye className="w-3 h-3 mt-0.5 shrink-0" />
                                   <span>
                                     Submitting shared their copy with reviewers while this request is open.{' '}
@@ -540,7 +540,7 @@ export default function RequestsView({
                                   </span>
                                 </p>
                               ) : (
-                                <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
                                   <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
                                   <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                                 </p>
@@ -548,7 +548,7 @@ export default function RequestsView({
 
                               {decide?.id === r.id && decide.action === 'approve' ? (
                                 <div className="bg-stone-800 border border-stone-600 rounded-sm p-2.5">
-                                  <p className="text-[11px] mb-2 text-stone-300">
+                                  <p className="text-dense mb-2 text-stone-300">
                                     {diff?.loading ? (
                                       <span className="inline-flex items-center gap-1.5">
                                         <Loader2 className="w-3 h-3 animate-spin" /> Comparing their course with the standard…
@@ -569,14 +569,14 @@ export default function RequestsView({
                                     <button
                                       onClick={() => { setDecide(null); setDiff(null) }}
                                       disabled={busy}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={() => approve(r)}
                                       disabled={busy || diff?.loading}
-                                      className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
                                     >
                                       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
                                       Archive, then apply
@@ -585,7 +585,7 @@ export default function RequestsView({
                                 </div>
                               ) : decide?.id === r.id && decide.action === 'decline' ? (
                                 <div className="bg-stone-800 border border-stone-600 rounded-sm p-2.5">
-                                  <p className="text-[11px] mb-2 text-stone-300">
+                                  <p className="text-dense mb-2 text-stone-300">
                                     Your note goes back to {r.proposer_label ?? 'the proposer'}. They can
                                     make the changes and resubmit, or accept the decision.
                                   </p>
@@ -593,27 +593,27 @@ export default function RequestsView({
                                     value={note}
                                     onChange={(e) => setNote(e.target.value)}
                                     placeholder="What should change before you would approve this?"
-                                    className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 placeholder-stone-600"
+                                    className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense font-mono resize-none focus:border-orange-500 placeholder-stone-600"
                                   />
                                   <div className="flex gap-2 mt-2">
                                     <button
                                       onClick={() => { setDecide(null); setNote('') }}
                                       disabled={busy}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={() => decline(r)}
                                       disabled={busy || !note.trim()}
-                                      className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                      className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
                                     >
                                       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                                       Send it back
                                     </button>
                                   </div>
                                   {!note.trim() && (
-                                    <p className="text-[10px] mt-1 text-stone-500">
+                                    <p className="text-caption mt-1 text-stone-500">
                                       A note is required — the proposer needs to know what to change.
                                     </p>
                                   )}
@@ -624,13 +624,13 @@ export default function RequestsView({
                                     onClick={() => { setDecide({ id: r.id, action: 'approve' }); setNote(''); loadDiff(r) }}
                                     disabled={!r.source_readable}
                                     title={r.source_readable ? undefined : 'Their course no longer exists — there is nothing to apply'}
-                                    className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     <Check className="w-3 h-3" /> Approve
                                   </button>
                                   <button
                                     onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}
-                                    className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                    className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5"
                                   >
                                     <X className="w-3 h-3" /> Decline
                                   </button>
@@ -661,10 +661,10 @@ export default function RequestsView({
                           className="w-full text-left px-3 py-2 flex items-start gap-2"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[12px] font-bold text-stone-200">
+                            <span className="block text-dense font-bold text-stone-200">
                               {r.target_name ?? 'A company standard course'}
                             </span>
-                            <span className="block text-[11px] font-mono truncate text-stone-500">
+                            <span className="block text-dense font-mono truncate text-stone-500">
                               {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                               {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                             </span>
@@ -673,11 +673,11 @@ export default function RequestsView({
                         </button>
                         {isOpen && (
                           <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                            <p className="text-[10px] font-bold uppercase tracking-wider mb-1 text-stone-500">
+                            <p className="text-label font-bold uppercase tracking-wider mb-1 text-stone-500">
                               What they changed, and why
                             </p>
-                            <p className="text-[12px] whitespace-pre-wrap mb-2 text-stone-300">{r.summary}</p>
-                            <p className="text-[11px] font-mono flex items-center gap-1.5 text-stone-600">
+                            <p className="text-dense whitespace-pre-wrap mb-2 text-stone-300">{r.summary}</p>
+                            <p className="text-caption font-mono flex items-center gap-1.5 text-stone-600">
                               <Lock className="w-3 h-3 shrink-0" />
                               An admin or the course&apos;s owner decides this one.
                             </p>
@@ -702,7 +702,7 @@ export default function RequestsView({
                   isApprover ? nomToDecide.length : nomMine.length)}
 
                 {isApprover && nomToDecide.length === 0 && nomMine.length === 0 && (
-                  <p className="text-stone-600 text-[11px] italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
+                  <p className="text-stone-600 text-caption italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
                     Nothing is waiting on you. When someone puts a course forward to become
                     the company standard, it lands here.
                   </p>
@@ -726,13 +726,13 @@ export default function RequestsView({
                           className="w-full text-left px-3 py-2 flex items-start gap-2"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[12px] font-bold text-stone-200">
+                            <span className="block text-dense font-bold text-stone-200">
                               {n.course_name ?? 'A course'}
                               {(n.revision ?? 1) > 1 && (
                                 <span className="text-stone-500 font-normal"> · round {n.revision}</span>
                               )}
                             </span>
-                            <span className="block text-[11px] font-mono truncate text-stone-500">
+                            <span className="block text-dense font-mono truncate text-stone-500">
                               {isMine ? 'put forward by you' : (n.proposer_label ?? 'someone')} · {fmt(n.created_at)}
                             </span>
                           </span>
@@ -741,13 +741,13 @@ export default function RequestsView({
 
                         {isOpen && (
                           <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                            <p className="text-[10px] font-bold uppercase tracking-wider mb-1 text-stone-500">
+                            <p className="text-label font-bold uppercase tracking-wider mb-1 text-stone-500">
                               Why it should be the standard
                             </p>
-                            <p className="text-[12px] whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
+                            <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
 
                             {isMine ? (
-                              <p className="text-[11px] font-mono flex items-start gap-1.5 text-stone-500">
+                              <p className="text-caption font-mono flex items-start gap-1.5 text-stone-500">
                                 <Lock className="w-3 h-3 mt-0.5 shrink-0" />
                                 <span>
                                   {n.status === 'changes_requested'
@@ -762,7 +762,7 @@ export default function RequestsView({
                             ) : (
                               <>
                                 {n.course_readable ? (
-                                  <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                  <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
                                     <Eye className="w-3 h-3 mt-0.5 shrink-0" />
                                     <span>
                                       Putting it forward opened their course to reviewers while this is
@@ -777,7 +777,7 @@ export default function RequestsView({
                                     </span>
                                   </p>
                                 ) : (
-                                  <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                  <p className="text-caption font-mono mb-3 flex items-start gap-1.5 text-stone-500">
                                     <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
                                     <span>Their course is not readable right now — refresh to see its current state.</span>
                                   </p>
@@ -785,7 +785,7 @@ export default function RequestsView({
 
                                 {canDecide && nomDecide?.id === n.id && nomDecide.action === 'approve' ? (
                                   <div className="bg-stone-800 border border-stone-600 rounded-sm p-2.5">
-                                    <p className="text-[11px] mb-2 text-stone-300">
+                                    <p className="text-dense mb-2 text-stone-300">
                                       This makes “{n.course_name}” the company standard, live for
                                       everyone immediately — anyone starting this topic will be
                                       offered it instead of generating their own. Any course
@@ -796,14 +796,14 @@ export default function RequestsView({
                                       <button
                                         onClick={() => setNomDecide(null)}
                                         disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
                                       >
                                         Cancel
                                       </button>
                                       <button
                                         onClick={() => approveNom(n)}
                                         disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
                                       >
                                         {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
                                         Make it the standard
@@ -812,7 +812,7 @@ export default function RequestsView({
                                   </div>
                                 ) : canDecide && nomDecide?.id === n.id && nomDecide.action === 'decline' ? (
                                   <div className="bg-stone-800 border border-stone-600 rounded-sm p-2.5">
-                                    <p className="text-[11px] mb-2 text-stone-300">
+                                    <p className="text-dense mb-2 text-stone-300">
                                       Your note goes back to {n.proposer_label ?? 'the proposer'}. They can
                                       improve the course and resubmit, or accept the decision.
                                     </p>
@@ -820,27 +820,27 @@ export default function RequestsView({
                                       value={nomNote}
                                       onChange={(e) => setNomNote(e.target.value)}
                                       placeholder="What would have to change before this could be the company's official course?"
-                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 placeholder-stone-600"
+                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense font-mono resize-none focus:border-orange-500 placeholder-stone-600"
                                     />
                                     <div className="flex gap-2 mt-2">
                                       <button
                                         onClick={() => { setNomDecide(null); setNomNote('') }}
                                         disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider disabled:opacity-50"
                                       >
                                         Cancel
                                       </button>
                                       <button
                                         onClick={() => declineNom(n)}
                                         disabled={nomBusy || !nomNote.trim()}
-                                        className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                        className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
                                       >
                                         {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                                         Send it back
                                       </button>
                                     </div>
                                     {!nomNote.trim() && (
-                                      <p className="text-[10px] mt-1 text-stone-500">
+                                      <p className="text-caption mt-1 text-stone-500">
                                         A note is required — the proposer needs to know what to change.
                                       </p>
                                     )}
@@ -849,19 +849,19 @@ export default function RequestsView({
                                   <div className="flex gap-2">
                                     <button
                                       onClick={() => { setNomDecide({ id: n.id, action: 'approve' }); setNomNote('') }}
-                                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5"
                                     >
                                       <Check className="w-3 h-3" /> Approve
                                     </button>
                                     <button
                                       onClick={() => { setNomDecide({ id: n.id, action: 'decline' }); setNomNote('') }}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5"
                                     >
                                       <X className="w-3 h-3" /> Decline
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="text-[11px] font-mono flex items-center gap-1.5 text-stone-600">
+                                  <p className="text-caption font-mono flex items-center gap-1.5 text-stone-600">
                                     <Lock className="w-3 h-3 shrink-0" />
                                     {n.status === 'changes_requested'
                                       ? 'Sent back to the proposer — waiting on them.'
@@ -882,11 +882,11 @@ export default function RequestsView({
                     {nomDecided.map(n => (
                       <li key={n.id} className="bg-stone-900/40 border border-stone-800 rounded-sm px-3 py-2 flex items-start gap-2">
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[11px] font-bold text-stone-400">
+                          <span className="block text-dense font-bold text-stone-400">
                             {n.course_name ?? 'A course'}
                             <span className="font-normal text-stone-600"> · {n.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-[10px] font-mono text-stone-600">
+                          <span className="block text-caption font-mono text-stone-600">
                             {fmt(n.reviewed_at ?? n.updated_at)}
                             {n.status === 'approved' && n.superseded_name
                               ? ` — replaced “${n.superseded_name}”`
@@ -905,7 +905,7 @@ export default function RequestsView({
             <section>
               {sectionHeader(null, 'My requests', mine.length)}
               {mine.length === 0 ? (
-                <p className="text-stone-600 text-[11px] italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
+                <p className="text-stone-600 text-caption italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
                   You haven&apos;t suggested any changes yet. Fork a company standard course,
                   make it better, then use “Suggest a change” from the course row.
                 </p>
@@ -922,33 +922,33 @@ export default function RequestsView({
                       >
                         <div className="px-3 py-2 flex items-start gap-2">
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[12px] font-bold text-stone-200">
+                            <span className="block text-dense font-bold text-stone-200">
                               {r.target_name ?? 'A company standard course'}
                               {(r.revision ?? 1) > 1 && (
                                 <span className="text-stone-500 font-normal"> · round {r.revision}</span>
                               )}
                             </span>
-                            <span className="block text-[11px] font-mono truncate text-stone-500">
+                            <span className="block text-dense font-mono truncate text-stone-500">
                               sent {fmt(r.created_at)}
                             </span>
                           </span>
                           <StatusChip status={r.status} />
                         </div>
                         <div className="px-3 pb-3">
-                          <p className="text-[11px] whitespace-pre-wrap text-stone-400 mb-2">{r.summary}</p>
+                          <p className="text-dense whitespace-pre-wrap text-stone-400 mb-2">{r.summary}</p>
 
                           {needsMe && (
                             <div className="bg-stone-950 border border-orange-700/40 rounded-sm p-2.5 mb-2">
-                              <p className="text-orange-400 text-[10px] font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                              <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
                                 <MessageSquareWarning className="w-3.5 h-3.5" />
                                 {r.reviewer_label ?? 'An admin'} asked for changes
                               </p>
-                              <p className="text-stone-200 text-[12px] whitespace-pre-wrap">“{r.review_note}”</p>
+                              <p className="text-stone-200 text-dense whitespace-pre-wrap">“{r.review_note}”</p>
                             </div>
                           )}
 
                           {!needsMe && r.status !== 'open' && (
-                            <p className="text-[11px] font-mono flex items-center gap-1.5 text-stone-500">
+                            <p className="text-caption font-mono flex items-center gap-1.5 text-stone-500">
                               <Lock className="w-3 h-3 shrink-0" />
                               {r.status === 'withdrawn' ? (
                                 // A withdrawal is the PROPOSER's act — the server pins the
@@ -969,7 +969,7 @@ export default function RequestsView({
                               {r.source_course_id ? (
                                 <button
                                   onClick={() => openMyDialog(r)}
-                                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5 ${needsMe
+                                  className={`px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5 ${needsMe
                                     ? 'bg-orange-600 text-white border-2 border-orange-700 hover:bg-orange-700'
                                     : 'bg-stone-700 text-stone-300 border-2 border-stone-600 hover:bg-stone-600'}`}
                                 >
@@ -980,7 +980,7 @@ export default function RequestsView({
                                 <button
                                   onClick={() => settleWithoutFork(r, 'rejected')}
                                   disabled={busy}
-                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
                                   title="Your copy of the course no longer exists, so resubmitting is not possible"
                                 >
                                   {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
@@ -990,7 +990,7 @@ export default function RequestsView({
                                 <button
                                   onClick={() => settleWithoutFork(r, 'withdrawn')}
                                   disabled={busy}
-                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
                                   title="Your copy of the course no longer exists, so editing or resubmitting is not possible"
                                 >
                                   {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
@@ -1013,7 +1013,7 @@ export default function RequestsView({
                 <button
                   type="button"
                   onClick={() => setShowDecided(v => !v)}
-                  className="text-stone-500 text-[11px] font-bold uppercase tracking-wide hover:text-stone-300 flex items-center gap-1.5"
+                  className="text-stone-500 text-dense font-bold uppercase tracking-wide hover:text-stone-300 flex items-center gap-1.5"
                 >
                   Decided · {decided.length} {showDecided ? '▾' : '▸'}
                 </button>
@@ -1022,11 +1022,11 @@ export default function RequestsView({
                     {decided.map(r => (
                       <li key={r.id} className="bg-stone-900/40 border border-stone-800 rounded-sm px-3 py-2 flex items-start gap-2">
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[11px] font-bold text-stone-400">
+                          <span className="block text-dense font-bold text-stone-400">
                             {r.target_name ?? 'A company standard course'}
                             <span className="font-normal text-stone-600"> · {r.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-[10px] font-mono text-stone-600">
+                          <span className="block text-caption font-mono text-stone-600">
                             {fmt(r.reviewed_at ?? r.updated_at)}
                             {r.review_note ? ` — “${r.review_note}”` : ''}
                           </span>

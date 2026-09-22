@@ -1,0 +1,45 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wilson-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5203
+    },
+    {
+      "name": "wilson-operator-console",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:admin"
+      ],
+      "port": 5203
+    },
+    {
+      "_comment": "Serves the built bundle from dist/. Use this rather than wilson-dev when measuring network behaviour: `vite` dev serves every module unbundled, which fills the browser's 250-entry resource-timing buffer before the app has finished booting and makes any later request invisible. Run `npm run build` first.",
+      "name": "wilson-preview-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview"
+      ],
+      "port": 4173
+    },
+    {
+      "name": "t0-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/elated-jennings-4c5d33/WILSON",
+        "--port",
+        "5241",
+        "--strictPort"
+      ],
+      "port": 5241
+    }
+  ]
+}

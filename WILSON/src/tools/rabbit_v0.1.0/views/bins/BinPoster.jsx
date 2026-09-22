@@ -46,7 +46,7 @@ export default function BinPoster({ row, src, width = 32, height = null, radius 
       {offline && (
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-[2px]" style={{ backgroundColor: 'rgba(12,10,9,0.8)' }}>
           <Unplug style={{ width: 10, height: 10, color: C.amber }} />
-          {width >= 96 && <span className="text-[8.5px] font-mono uppercase tracking-wider" style={{ color: C.amber }}>offline</span>}
+          {width >= 96 && <span className="text-label font-mono uppercase tracking-wider" style={{ color: C.amber }}>offline</span>}
         </div>
       )}
     </div>

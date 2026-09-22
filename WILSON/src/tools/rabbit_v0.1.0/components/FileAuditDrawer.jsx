@@ -80,10 +80,10 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
           <FileClock className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
           <div className="flex-1 min-w-0">
-            <div className="text-[12.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+            <div className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
               File activity
             </div>
-            <div className="text-[10.5px] font-mono truncate" style={{ color: '#78716c' }}>
+            <div className="text-dense font-mono truncate" style={{ color: '#78716c' }}>
               {fileName || fileId}
             </div>
           </div>
@@ -100,21 +100,21 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
           {!supported ? (
-            <div className="text-[11.5px] font-mono px-3 py-4 rounded"
+            <div className="text-dense font-mono px-3 py-4 rounded"
               style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
               File activity is not recorded by the current adapter ({adapterMode}).
             </div>
           ) : error ? (
-            <div className="text-[11.5px] font-mono px-3 py-4 rounded"
+            <div className="text-dense font-mono px-3 py-4 rounded"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               Could not load file activity: {error}
             </div>
           ) : loading && events.length === 0 ? (
-            <div className="text-[11.5px] font-mono px-3 py-4" style={{ color: '#78716c' }}>
+            <div className="text-dense font-mono px-3 py-4" style={{ color: '#78716c' }}>
               Loading…
             </div>
           ) : events.length === 0 ? (
-            <div className="text-[11.5px] font-mono px-3 py-4" style={{ color: '#78716c' }}>
+            <div className="text-dense font-mono px-3 py-4" style={{ color: '#78716c' }}>
               No recorded activity for this file.
             </div>
           ) : (
@@ -123,7 +123,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 flex-shrink-0 text-[10px] font-mono"
+        <div className="px-4 py-2 flex-shrink-0 text-dense font-mono"
           style={{ color: '#57534e', borderTop: '1px solid #44403c' }}>
           {adapterMode === 'supabase'
             ? 'Recorded server-side for every upload, move, relink, trash, restore and purge.'
@@ -142,17 +142,17 @@ function FileEventCard({ evt }) {
     <div className="rounded px-3 py-2.5 flex flex-col gap-1.5"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono uppercase tracking-wider font-bold"
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-label font-mono uppercase tracking-wider font-bold"
           style={{ color: meta.color, backgroundColor: `${meta.color}1a`, border: `1px solid ${meta.color}40` }}>
           <Icon className="w-3 h-3" /> {meta.label}
         </span>
-        <span className="text-[10.5px] font-mono flex-1 truncate" style={{ color: '#a8a29e' }}>{actor}</span>
-        <span className="text-[10px] font-mono flex-shrink-0" style={{ color: '#78716c' }}>
+        <span className="text-dense font-mono flex-1 truncate" style={{ color: '#a8a29e' }}>{actor}</span>
+        <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
           {formatHistoryTimestamp(evt.created_at)}
         </span>
       </div>
       {(evt.old_path || evt.new_path) && (
-        <div className="flex flex-col gap-0.5 text-[10px] font-mono" style={{ color: '#78716c' }}>
+        <div className="flex flex-col gap-0.5 text-dense font-mono" style={{ color: '#78716c' }}>
           {evt.old_path && (
             <span className="truncate" title={evt.old_path}>
               {evt.new_path ? <s style={{ opacity: 0.7 }}>{evt.old_path}</s> : evt.old_path}

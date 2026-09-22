@@ -37,31 +37,31 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
         </Btn>
       </>}>
       {n === 0 ? (
-        <div className="text-[11px] font-mono leading-relaxed" style={{ color: C.text }}>The bin is empty. Nothing on disk changes.</div>
+        <div className="text-dense font-mono leading-relaxed" style={{ color: C.text }}>The bin is empty. Nothing on disk changes.</div>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="text-[11px] font-mono leading-relaxed" style={{ color: C.text }}>
+          <div className="text-dense font-mono leading-relaxed" style={{ color: C.text }}>
             This bin holds <span style={{ color: C.bright }}>{n} file{n === 1 ? '' : 's'}</span>. Files are references; the media on disk is never touched.
           </div>
           <div className="rounded-sm max-h-40 overflow-y-auto" style={{ border: `1px solid ${C.line}`, backgroundColor: C.deep }}>
             {inside.slice(0, 200).map(f => (
-              <div key={f.id} className="px-2 py-1 text-[10.5px] font-mono truncate" style={{ color: C.muted, borderBottom: `1px solid ${C.faint}` }}>
+              <div key={f.id} className="px-2 py-1 text-dense font-mono truncate" style={{ color: C.muted, borderBottom: `1px solid ${C.faint}` }}>
                 {f.display_name || f.original_name}
                 <span style={{ color: C.dimmer }}> · {binPathLabel(bins, f.bin_id)}</span>
               </div>
             ))}
-            {inside.length > 200 && <div className="px-2 py-1 text-[10px] font-mono" style={{ color: C.dimmer }}>…and {inside.length - 200} more</div>}
+            {inside.length > 200 && <div className="px-2 py-1 text-dense font-mono" style={{ color: C.dimmer }}>…and {inside.length - 200} more</div>}
           </div>
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="radio" name="delmode" checked={mode === 'move'} onChange={() => setMode('move')} disabled={!targets.length} className="mt-0.5 accent-orange-600" />
             <span className="flex-1 flex flex-col gap-1">
-              <span className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: targets.length ? C.text : C.dimmer }}><FolderInput className="w-3 h-3" /> Move the files to another bin{targets.length ? '' : ' (no other bin exists)'}</span>
+              <span className="text-dense font-mono flex items-center gap-1.5" style={{ color: targets.length ? C.text : C.dimmer }}><FolderInput className="w-3 h-3" /> Move the files to another bin{targets.length ? '' : ' (no other bin exists)'}</span>
               {mode === 'move' && targets.length > 0 && <Select value={target} onChange={setTarget} options={targets} />}
             </span>
           </label>
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="radio" name="delmode" checked={mode === 'remove'} onChange={() => setMode('remove')} className="mt-0.5 accent-orange-600" />
-            <span className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: C.text }}><Trash2 className="w-3 h-3" /> Remove the files from the project (undo restores them)</span>
+            <span className="text-dense font-mono flex items-center gap-1.5" style={{ color: C.text }}><Trash2 className="w-3 h-3" /> Remove the files from the project (undo restores them)</span>
           </label>
         </div>
       )}

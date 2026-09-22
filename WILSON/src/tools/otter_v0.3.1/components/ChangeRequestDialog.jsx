@@ -188,8 +188,8 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
       >
         <div className="bg-stone-700 px-4 py-2.5 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
           <div className="min-w-0">
-            <h3 className="text-orange-400 font-bold text-sm uppercase tracking-wide">Suggest a change</h3>
-            <p className="text-stone-400 text-[11px] truncate">
+            <h3 className="text-orange-400 font-bold text-label uppercase tracking-wide">Suggest a change</h3>
+            <p className="text-stone-400 text-dense truncate">
               to the company standard{standardName ? `: ${standardName}` : ''}
             </p>
           </div>
@@ -201,7 +201,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {!targetId && (
             <div className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-              <p className="text-stone-400 text-[11px]">
+              <p className="text-stone-400 text-dense">
                 This course wasn&apos;t copied from a company standard, so there is nothing to
                 suggest a change to. Start from a company standard course and you can send your
                 improvements back.
@@ -212,7 +212,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
           {targetId && (
             <>
               {loading ? (
-                <p className="text-stone-500 text-[11px] flex items-center gap-1.5">
+                <p className="text-stone-500 text-caption flex items-center gap-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" /> Loading…
                 </p>
               ) : (
@@ -220,15 +220,15 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   {/* The admin answered: their note, then two ways forward. */}
                   {isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/60 rounded-sm p-3">
-                      <p className="text-orange-400 text-[10px] font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {existing.reviewer_label ?? 'An admin'} asked for changes
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
                       </p>
-                      <p className="text-stone-200 text-[12px] whitespace-pre-wrap mb-2">
+                      <p className="text-stone-200 text-dense whitespace-pre-wrap mb-2">
                         “{existing.review_note}”
                       </p>
-                      <p className="text-stone-500 text-[10px]">
+                      <p className="text-stone-500 text-caption">
                         Edit your course to address the note, update the summary below, and
                         resubmit — or accept the decision to close the request.
                       </p>
@@ -237,18 +237,18 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
                   {existing && !isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/50 rounded-sm p-2.5">
-                      <p className="text-orange-400 text-[10px] font-bold uppercase tracking-wide mb-0.5">
+                      <p className="text-orange-400 text-label font-bold uppercase tracking-wide mb-0.5">
                         You already have a request open
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
                       </p>
-                      <p className="text-stone-500 text-[10px]">
+                      <p className="text-stone-500 text-caption">
                         Edit it below and save, or withdraw it. An admin decides from here.
                       </p>
                     </div>
                   )}
 
                   <div>
-                    <label className="block text-[11px] font-bold text-orange-400 mb-1 uppercase tracking-wide">
+                    <label className="block text-label font-bold text-orange-400 mb-1 uppercase tracking-wide">
                       What did you change, and why?
                     </label>
                     <textarea
@@ -256,13 +256,13 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                       onChange={e => setSummary(e.target.value)}
                       disabled={busy}
                       placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
-                      className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-sm resize-none focus:border-orange-500 placeholder-stone-600"
+                      className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-body resize-none focus:border-orange-500 placeholder-stone-600"
                     />
                     <div className="flex justify-between mt-1">
-                      <span className="text-stone-600 text-[10px]">
+                      <span className="text-stone-600 text-caption">
                         This is what the reviewer reads first.
                       </span>
-                      <span className={`text-[10px] ${tooLong ? 'text-red-400' : 'text-stone-600'}`}>
+                      <span className={`text-caption ${tooLong ? 'text-red-400' : 'text-stone-600'}`}>
                         {summary.length} / {SUMMARY_MAX}
                       </span>
                     </div>
@@ -271,7 +271,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   {/* The review window, stated once (Session 13 — the "also
                       share my copy" checkbox is gone because this replaced it). */}
                   <div className="bg-stone-900 border border-stone-700 rounded-sm p-2.5">
-                    <p className="text-stone-400 text-[10px] leading-relaxed">
+                    <p className="text-stone-400 text-dense leading-relaxed">
                       Submitting lets reviewers open your copy of this course, read-only, while
                       the request is under review. That access ends when the request is decided.
                       If it is approved, your changes are added to the standard course — nothing
@@ -287,13 +287,13 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
           {error && (
             <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-              <p className="text-red-300 text-[11px]">{error}</p>
+              <p className="text-red-300 text-dense">{error}</p>
             </div>
           )}
           {done && !error && (
             <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-center gap-2">
               <Check className="w-4 h-4 text-green-400 shrink-0" />
-              <p className="text-green-300 text-[11px]">{done}</p>
+              <p className="text-green-300 text-dense">{done}</p>
             </div>
           )}
         </div>
@@ -304,7 +304,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               <button
                 onClick={withdraw}
                 disabled={busy}
-                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Undo2 className="w-3 h-3" /> Withdraw
               </button>
@@ -313,7 +313,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               <button
                 onClick={acceptDecision}
                 disabled={busy}
-                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Check className="w-3 h-3" /> Accept the decision
               </button>
@@ -321,14 +321,14 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
             <div className="flex-1" />
             <button
               onClick={onClose}
-              className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold"
+              className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-bold"
             >
               Close
             </button>
             <button
               onClick={submit}
               disabled={busy || !summary.trim() || tooLong}
-              className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
               {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}

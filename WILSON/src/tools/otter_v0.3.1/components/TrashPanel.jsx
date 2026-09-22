@@ -39,7 +39,7 @@ function Countdown({ purgesAt }) {
   const urgent = days <= 7
   return (
     <span
-      className={`text-[10px] font-mono ${urgent ? 'text-red-400' : 'text-stone-500'}`}
+      className={`text-caption font-mono ${urgent ? 'text-red-400' : 'text-stone-500'}`}
       title={`Deleted for good on ${new Date(purgesAt).toLocaleDateString()}`}
     >
       {days === 0 ? 'deletes today' : `${days}d left`}
@@ -61,7 +61,7 @@ function Countdown({ purgesAt }) {
 export function TrashSidebarList({ rows, loading, busyId, error, onDismissError, onRestore }) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center gap-1.5 py-6 text-stone-500 text-[11px]">
+      <div className="flex items-center justify-center gap-1.5 py-6 text-stone-500 text-caption">
         <Loader2 className="w-3 h-3 animate-spin" /> Loading…
       </div>
     )
@@ -70,11 +70,11 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
   // here would be the exact lie this feature exists to prevent.
   const banner = error ? (
     <div className="m-2 bg-red-900/30 border border-red-700 rounded-sm p-2">
-      <p className="text-red-300 text-[10px] leading-snug">{error}</p>
+      <p className="text-red-300 text-dense leading-snug">{error}</p>
       {onDismissError && (
         <button
           onClick={onDismissError}
-          className="mt-1 text-red-400 hover:text-red-200 text-[10px] font-bold underline"
+          className="mt-1 text-red-400 hover:text-red-200 text-dense font-bold underline"
         >
           Dismiss
         </button>
@@ -89,8 +89,8 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
         {!error && (
           <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
             <Trash2 className="w-7 h-7 text-stone-600 mb-2" />
-            <p className="text-stone-500 text-xs">Nothing deleted</p>
-            <p className="text-stone-600 text-[10px] mt-1">Deleted courses stay here for 30 days.</p>
+            <p className="text-stone-500 text-caption">Nothing deleted</p>
+            <p className="text-stone-600 text-caption mt-1">Deleted courses stay here for 30 days.</p>
           </div>
         )}
       </div>
@@ -105,9 +105,9 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
           className="flex items-center gap-1 px-2 py-1.5 border-b border-stone-700/40"
         >
           <div className="min-w-0 flex-1">
-            <p className="text-stone-400 text-[11px] truncate" title={r.name}>{r.name}</p>
+            <p className="text-stone-400 text-dense truncate" title={r.name}>{r.name}</p>
             <div className="flex items-center gap-1.5">
-              {r.kind === 'subject' && <span className="text-stone-600 text-[9px]">subject</span>}
+              {r.kind === 'subject' && <span className="text-stone-600 text-caption">subject</span>}
               <Countdown purgesAt={r.purges_at} />
             </div>
           </div>
@@ -135,8 +135,8 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-orange-400">Recently deleted</h2>
-            <p className="text-stone-500 text-sm">
+            <h2 className="text-h1 font-bold text-orange-400">Recently deleted</h2>
+            <p className="text-stone-500 text-body">
               Deleted courses and subjects stay here for 30 days, then they are gone for good.
             </p>
           </div>
@@ -145,8 +145,8 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
         {error && (
           <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-red-300 text-sm flex-1">{error}</p>
-            <button onClick={onDismissError} className="text-red-400 hover:text-red-200 text-xs font-bold">
+            <p className="text-red-300 text-body flex-1">{error}</p>
+            <button onClick={onDismissError} className="text-red-400 hover:text-red-200 text-dense font-bold">
               Dismiss
             </button>
           </div>
@@ -159,7 +159,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Trash2 className="w-16 h-16 text-stone-600 mb-4" />
-            <h3 className="text-xl font-bold text-orange-400 mb-2">Nothing deleted</h3>
+            <h3 className="text-h1 font-bold text-orange-400 mb-2">Nothing deleted</h3>
             <p className="text-stone-500 max-w-md">
               When you delete a course it waits here for 30 days, so you can always change your mind.
             </p>
@@ -172,26 +172,26 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
                 className="bg-stone-800 border-2 border-dashed border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] flex flex-col"
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="text-stone-300 font-bold text-base leading-tight line-clamp-2">{r.name}</h3>
+                  <h3 className="text-stone-300 font-bold text-h2 leading-tight line-clamp-2">{r.name}</h3>
                   <Countdown purgesAt={r.purges_at} />
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-wrap mb-2">
                   {r.kind === 'subject' ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-stone-500">
+                    <span className="inline-flex items-center gap-1 text-caption text-stone-500">
                       <BookOpen className="w-2.5 h-2.5" /> subject in {r.course_name}
                     </span>
                   ) : (
                     <>
                       <VisibilityBadge visibility={r.visibility} showPersonal />
-                      <span className="text-[10px] text-stone-500">
+                      <span className="text-caption text-stone-500">
                         {r.subject_count} subject{r.subject_count === 1 ? '' : 's'}
                       </span>
                     </>
                   )}
                 </div>
 
-                <p className="text-stone-600 text-[11px]">
+                <p className="text-stone-600 text-caption">
                   {r.is_own ? 'Yours' : `Owned by ${r.owner_label ?? 'someone else'}`}
                   {r.deleted_by_label ? ` · deleted by ${r.deleted_by_label}` : ''}
                   {r.deleted_at ? ` · ${new Date(r.deleted_at).toLocaleDateString()}` : ''}
@@ -202,7 +202,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
                   type="button"
                   onClick={() => onRestore(r)}
                   disabled={!!busyId}
-                  className="mt-3 w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-sm font-bold disabled:opacity-50"
+                  className="mt-3 w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-body font-bold disabled:opacity-50"
                 >
                   {busyId === r.id
                     ? <Loader2 className="w-4 h-4 animate-spin" />

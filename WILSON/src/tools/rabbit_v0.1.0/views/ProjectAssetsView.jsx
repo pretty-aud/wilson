@@ -373,7 +373,7 @@ export default function ProjectAssetsView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[13.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
           No project loaded
         </span>
       </div>
@@ -388,7 +388,7 @@ export default function ProjectAssetsView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -397,7 +397,7 @@ export default function ProjectAssetsView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {ASSET_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -417,7 +417,7 @@ export default function ProjectAssetsView() {
         {/* Group */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {ASSET_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -427,7 +427,7 @@ export default function ProjectAssetsView() {
         {/* View mode toggle — segmented control */}
         <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -435,7 +435,7 @@ export default function ProjectAssetsView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-dense font-mono uppercase tracking-wider transition-colors"
             style={{
               backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent',
               color: viewMode === 'gallery' ? '#fff7ed' : '#78716c',
@@ -477,7 +477,7 @@ export default function ProjectAssetsView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search assets…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
+            className="flex-1 px-2 py-1.5 text-dense font-mono bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
@@ -488,13 +488,13 @@ export default function ProjectAssetsView() {
 
         {/* Right: count + add asset */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[10.5px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
             {processed.length}/{assets.length}
           </span>
 
           <GatedAction allowed={canWrite}>
             <button type="button" onClick={handleAddAsset}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               <Plus className="w-3.5 h-3.5" /> New asset
             </button>
@@ -546,10 +546,10 @@ export default function ProjectAssetsView() {
                 {collapsedGroups.has(g.key)
                   ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                <span className="text-[12.5px] font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(groupBy, g.key) }}>
+                <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(groupBy, g.key) }}>
                   {g.label}
                 </span>
-                <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
+                <span className="text-dense font-mono" style={{ color: '#78716c' }}>
                   ({g.assets.length})
                 </span>
               </div>
@@ -590,18 +590,18 @@ export default function ProjectAssetsView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-[13.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowSaveDialog(false)}
-                className="px-4 py-1.5 text-[11.5px] font-mono rounded hover:bg-stone-700 transition-colors"
+                className="px-4 py-1.5 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
               <button type="button" onClick={saveCurrentView}
-                className="px-4 py-1.5 text-[11.5px] font-mono rounded transition-colors"
+                className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
             </div>
           </div>
@@ -675,23 +675,23 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[10.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ASSET_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -699,7 +699,7 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
@@ -711,13 +711,13 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -745,7 +745,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -753,12 +753,12 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
         <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-30"
           style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {views.length === 0 && (
-            <div className="px-3 py-2.5 text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
+            <div className="px-3 py-2.5 text-dense font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
           )}
           {views.map(v => (
             <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
               onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
+              <span className="text-dense font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
               <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
                 className="p-0.5 hover:bg-stone-600 rounded transition-colors" style={{ color: '#fca5a5' }}>
                 <X className="w-3 h-3" />
@@ -767,7 +767,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
           ))}
           <div style={{ borderTop: '1px solid #44403c' }}>
             <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11.5px] font-mono transition-colors"
+              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-dense font-mono transition-colors"
               style={{ color: '#fb923c' }}>
               <Save className="w-3 h-3" /> Save current view
             </button>
@@ -831,8 +831,8 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
         <Boxes className="w-12 h-12" style={{ color: '#44403c' }} />
-        <span className="text-[13.5px] font-mono" style={{ color: '#78716c' }}>No assets yet</span>
-        <span className="text-[11.5px] font-mono" style={{ color: '#57534e' }}>Click "New asset" to get started</span>
+        <span className="text-dense font-mono" style={{ color: '#78716c' }}>No assets yet</span>
+        <span className="text-dense font-mono" style={{ color: '#57534e' }}>Click "New asset" to get started</span>
       </div>
     )
   }
@@ -845,7 +845,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
             {/* See ProjectTasksView's equivalent: one wrapper with the parent
@@ -861,7 +861,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                 <button type="button" onClick={bulkDelete}
                   className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
                   style={{ color: '#fca5a5' }}>
-                  <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
+                  <Trash2 className="w-3 h-3" /> <span className="text-label font-mono uppercase">Delete</span>
                 </button>
               </>
             </GatedAction>
@@ -884,7 +884,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
         {/* Thumbnail spacer */}
         <div style={{ width: rowH, flexShrink: 0 }} />
         {columns.map(c => (
-          <div key={c.key} className="px-3.5 py-2.5 text-[10.5px] font-mono uppercase tracking-wider font-semibold text-left"
+          <div key={c.key} className="px-3.5 py-2.5 text-label font-mono uppercase tracking-wider font-semibold text-left"
             style={{ color: '#a8a29e', flex: c.flex, minWidth: 0 }}>
             {c.label}
           </div>
@@ -905,10 +905,10 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                 {collapsed
                   ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                   : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                <span className="text-[12.5px] font-mono uppercase tracking-wider font-bold" style={{ color: accent }}>
+                <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: accent }}>
                   {g.label}
                 </span>
-                <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
+                <span className="text-dense font-mono" style={{ color: '#78716c' }}>
                   ({g.assets.length})
                 </span>
               </div>
@@ -972,7 +972,7 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-dense font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1041,7 +1041,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <select value={asset.type || 'other'} onChange={e => onUpdate({ type: e.target.value })}
             disabled={readOnly}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: '#d6d3d1' }}>
             {ASSET_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
           </select>
@@ -1051,7 +1051,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <select value={asset.phase_id || ''} onChange={e => onUpdate({ phase_id: e.target.value || null })}
             disabled={readOnly}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: asset.phase_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1063,7 +1063,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
           <div className="flex items-center gap-1 w-full min-w-0">
             <select value={asset.status || 'not_started'} onChange={e => onUpdate({ status: e.target.value })}
               disabled={readOnly}
-              className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+              className="px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
               style={{ ...flatSelect, color: sc }}>
               {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -1084,7 +1084,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             value={asset.start_date || ''}
             onChange={e => onUpdate({ start_date: e.target.value || null })}
             readOnly={readOnly} disabled={readOnly}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.start_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1095,19 +1095,19 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             value={asset.due_date || ''}
             onChange={e => onUpdate({ due_date: e.target.value || null })}
             readOnly={readOnly} disabled={readOnly}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.due_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
       case 'description':
         return (
-          <span className="text-[11.5px] font-mono truncate block" style={{ color: '#a8a29e' }}
+          <span className="text-dense font-mono truncate block" style={{ color: '#a8a29e' }}
             title={asset.description || ''}>
             {asset.description || '\u2014'}
           </span>
         )
       case 'tasks':
-        return <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>{taskCount}</span>
+        return <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{taskCount}</span>
       case '_actions':
         return (
           <div className="flex items-center"
@@ -1131,7 +1131,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
           </div>
         )
       default:
-        return <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>{asset[col.key] ?? '--'}</span>
+        return <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{asset[col.key] ?? '--'}</span>
     }
   }
 
@@ -1215,7 +1215,7 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thum
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
         <Boxes className="w-12 h-12" style={{ color: '#44403c' }} />
-        <span className="text-[13.5px] font-mono" style={{ color: '#78716c' }}>No assets</span>
+        <span className="text-dense font-mono" style={{ color: '#78716c' }}>No assets</span>
       </div>
     )
   }
@@ -1282,7 +1282,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <span className="text-2xl font-mono font-bold" style={{ color: '#57534e' }}>
+          <span className="text-h1 font-mono font-bold" style={{ color: '#57534e' }}>
             {initials}
           </span>
         )}
@@ -1311,7 +1311,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           </>
         )}
         <div
-          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded"
+          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-label font-mono uppercase tracking-wider rounded"
           style={{ color: sc, backgroundColor: '#1c1917', border: `1px solid ${sc}33` }}>
           {fmt(asset.status || 'not_started')}
         </div>
@@ -1326,7 +1326,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           placeholder="Untitled"
           readOnly={readOnly}
         />
-        <div className="flex items-center justify-between text-[10.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-label font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
           {phaseLabel && <span className="truncate max-w-[100px]">{'\u00B7'} {phaseLabel}</span>}
         </div>
@@ -1334,7 +1334,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
 
       {/* Footer */}
       <div className="flex items-center justify-between px-2 py-1" style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-        <span className="text-[10.5px] font-mono" style={{ color: '#a8a29e' }}>
+        <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
           {taskCount} task{taskCount === 1 ? '' : 's'}
         </span>
         {onDelete && (
@@ -1496,7 +1496,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <Boxes className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-[13.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
               Create New Asset
             </span>
           </div>
@@ -1511,14 +1511,14 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Name */}
             <div>
-              <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Name *</label>
+              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Name *</label>
               <input
                 autoFocus
                 type="text"
                 value={draft.name}
                 onChange={e => patch({ name: e.target.value })}
                 placeholder="Asset name..."
-                className="w-full px-3 py-2 text-[12.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
               />
             </div>
@@ -1526,17 +1526,17 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {/* Type + Status row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Type</label>
+                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Type</label>
                 <select value={draft.type} onChange={e => patch({ type: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   {ASSET_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Status</label>
+                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Status</label>
                 <select value={draft.status} onChange={e => patch({ status: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
                   {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                 </select>
@@ -1545,9 +1545,9 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Phase */}
             <div>
-              <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Phase</label>
+              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Phase</label>
               <select value={draft.phase_id} onChange={e => patch({ phase_id: e.target.value })}
-                className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">-- No phase --</option>
                 {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1557,16 +1557,16 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {/* Dates row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Start Date</label>
+                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Start Date</label>
                 <input type="date" value={draft.start_date} onChange={e => patch({ start_date: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}
                 />
               </div>
               <div>
-                <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Due Date</label>
+                <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Due Date</label>
                 <input type="date" value={draft.due_date} onChange={e => patch({ due_date: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.due_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}
                 />
               </div>
@@ -1574,24 +1574,24 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
             {/* Description */}
             <div>
-              <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Description</label>
+              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Description</label>
               <textarea
                 value={draft.description}
                 onChange={e => patch({ description: e.target.value })}
                 rows={2}
                 placeholder="Optional description..."
-                className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
+                className="w-full px-3 py-2 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               />
             </div>
 
             {/* Task template selector */}
             <div>
-              <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Task Template</label>
+              <label className="text-label font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Task Template</label>
               <select
                 value={selectedTemplateId}
                 onChange={e => setSelectedTemplateId(e.target.value)}
-                className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2 py-1.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: selectedTemplateId ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">-- No template --</option>
                 {projectTemplates.map(tmpl => {
@@ -1606,7 +1606,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {previewTasks.length > 0 && (
               <div className="rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
                 <div className="px-3 py-1.5" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                  <span className="text-[9.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+                  <span className="text-label font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
                     Tasks to be created ({previewTasks.length})
                   </span>
                 </div>
@@ -1614,15 +1614,15 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                   {previewTasks.map((t, i) => (
                     <div key={t.id || i} className="flex items-center px-3 py-1.5"
                       style={{ borderBottom: i < previewTasks.length - 1 ? '1px solid #292524' : 'none' }}>
-                      <span className="text-[11.5px] font-mono flex-1 truncate" style={{ color: '#d6d3d1' }}>
+                      <span className="text-dense font-mono flex-1 truncate" style={{ color: '#d6d3d1' }}>
                         {t.name || 'Untitled'}
                       </span>
                       {t.role_slug && (
-                        <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded mr-2" style={{ color: '#78716c', backgroundColor: '#292524' }}>
+                        <span className="text-dense font-mono px-1.5 py-0.5 rounded mr-2" style={{ color: '#78716c', backgroundColor: '#292524' }}>
                           {fmt(t.role_slug)}
                         </span>
                       )}
-                      <span className="text-[10.5px] font-mono font-bold flex-shrink-0" style={{ color: '#f4a261' }}>
+                      <span className="text-dense font-mono font-bold flex-shrink-0" style={{ color: '#f4a261' }}>
                         {t.bid_days || 0}d
                       </span>
                     </div>
@@ -1638,7 +1638,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             ever visible, while this one's were not. */}
         {error && (
           <div
-            className="mx-5 mb-3 px-3 py-2 text-[11.5px] font-mono rounded"
+            className="mx-5 mb-3 px-3 py-2 text-dense font-mono rounded"
             style={{ color: '#fecaca', backgroundColor: 'rgba(153,27,27,0.25)', border: '1px solid #991b1b' }}
           >
             {error}
@@ -1647,18 +1647,18 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <span className="text-[10.5px] font-mono" style={{ color: '#57534e' }}>
+          <span className="text-dense font-mono" style={{ color: '#57534e' }}>
             Nothing is saved until you confirm.
           </span>
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose}
-              className="px-4 py-1.5 text-[11.5px] font-mono rounded transition-colors"
+              className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               Cancel
             </button>
             <button type="button" onClick={handleConfirm}
               disabled={!draft.name.trim() || creating}
-              className="px-4 py-1.5 text-[11.5px] font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 text-dense font-mono font-bold uppercase tracking-wider rounded transition-colors disabled:opacity-40"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               {creating ? 'Creating...' : 'Confirm & Create'}
             </button>
@@ -1854,25 +1854,25 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                   style={{ width: 120, height: 120, objectFit: 'cover', display: 'block' }}
                 />
               ) : (
-                <span className="text-3xl font-mono font-bold" style={{ color: '#57534e' }}>
+                <span className="text-h1 font-mono font-bold" style={{ color: '#57534e' }}>
                   {(asset.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('')}
                 </span>
               )}
             </div>
             <div className="flex flex-col gap-1.5 pt-1">
-              <div className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+              <div className="text-label font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
                 Thumbnail
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={handleSetThumbnail}
-                  className="flex items-center gap-1 px-2 py-1 text-[11.5px] font-mono rounded hover:bg-stone-700 transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
                   style={{ color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <ImagePlus className="w-3 h-3" />
                   {hasThumbnail ? 'Change' : 'Set thumbnail'}
                 </button>
                 {hasThumbnail && (
                   <button type="button" onClick={handleClearThumbnail}
-                    className="flex items-center gap-1 px-2 py-1 text-[11.5px] font-mono rounded hover:bg-stone-700 transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-dense font-mono rounded hover:bg-stone-700 transition-colors"
                     style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
                     <ImageOff className="w-3 h-3" />
                     Remove
@@ -1880,7 +1880,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                 )}
               </div>
               {hasThumbnail && (
-                <span className="text-[10.5px] font-mono truncate max-w-[280px]" style={{ color: '#78716c' }}
+                <span className="text-dense font-mono truncate max-w-[280px]" style={{ color: '#78716c' }}
                   title={asset.thumbnail_image}>
                   {asset.thumbnail_image.split(/[/\\]/).pop()}
                 </span>
@@ -1922,7 +1922,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                   value=""
                   onChange={e => handleApplyTemplate(e.target.value)}
                   disabled={applyingTemplate}
-                  className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                  className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">{applyingTemplate ? 'Applying...' : '\u2014 Apply template'}</option>
                   {projectTemplates.map(tmpl => (
@@ -1936,7 +1936,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                 type="date"
                 value={asset.start_date || ''}
                 onChange={e => handleUpdateAsset({ start_date: e.target.value || null })}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: asset.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
               />
             </PropField>
@@ -1945,7 +1945,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                 type="date"
                 value={asset.due_date || ''}
                 onChange={e => handleUpdateAsset({ due_date: e.target.value || null })}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: asset.due_date ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
               />
             </PropField>
@@ -1966,14 +1966,14 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                       if (e.key === 'Escape') { setDescDraft(asset.description || ''); setEditingDesc(false) }
                     }}
                     rows={3}
-                    className="w-full px-2 py-1 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
+                    className="w-full px-2 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 ) : (
                   <button
                     type="button"
                     onClick={() => { setDescDraft(asset.description || ''); setEditingDesc(true) }}
-                    className="text-xs font-mono text-left w-full hover:bg-stone-700 px-2 py-1 rounded min-h-[28px]"
+                    className="text-dense font-mono text-left w-full hover:bg-stone-700 px-2 py-1 rounded min-h-[28px]"
                     style={{ color: asset.description ? '#d6d3d1' : '#78716c' }}
                   >
                     {asset.description || 'Click to add description...'}
@@ -1988,7 +1988,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.scenes_enabled && (
               <PropField label="Scenes">
                 <button onClick={() => setShowScenePicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.scene_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.scene_ids?.length || 0) > 0 ? `${asset.scene_ids.length} scene(s)` : '--'}
                 </button>
@@ -1997,7 +1997,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.scenes_enabled && (
               <PropField label="Shots">
                 <button onClick={() => setShowShotPicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.shot_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.shot_ids?.length || 0) > 0 ? `${asset.shot_ids.length} shot(s)` : '--'}
                 </button>
@@ -2006,7 +2006,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.levels_enabled && (
               <PropField label="Levels">
                 <button onClick={() => setShowLevelPicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.level_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.level_ids?.length || 0) > 0 ? `${asset.level_ids.length} level(s)` : '--'}
                 </button>
@@ -2015,7 +2015,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.experiences_enabled && (
               <PropField label="Experiences">
                 <button onClick={() => setShowExperiencePicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
+                  className="w-full px-2.5 py-1.5 text-dense font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.experience_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.experience_ids?.length || 0) > 0 ? `${asset.experience_ids.length} experience(s)` : '--'}
                 </button>
@@ -2083,13 +2083,13 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
 
           {/* Tasks section */}
           <div className="mb-2">
-            <span className="text-[10.5px] font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
               Tasks ({tasks.length})
             </span>
           </div>
 
           {tasks.length === 0 ? (
-            <div className="text-[11.5px] font-mono italic py-4 text-center" style={{ color: '#78716c' }}>
+            <div className="text-dense font-mono italic py-4 text-center" style={{ color: '#78716c' }}>
               No tasks on this asset.
             </div>
           ) : (
@@ -2137,7 +2137,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
         {/* Footer */}
         <div className="flex items-center justify-end px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[11.5px] font-mono rounded transition-colors"
+            className="px-4 py-1.5 text-dense font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             Done
           </button>
@@ -2153,7 +2153,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
   return (
     <tr style={{ borderBottom: '1px solid #292524', backgroundColor: 'transparent' }}>
       <Td>
-        <span className="text-[11.5px] font-mono" style={{ color: '#d6d3d1' }}>
+        <span className="text-dense font-mono" style={{ color: '#d6d3d1' }}>
           {task.title || task.assigned_position || 'Untitled'}
         </span>
       </Td>
@@ -2161,14 +2161,14 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         <select
           value={task.status || 'waiting_to_start'}
           onChange={(e) => onUpdateTask({ status: e.target.value })}
-          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: sc, border: '1px solid transparent' }}
         >
           {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
         </select>
       </Td>
       <Td>
-        <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>
+        <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
           {task.bid_days ? `${task.bid_days}d` : '--'}
         </span>
       </Td>
@@ -2176,7 +2176,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         <select
           value={task.assignee_id || ''}
           onChange={(e) => onUpdateTask({ assignee_id: e.target.value || null })}
-          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: '#d6d3d1', border: '1px solid transparent', maxWidth: '120px' }}
         >
           <option value="">--</option>
@@ -2189,7 +2189,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         <select
           value={task.reviewer_id || ''}
           onChange={(e) => onUpdateTask({ reviewer_id: e.target.value || null })}
-          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: '#a78bfa', border: '1px solid transparent', maxWidth: '120px' }}
         >
           <option value="">--</option>
@@ -2210,11 +2210,11 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
 function PropField({ label, value, children }) {
   return (
     <div>
-      <div className="text-[9.5px] font-mono uppercase tracking-wider mb-0.5" style={{ color: '#78716c' }}>
+      <div className="text-label font-mono uppercase tracking-wider mb-0.5" style={{ color: '#78716c' }}>
         {label}
       </div>
       {children || (
-        <div className="text-xs font-mono" style={{ color: '#d6d3d1' }}>
+        <div className="text-dense font-mono" style={{ color: '#d6d3d1' }}>
           {value || '--'}
         </div>
       )}
@@ -2226,7 +2226,7 @@ function PropField({ label, value, children }) {
 function Th({ children, style: extraStyle }) {
   return (
     <th
-      className="px-3 py-2.5 text-[11.5px] font-mono uppercase tracking-wider font-semibold text-left"
+      className="px-3 py-2.5 text-label font-mono uppercase tracking-wider font-semibold text-left"
       style={{ color: '#a8a29e', ...extraStyle }}
     >
       {children}
@@ -2248,7 +2248,7 @@ function InlineText({ value, onCommit, placeholder, readOnly = false }) {
   // Session 29 — see CellInlineText. Gallery cards edit the asset name too.
   if (readOnly) {
     return (
-      <span className="block w-full px-1 py-0.5 text-xs font-mono truncate"
+      <span className="block w-full px-1 py-0.5 text-dense font-mono truncate"
         style={{ color: value ? '#e7e5e4' : '#57534e' }}>
         {value || placeholder || '—'}
       </span>
@@ -2265,7 +2265,7 @@ function InlineText({ value, onCommit, placeholder, readOnly = false }) {
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
@@ -2274,7 +2274,7 @@ function InlineText({ value, onCommit, placeholder, readOnly = false }) {
     <button
       type="button"
       onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-xs font-mono text-left w-full truncate hover:bg-stone-700 px-1 py-0.5 rounded"
+      className="text-dense font-mono text-left w-full truncate hover:bg-stone-700 px-1 py-0.5 rounded"
       style={{ color: value ? '#d6d3d1' : '#78716c' }}
     >
       {value || placeholder || '\u2014'}
@@ -2294,7 +2294,7 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
   // Session 29 — plain text, no button, no hover. See the Tasks tab twin.
   if (readOnly) {
     return (
-      <span className="block text-[11.5px] font-mono text-left w-full truncate px-1.5 py-1"
+      <span className="block text-dense font-mono text-left w-full truncate px-1.5 py-1"
         style={{ color: value ? '#e7e5e4' : '#57534e' }}>
         {value || placeholder || '—'}
       </span>
@@ -2305,13 +2305,13 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-1 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-[11.5px] font-mono text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded transition-colors"
+      className="text-dense font-mono text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded transition-colors"
       style={{ color: value ? '#e7e5e4' : '#57534e' }}>
       {value || placeholder || '\u2014'}
     </button>
@@ -2325,7 +2325,7 @@ function InlineSelect({ value, options, onCommit, tone }) {
     <select
       value={value}
       onChange={(e) => onCommit(e.target.value)}
-      className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
+      className="px-1.5 py-0.5 text-dense font-mono rounded focus:ring-2 focus:ring-orange-500"
       style={{
         backgroundColor: colors.bg,
         color: colors.fg,

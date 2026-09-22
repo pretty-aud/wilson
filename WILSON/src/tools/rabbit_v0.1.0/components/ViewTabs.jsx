@@ -48,7 +48,7 @@ export default function ViewTabs({ activeView, onChange, disabled, rightSlot, hi
             type="button"
             onClick={() => onChange(id)}
             disabled={disabled}
-            className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-mono uppercase tracking-wider transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-2 text-dense font-mono uppercase tracking-wider transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
               color: active ? '#fff7ed' : '#a8a29e',
               backgroundColor: active ? '#ea580c' : 'transparent',

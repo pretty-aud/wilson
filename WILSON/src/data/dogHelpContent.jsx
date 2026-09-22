@@ -22,12 +22,12 @@ export const DOG_HELP_SIDEBAR_ITEMS = [
 const LIGHT_THEME_STYLES = `
 .help-light .text-orange-400 { color: #1c1917 !important; }
 .help-light .text-orange-400\\/70 { color: #44403c !important; }
-.help-light h3.text-sm { color: #1c1917 !important; }
-.help-light h4.text-xs { color: #1c1917 !important; }
+.help-light h3.text-label { color: #1c1917 !important; }
+.help-light h4.text-dense { color: #1c1917 !important; }
 .help-light .text-stone-300 { color: #1c1917 !important; }
 .help-light .text-stone-400 { color: #44403c !important; }
 .help-light .text-stone-500 { color: #57534e !important; }
-.help-light .text-xs.text-stone-300 { color: #292524 !important; }
+.help-light .text-dense.text-stone-300 { color: #292524 !important; }
 .help-light .bg-stone-900 { background-color: rgba(255,255,255,0.35) !important; }
 .help-light .bg-stone-950 { background-color: rgba(255,255,255,0.25) !important; }
 .help-light .border-stone-700 { border-color: rgba(0,0,0,0.1) !important; }
@@ -52,15 +52,15 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'overview' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Overview</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-4">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Overview</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-4">
           D.O.G. (Deck Outline Generator) is an AI-powered tool that transforms your project documentation into structured presentation slide outlines.
           Upload your source materials (PDFs, markdown files, text files, or images), provide context about your deck, and generate either individual slides or complete deck outlines.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Key Features</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Key Features</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Single page or full deck generation</span> — Generate individual slides or entire presentations at once</li>
               <li>• <span className="text-stone-300">15 slide layout types</span> — Title slides, two/three/four columns, big numbers, captions, and more</li>
               <li>• <span className="text-stone-300">Dynamic visual asset sizing</span> — Image heights auto-adjust based on text content volume in column layouts</li>
@@ -84,8 +84,8 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'workflow' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Basic Workflow</h3>
-        <div className="text-xs text-stone-300 leading-relaxed space-y-2">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Basic Workflow</h3>
+        <div className="text-dense text-stone-300 leading-relaxed space-y-2">
           <p><span className="text-orange-400 font-bold">1. Upload Documents:</span> Add up to 5 source files (PDFs, markdown, text, or images) that contain your project information.</p>
           <p><span className="text-orange-400 font-bold">2. Set Deck Context:</span> Provide guidelines about the overall tone, style, and objectives for your presentation.</p>
           <p><span className="text-orange-400 font-bold">3. Choose Mode:</span> Toggle "Full Deck" to generate an entire presentation, or leave it off to generate individual slides.</p>
@@ -104,14 +104,14 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'upload' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Document Upload Best Practices</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Document Upload Best Practices</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           The quality of your uploaded documents directly impacts the quality of generated slides. The system reads and references your documents as context when generating content.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Ideal Document Types</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Ideal Document Types</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Project briefs or creative briefs</span> — Best for giving the AI a clear understanding of goals, audience, and scope</li>
               <li>• <span className="text-stone-300">Content outlines or structured notes</span> — Pre-organized content translates directly into well-structured slides</li>
               <li>• <span className="text-stone-300">Marketing copy or messaging documents</span> — Provides exact language, taglines, and key phrases to pull from</li>
@@ -120,8 +120,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Tips for Better Document Input</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Tips for Better Document Input</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Use clear headers and sections</span> in your documents — the AI can better extract relevant content when it's well-organized</li>
               <li>• <span className="text-stone-300">Include specific data points</span> (stats, percentages, timelines) if you want them surfaced in slides</li>
               <li>• <span className="text-stone-300">Keep documents focused</span> — a concise 2-page brief outperforms a 50-page document dump</li>
@@ -131,8 +131,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">What to Avoid</h4>
-            <ul className="text-[11px] text-stone-500 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">What to Avoid</h4>
+            <ul className="text-dense text-stone-500 leading-relaxed space-y-1 ml-2">
               <li>• Raw meeting transcripts with lots of filler — clean and summarize first</li>
               <li>• Documents with heavy formatting or tables that may not parse well</li>
               <li>• Uploading only images with no text context — pair images with a written brief</li>
@@ -148,17 +148,17 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'prompting' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Deck Context & Page Request Prompting</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Deck Context & Page Request Prompting</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           Your Deck Context and Page Request prompts are the primary way you steer the AI. Specific, well-structured prompts produce dramatically better results than vague ones.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Deck Context (Section 1) — Best Practices</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Deck Context (Section 1) — Best Practices</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               This field sets the tone for every slide generated in the session. Think of it as the creative director's brief.
             </p>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Define your audience</span> — "This deck is for C-suite executives at a Fortune 500 retail company"</li>
               <li>• <span className="text-stone-300">Set the visual tone</span> — "Dark, cinematic aesthetic with noir influences" or "Clean, minimal, modern SaaS style"</li>
               <li>• <span className="text-stone-300">Specify the purpose</span> — "Sales pitch to close a $2M deal" vs "Internal team kickoff for Q3 initiative"</li>
@@ -166,24 +166,24 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className="text-stone-300">Include page count for Full Deck</span> — "Create a 12-slide presentation with a clear narrative arc"</li>
             </ul>
             <div className="mt-3">
-              <p className="text-[11px] text-orange-400 font-bold mb-1">Example — Strong Deck Context:</p>
-              <p className="text-[10px] text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
+              <p className="text-dense text-orange-400 font-bold mb-1">Example — Strong Deck Context:</p>
+              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
                 "Create a 10-slide pitch deck for ZeroSpace's holographic display technology. Target audience: brand marketing directors at luxury fashion houses. Tone: premium, forward-thinking, slightly provocative. Emphasize ROI and experiential impact. Use data from the uploaded case studies. Visual style: dark backgrounds, gold/amber accents, large hero imagery."
               </p>
             </div>
             <div className="mt-2">
-              <p className="text-[11px] text-orange-400 font-bold mb-1">Example — Weak Deck Context:</p>
-              <p className="text-[10px] text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
+              <p className="text-dense text-orange-400 font-bold mb-1">Example — Weak Deck Context:</p>
+              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
                 "Make a nice presentation about our company."
               </p>
             </div>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Page Request (Section 2) — Best Practices</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Page Request (Section 2) — Best Practices</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               The page request tells the AI exactly what content you want on a specific slide. The more specific you are, the better the output.
             </p>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Reference your documents</span> — "Use the pricing data from the uploaded brief to create a comparison slide"</li>
               <li>• <span className="text-stone-300">Be specific about content</span> — "Cover the 3 key differentiators: speed, quality, and cost" not just "differentiators slide"</li>
               <li>• <span className="text-stone-300">Mention the slide's role in the deck</span> — "This is the closing slide after the case studies section"</li>
@@ -191,8 +191,8 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className="text-stone-300">Describe the visual you want</span> — "Hero image of the holographic display on the left, key specs on the right"</li>
             </ul>
             <div className="mt-3">
-              <p className="text-[11px] text-orange-400 font-bold mb-1">Example — Strong Page Request:</p>
-              <p className="text-[10px] text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
+              <p className="text-dense text-orange-400 font-bold mb-1">Example — Strong Page Request:</p>
+              <p className="text-dense text-stone-500 bg-stone-950 p-2 rounded font-mono leading-relaxed">
                 "Create a 'Title and two columns' slide comparing traditional LED activations vs ZeroSpace holographic experiences. Left column: limitations of LED (flat, static, high setup cost). Right column: benefits of holographic (3D, interactive, modular). Pull specific metrics from the uploaded ROI document."
               </p>
             </div>
@@ -206,14 +206,14 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'editing' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Editing & Regenerating Output</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Editing & Regenerating Output</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           After generating a slide, the Edit Output bar gives you powerful tools to refine content without starting over.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Edit Output Bar Controls</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Edit Output Bar Controls</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Revision Prompt</span> — Type specific instructions for how the slide should change (e.g., "make the title punchier" or "add a bullet about timeline")</li>
               <li>• <span className="text-stone-300">Layout Dropdown</span> — Switch to a different layout type during regeneration. Select "Keep layout" to preserve the current one</li>
               <li>• <span className="text-stone-300">Regenerate Page</span> — Sends the current slide content + your revision notes back to the AI for a new version</li>
@@ -222,8 +222,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Regeneration Tips</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Regeneration Tips</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Be specific with revisions</span> — "Shorten all bullet points to under 8 words" works better than "make it shorter"</li>
               <li>• <span className="text-stone-300">Use revision + layout change together</span> — Switch to "Big number" and type "Focus on the 40% engagement stat" for a complete pivot</li>
               <li>• <span className="text-stone-300">Iterate incrementally</span> — Make one change at a time so you can undo precisely if needed</li>
@@ -233,41 +233,41 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Text View vs Visualizer</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Text View vs Visualizer</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Toggle between <span className="text-stone-300">text view</span> (code icon) for raw markdown editing and the <span className="text-stone-300">visualizer</span> (eye icon) for a layout preview with theme colors and asset placeholders.
               Edits in text view are live — the visualizer updates immediately to reflect your changes.
             </p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">AI Rewrite</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">AI Rewrite</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               Select any text in the output editor and right-click to access AI rewrite options. Available modes:
             </p>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Relaxed:</span> Makes text more casual and conversational</li>
               <li>• <span className="text-stone-300">Formal:</span> Elevates language to a professional, polished tone</li>
               <li>• <span className="text-stone-300">Extend:</span> Expands the selected text with more detail and depth</li>
               <li>• <span className="text-stone-300">Shorten:</span> Condenses text while preserving key meaning</li>
               <li>• <span className="text-stone-300">Custom:</span> Type your own rewrite instruction for full control</li>
             </ul>
-            <p className="text-[11px] text-stone-500 mt-2">
+            <p className="text-caption text-stone-500 mt-2">
               Rewrite prompts can be customized in Settings &rarr; Prompts tab &rarr; "AI Rewrite Prompts" section.
             </p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Formatting Toolbar</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Formatting Toolbar</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               The formatting toolbar appears above the text editor (hidden in visualizer view) and provides quick formatting shortcuts:
             </p>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Bold (B):</span> Wraps selected text in **bold** markers</li>
               <li>• <span className="text-stone-300">Italic (I):</span> Wraps selected text in *italic* markers</li>
               <li>• <span className="text-stone-300">Bullet List:</span> Converts lines to bulleted list items</li>
               <li>• <span className="text-stone-300">Numbered List:</span> Converts lines to numbered list items with auto-increment</li>
               <li>• <span className="text-stone-300">Heading:</span> Adds heading markers to selected text</li>
             </ul>
-            <p className="text-[11px] text-stone-500 mt-2">
+            <p className="text-caption text-stone-500 mt-2">
               Press Enter at the end of a bullet or numbered list item to automatically continue the list on the next line.
             </p>
           </div>
@@ -280,22 +280,22 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'system-prompts' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Understanding System Prompts</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Understanding System Prompts</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           System prompts are the instructions that tell the AI how to generate your slide content. They control everything from formatting rules to content style.
           There are two types of prompts for each generation mode (single page and full deck), and understanding their purpose is key to customizing the tool effectively.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">API System Message</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">API System Message</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               This is the core instruction sent to the AI model as its "system" directive. It establishes the AI's fundamental role and behavior before it sees any of your content.
               Think of it as the AI's "job description" - it tells the AI what kind of assistant it should be.
             </p>
             <div className="mt-3 space-y-2">
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Required Elements (DO NOT REMOVE):</p>
-                <ul className="text-[11px] text-stone-500 mt-1 space-y-0.5 ml-2">
+                <p className="text-dense text-orange-400 font-bold">Required Elements (DO NOT REMOVE):</p>
+                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• Instruction to generate "presentation slide outlines"</li>
                   <li>• Rule to start output with "SLIDE #" (no preamble text)</li>
                   <li>• Rule to use &#9656; markers (&#9656; TITLE:, &#9656; SUBTITLE:, etc.)</li>
@@ -305,8 +305,8 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Safe to Modify:</p>
-                <ul className="text-[11px] text-stone-500 mt-1 space-y-0.5 ml-2">
+                <p className="text-dense text-orange-400 font-bold">Safe to Modify:</p>
+                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• Tone instructions (e.g., "Be concise" vs "Be detailed")</li>
                   <li>• Creativity level (e.g., "Be creative with titles" or "Use straightforward language")</li>
                   <li>• Industry-specific terminology preferences</li>
@@ -315,23 +315,23 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Example Customization:</p>
-                <p className="text-[10px] text-stone-500 mt-1 bg-stone-950 p-2 rounded font-mono">
+                <p className="text-dense text-orange-400 font-bold">Example Customization:</p>
+                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded font-mono">
                   Add: "Use professional business language suitable for executive presentations. Avoid jargon and keep bullet points to 10 words or fewer."
                 </p>
               </div>
             </div>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Generation Rules</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Generation Rules</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               These are detailed instructions included in the user prompt that specify exactly how slides should be formatted, what sections to include, and what rules to follow for different layout types.
               This is where the actual output structure is defined.
             </p>
             <div className="mt-3 space-y-2">
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Required Sections (Must Keep All 7):</p>
-                <ul className="text-[11px] text-stone-500 mt-1 space-y-0.5 ml-2">
+                <p className="text-dense text-orange-400 font-bold">Required Sections (Must Keep All 7):</p>
+                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• <span className="text-orange-400/70">&#9656; TITLE:</span> The main headline for the slide</li>
                   <li>• <span className="text-orange-400/70">&#9656; SUBTITLE:</span> Supporting text beneath the title</li>
                   <li>• <span className="text-orange-400/70">&#9656; LAYOUT STRUCTURE:</span> How content is arranged visually</li>
@@ -342,8 +342,8 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Safe to Modify:</p>
-                <ul className="text-[11px] text-stone-500 mt-1 space-y-0.5 ml-2">
+                <p className="text-dense text-orange-400 font-bold">Safe to Modify:</p>
+                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• Content length limits (e.g., "max 3 bullet points per section")</li>
                   <li>• Which layouts should have body text vs. title-only</li>
                   <li>• Asset requirements and suggestions</li>
@@ -353,15 +353,15 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Layout-Specific Rules:</p>
-                <p className="text-[11px] text-stone-500 mt-1">
+                <p className="text-dense text-orange-400 font-bold">Layout-Specific Rules:</p>
+                <p className="text-caption text-stone-500 mt-1">
                   The default rules specify that certain layouts (Title slide, Section header, Title Page w/Gradient, Title only, Big number) should only have title and subtitle with no body text.
                   You can modify which layouts follow this rule by editing the list in rule #7.
                 </p>
               </div>
               <div>
-                <p className="text-[11px] text-orange-400 font-bold">Example Customization:</p>
-                <p className="text-[10px] text-stone-500 mt-1 bg-stone-950 p-2 rounded font-mono">
+                <p className="text-dense text-orange-400 font-bold">Example Customization:</p>
+                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded font-mono">
                   Change: "max 4 sentences per section" &rarr; "max 2 sentences per section, use punchy language"
                   <br/>Add: "8. Always suggest a specific stock photo description in REQUIRED ASSETS"
                 </p>
@@ -369,11 +369,11 @@ export function DogHelpContent({ helpPage, theme }) {
             </div>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">How They Work Together</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">How They Work Together</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               When you generate a slide, the system combines these prompts with your uploaded documents and page request:
             </p>
-            <ol className="text-[11px] text-stone-500 mt-2 space-y-1 ml-2">
+            <ol className="text-caption text-stone-500 mt-2 space-y-1 ml-2">
               <li>1. <span className="text-stone-400">API System Message</span> is sent as the AI's system instruction</li>
               <li>2. Your <span className="text-stone-400">uploaded documents</span> are included as context</li>
               <li>3. Your <span className="text-stone-400">Deck Context & Guidelines</span> from the main interface is added</li>
@@ -383,8 +383,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ol>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Visual Assets System Prompt</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Visual Assets System Prompt</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Theme Color Generation:</span> Haiku prompt for AI theme color palette generation</li>
               <li>• <span className="text-stone-300">Shared Rules (All Models):</span> Common formatting and data completeness rules for all image models</li>
               <li>• <span className="text-stone-300">Midjourney Prompt:</span> Model-specific rules for Midjourney v6 syntax</li>
@@ -403,41 +403,41 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'output-format' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Understanding Output Format</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Understanding Output Format</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           Output formats define the markdown schema used when exporting slides. The system parses generated content based on these patterns.
           All format schemas are accessible in the Settings panel under the Format tab as collapsible sections.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-1">Single Page Export Schema</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-1">Single Page Export Schema</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Template for individual slide exports. Each slide uses this structure.
             </p>
-            <p className="text-[11px] text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> SLIDE #[NUMBER] — [Layout Name] header, ═══ delimiters, and all six &#9656; section markers must be present for the parser to work correctly.</p>
+            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> SLIDE #[NUMBER] — [Layout Name] header, ═══ delimiters, and all six &#9656; section markers must be present for the parser to work correctly.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-1">Full Deck Export Schema</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-1">Full Deck Export Schema</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Template showing how multiple slides are concatenated in a full deck export. Each slide follows the single page format, separated by delimiters.
             </p>
-            <p className="text-[11px] text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> Consistent delimiter pattern between slides (═══════), sequential slide numbering format.</p>
+            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> Consistent delimiter pattern between slides (═══════), sequential slide numbering format.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-1">Visual Deck Export Schema (VIS_DECKOUTLINE)</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-1">Visual Deck Export Schema (VIS_DECKOUTLINE)</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Extended export format that wraps the standard DECKOUTLINE with a deck summary header (title, page count, selected theme colors, visual description)
               and an alternate themes footer listing all unused themes. This schema is read-only and cannot be edited.
             </p>
-            <p className="text-[11px] text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> In the Import/Export modal, check "Include theme colors & deck visual description" to switch the download button to VIS_DECKOUTLINE format. The file is named <span className="text-orange-400 font-mono">PROJECTNAME_VIS_DECKOUTLINE.md</span>.</p>
-            <p className="text-[11px] text-stone-500 mt-1"><span className="text-orange-400">Importing:</span> VIS_DECKOUTLINE files can be imported back — the system will parse theme colors from the header and footer and restore them automatically.</p>
+            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> In the Import/Export modal, check "Include theme colors & deck visual description" to switch the download button to VIS_DECKOUTLINE format. The file is named <span className="text-orange-400 font-mono">PROJECTNAME_VIS_DECKOUTLINE.md</span>.</p>
+            <p className="text-caption text-stone-500 mt-1"><span className="text-orange-400">Importing:</span> VIS_DECKOUTLINE files can be imported back — the system will parse theme colors from the header and footer and restore them automatically.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-1">Image Prompt Export Schema</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-1">Image Prompt Export Schema</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Template showing the markdown output format for generated image prompts. Each asset includes title, aspect ratio, and the full prompt text.
             </p>
-            <p className="text-[11px] text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> This schema defines how the DECKNAME_IMG_PROMPTS.md file is structured. Assets are grouped by slide number with formatted prompt blocks.</p>
+            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> This schema defines how the DECKNAME_IMG_PROMPTS.md file is structured. Assets are grouped by slide number with formatted prompt blocks.</p>
           </div>
         </div>
       </section>
@@ -448,14 +448,14 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'theme' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Theme Generator</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Theme Generator</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           The Theme Generator creates color palettes tailored to your deck content using the Haiku AI model. Theme colors are applied in the slide visualizer preview and can be exported with the VIS_DECKOUTLINE format.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">How It Works</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">How It Works</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Enable:</span> Check "Theme Generator" next to Deck Context & Guidelines</li>
               <li>• <span className="text-stone-300">Auto-generation:</span> When enabled, themes are generated automatically after each deck or page generation</li>
               <li>• <span className="text-stone-300">Context-aware:</span> Haiku reads your deck context, slide titles, and file content to create relevant palettes</li>
@@ -464,8 +464,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Visualizer Controls</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Visualizer Controls</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Left/Right arrows:</span> Cycle through available themes (presets + generated)</li>
               <li>• <span className="text-stone-300">Refresh button:</span> Generate a new batch of 3 themes (icon spins orange while generating)</li>
               <li>• <span className="text-stone-300">Color swatches:</span> Show the 4 colors of the active theme with hex codes</li>
@@ -473,23 +473,23 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Preset vs Generated</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Preset vs Generated</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               4 preset themes are always available: Black & Orange, Orange & Black, Black & White, White & Black.
               When Theme Generator is disabled (checkbox unchecked), only these presets are used. When enabled,
               AI-generated themes are added after the presets and the first generated theme is auto-selected.
             </p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Visual Styling — No Color Rule</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Visual Styling — No Color Rule</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Slide outlines never include color references in the VISUAL STYLING section. This is by design — colors are handled
               separately by the theme system. Visual styling descriptions focus only on mood, texture, atmosphere, typography, and composition.
             </p>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Theme Prompt Customization</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Theme Prompt Customization</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               The Haiku prompt used for theme generation can be customized in Settings &rarr; Prompts tab &rarr; "Theme Color Generation".
               This controls how the AI interprets your content and generates color palettes. Requires unlocking the prompts tab.
             </p>
@@ -503,15 +503,15 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'image-prompts' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Image Prompt Generation</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-4">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Image Prompt Generation</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-4">
           The Image Prompt Generation system creates detailed AI image prompts for every visual asset defined in your slide outlines.
           Prompts are generated at export time and downloaded as a separate markdown file alongside your deck outline.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">How It Works</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">How It Works</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Export-triggered:</span> Image prompts are ONLY generated when you click the export button with "Generate Image Prompts" enabled</li>
               <li>• <span className="text-stone-300">Asset extraction:</span> The system scans all slides and extracts visual assets from the &#9656; REQUIRED ASSETS section</li>
               <li>• <span className="text-stone-300">Logo/Icon skip:</span> Assets typed as Icon or Logo are automatically skipped since they represent existing brand assets</li>
@@ -520,8 +520,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Using Image Prompts at Export</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Using Image Prompts at Export</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Step 1:</span> Open the Import/Export modal from the header</li>
               <li>• <span className="text-stone-300">Step 2:</span> Check "Generate Image Prompts" checkbox</li>
               <li>• <span className="text-stone-300">Step 3:</span> Select your target model from the dropdown (Midjourney, Flux, Nano Banana, or Chat GPT)</li>
@@ -530,8 +530,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Supported AI Image Models</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Supported AI Image Models</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Midjourney:</span> Comma-separated descriptors, camera references, quality tags, v6 syntax</li>
               <li>• <span className="text-stone-300">Flux:</span> Natural language descriptions, text-in-image support, material textures</li>
               <li>• <span className="text-stone-300">Nano Banana:</span> Composition-focused, visual hierarchy emphasis</li>
@@ -539,19 +539,19 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Output Format</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Output Format</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               The exported markdown file includes a header with the deck visual description, followed by assets grouped by slide:
             </p>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">&#9656; ASSET TITLE:</span> Name and type of the visual asset</li>
               <li>• <span className="text-stone-300">&#9656; ASPECT RATIO:</span> Recommended dimensions for the asset</li>
               <li>• <span className="text-stone-300">&#9656; PROMPT:</span> Full AI-optimized image generation prompt</li>
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Customizing Image Prompts</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Customizing Image Prompts</h4>
+            <p className="text-dense text-stone-400 leading-relaxed">
               Image prompt system prompts can be customized in Settings &rarr; Prompts tab &rarr; "Visual Assets System Prompt" section.
               You can edit the shared rules (applied to all models), individual model-specific prompts, and the API system message.
               The output format template is editable in Settings &rarr; Format tab &rarr; "Image Prompt Export Schema".
@@ -566,15 +566,15 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'asset-placement' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Visual Asset Placement</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-4">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Visual Asset Placement</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-4">
           Visual Asset Placement allows you to embed your own uploaded images and videos directly into generated slide outlines.
           When enabled, the AI reviews your visual assets and assigns them to contextually matching slide frames. The visualizer then renders your actual images instead of placeholder boxes.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">How to Enable</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">How to Enable</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Use Uploaded Assets:</span> Check this box in Section 1 (next to Theme Generator) to include images and videos you uploaded via the file upload area</li>
               <li>• <span className="text-stone-300">Use Project Assets:</span> Check this box to include visual assets stored in the currently selected project</li>
               <li>• <span className="text-stone-300">Both can be enabled simultaneously</span> — the system combines assets from both sources</li>
@@ -582,8 +582,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">How It Works</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">How It Works</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">AI-driven placement:</span> The AI sees your uploaded assets and decides which frames they best match based on slide content and visual context</li>
               <li>• <span className="text-stone-300">Marker system:</span> Placed assets appear in the REQUIRED ASSETS section with a {"<<filename>>"} marker (e.g., {"<<hero_shot.jpg>>"}) that links the frame to your uploaded file</li>
               <li>• <span className="text-stone-300">Native aspect ratios:</span> The visualizer automatically detects each image's native dimensions and renders it at its true aspect ratio, ignoring any AI-specified ratio</li>
@@ -591,15 +591,15 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Supported File Types</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Supported File Types</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Images:</span> JPG, PNG, GIF, WebP, BMP, TIFF, SVG</li>
               <li>• <span className="text-stone-300">Videos:</span> MP4, MOV, WebM, AVI, MKV — displayed as auto-generated thumbnail frames with a play icon overlay</li>
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Regeneration & Editing</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Regeneration & Editing</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Preserved on regeneration:</span> When you regenerate a page, placed asset markers are preserved automatically. The AI is instructed to keep existing {"<<filename>>"} entries verbatim</li>
               <li>• <span className="text-stone-300">Request specific placements:</span> Use the revision prompt to direct the AI, e.g., "use hero_shot.jpg for the main image" or "remove the team photo from this slide"</li>
               <li>• <span className="text-stone-300">Full Deck mode:</span> Each asset is placed once across the entire deck — the AI distributes your uploads across slides where they contextually fit best</li>
@@ -607,8 +607,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Exporting with Placed Assets</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Exporting with Placed Assets</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">DECKOUTLINE.md / VIS_DECKOUTLINE.md:</span> The {"<<filename>>"} markers remain in the exported markdown for reference</li>
               <li>• <span className="text-stone-300">Export Placed Visual Assets:</span> Check this option in the export modal to download all placed image/video files as individually numbered files (e.g., PROJECTNAME_VIS_ASSETS_01_hero.jpg)</li>
               <li>• <span className="text-stone-300">Image Prompts:</span> When generating image prompts at export, frames with placed assets are automatically skipped — prompts are only generated for unplaced frames</li>
@@ -616,8 +616,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Tips</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Tips</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• Name your files descriptively — "product_hero.jpg" gives the AI better context for placement than "IMG_4521.jpg"</li>
               <li>• Upload the right number of images for your deck — if you have 10 slides with 2 frames each, 5-8 unique images works well</li>
               <li>• Use high-resolution images — the visualizer renders at the slide preview size, but exports will reference your original files</li>
@@ -633,38 +633,38 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'layouts' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Available Slide Layouts</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Available Slide Layouts</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           15 layout types are available. Layouts with visual assets have maximum asset limits enforced by the system. Column layouts (2, 3, 4) feature dynamic image sizing that adjusts asset height based on text content volume.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Column Layouts — Visual Assets Above Text</h4>
-            <p className="text-[11px] text-stone-400 leading-relaxed mb-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Column Layouts — Visual Assets Above Text</h4>
+            <p className="text-dense text-stone-400 leading-relaxed mb-2">
               These layouts display visual assets in a row above the text columns. Asset height dynamically adjusts based on text content length — more text causes images to shrink, less text allows images to stay larger.
             </p>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300 font-bold">Title and two columns</span> — Two side-by-side text columns with up to <span className="text-orange-400 font-bold">4 visual assets</span> above. Columns separated by --- in copy content. Assets centered above matching column widths (1-2 images) or packed left (3-4 images).</li>
               <li>• <span className="text-stone-300 font-bold">Title and three columns</span> — Three text columns with up to <span className="text-orange-400 font-bold">4 visual assets</span> above. Columns separated by --- dividers. Ideal for comparing three items, phases, or categories.</li>
               <li>• <span className="text-stone-300 font-bold">Title and four columns</span> — Four text columns with up to <span className="text-orange-400 font-bold">4 visual assets</span> above. Columns separated by --- dividers. Best for process flows, phase breakdowns, or multi-category comparisons.</li>
             </ul>
             <div className="mt-2 bg-stone-950 p-2 rounded">
-              <p className="text-[10px] text-stone-500 leading-relaxed">
+              <p className="text-dense text-stone-500 leading-relaxed">
                 <span className="text-orange-400 font-bold">Dynamic sizing:</span> Image row height ranges from 30-57% of the content area depending on asset count and text length. Short text = larger images. Long text = smaller images. Aspect ratios are always preserved.
               </p>
             </div>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Single Column & Split Layouts</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Single Column & Split Layouts</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300 font-bold">One column text</span> — Text on the left with up to <span className="text-orange-400 font-bold">3 visual assets</span> stacked on the right side, plus <span className="text-orange-400 font-bold">1 timeline asset</span> if present (4 total). Assets span the full height of the content area.</li>
               <li>• <span className="text-stone-300 font-bold">Section title and description</span> — Up to <span className="text-orange-400 font-bold">3 visual assets</span> fill the left half with the title/subtitle overlaid. The right half displays body text (bullets, numbered lists, paragraphs — no section headers).</li>
               <li>• <span className="text-stone-300 font-bold">Title and body</span> — Standard content slide with title, subtitle, and body text. Supports visual assets as background or inline references.</li>
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Title-Only Layouts (No Body Text)</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Title-Only Layouts (No Body Text)</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300 font-bold">Title slide</span> — Centered title and subtitle. Used for opening slides and section transitions.</li>
               <li>• <span className="text-stone-300 font-bold">Section header</span> — Large divider text for breaking a deck into sections.</li>
               <li>• <span className="text-stone-300 font-bold">Title only</span> — Minimal slide with title and subtitle. Useful for visual-heavy slides where the image background is the focus.</li>
@@ -672,8 +672,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Specialty Layouts</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Specialty Layouts</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300 font-bold">Main point</span> — Emphasized key message with large centered text. Draws attention to a single important statement.</li>
               <li>• <span className="text-stone-300 font-bold">Caption</span> — Image-focused layout with minimal text overlay. Best for hero imagery, product shots, or cinematic moments.</li>
               <li>• <span className="text-stone-300 font-bold">Blank</span> — Empty layout for fully custom content arrangement.</li>
@@ -682,8 +682,8 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Visual Asset Limits Summary</h4>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Visual Asset Limits Summary</h4>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-dense ml-2">
               <div className="text-stone-400">Title and two columns</div>
               <div className="text-orange-400 font-bold">4 assets max</div>
               <div className="text-stone-400">Title and three columns</div>
@@ -695,7 +695,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <div className="text-stone-400">Section title and description</div>
               <div className="text-orange-400 font-bold">3 assets max</div>
             </div>
-            <p className="text-[10px] text-stone-500 mt-2 ml-2">
+            <p className="text-caption text-stone-500 mt-2 ml-2">
               Assets beyond these limits are not rendered in the visualizer. The AI is instructed to respect these limits when generating content.
             </p>
           </div>
@@ -708,15 +708,15 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'settings' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Settings Panel</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-3">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Settings Panel</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-3">
           The Settings panel (gear icon) contains all system prompts and output format schemas in collapsible dropdown sections.
           Each section has a title bar that expands/collapses the content and a "Reset to default" button.
         </p>
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Prompts Tab</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Prompts Tab</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Single Page - API System Message:</span> Core system instruction for single page generation</li>
               <li>• <span className="text-stone-300">Single Page - Generation Rules:</span> Formatting rules and constraints for single page output</li>
               <li>• <span className="text-stone-300">Full Deck - API System Message:</span> Core system instruction for full deck generation</li>
@@ -726,16 +726,16 @@ export function DogHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Visual Assets System Prompt</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Visual Assets System Prompt</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Shared Rules (All Models):</span> Common formatting rules for all image models</li>
               <li>• <span className="text-stone-300">Midjourney / Flux / Nano Banana / Chat GPT:</span> Model-specific prompt rules</li>
               <li>• <span className="text-stone-300">Image Prompt - API System Message:</span> Core instruction for the image prompt generation API call</li>
             </ul>
           </div>
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Format Tab</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Format Tab</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Single Page Export Schema:</span> Markdown structure for individual slide exports</li>
               <li>• <span className="text-stone-300">Full Deck Export Schema:</span> Markdown structure for complete deck exports</li>
               <li>• <span className="text-stone-300">Visual Deck Export Schema:</span> Read-only schema showing the VIS_DECKOUTLINE format structure</li>
@@ -751,8 +751,8 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'tips' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Tips for Best Results</h3>
-        <ul className="text-xs text-stone-300 leading-relaxed space-y-1">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Tips for Best Results</h3>
+        <ul className="text-dense text-stone-300 leading-relaxed space-y-1">
           <li>• <span className="text-orange-400">Be specific</span> in your deck context about tone, audience, and visual style preferences.</li>
           <li>• <span className="text-orange-400">Use descriptive page requests</span> that reference specific content from your uploaded documents.</li>
           <li>• <span className="text-orange-400">Review and edit</span> generated content in the text view before exporting.</li>
@@ -778,8 +778,8 @@ export function DogHelpContent({ helpPage, theme }) {
       </section>
 
       <section className="bg-orange-500/10 border border-orange-500/30 rounded-sm p-3">
-        <h3 className="text-xs font-bold text-orange-400 uppercase tracking-wide mb-2">Important Notes</h3>
-        <ul className="text-xs text-stone-300 leading-relaxed space-y-1">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-2">Important Notes</h3>
+        <ul className="text-dense text-stone-300 leading-relaxed space-y-1">
           <li>• Modifying system prompts incorrectly may cause parsing errors or unexpected output formats.</li>
           <li>• Always use "Reset to default" if you encounter issues after editing prompts.</li>
           <li>• The &#9656; markers and ═══ delimiters are required for the system to parse slides correctly.</li>
@@ -797,16 +797,16 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'slides-extension' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wide mb-3">Download Slides Extension</h3>
-        <p className="text-xs text-stone-300 leading-relaxed mb-4">
+        <h3 className="text-label font-bold text-orange-400 uppercase tracking-wide mb-3">Download Slides Extension</h3>
+        <p className="text-dense text-stone-300 leading-relaxed mb-4">
           The D.O.G. Bridge is a Google Slides Apps Script extension that reads your exported VIS_DECKOUTLINE markdown files and programmatically builds
           Google Slides decks with precise coordinate-based placement. It bridges the gap between D.O.G.'s outline generation and your final presentation.
         </p>
 
         <div className="space-y-3">
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">What It Does</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">What It Does</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Parses DECKOUTLINE and VIS_DECKOUTLINE</span> markdown files into structured slide data</li>
               <li>• <span className="text-stone-300">Creates slides</span> with matched layout templates from your Google Slides theme</li>
               <li>• <span className="text-stone-300">Positions text boxes</span> using COMPONENT GEOMETRY coordinates for pixel-perfect placement</li>
@@ -818,8 +818,8 @@ export function DogHelpContent({ helpPage, theme }) {
           </div>
 
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Installation Steps</h4>
-            <ol className="text-[11px] text-stone-400 leading-relaxed space-y-1.5 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Installation Steps</h4>
+            <ol className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li><span className="text-orange-400 font-bold">1.</span> Download both files below (<span className="text-stone-300">Code.gs</span> and <span className="text-stone-300">Sidebar.html</span>)</li>
               <li><span className="text-orange-400 font-bold">2.</span> Open a Google Slides presentation</li>
               <li><span className="text-orange-400 font-bold">3.</span> Go to <span className="text-stone-300">Extensions &rarr; Apps Script</span></li>
@@ -831,7 +831,7 @@ export function DogHelpContent({ helpPage, theme }) {
           </div>
 
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Download Files</h4>
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Download Files</h4>
             <div className="space-y-2">
               <a
                 href="./extensions/Code.gs"
@@ -839,10 +839,10 @@ export function DogHelpContent({ helpPage, theme }) {
                 className="flex items-center gap-3 px-3 py-2.5 rounded-sm transition-colors hover:bg-stone-800"
                 style={{ borderLeft: '3px solid #ea580c', backgroundColor: '#0c0a09' }}
               >
-                <span className="text-orange-400 text-xs">&#8595;</span>
+                <span className="text-orange-400 text-dense">&#8595;</span>
                 <div>
-                  <span className="text-[11px] text-orange-400 font-bold">Code.gs</span>
-                  <span className="text-[10px] text-stone-500 ml-2">Server-side Apps Script</span>
+                  <span className="text-dense text-orange-400 font-bold">Code.gs</span>
+                  <span className="text-caption text-stone-500 ml-2">Server-side Apps Script</span>
                 </div>
               </a>
               <a
@@ -851,18 +851,18 @@ export function DogHelpContent({ helpPage, theme }) {
                 className="flex items-center gap-3 px-3 py-2.5 rounded-sm transition-colors hover:bg-stone-800"
                 style={{ borderLeft: '3px solid #ea580c', backgroundColor: '#0c0a09' }}
               >
-                <span className="text-orange-400 text-xs">&#8595;</span>
+                <span className="text-orange-400 text-dense">&#8595;</span>
                 <div>
-                  <span className="text-[11px] text-orange-400 font-bold">Sidebar.html</span>
-                  <span className="text-[10px] text-stone-500 ml-2">Sidebar UI interface</span>
+                  <span className="text-dense text-orange-400 font-bold">Sidebar.html</span>
+                  <span className="text-caption text-stone-500 ml-2">Sidebar UI interface</span>
                 </div>
               </a>
             </div>
           </div>
 
           <div className="bg-stone-900 p-3 rounded-sm border border-stone-700">
-            <h4 className="text-xs font-bold text-orange-400 mb-2">Features</h4>
-            <ul className="text-[11px] text-stone-400 leading-relaxed space-y-1 ml-2">
+            <h4 className="text-dense font-bold text-orange-400 mb-2">Features</h4>
+            <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
               <li>• <span className="text-stone-300">Full Deck or Single Page mode</span> — Build the entire deck or replace a single slide</li>
               <li>• <span className="text-stone-300">Theme color application</span> — Applies background, accent, secondary, and body text colors from your outline</li>
               <li>• <span className="text-stone-300">Coordinate-based text positioning</span> — Uses COMPONENT GEOMETRY JSON for precise element placement</li>

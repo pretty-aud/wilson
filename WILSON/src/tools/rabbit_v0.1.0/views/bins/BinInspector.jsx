@@ -36,7 +36,7 @@ function Section({ title, children, open = true, onToggle, right = null }) {
   const heading = (
     <>
       {onToggle ? (open ? <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />) : null}
-      <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
+      <span className="text-label font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
     </>
   )
   return (
@@ -106,8 +106,8 @@ export default function BinInspector({
   if (!rows.length) {
     return (
       <div className="flex-shrink-0 h-full flex flex-col" style={{ width, borderLeft: `1px solid ${C.line}`, backgroundColor: C.bg }}>
-        <div className="px-3 py-2 text-[9.5px] font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Inspector</div>
-        <div className="flex-1 flex items-center justify-center px-6 text-center text-[10.5px] font-mono leading-relaxed" style={{ color: C.dimmer }}>
+        <div className="px-3 py-2 text-label font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Inspector</div>
+        <div className="flex-1 flex items-center justify-center px-6 text-center text-dense font-mono leading-relaxed" style={{ color: C.dimmer }}>
           Select a file to preview it and log it. Shift-click or drag to select several and edit them together.
         </div>
       </div>
@@ -122,7 +122,7 @@ export default function BinInspector({
   return (
     <div className="flex-shrink-0 h-full flex flex-col overflow-hidden" style={{ width, borderLeft: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="px-3 py-2 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>
+        <span className="text-label font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>
           {single ? 'Inspector' : `${rows.length} files selected`}
         </span>
         {canWrite && <IconBtn Icon={Trash2} title={single ? 'Remove from bin (Delete)' : `Remove ${rows.length} from bin (Delete)`} onClick={() => onRemove?.(rows.map(r => r.id))} danger size={3} />}
@@ -139,7 +139,7 @@ export default function BinInspector({
             <MarkBtn active={flag.value === 'select' && !flag.mixed} onClick={() => onPatch({ review_flag: flag.value === 'select' ? 'unflagged' : 'select' })} disabled={!canWrite} Icon={Check} color={C.green} label="Select" hint="S" />
             <MarkBtn active={flag.value === 'reject' && !flag.mixed} onClick={() => onPatch({ review_flag: flag.value === 'reject' ? 'unflagged' : 'reject' })} disabled={!canWrite} Icon={Ban} color={C.red} label="Reject" hint="R" />
             <MarkBtn active={!!circled.value && !circled.mixed} onClick={() => onPatch({ circled: !circled.value })} disabled={!canWrite} Icon={Circle} color={C.accentText} label="Circled" hint="C" />
-            {(flag.mixed || circled.mixed) && <span className="text-[9.5px] font-mono" style={{ color: C.amber }}>mixed</span>}
+            {(flag.mixed || circled.mixed) && <span className="text-dense font-mono" style={{ color: C.amber }}>mixed</span>}
           </div>
           <Field label="Colour" inline mixed={color.mixed}>
             <ColorPicker value={color.mixed ? null : color.value} onChange={c => canWrite && onPatch({ color: c })} />
@@ -151,16 +151,16 @@ export default function BinInspector({
             right={canWrite && onAssign ? <IconBtn Icon={Plus} title="Assign to shot… (A)" size={3} onClick={e => { e.stopPropagation(); onAssign(rows.map(r => r.id)) }} /> : null}>
             {single ? (
               uses.length === 0
-                ? <div className="text-[10.5px] font-mono" style={{ color: C.dimmer }}>Not assigned to any shot yet.</div>
+                ? <div className="text-dense font-mono" style={{ color: C.dimmer }}>Not assigned to any shot yet.</div>
                 : uses.map(({ take, shot, scene }) => {
                   const meta = TAKE_ROLE_META[take.role] || TAKE_ROLE_META.alt
                   return (
-                    <div key={take.id} className="flex items-center gap-1.5 text-[10.5px] font-mono min-w-0">
+                    <div key={take.id} className="flex items-center gap-1.5 text-dense font-mono min-w-0">
                       <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />
                       <span className="truncate flex-1" style={{ color: C.text }} title={`${scene?.name ? scene.name + ' · ' : ''}#${shot.shot_number ?? '—'} ${shot.name || 'Untitled shot'}${take.notes ? ' — ' + take.notes : ''}`}>
                         {scene?.name ? <span style={{ color: C.dim }}>{scene.name} · </span> : null}#{shot.shot_number ?? '—'} {shot.name || 'Untitled shot'}
                       </span>
-                      <span className="px-1 rounded-sm text-[8.5px] uppercase tracking-wider flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
+                      <span className="px-1 rounded-sm text-label uppercase tracking-wider flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
                         {take.role === 'primary' && <Star className="w-2 h-2" style={{ fill: meta.color }} />}{meta.label}
                       </span>
                       <IconBtn Icon={ExternalLink} title="Open the shot in Scenes" size={3} onClick={() => navigateTo({ view: 'scenes', shotId: shot.id, projectId })} />
@@ -169,7 +169,7 @@ export default function BinInspector({
                   )
                 })
             ) : (
-              <div className="text-[10.5px] font-mono" style={{ color: C.muted }}>
+              <div className="text-dense font-mono" style={{ color: C.muted }}>
                 {usedRows === 0 ? 'None of these is assigned to a shot yet.' : `${usedRows} of ${rows.length} are assigned to shots. Select one file to see where.`}
               </div>
             )}
@@ -254,7 +254,7 @@ export default function BinInspector({
 function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={`${label} (${hint})`}
-      className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
+      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
       style={{ color: active ? C.bright : C.muted, backgroundColor: active ? color : 'transparent', border: `1px solid ${active ? color : C.line}` }}>
       <Icon className="w-3 h-3" /> {label}
     </button>
@@ -263,7 +263,7 @@ function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
 
 function TechRows({ row, fps, binPath, ffmpeg }) {
   const R = ({ k, v, title }) => v == null || v === '' ? null : (
-    <div className="flex items-baseline gap-2 text-[10.5px] font-mono min-w-0">
+    <div className="flex items-baseline gap-2 text-dense font-mono min-w-0">
       <span className="flex-shrink-0" style={{ color: C.dimmer, minWidth: 70 }}>{k}</span>
       <span className="truncate" style={{ color: C.text }} title={title || String(v)}>{v}</span>
     </div>
@@ -276,7 +276,7 @@ function TechRows({ row, fps, binPath, ffmpeg }) {
       <R k="Bin" v={binPath} />
       <R k="File" v={row.original_name} />
       <R k="Path" v={row.source_path} />
-      {row.online === false && <div className="flex items-center gap-1.5 text-[10.5px] font-mono" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> offline — the file is not at this path</div>}
+      {row.online === false && <div className="flex items-center gap-1.5 text-dense font-mono" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> offline — the file is not at this path</div>}
       <R k="Size" v={formatBytes(row.size_bytes)} />
       {row.is_sequence && <R k="Frames" v={`${row.frame_count ?? '?'}${row.sequence_pattern ? ` · ${row.sequence_pattern}` : ''}`} />}
       <R k="Duration" v={row.duration_sec ? `${formatDuration(row.duration_sec)} · ${secondsToTimecode(row.duration_sec, row.fps || fps)}` : null} />
@@ -322,13 +322,13 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
     return (
       <div className="rounded-sm flex flex-col items-center justify-center gap-1 py-6 text-center" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}` }}>
         <Unplug className="w-5 h-5" style={{ color: C.amber }} />
-        <div className="text-[10.5px] font-mono" style={{ color: C.amber }}>Offline</div>
-        <div className="text-[9.5px] font-mono px-4" style={{ color: C.dim }}>The file is not at its recorded path. Plug the drive in, or use Relink.</div>
+        <div className="text-dense font-mono" style={{ color: C.amber }}>Offline</div>
+        <div className="text-dense font-mono px-4" style={{ color: C.dim }}>The file is not at its recorded path. Plug the drive in, or use Relink.</div>
       </div>
     )
   }
   const notice = (text) => (
-    <div className="text-[9.5px] font-mono leading-relaxed px-1" style={{ color: C.dim }}>{text}</div>
+    <div className="text-dense font-mono leading-relaxed px-1" style={{ color: C.dim }}>{text}</div>
   )
   if (kind === 'video' && streamUrl && !failed) {
     return (

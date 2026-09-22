@@ -97,7 +97,7 @@ const cardStyle = {
   border: '1px solid rgba(120, 70, 30, 0.3)',
 }
 const darkBtnClass =
-  'flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40'
+  'flex items-center gap-1.5 px-3 py-1.5 text-label font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40'
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 const lightInputStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.55)',
@@ -105,12 +105,12 @@ const lightInputStyle = {
   border: 'none',
 }
 const inputClass =
-  'px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
+  'px-3 py-2 text-dense font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
 
 function ThLight({ children }) {
   return (
     <th
-      className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left"
+      className="px-3 py-2 text-label font-bold uppercase tracking-wider text-left"
       style={{ color: '#57534e' }}
     >
       {children}
@@ -150,7 +150,7 @@ const AMBER = '#b45309'
 // workspaces — but "impossible" is not a rendering strategy). Both are unknown.
 function StorageCell({ plan }) {
   if (!plan) {
-    return <span className="text-[11px]" style={{ color: '#a8a29e' }}>—</span>
+    return <span className="text-dense" style={{ color: '#a8a29e' }}>—</span>
   }
   // `status` is the PLAN's status. It is not row.deleted_at, which is the
   // company's own suspension and already has a badge in the first column — a
@@ -159,11 +159,11 @@ function StorageCell({ plan }) {
   return (
     <>
       {/* Same used/total grammar as the Members column two cells to the left. */}
-      <span className="text-xs" style={{ color: '#1c1917' }}>{formatBytes(plan.used_bytes)}</span>
-      <span className="text-[10px]" style={{ color: '#78716c' }}>/{formatBytes(plan.quota_bytes)}</span>
+      <span className="text-dense" style={{ color: '#1c1917' }}>{formatBytes(plan.used_bytes)}</span>
+      <span className="text-dense" style={{ color: '#78716c' }}>/{formatBytes(plan.quota_bytes)}</span>
       {held && (
         <span
-          className="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-sm"
+          className="ml-1.5 px-1.5 py-0.5 text-label font-bold uppercase tracking-wider rounded-sm"
           style={{ backgroundColor: 'rgba(180,83,9,0.15)', color: AMBER }}
           title="Petal cloud uploads are suspended for this company. Nothing stored has been deleted."
         >
@@ -173,7 +173,7 @@ function StorageCell({ plan }) {
       {!held && !plan.has_plan && (
         // No plan row at all — the free tier. Said quietly, because it is the
         // default state of most of the table and a badge on every row is noise.
-        <span className="ml-1.5 text-[10px]" style={{ color: '#a8a29e' }}>free</span>
+        <span className="ml-1.5 text-dense" style={{ color: '#a8a29e' }}>free</span>
       )}
     </>
   )
@@ -269,8 +269,8 @@ export default function CompaniesSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900">Companies</h2>
-          <p className="text-xs text-stone-950 leading-relaxed">
+          <h2 className="text-label font-bold uppercase tracking-widest text-stone-900">Companies</h2>
+          <p className="text-dense text-stone-950 leading-relaxed">
             Every workspace on the platform. Counts are live.
           </p>
         </div>
@@ -285,7 +285,7 @@ export default function CompaniesSection({ isActive }) {
       </div>
 
       {error && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
           {error}
         </p>
       )}
@@ -295,7 +295,7 @@ export default function CompaniesSection({ isActive }) {
           out", and the only place that distinction can be made is here — the
           cells themselves can only show a dash. */}
       {planError && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(180,83,9,0.10)', color: AMBER }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(180,83,9,0.10)', color: AMBER }}>
           {planError} Storage reads as “—” below; it is not zero.
         </p>
       )}
@@ -318,7 +318,7 @@ export default function CompaniesSection({ isActive }) {
           <tbody>
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-xs" style={{ color: '#78716c' }}>
+                <td colSpan={7} className="px-3 py-6 text-center text-dense" style={{ color: '#78716c' }}>
                   No companies yet.
                 </td>
               </tr>
@@ -337,26 +337,26 @@ export default function CompaniesSection({ isActive }) {
                 }}
               >
                 <TdLight>
-                  <span className="text-xs font-semibold text-stone-900">{r.name}</span>
+                  <span className="text-dense font-semibold text-stone-900">{r.name}</span>
                   {r.deleted_at && (
-                    <span className="ml-2 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-sm"
+                    <span className="ml-2 px-1.5 py-0.5 text-label font-bold uppercase tracking-wider rounded-sm"
                       style={{ backgroundColor: 'rgba(220,38,38,0.15)', color: '#991b1b' }}>
                       Suspended
                     </span>
                   )}
                 </TdLight>
-                <TdLight><code className="text-[11px] font-mono" style={{ color: '#57534e' }}>{r.slug}</code></TdLight>
+                <TdLight><code className="text-dense font-mono" style={{ color: '#57534e' }}>{r.slug}</code></TdLight>
                 <TdLight>
-                  <span className="text-xs" style={{ color: '#1c1917' }}>{r.active_members}</span>
-                  <span className="text-[10px]" style={{ color: '#78716c' }}>/{r.member_count}</span>
+                  <span className="text-dense" style={{ color: '#1c1917' }}>{r.active_members}</span>
+                  <span className="text-dense" style={{ color: '#78716c' }}>/{r.member_count}</span>
                 </TdLight>
-                <TdLight><span className="text-xs" style={{ color: '#1c1917' }}>{r.project_count}</span></TdLight>
-                <TdLight><span className="text-xs" style={{ color: '#1c1917' }}>{r.file_count}</span></TdLight>
+                <TdLight><span className="text-dense" style={{ color: '#1c1917' }}>{r.project_count}</span></TdLight>
+                <TdLight><span className="text-dense" style={{ color: '#1c1917' }}>{r.file_count}</span></TdLight>
                 <TdLight><StorageCell plan={planFor(r.workspace_id)} /></TdLight>
                 <TdLight>
                   {r.has_ai_key
-                    ? <code className="text-[11px] font-mono" style={{ color: '#166534' }}>…{r.ai_key_hint}</code>
-                    : <span className="text-[11px]" style={{ color: '#a8a29e' }}>platform</span>}
+                    ? <code className="text-dense font-mono" style={{ color: '#166534' }}>…{r.ai_key_hint}</code>
+                    : <span className="text-dense" style={{ color: '#a8a29e' }}>platform</span>}
                 </TdLight>
               </tr>
             ))}
@@ -368,7 +368,7 @@ export default function CompaniesSection({ isActive }) {
         <div className="p-4 rounded-sm mb-4" style={{ backgroundColor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: '#991b1b' }}>
+              <p className="text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#991b1b' }}>
                 {tornDown.slug} torn down
               </p>
               {/* Honest counts. `removed` is what the bucket actually deleted,
@@ -376,7 +376,7 @@ export default function CompaniesSection({ isActive }) {
                   no object for (already GC'd, or a drifted path), and
                   `rejected` covers rows pointing outside this workspace's own
                   projects, which teardown refuses to touch. */}
-              <p className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+              <p className="text-dense leading-relaxed" style={{ color: '#57534e' }}>
                 {tornDown.blobs_removed} of {tornDown.blobs_found} blob(s) purged
                 {tornDown.blobs_missing > 0 && <> · {tornDown.blobs_missing} already gone</>}
                 {tornDown.blobs_failed > 0 && <> · <strong>{tornDown.blobs_failed} failed</strong></>}
@@ -388,7 +388,7 @@ export default function CompaniesSection({ isActive }) {
             </div>
             <button
               onClick={() => setTornDown(null)}
-              className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm flex-shrink-0"
+              className="px-2 py-1 text-dense font-bold uppercase tracking-wider rounded-sm flex-shrink-0"
               style={{ backgroundColor: 'transparent', color: '#57534e' }}
             >
               Dismiss
@@ -520,21 +520,21 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
   return (
     <div className="p-4 rounded-sm" style={cardStyle}>
-      <h3 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">{row.name}</h3>
-      <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+      <h3 className="text-label font-bold uppercase tracking-widest text-stone-900 mb-1">{row.name}</h3>
+      <p className="text-dense text-stone-950 mb-4 leading-relaxed">
         <code className="font-mono">{row.slug}</code> · created{' '}
         {new Date(row.created_at).toLocaleDateString()} ·{' '}
         {row.admin_count} admin{row.admin_count === 1 ? '' : 's'}
         {row.blob_count > 0 && <> · {row.blob_count} cloud blob{row.blob_count === 1 ? '' : 's'}</>}
       </p>
 
-      {msg && <p className="text-[11px] mb-3" style={{ color: '#166534' }}>{msg}</p>}
-      {err && <p className="text-[11px] mb-3" style={{ color: '#991b1b' }}>{err}</p>}
+      {msg && <p className="text-dense mb-3" style={{ color: '#166534' }}>{msg}</p>}
+      {err && <p className="text-dense mb-3" style={{ color: '#991b1b' }}>{err}</p>}
 
       {/* Rename — the slug is immutable by trigger and part of sign-in. */}
       <div className="flex items-end gap-2 mb-4">
         <div className="flex-1">
-          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+          <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
             Display name
           </label>
           <input
@@ -553,7 +553,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           {busy === 'rename' ? 'Saving…' : 'Rename'}
         </button>
       </div>
-      <p className="text-[10px] mb-4" style={{ color: '#78716c' }}>
+      <p className="text-dense mb-4" style={{ color: '#78716c' }}>
         The slug is permanent — it is part of sign-in.
       </p>
 
@@ -568,10 +568,10 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           server refuses with `email_synthesized` rather than mailing a
           reserved-domain address into the void. */}
       <div className="mb-4">
-        <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+        <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
           Setup link
         </label>
-        <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
+        <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
           Emails this company’s admin a link to set their own password, so you never
           have to read one out. Type their address to confirm — this hands over a
           company that already exists.
@@ -586,16 +586,16 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
                 weak, it was impossible to satisfy for any company whose
                 show-once dialog had been closed. */}
             {contactErr ? (
-              <p className="text-[11px] mb-2" style={{ color: '#991b1b' }}>{contactErr}</p>
+              <p className="text-dense mb-2" style={{ color: '#991b1b' }}>{contactErr}</p>
             ) : !contact ? (
-              <p className="text-[11px] mb-2" style={{ color: '#78716c' }}>Looking up the admin…</p>
+              <p className="text-dense mb-2" style={{ color: '#78716c' }}>Looking up the admin…</p>
             ) : !contact.deliverable ? (
-              <p className="text-[11px] mb-2" style={{ color: '#b45309' }}>
+              <p className="text-dense mb-2" style={{ color: '#b45309' }}>
                 This company has no real email on file (<code className="font-mono">{contact.email}</code>),
                 so there is nowhere to send a link. Hand over the password instead.
               </p>
             ) : (
-              <p className="text-[11px] mb-2 leading-relaxed" style={{ color: '#57534e' }}>
+              <p className="text-dense mb-2 leading-relaxed" style={{ color: '#57534e' }}>
                 Goes to <code className="font-mono font-bold">{contact.email}</code>
                 {contact.username && <> (<code className="font-mono">{contact.username}</code>)</>}.
                 Type it below to confirm.
@@ -672,7 +672,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
             ? 'Working…'
             : row.deleted_at ? 'Restore company' : 'Suspend company'}
         </button>
-        <span className="text-[10px]" style={{ color: '#78716c' }}>
+        <span className="text-dense" style={{ color: '#78716c' }}>
           {row.deleted_at
             ? 'Members regain access immediately.'
             : 'Members lose access immediately. Nothing is deleted, and it can be undone.'}
@@ -681,10 +681,10 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
       {/* Per-company Anthropic key. */}
       <div className="mb-2 pt-3" style={{ borderTop: '1px solid rgba(120,70,30,0.25)' }}>
-        <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+        <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
           Anthropic key
         </label>
-        <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
+        <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
           {row.has_ai_key
             ? <>This company bills to its own key (…{row.ai_key_hint}). A stored key is never readable again — replace it or clear it.</>
             : <>This company bills to the platform key. Setting one here overrides that for every AI feature they use.</>}
@@ -743,13 +743,13 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           above the teardown rule — Fitts's Law, same as everything else the
           operator does more than once a year. Every control goes through run(). */}
       <div className="mb-2 pt-3" style={{ borderTop: '1px solid rgba(120,70,30,0.25)' }}>
-        <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+        <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
           Petal cloud storage
         </label>
 
         {plan ? (
           <>
-            <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
+            <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
               <strong style={{ color: '#1c1917' }}>{formatBytes(usedBytes)}</strong> of{' '}
               <strong style={{ color: '#1c1917' }}>{formatBytes(quotaBytes)}</strong> used
               {usedPct !== null && <> · {usedPct}%</>}
@@ -792,7 +792,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           // sitting at 0% because the read failed tells the operator this
           // company is using nothing, which is the most reassuring possible
           // rendering of "we have no idea".
-          <p className="text-[10px] mb-3 leading-relaxed" style={{ color: AMBER }}>
+          <p className="text-dense mb-3 leading-relaxed" style={{ color: AMBER }}>
             Usage and quota are <strong>unknown</strong> — the storage plan read
             did not come back. This is not zero. Refresh before judging anything
             by it. You can still set a quota, but nothing here tells you what it
@@ -810,7 +810,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           className={`w-full ${inputClass} mb-1`}
           style={lightInputStyle}
         />
-        <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
+        <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
           The note goes to the platform audit log with whichever action you press
           — never onto the plan row itself, which this company’s own members can
           read.
@@ -818,7 +818,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
         <div className="flex items-end gap-2 mb-2">
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+            <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
               Quota (GB)
             </label>
             <input
@@ -902,7 +902,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
             storage to a company that had none and stops billing them. It is not
             a way to cut anyone off, and copy implying otherwise would eventually
             get it used as one. Suspend is the control that stops uploads. */}
-        <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
+        <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
           <strong>Suspend uploads</strong> refuses new uploads and leaves
           everything already stored exactly where it is — it is the payment
           lever, and it is reversible.{' '}
@@ -920,11 +920,11 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
       <div className="mt-6 pt-4" style={{ borderTop: '1px solid rgba(220,38,38,0.35)' }}>
         {tearStage === 'confirm' ? (
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: '#dc2626' }}>
+            <p className="text-label font-bold uppercase tracking-wider mb-2" style={{ color: '#dc2626' }}>
               Permanently destroy {row.name}?
             </p>
             {/* Cognitive Bias: real numbers, not "are you sure?". */}
-            <p className="text-[11px] leading-relaxed mb-3" style={{ color: '#57534e' }}>
+            <p className="text-dense leading-relaxed mb-3" style={{ color: '#57534e' }}>
               This deletes <strong>{row.member_count} membership(s)</strong>,{' '}
               <strong>{row.project_count} project(s)</strong>,{' '}
               <strong>{row.file_count} file record(s)</strong> and purges{' '}
@@ -934,7 +934,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
               deleted — people who were only in this company keep a login with
               no workspace.
             </p>
-            <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+            <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
               Type <code className="font-mono">{row.slug}</code> to confirm
             </label>
             <div className="flex items-center gap-2">
@@ -976,7 +976,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           </div>
         ) : (
           <button
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: 'transparent', color: '#dc2626', border: '1px solid rgba(220,38,38,0.5)' }}
             onClick={() => setTearStage('confirm')}
           >
@@ -1025,10 +1025,10 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
         className="w-full"
         style={{ maxWidth: '440px', backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '20px 22px' }}
       >
-        <h3 className="text-sm font-bold uppercase tracking-widest mb-1" style={{ color: '#f4a261' }}>
+        <h3 className="text-label font-bold uppercase tracking-widest mb-1" style={{ color: '#f4a261' }}>
           New company
         </h3>
-        <p className="text-[11px] mb-4 leading-relaxed" style={{ color: '#a8a29e' }}>
+        <p className="text-dense mb-4 leading-relaxed" style={{ color: '#a8a29e' }}>
           Creates the workspace and its first admin. You will get a show-once
           password to hand over — it cannot be retrieved afterwards.
         </p>
@@ -1047,14 +1047,14 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
           { label: 'Admin email (optional)', value: email, set: setEmail, mono: true },
         ].map((f) => (
           <div key={f.label} className="mb-3">
-            <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
+            <label className="block text-label font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>
               {f.label}
             </label>
             <input
               value={f.value}
               onChange={(e) => { f.set(e.target.value); setErr('') }}
               disabled={busy}
-              className={`w-full px-3 py-2 text-xs rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${f.mono ? 'font-mono' : ''}`}
+              className={`w-full px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${f.mono ? 'font-mono' : ''}`}
               style={{
                 backgroundColor: 'rgba(0,0,0,0.35)',
                 color: '#fde8d0',
@@ -1064,12 +1064,12 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
           </div>
         ))}
 
-        <p className="text-[10px] mb-3 leading-relaxed" style={{ color: '#78716c' }}>
+        <p className="text-dense mb-3 leading-relaxed" style={{ color: '#78716c' }}>
           No email? One is synthesised and the account becomes admin-reset-only
           — the same convention as admin-created users.
         </p>
 
-        {err && <p className="text-[11px] mb-3" style={{ color: '#fca5a5' }}>{err}</p>}
+        {err && <p className="text-dense mb-3" style={{ color: '#fca5a5' }}>{err}</p>}
 
         <div className="flex items-center gap-2">
           <button
@@ -1123,21 +1123,21 @@ function CredentialsDialog({ payload, onClose }) {
         className="w-full"
         style={{ maxWidth: '440px', backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '20px 22px' }}
       >
-        <h3 className="text-sm font-bold uppercase tracking-widest mb-1" style={{ color: '#f4a261' }}>
+        <h3 className="text-label font-bold uppercase tracking-widest mb-1" style={{ color: '#f4a261' }}>
           Company created
         </h3>
         {/* Zeigarnik: this is the only time the password exists anywhere. The
             copy says so before the operator closes the one window it is in. */}
-        <p className="text-[11px] mb-4 leading-relaxed" style={{ color: '#a8a29e' }}>
+        <p className="text-dense mb-4 leading-relaxed" style={{ color: '#a8a29e' }}>
           This password is shown once and is not stored anywhere. Copy it now
           — if it is lost, the admin has to be reset, not recovered.
         </p>
         <pre
-          className="text-[11px] font-mono p-3 rounded-sm mb-3 whitespace-pre-wrap break-all"
+          className="text-dense font-mono p-3 rounded-sm mb-3 whitespace-pre-wrap break-all"
           style={{ backgroundColor: 'rgba(0,0,0,0.4)', color: '#fde8d0' }}
         >{both}</pre>
         {payload.email_synthesized && (
-          <p className="text-[10px] mb-3 leading-relaxed" style={{ color: '#78716c' }}>
+          <p className="text-dense mb-3 leading-relaxed" style={{ color: '#78716c' }}>
             No real email was given, so <code className="font-mono">{payload.email}</code> was
             synthesised. Password resets for this admin are operator/admin-only.
           </p>
