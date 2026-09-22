@@ -4489,7 +4489,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
             )}
             
-            <div ref={textareaContainerRef} className={`bg-stone-950 border-l border-r border-b border-stone-600 relative ${openTabs.length === 0 ? 'border-t-2' : ''}`}>
+            <div ref={textareaContainerRef} className={`bg-stone-950 border-l-2 border-r-2 border-b-2 border-stone-600 relative ${openTabs.length === 0 ? 'border-t-2' : ''}`}>
               {activeTab ? (
                 viewMode === 'text' ? (
                   <>
@@ -4755,7 +4755,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-dense font-semibold ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
                         <p className="text-dense text-stone-500">Core instruction sent as system message for single page generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_sys ? '' : 'rotate-90'}`} />
@@ -4933,7 +4933,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-dense font-semibold ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
+                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
                         <p className="text-dense text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_api_sys ? '' : 'rotate-90'}`} />

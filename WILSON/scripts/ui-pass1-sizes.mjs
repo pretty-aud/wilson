@@ -31,7 +31,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { sourceFiles } from './ui-audit.mjs';
 import { classifySite } from './ui-type-map.mjs';
 import { protectedRanges, isProtected } from './ui-source-regions.mjs';
-import { enclosingRun, enclosingTag, elementBody, enclosingStyle } from './ui-type-inventory.mjs';
+import { enclosingRun, enclosingTag, elementBody, elementOwnText, enclosingStyle } from './ui-type-inventory.mjs';
 
 const SIZE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|[2-9]xl)\b)/g;
 const TW = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24, '3xl': 30, '4xl': 36, '5xl': 48, '6xl': 60, '7xl': 72, '8xl': 96, '9xl': 128 };
@@ -61,7 +61,8 @@ for (const file of files) {
     const px = m[1] ? parseFloat(m[1]) : TW[m[2]];
     const run = enclosingRun(src, m.index) || '';
     const tag = enclosingTag(src, m.index);
-    const step = classifySite(file, px, run, tag, elementBody(src, m.index), enclosingStyle(src, m.index));
+    const step = classifySite(file, px, run, tag, elementBody(src, m.index),
+      enclosingStyle(src, m.index), elementOwnText(src, m.index));
     if (m[0] === step) continue;                       // already there
     edits.push({ start: m.index, end: m.index + m[0].length, from: m[0], to: step });
     stepTally.set(step, (stepTally.get(step) || 0) + 1);
@@ -89,8 +90,19 @@ for (const file of files) {
    codemod where an edit lands INSIDE a protected region, and it is here
    rather than in a follow-up commit so a clean-tree re-run reproduces it. */
 const HELP_CSS = 'src/data/dogHelpContent.jsx';
+/* 🚨 THESE TARGETS ARE MEASURED, NOT REMEMBERED. The h3 fixup said
+   `text-label` for two commits after the heading-tag rule moved all 15 `<h3>`
+   in this file to `text-h3`, so the selector pointed at a class the file no
+   longer contained — the precise failure `ui-source-regions.mjs`'s header
+   warns about, reproduced on every clean re-run. It was invisible only because
+   a generic `.help-light .text-orange-400` rule one line up happens to set the
+   same colour; any h3 here without that class would have lost its override.
+   If the map changes what an h3 or h4 becomes, these change with it, and the
+   guard below checks the selector against the file rather than trusting this
+   list. */
 const HELP_FIXUPS = [
-  ['.help-light h3.text-sm {', '.help-light h3.text-label {'],
+  ['.help-light h3.text-sm {', '.help-light h3.text-h3 {'],
+  ['.help-light h3.text-label {', '.help-light h3.text-h3 {'],   // repair the stale one
   ['.help-light h4.text-xs {', '.help-light h4.text-dense {'],
   ['.help-light .text-xs.text-stone-300 {', '.help-light .text-dense.text-stone-300 {'],
 ];

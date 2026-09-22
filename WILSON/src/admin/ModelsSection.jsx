@@ -187,7 +187,7 @@ export default function ModelsSection({ isActive }) {
               <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Model</th>
               <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Name</th>
               <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e', width: '130px' }}>State</th>
-              <th className="px-3 py-2 text-dense font-semibold text-right" style={{ color: '#57534e', width: '110px' }} />
+              <th className="px-3 py-2 text-label font-semibold uppercase text-right" style={{ color: '#57534e', width: '110px' }} />
             </tr>
           </thead>
           <tbody>

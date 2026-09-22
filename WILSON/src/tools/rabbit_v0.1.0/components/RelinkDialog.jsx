@@ -196,7 +196,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                   <div key={p.id} className="flex flex-col gap-0.5 py-1.5 px-2 rounded-control" style={{ backgroundColor: '#1c1917' }}>
                     <div className="flex items-center gap-2">
                       <span className="text-dense truncate flex-1" style={{ color: '#e7e5e4' }}>{p.name}</span>
-                      <span className="text-dense flex-shrink-0"
+                      <span className="text-label uppercase flex-shrink-0"
                         style={{ color: (CONFIDENCE_LABEL[p.confidence] || {}).color || '#a8a29e' }}>
                         {(CONFIDENCE_LABEL[p.confidence] || {}).text || p.confidence}
                       </span>

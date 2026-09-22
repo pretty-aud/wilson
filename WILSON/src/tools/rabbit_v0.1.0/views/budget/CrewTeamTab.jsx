@@ -731,7 +731,7 @@ function SummaryTile({ label, value, tone = 'neutral' }) {
     <div className="flex-1 min-w-[120px] flex flex-col rounded-control px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
       <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
     </div>
   )
 }

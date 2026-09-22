@@ -1172,7 +1172,7 @@ function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
       <div className="flex flex-col min-w-0">
         <span className="text-label uppercase" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
+        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       </div>
     </div>
   )
@@ -1244,7 +1244,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
            : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
         <span className="w-7" />
-        <span style={{ width: tw }} className="text-dense text-center flex-shrink-0" />
+        <span style={{ width: tw }} className="text-label uppercase text-center flex-shrink-0" />
         <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
         <span className="w-48 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
         <span className="w-36 text-label uppercase text-center" style={{ color: '#78716c' }}>Status</span>

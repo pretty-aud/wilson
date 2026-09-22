@@ -824,7 +824,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
         {validationQueue.length > 0 && (
           <div className="border-b border-stone-700 max-h-[200px] overflow-y-auto">
             <div className="px-3 py-1.5 border-b border-stone-700 sticky top-0 bg-stone-800 z-10">
-              <span className="text-dense font-semibold text-stone-400">
+              <span className="text-label font-semibold text-stone-400 uppercase">
                 Queue {queuedCount > 0 && `(${queuedCount} remaining)`}
               </span>
             </div>

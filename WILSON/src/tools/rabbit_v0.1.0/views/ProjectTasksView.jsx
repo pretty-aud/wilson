@@ -1953,7 +1953,7 @@ function TaskBigTile({ icon: Icon, label, value, tone = 'neutral' }) {
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
       <div className="flex flex-col min-w-0">
         <span className="text-label uppercase" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
+        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       </div>
     </div>
   )

@@ -524,7 +524,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                 <>
                   {nom.status === 'changes_requested' ? (
                     <div className="bg-stone-950 border border-orange-700/60 rounded-control p-2.5 mb-2">
-                      <p className="text-orange-400 text-dense font-semibold mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {nom.reviewer_label ?? 'A reviewer'} asked for changes
                         {(nom.revision ?? 1) > 1 ? ` (round ${nom.revision})` : ''}

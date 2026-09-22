@@ -220,7 +220,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   {/* The admin answered: their note, then two ways forward. */}
                   {isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/60 rounded-control p-3">
-                      <p className="text-orange-400 text-dense font-semibold mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {existing.reviewer_label ?? 'An admin'} asked for changes
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
@@ -237,7 +237,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
                   {existing && !isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/50 rounded-control p-2.5">
-                      <p className="text-orange-400 text-dense font-semibold mb-0.5">
+                      <p className="text-orange-400 text-label font-semibold uppercase mb-0.5">
                         You already have a request open
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
                       </p>

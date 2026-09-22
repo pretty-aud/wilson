@@ -200,9 +200,70 @@ export function enclosingStyle(src, idx) {
  * from props as well as from children. A prop's NAME is dropped — only its
  * value is evidence — because a prop called `label` is not prose.
  */
+/**
+ * The end of an element's OPENING TAG — the `>` that actually closes it.
+ *
+ * 🚨 `after.indexOf('>')` is not it. An `onClick={() => sort(d => …)}` puts a
+ * `>` inside the attribute list, so the naive index lands in the middle of a
+ * handler and everything after it is read as the element's content. That is
+ * how 181 characters of arrow-function source came to be judged as a column
+ * header's "text".
+ */
+function openingTagEnd(src, idx, limit) {
+  /* 🚨 WE START INSIDE AN ATTRIBUTE VALUE. `idx` is the position of a class
+     token, which sits inside `className="…"`, so a scanner that begins there
+     reads the value's CLOSING quote as an OPENING one and every quote after it
+     is inverted. Left unhandled it emptied almost every element body and pass 3
+     dropped 1,552 of 1,601 mono sites instead of 1,276. So: step over the rest
+     of this attribute value first, then scan. */
+  const BT = String.fromCharCode(96);
+  let q = null;
+  for (let i = idx; i >= 0 && idx - i < 4000; i--) {
+    const c = src[i];
+    if ((c === '"' || c === "'" || c === BT) && src[i - 1] !== '\\') { q = c; break; }
+  }
+  let from = idx;
+  if (q) {
+    const close = src.indexOf(q, idx);
+    if (close > 0) from = close + 1;
+  }
+
+  let quote = null, brace = 0;
+  for (let i = from; i < src.length && i - idx < limit; i++) {
+    const c = src[i];
+    if (quote) { if (c === quote && src[i - 1] !== '\\') quote = null; continue; }
+    if (c === '"' || c === "'" || c === BT) { quote = c; continue; }
+    if (c === '{') { brace++; continue; }
+    if (c === '}') { brace--; continue; }
+    if (c === '>' && brace <= 0) return i - idx;
+  }
+  return -1;
+}
+
+/**
+ * The element's OWN literal text — not its subtree's, not its handlers'.
+ *
+ * `elementBody` deliberately reaches into the subtree, because a money column
+ * keeps its figure in a child. Asking "is this a sentence?" needs the opposite:
+ * a wrapper around six column headers concatenates to "Name Type Size From the
+ * name Folder", 35 characters, and the shouting-sentence rule demoted the whole
+ * header row on the strength of it. Two real header rows and one panel's worth
+ * of eyebrows were lost that way — the eyebrows split at 30 versus 32
+ * characters, nine in capitals and two not, on one screen.
+ */
+export function elementOwnText(src, idx, limit = 1600) {
+  const after = src.slice(idx, idx + limit);
+  const gt = openingTagEnd(src, idx, limit);
+  if (gt < 0) return '';
+  const rest = after.slice(gt + 1);
+  const lt = rest.indexOf('<');
+  const text = (lt < 0 ? rest.slice(0, 200) : rest.slice(0, lt));
+  return text.replace(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
 export function elementBody(src, idx, limit = 1600) {
   const after = src.slice(idx, idx + limit);
-  const gt = after.indexOf('>');
+  const gt = openingTagEnd(src, idx, limit);   // not indexOf('>') — see above
   if (gt < 0) return '';
   const selfClosing = after[gt - 1] === '/';
   let span;
@@ -243,7 +304,8 @@ export function collectSites(files = sourceFiles()) {
       const body = elementBody(src, m.index);
       const style = enclosingStyle(src, m.index);
       const line = src.slice(0, m.index).split(NL).length;
-      rows.push({ f, line, token: m[0], px, run, tag, body, step: classifySite(f, px, run, tag, body, style) });
+      rows.push({ f, line, token: m[0], px, run, tag, body,
+        step: classifySite(f, px, run, tag, body, style, elementOwnText(src, m.index)) });
     }
   }
   return rows;

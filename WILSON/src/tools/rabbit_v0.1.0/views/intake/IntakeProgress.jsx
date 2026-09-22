@@ -98,7 +98,7 @@ export default function IntakeProgress({
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
+          <div className="flex items-center justify-between text-label font-mono tabular-nums uppercase" style={{ color: '#a8a29e' }}>
             <span>
               {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'

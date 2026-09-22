@@ -183,15 +183,37 @@ export const TAILWIND_PX = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24
  * long. Thirty characters is about five words — no column header, field label,
  * eyebrow or status badge in this app comes close.
  */
-export function isShoutingSentence(body = '') {
-  const words = body.replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
-  return words.length > 30 && /\s/.test(words);
+export function isShoutingSentence(text = '') {
+  if (!text) return false;
+
+  /* 🚨 CODE IS NOT TEXT. An unbalanced expression fragment survives the
+     `{…}` strip — `col.field && (sortField === col.field ? setSortDir(d => …`
+     came back as "164 characters of prose" and demoted a real column-header
+     row. If it looks like source, there is no literal text here to judge. */
+  if (/[{}()=]|=>|&&|\|\|/.test(text)) return false;
+
+  /* 🚨 WORDS, NOT CHARACTERS, and the threshold is measured rather than
+     guessed. Every `uppercase` site in the tree, by the length of its OWN
+     literal text:
+
+       genuine labels   up to 7 words   "Step 5 · Review & save breakdown" (7)
+                                        "Deck Context & Page Request Prompting" (6)
+                                        "Single Page - API System Message" (6)
+       genuine sentences 10 words up    "Link an asset, scene, or shot to see files here" (10)
+                                        "No shots yet — create a scene first, then add shots" (11)
+
+     Nothing sits at 8 or 9, so the line goes there with a word of margin on
+     each side. The first draft counted CHARACTERS at 30, which split one
+     D.O.G. panel's eleven sibling eyebrows on the difference between a 30- and
+     a 32-character title — nine in capitals and two not, on one screen. */
+  const words = text.split(/\s+/).filter(Boolean);
+  return words.length >= 8;
 }
 
 /**
  * @param {string} body the element's rendered content, as evidence for (b)
  */
-export function classifySite(file, px, run, tag = '', body = '', style = '') {
+export function classifySite(file, px, run, tag = '', body = '', style = '', ownText = null) {
   /* 0. A control is a control, whatever case it was shouting in. The kit
         rules these and the kit's split is 13 small / 14 normal. */
   if (CONTROL_TAGS.test(tag)) return px <= 12.5 ? 'text-dense' : 'text-body';
@@ -219,7 +241,7 @@ export function classifySite(file, px, run, tag = '', body = '', style = '') {
          13.5 and 16 had been one author's emphasis inside one waterfall. */
   if (LABEL_EVIDENCE.some((re) => re.test(run))) {
     if (HEADING_TAGS.test(tag)) return px >= 18 ? 'text-h1' : px >= 15 ? 'text-h2' : 'text-h3';
-    if (isShoutingSentence(body)) return 'text-dense';
+    if (isShoutingSentence(ownText === null ? body : ownText)) return 'text-dense';
     if (px < 18) return 'text-label';
     return 'text-h1';
   }

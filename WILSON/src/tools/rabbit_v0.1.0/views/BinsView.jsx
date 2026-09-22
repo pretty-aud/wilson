@@ -677,7 +677,7 @@ export default function BinsView() {
             <div className="min-w-0 flex items-center gap-2">
               {currentBin ? <ColorDot color={currentBin.color} size={10} /> : <Layers className="w-3.5 h-3.5" style={{ color: C.accentText }} />}
               <div className="min-w-0">
-                <div className="text-dense truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
+                <div className="text-label uppercase truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
                   {currentBin ? currentBin.name : 'All files'}
                   {currentBin && <span className="ml-2 text-dense normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
                 </div>
@@ -762,7 +762,7 @@ export default function BinsView() {
           <div className="flex-1 min-h-0 flex flex-col relative">
             {dragOver && (
               <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" style={{ backgroundColor: 'rgba(234,88,12,0.12)', border: `2px dashed ${C.accent}` }}>
-                <div className="px-4 py-2 rounded-control text-dense" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
+                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
                   Drop to add to {currentBin ? `"${currentBin.name}"` : 'a new bin'}
                 </div>
               </div>

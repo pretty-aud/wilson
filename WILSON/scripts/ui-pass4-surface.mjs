@@ -93,14 +93,48 @@ function namedTransition(run) {
    selected edges. Only the structural ones become hairlines. Flattening all
    102 would have erased every active-tab underline in the app. */
 const NEUTRAL_BORDER = /\bborder-(?:[tblrxyse]{1,2}-)?(?:stone|neutral|zinc|gray|slate)-\d/;
-const INDICATOR = /\?|\bactive\b|\bselected\b|isActive|current|border-orange|border-signal|border-l-transparent/i;
+
+/**
+ * Is THIS border conditional, or is there merely a ternary somewhere nearby?
+ *
+ * 🚨 "Does the run contain a `?`" is not the question. A run for a token inside
+ * a template literal is the WHOLE template, so one unrelated
+ * `${wide ? 'w-full' : 'w-1/2'}` exempted every border in that element — a
+ * reviewer planted a structural `border-b-4 border-stone-700` beside exactly
+ * that and it sailed through.
+ *
+ * The honest test is whether the border TOKEN ITSELF sits inside a `${…}`
+ * interpolation (it is one arm of a choice) or carries indicator vocabulary in
+ * a tight window of its own.
+ */
+export function isIndicatorBorder(src, idx) {
+  const TICK = String.fromCharCode(96);
+  const back = src.slice(Math.max(0, idx - 3000), idx);
+  const tick = back.lastIndexOf(TICK);
+  const interp = back.lastIndexOf('${');
+  const closed = back.lastIndexOf('}');
+  if (tick >= 0 && interp > tick && interp > closed) return true;   // the token IS one arm
+
+  /* The commonest shape in this app keeps the WIDTH fixed and makes only the
+     COLOUR conditional — an active-tab underline is
+     `border-b-2 ${tab === x ? 'border-orange-500' : 'border-transparent'}`.
+     The token is not inside the interpolation, but the interpolation right
+     after it decides a border colour, and that is what makes it an indicator.
+     Six of these in O.T.T.E.R. and the Timeline settings tabs. */
+  const ahead = src.slice(idx, idx + 90);
+  const nextInterp = ahead.indexOf('${');
+  if (nextInterp >= 0 && /border-/.test(src.slice(idx + nextInterp, idx + nextInterp + 160))) return true;
+
+  const near = src.slice(Math.max(0, idx - 70), idx + 70);
+  return /\bactive\b|\bselected\b|isActive|current|border-orange|border-signal|transparent/i.test(near);
+}
 
 const EDITS = [
   { name: 'border-2 -> border (the 1px hairline)', re: /\bborder-2\b/g, to: () => 'border' },
   {
     name: 'border-{side}-[2-9] -> 1px, structural only',
     re: /\bborder-([tblrxyse]{1,2})-[2-9]\b/g,
-    to: (run, file, m) => (NEUTRAL_BORDER.test(run) && !INDICATOR.test(run) ? `border-${m[1]}` : null),
+    to: (run, file, m, src, idx) => (NEUTRAL_BORDER.test(run) && !isIndicatorBorder(src, idx) ? `border-${m[1]}` : null),
   },
   { name: 'rounded-sm -> rounded-control', re: /\brounded-sm\b/g, to: () => 'rounded-control' },
   { name: 'rounded (bare 4px) -> rounded-control', re: /\brounded(?![-\w])/g, to: () => 'rounded-control' },
@@ -132,6 +166,12 @@ const EDITS = [
   },
 ];
 
+/* 🚨 The guard imports `isIndicatorBorder` from this file, so the pass must
+   not run on import — it writes files. Everything below happens only when the
+   script is the one node was asked to run. */
+const INVOKED_DIRECTLY = process.argv[1] && /ui-pass4-surface\.mjs$/.test(process.argv[1]);
+if (INVOKED_DIRECTLY) {
+
 const tally = new Map();
 const report = [];
 let total = 0;
@@ -147,7 +187,7 @@ for (const file of files) {
     while ((m = re.exec(src))) {
       if (isProtected(guarded, m.index)) continue;
       const run = enclosingRun(src, m.index) || '';
-      const to = spec.to(run, file, m);
+      const to = spec.to(run, file, m, src, m.index);
       if (to === null) { tally.set(`LEFT — ${spec.name}`, (tally.get(`LEFT — ${spec.name}`) || 0) + 1); continue; }
       if (to === m[0]) continue;
       edits.push({ start: m.index, end: m.index + m[0].length, to });
@@ -171,3 +211,5 @@ for (const [k, v] of [...tally].sort((a, b) => b[1] - a[1])) console.log(`  ${St
 console.log('\n| file | edits |');
 console.log('|---|---|');
 for (const [f, n] of report.slice(0, 15)) console.log(`| ${f} | ${n} |`);
+
+}

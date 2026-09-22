@@ -262,7 +262,7 @@ export function Field({ label, children, hint, inline = false, mixed = false }) 
 }
 
 const inputStyle = { backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }
-const inputClass = 'w-full px-2 py-1 text-dense font-mono rounded-control focus:ring-1 focus:ring-orange-500 placeholder:text-stone-600'
+const inputClass = 'w-full px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500 placeholder:text-stone-600'
 
 // Escape in a field is "cancel this edit": the value goes back to what it was
 // when the field took focus, nothing is committed, and the key stops there so

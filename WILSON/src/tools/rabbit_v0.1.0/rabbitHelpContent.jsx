@@ -20,26 +20,26 @@ export const RABBIT_HELP_SIDEBAR_ITEMS = [
 
 // Light-theme style tokens (used by an external help page if any)
 const L = {
-  sectionTitle: 'text-dense font-semibold text-stone-900 mb-3',
+  sectionTitle: 'text-label font-semibold text-stone-900 uppercase mb-3',
   bodyText: 'text-dense text-stone-800 leading-relaxed',
   card: 'bg-well-light p-3 rounded-control border border-stone-400/30',
   cardTitle: 'text-dense font-semibold text-stone-900 mb-2',
   listItem: 'text-dense text-stone-700 leading-relaxed',
   listBold: 'text-stone-900',
   notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-control p-3',
-  notesTitle: 'text-dense font-semibold text-stone-900 mb-2',
+  notesTitle: 'text-label font-semibold text-stone-900 uppercase mb-2',
 };
 
 // Dark-theme style tokens for the in-tool help modal
 const D = {
-  sectionTitle: 'text-dense font-semibold text-orange-400 mb-3',
+  sectionTitle: 'text-label font-semibold text-orange-400 uppercase mb-3',
   bodyText: 'text-dense text-stone-300 leading-relaxed',
   card: 'bg-stone-900 p-3 rounded-control border border-stone-700',
   cardTitle: 'text-dense font-semibold text-orange-400 mb-2',
   listItem: 'text-dense text-stone-300 leading-relaxed',
   listBold: 'text-orange-400/80',
   notesBox: 'bg-orange-500/10 border border-orange-500/30 rounded-control p-3',
-  notesTitle: 'text-dense font-semibold text-orange-400 mb-2',
+  notesTitle: 'text-label font-semibold text-orange-400 uppercase mb-2',
 };
 
 export function RabbitHelpContent({ helpPage, theme }) {

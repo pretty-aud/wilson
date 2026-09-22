@@ -1282,7 +1282,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <span className="text-h1 font-semibold" style={{ color: '#57534e' }}>
+          <span className="text-h1 font-mono font-semibold" style={{ color: '#57534e' }}>
             {initials}
           </span>
         )}
@@ -1326,7 +1326,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           placeholder="Untitled"
           readOnly={readOnly}
         />
-        <div className="flex items-center justify-between text-dense" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-label uppercase" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
           {phaseLabel && <span className="truncate max-w-[100px]">{'\u00B7'} {phaseLabel}</span>}
         </div>

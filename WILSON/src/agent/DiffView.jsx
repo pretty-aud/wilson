@@ -47,7 +47,7 @@ export default function DiffView({
         {/* Header */}
         <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0 rounded-t-control">
           <div className="flex items-center gap-3">
-            <span className="text-dense font-semibold text-orange-400">
+            <span className="text-label font-semibold text-orange-400 uppercase">
               {isBulk ? `Change ${bulkIndex + 1} of ${bulkTotal}` : 'Proposed Changes'}
             </span>
             {lessonTitle && (

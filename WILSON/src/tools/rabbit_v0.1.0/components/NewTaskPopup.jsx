@@ -92,7 +92,7 @@ export default function NewTaskPopup({
     }
   }
 
-  const labelCls = 'text-dense mb-1 block'
+  const labelCls = 'text-label uppercase mb-1 block'
   const fieldCls = 'w-full px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500'
   const fieldStyle = { backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }
 

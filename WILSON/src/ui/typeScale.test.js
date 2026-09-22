@@ -33,6 +33,7 @@ import { sourceFiles } from '../../scripts/ui-audit.mjs';
 import { protectedRanges, isProtected } from '../../scripts/ui-source-regions.mjs';
 import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
 import { classifyMono } from '../../scripts/ui-mono-map.mjs';
+import { isIndicatorBorder } from '../../scripts/ui-pass4-surface.mjs';
 import { enclosingRunRaw, enclosingTag } from '../../scripts/ui-type-inventory.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
@@ -82,7 +83,14 @@ const OFF_SPACING = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-
 /* The INVARIANT ("no vh in any padding"), not the shape of today's ternary:
    the first version required a parenthesised condition with the vh in the
    false arm, and dropping two parentheses walked straight past it. */
-const VH_PADDING = /padding[A-Za-z]*\s*:[^;\n]*\d+vh/g;
+/* `[^;\n]*` cannot cross a newline, so a prettier reflow that put the ternary
+   on its own line walked straight past this — and so did a template literal,
+   `padding: ${pad}vh 0`. Bounded, newline-tolerant, and it no longer requires
+   the digits to be literal.
+   🚨 AND NO LEADING `\b`: in `3vh` there is no boundary between `3` and `v`,
+   both being word characters. That is the trailing/leading-boundary trap for
+   the third time in this bundle — `text-[12px]"`, `font-[550]`, and now this. */
+const VH_PADDING = /padding[A-Za-z]*\s*:[\s\S]{0,120}?vh\b/g;
 
 /* 🚨 READ THE TREE ONCE. Uncached sweeps over 271 files pushed four unrelated
    tree-walking tests past their 5s timeout under vitest's parallel workers and
@@ -111,7 +119,12 @@ function sweep(re, judge) {
       const run = enclosingRunRaw(src, m.index) || '';
       const tag = enclosingTag(src, m.index);
       const line = src.slice(0, m.index).split('\n').length;
-      if (!judge || judge({ token: m[0], run, tag, file })) {
+      /* A NARROW window around the token, for judges that must not be fooled
+         by something elsewhere in the same className template — see the border
+         judge, where one unrelated ternary anywhere in a long template used to
+         exempt every border in it. */
+      const near = src.slice(Math.max(0, m.index - 140), m.index + 140);
+      if (!judge || judge({ token: m[0], run, tag, file, near, src, index: m.index })) {
         out.push(`${file}:${line}  ${m[0]}  [${run.replace(/\s+/g, ' ').slice(0, 90)}]`);
       }
     }
@@ -168,14 +181,25 @@ describe('type scale — no size off the seven steps (C7, plan §3.1)', () => {
 });
 
 describe('the Label step is for labels (the C3b lesson)', () => {
-  const bareLabels = () => sweep(SCALE_STEP, ({ token, run, tag }) =>
-    token === 'text-label'
-    && !LABEL_EVIDENCE.some((re) => re.test(run))
-    && !CONTROL_TAGS.test(tag));
+  /* Two functions on purpose: the assertion wants the exceptions removed, the
+     control wants them still visible so it can check they describe something
+     real. One function serving both is how the control ended up asserting the
+     opposite of what it meant. */
+  const bareLabelsRaw = (applyExceptions) => sweep(SCALE_STEP, ({ token, run, tag, near }) => {
+    if (token !== 'text-label') return false;
+    if (LABEL_EVIDENCE.some((re) => re.test(run))) return false;
+    if (CONTROL_TAGS.test(tag)) return false;
+    if (!applyExceptions) return true;
+    // 🚨 THE EXEMPTION IS PER SITE, NOT PER FILE. Keying it on the path alone
+    // exempted every line of HelpPage.jsx: a reviewer planted a fresh,
+    // unrelated bare label there and the assertion stayed green. The marker
+    // has to be near the hit, not merely somewhere in the file.
+    return !BARE_LABEL_EXCEPTIONS.some((x) => near.includes(x.marker));
+  });
+  const bareLabels = () => bareLabelsRaw(true);
 
   it('every text-label site still carries its uppercase', () => {
-    const unexpected = bareLabels().filter(
-      (hit) => !BARE_LABEL_EXCEPTIONS.some((x) => hit.startsWith(`${x.file}:`)));
+    const unexpected = bareLabels();
     expect(unexpected, `text-label sites with no uppercase:\n${unexpected.join('\n')}`).toEqual([]);
   });
 
@@ -184,8 +208,12 @@ describe('the Label step is for labels (the C3b lesson)', () => {
       const entry = tree().find((t) => t.file === x.file);
       expect(entry, `${x.file} is allowlisted but not in scope`).toBeTruthy();
       expect(entry.src.includes(x.marker), `${x.file} no longer contains ${x.marker}`).toBe(true);
-      expect(bareLabels().some((hit) => hit.startsWith(`${x.file}:`)),
+      expect(bareLabelsRaw(false).some((hit) => hit.startsWith(`${x.file}:`)),
         `${x.file} is allowlisted but clean now`).toBe(true);
+      // …and the exemption must actually be doing work: with it applied, the
+      // site is gone.
+      expect(bareLabels().some((hit) => hit.startsWith(`${x.file}:`)),
+        `${x.file}'s exemption is not firing`).toBe(false);
     }
   });
 
@@ -294,8 +322,13 @@ describe('surface tokens (§3.3, §3.4, C9)', () => {
     // is an indicator rather than a border that forgot the hairline. They are
     // recognised by a signal colour or a conditional; the 64 structural ones
     // (neutral colour, no ternary) became hairlines.
-    const hits = sweep(OFF_BORDER, ({ run }) =>
-      !/\?|\bactive\b|\bselected\b|isActive|current|border-orange|border-signal|border-l-transparent/i.test(run));
+    // 🚨 Judged by the SAME function pass 4 used, so the two cannot disagree —
+    // and it asks whether THIS border is conditional, not whether a ternary
+    // exists somewhere in the same className template. "Does the run contain a
+    // `?`" exempted every border in any element that had one anywhere: a
+    // reviewer planted a structural `border-b-4 border-stone-700` beside an
+    // unrelated `${wide ? 'w-full' : 'w-1/2'}` and this stayed green.
+    const hits = sweep(OFF_BORDER, ({ src, index }) => !isIndicatorBorder(src, index));
     expect(hits, `border widths off the hairline:\n${hits.join('\n')}`).toEqual([]);
   });
 

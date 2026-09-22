@@ -22,7 +22,7 @@ export const DOG_HELP_SIDEBAR_ITEMS = [
 const LIGHT_THEME_STYLES = `
 .help-light .text-orange-400 { color: #1c1917 !important; }
 .help-light .text-orange-400\\/70 { color: #44403c !important; }
-.help-light h3.text-label { color: #1c1917 !important; }
+.help-light h3.text-h3 { color: #1c1917 !important; }
 .help-light h4.text-dense { color: #1c1917 !important; }
 .help-light .text-stone-300 { color: #1c1917 !important; }
 .help-light .text-stone-400 { color: #44403c !important; }

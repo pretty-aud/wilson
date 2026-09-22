@@ -108,7 +108,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
       </div>
 
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-        <div className="grid items-center px-2 text-dense" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+        <div className="grid items-center px-2 text-label uppercase" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
           <span /><span className="px-1 py-1.5">Name</span><span className="px-1">Type</span><span className="px-1">Size</span><span className="px-1">From the name</span><span className="px-1">Folder</span>
         </div>
         <div className="max-h-[46vh] overflow-y-auto">

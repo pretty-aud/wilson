@@ -2263,7 +2263,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         </div>
         {COL_HEADER.map((col, i) => (
           <div key={i}
-            className={`text-dense ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
+            className={`text-label uppercase ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
             style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
             onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
           >
@@ -2833,7 +2833,7 @@ function BigTile({ label, value, hint, tone = 'neutral' }) {
     <div className="flex-1 min-w-[120px] flex flex-col rounded-control px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
       <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       {hint && <span className="text-dense mt-0.5" style={{ color: colors.label }}>{hint}</span>}
     </div>
   )

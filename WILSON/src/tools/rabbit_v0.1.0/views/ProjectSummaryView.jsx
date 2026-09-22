@@ -1461,7 +1461,7 @@ function BudgetTile({ label, value, hint, tone = 'neutral' }) {
       <span className="text-label uppercase" style={{ color: '#a8a29e' }}>
         {label}
       </span>
-      <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
       {hint && (
         <span className="text-dense" style={{ color: '#78716c' }}>{hint}</span>
       )}

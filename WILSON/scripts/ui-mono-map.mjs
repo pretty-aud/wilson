@@ -186,6 +186,20 @@ export function classifyMono({ tag, run, body }) {
   }
   if (expr && proseHits) return { keep: false, why: 'renders a name or a message' };
   if (expr && dataHits) return { keep: true, why: 'renders an identifier, figure or timestamp' };
+
+  /* 🚨 A HEADING-SIZED SLOT THAT RENDERS ONE BARE VALUE IS A DISPLAY FIGURE.
+     R.A.B.B.I.T.'s Budget and Scenes tiles are generic components —
+     `<span className="text-h1 font-semibold">{value}</span>` — and the figure
+     evidence lives at the CALL site (`grandTotals.runtime`, `fmtNumber(...)`),
+     which no content rule can follow. The result was 125.5, 65.0 and -60.5 in
+     the sans at 20px, 370 pixels above a $115,215 in the mono at 20px, on one
+     page. F2 shipped `Stat` as "the mono at the H1 step" for exactly this.
+     A heading that is PROSE has words; this has none, and a prose identifier
+     (`{project.title}`) was already caught two rules up. */
+  if (/\btext-h[12]\b/.test(run) && exprs.length === 1
+      && !body.replace(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, ' ').trim()) {
+    return { keep: true, why: 'a heading-sized slot rendering one bare value' };
+  }
   if (NUMERIC_ALIGN.test(run) && exprs.length) return { keep: true, why: 'right-aligned figure column' };
   /* Tested whether or not the body also carries an expression: a literal path
      next to an interpolation is still a path. It runs AFTER the prose test, so
