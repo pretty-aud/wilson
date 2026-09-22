@@ -2211,17 +2211,55 @@ select option {
    session A3 (plan §5), which re-derives them from the tokens above with
    the measure and heading scale. Foundation left them byte-for-byte so the
    lesson pane does not change under a session that is not looking at it.
+
+   ── T1 (2026-09-22) TOOK THE TYPE, AND ONLY THE TYPE. Plan §5 assigns
+   "the 34-line lesson-content rules" to this bundle, which is why a session
+   that does not own `src/index.css` (§6.5: Foundation's, and T0's for the
+   codemod) is editing this block and nothing else in the file.
+
+   🚨 THIS SURFACE HAD NEVER BEEN MEASURED BY ANYTHING. `ui-page-check.mjs`
+   walks `/otter`, but `.lesson-content` does not exist until a course, a
+   subject and a lesson have all been clicked — so the check's "0 off-scale
+   text on all twelve pages" was true and said nothing about the one surface
+   in O.T.T.E.R. anybody reads. Driven there in a real browser at 1280x700,
+   before this commit:
+
+       h1 24px/700     h2 20px/700     h3 17.6px/600
+       p 16px lh 1.7   li 16px lh 1.6  inline code 14.4px
+       measure 74ch
+
+   24, 17.6 and 14.4 are on no step. 16px was the BODY of a reading surface
+   whose anchor is 14 (§3.1). 700 is not one of the two weights. 1.7 / 1.6 /
+   1.5 is three leadings where §3.1 asks for one per step. Every size below
+   is now a token, every weight is the step's own, and §3.1's measure is
+   capped at 66ch — on the prose only, because a table or a code block is
+   data and capping the container would squeeze both.
+
+   STILL A3's, MEASURED AND DELIBERATELY LEFT: eleven colour hexes; the four
+   2px borders and one 3px border on `pre`/`th`/`td`/`blockquote`; the two
+   2px radii; and the rem margins (0.25/0.5/0.75/1/1.25rem = 4/8/12/16/20px,
+   where 20 is off §3.3's 4-8-12-16-24-32-48 scale). Type only, so the diff
+   stays reviewable as one thing.
    ═══════════════════════════════════════════════════════════════ */
-.lesson-content h1 { font-size: 1.5rem; font-weight: 700; margin: 1.25rem 0 0.75rem; color: #f97316; }
-.lesson-content h2 { font-size: 1.25rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #fb923c; }
-.lesson-content h3 { font-size: 1.1rem; font-weight: 600; margin: 0.75rem 0 0.5rem; color: #fdba74; }
-.lesson-content p { margin: 0.5rem 0; line-height: 1.7; color: #d6d3d1; }
+.lesson-content {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+/* §3.1's measure. `ch` resolves against each element's own size, which is
+   what makes a heading's 66ch wider in px than a paragraph's — headings are
+   short and never reach it, so the paragraph is what the reader measures. */
+.lesson-content :is(h1, h2, h3, p, ul, ol, blockquote) { max-width: 66ch; }
+.lesson-content h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); letter-spacing: var(--text-h1--letter-spacing); font-weight: var(--text-h1--font-weight); margin: 1.25rem 0 0.75rem; color: #f97316; }
+.lesson-content h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); font-weight: var(--text-h2--font-weight); margin: 1rem 0 0.5rem; color: #fb923c; }
+.lesson-content h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); font-weight: var(--text-h3--font-weight); margin: 0.75rem 0 0.5rem; color: #fdba74; }
+.lesson-content p { margin: 0.5rem 0; line-height: var(--text-body--line-height); color: #d6d3d1; }
 .lesson-content ul, .lesson-content ol { margin: 0.5rem 0; padding-left: 1.5rem; color: #d6d3d1; }
-.lesson-content li { margin: 0.25rem 0; line-height: 1.6; }
-.lesson-content strong { color: #fbbf24; }
+.lesson-content li { margin: 0.25rem 0; line-height: var(--text-body--line-height); }
+.lesson-content strong { color: #fbbf24; font-weight: 600; }
 .lesson-content em { color: #a8a29e; font-style: italic; }
 .lesson-content code:not(pre code) {
-  background: #292524 !important; color: #fb923c !important; padding: 0.15rem 0.4rem; border-radius: 2px; font-size: 0.9em;
+  background: #292524 !important; color: #fb923c !important; padding: 0.15rem 0.4rem; border-radius: 2px;
+  font-size: var(--text-dense); line-height: var(--text-dense--line-height);
 }
 .lesson-content pre {
   background: #0c0a09 !important; border: 2px solid #57534e; border-radius: 2px; padding: 1rem; margin: 0.75rem 0; overflow-x: auto;
@@ -2231,8 +2269,13 @@ select option {
 }
 .lesson-content a { color: #f97316; text-decoration: underline; }
 .lesson-content table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; }
-.lesson-content th { background: #292524; color: #f97316; padding: 0.5rem; border: 2px solid #57534e; text-align: left; }
-.lesson-content td { padding: 0.5rem; border: 2px solid #44403c; color: #d6d3d1; }
+/* A markdown table is data, so it takes Dense — the step §3.1 gives "table
+   cells". The header takes the second weight rather than the Label step,
+   because Label is UPPER (§3.1, Q2) and a `th` here renders the AUTHOR's
+   words: uppercasing them would be a content change wearing a restyle's
+   clothes. */
+.lesson-content th { background: #292524; color: #f97316; padding: 0.5rem; border: 2px solid #57534e; text-align: left; font-size: var(--text-dense); line-height: var(--text-dense--line-height); font-weight: 600; }
+.lesson-content td { padding: 0.5rem; border: 2px solid #44403c; color: #d6d3d1; font-size: var(--text-dense); line-height: var(--text-dense--line-height); }
 
 /* Companion chat markdown styling (the agent panel; unreviewed, see the
    review's "Missing coverage" — same rule as the lesson block above). */
