@@ -510,7 +510,7 @@ export default function RequestsView({
                               <span className="block text-dense font-semibold text-stone-200">
                                 {r.target_name ?? 'A company standard course'}
                               </span>
-                              <span className="block text-dense truncate text-stone-500">
+                              <span className="block text-dense font-mono truncate text-stone-500">
                                 {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                                 {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                               </span>
@@ -664,7 +664,7 @@ export default function RequestsView({
                             <span className="block text-dense font-semibold text-stone-200">
                               {r.target_name ?? 'A company standard course'}
                             </span>
-                            <span className="block text-dense truncate text-stone-500">
+                            <span className="block text-dense font-mono truncate text-stone-500">
                               {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                               {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                             </span>
@@ -732,7 +732,7 @@ export default function RequestsView({
                                 <span className="text-stone-500 font-normal"> · round {n.revision}</span>
                               )}
                             </span>
-                            <span className="block text-dense truncate text-stone-500">
+                            <span className="block text-dense font-mono truncate text-stone-500">
                               {isMine ? 'put forward by you' : (n.proposer_label ?? 'someone')} · {fmt(n.created_at)}
                             </span>
                           </span>
@@ -886,7 +886,7 @@ export default function RequestsView({
                             {n.course_name ?? 'A course'}
                             <span className="font-normal text-stone-600"> · {n.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-caption text-stone-600">
+                          <span className="block text-caption font-mono text-stone-600">
                             {fmt(n.reviewed_at ?? n.updated_at)}
                             {n.status === 'approved' && n.superseded_name
                               ? ` — replaced “${n.superseded_name}”`
@@ -1026,7 +1026,7 @@ export default function RequestsView({
                             {r.target_name ?? 'A company standard course'}
                             <span className="font-normal text-stone-600"> · {r.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-caption text-stone-600">
+                          <span className="block text-caption font-mono text-stone-600">
                             {fmt(r.reviewed_at ?? r.updated_at)}
                             {r.review_note ? ` — “${r.review_note}”` : ''}
                           </span>

@@ -97,7 +97,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
           )}
           {shown.map(g => (
             <div key={g.key}>
-              <div className="flex items-center gap-2 px-3 py-1 text-dense" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 px-3 py-1 text-dense font-mono tabular-nums" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
                 <Film className="w-3 h-3" /> {g.scene ? `${g.scene.scene_number != null ? `Sc ${g.scene.scene_number} · ` : ''}${g.scene.name || 'Untitled scene'}` : 'Shots without a scene'}
                 {g.key === preferSceneId && <span className="normal-case tracking-normal" style={{ color: C.dim }}>· where these files are logged</span>}
               </div>

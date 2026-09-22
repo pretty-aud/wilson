@@ -170,8 +170,22 @@ export function classifyMono({ tag, run, body }) {
   const expr = raw;
 
   if (expr && hit([FILE_NAME_IDENT])) return { keep: true, why: 'renders a file name' };
-  if (expr && hit(PROSE_IDENT)) return { keep: false, why: 'renders a name or a message' };
-  if (expr && hit(DATA_IDENT)) return { keep: true, why: 'renders an identifier, figure or timestamp' };
+
+  /* 🚨 A ROW IS MOSTLY FIGURES. Taking the FIRST evidence meant a table row
+     whose first column is a name lost mono for its other five: R.A.B.B.I.T.'s
+     Breakdown row is `{row.name}` followed by Tasks, Bid, Logged, Variance and
+     Cost, and one class sets the family for all six. One name in the mono
+     costs less than five figures out of it, and the figures are the ones that
+     have to line up. So the evidence is COUNTED, and prose wins only when it
+     is at least as numerous — which keeps every single-value site exactly
+     where it was. */
+  const proseHits = PROSE_IDENT.filter((re) => hit([re])).length;
+  const dataHits = DATA_IDENT.filter((re) => hit([re])).length;
+  if (expr && proseHits && dataHits > proseHits) {
+    return { keep: true, why: 'a row of figures with a name column' };
+  }
+  if (expr && proseHits) return { keep: false, why: 'renders a name or a message' };
+  if (expr && dataHits) return { keep: true, why: 'renders an identifier, figure or timestamp' };
   if (NUMERIC_ALIGN.test(run) && exprs.length) return { keep: true, why: 'right-aligned figure column' };
   /* Tested whether or not the body also carries an expression: a literal path
      next to an interpolation is still a path. It runs AFTER the prose test, so

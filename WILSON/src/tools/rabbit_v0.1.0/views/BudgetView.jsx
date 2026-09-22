@@ -536,7 +536,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <span className="text-label font-semibold uppercase block" style={{ color: '#4ade80' }}>
               Budget active — In production
             </span>
-            <span className="text-dense block mt-0.5" style={{ color: '#86efac' }}>
+            <span className="text-dense font-mono tabular-nums block mt-0.5" style={{ color: '#86efac' }}>
               Locked bid: <span className="font-semibold">{lockedVersion.name}</span>
               {' '}· {lockedVersion.snapshot?.lockedAt
                 ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
@@ -2844,7 +2844,7 @@ function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
     <div className="flex flex-col gap-1 p-3">
       <HeaderRow cols={[labelHeader, countHeader, 'Bid', 'Logged', 'Variance', 'Cost']} sixCol />
       {rows.map((row, i) => (
-        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-3 py-2 rounded-control text-dense items-center transition-colors hover:bg-stone-800" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-3 py-2 rounded-control text-dense font-mono tabular-nums items-center transition-colors hover:bg-stone-800" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
           <span className="truncate" style={{ color: '#d6d3d1' }}>{row.name}</span>
           <span style={{ color: '#a8a29e' }}>{row.taskCount}</span>
           <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
