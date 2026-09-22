@@ -32,13 +32,27 @@ It now reads "Close WILSON" over "Cancel" and "Close", in the app's normal
 typeface, at the same sizes as before — so the box is exactly where it was and
 nothing shifted.
 
-**The part that mattered more than the type.** The orange Close button had
-white text on the bright orange, and that pairing measures 3.56 to 1 — under
-the 4.5 the rest of the app is held to. The app already has a darker orange for
-exactly this job, and white on it measures 5.18. The odd part: the button's
-*hover* colour was already the darker one, so for its whole life it has been
-one mouse-move away from the legal colour and has spent its resting state
-illegible. It rests on the right one now and darkens from there.
+**The part that mattered more than the type, and I got it half wrong the
+first time.** The orange Close button had white text on the bright orange,
+which measures 3.56 to 1 — under the 4.5 the rest of the app is held to. I
+fixed that, and an adversarial reviewer then pointed out that the CANCEL
+button sitting right next to it was **worse**: grey on grey at 4.07 to 1, and
+**3.03 to 1 the moment your pointer touched it**. I had fixed one and
+reported the surface clean.
+
+Both buttons are now the app's standard ones, which is why they look
+different rather than merely better:
+
+| | before | after |
+|---|---|---|
+| Cancel, sitting there | 4.07 : 1 | **15.45 : 1** |
+| Cancel, under the pointer | **3.03 : 1** | **13.30 : 1** |
+| Close, sitting there | 3.56 : 1 | **5.18 : 1** |
+
+Cancel is an outlined button now instead of a grey block, Close rests on the
+darker orange it used to jump to on hover, and the box's frame is a thin
+orange hairline rather than a 2px one. The sizes and the box are unchanged,
+so nothing around it moves.
 
 Nothing about what the buttons DO changed.
 
@@ -91,44 +105,55 @@ the Admin Terminal and the Files page had been swept by no tool at any point in
 this project.
 
 They turn out to be in good shape. Every one of the thirty-six places they set
-text in capitals is the one role that is *supposed* to shout. What they do
-still carry is a single island: **O.T.T.E.R.'s lesson-reading styles**, which
-are entirely pre-overhaul — the three old oranges, the whole old grey ladder,
-sizes that are not on the scale. That belongs to a later session by the plan
-(it is lane A3's), and it is now counted and listed rather than invisible.
+text in capitals is the one role that is *supposed* to shout. The one island
+they carried — **O.T.T.E.R.'s lesson-reading styles**, entirely pre-overhaul,
+with the three old oranges and the whole old grey ladder — turned out to be
+invisible to every check in the project, not just to mine. The session working
+on O.T.T.E.R. took most of it the same afternoon, once the scan could see it.
 
 ---
 
 ## What I deliberately did not do
 
-Three things on surfaces I touched, which I left and wrote down rather than
-quietly taking. Say if you would rather they were done now:
+Three things I left and wrote down rather than quietly taking. Say if you
+would rather they were done:
 
-- **The Cancel button in that Close box is still grey-on-grey.** The type is
-  fixed; the colours are lane work, and I did not want to redesign a button
-  while claiming to do a type pass.
-- **The Close box's frame is still a 2px orange border with 4px rounded
-  corners**, where the rest of the app is now a hairline and two corner sizes.
-  Same reason.
+- **The Close box sits on the page's own dark colour**, where the system says
+  a dialog should sit on the slightly lighter "raised" one, and its title is
+  orange where the system says a dialog title is plain ink. Both are legal and
+  both look fine; neither is quite what the rulebook says. Changing them is a
+  look decision rather than a correctness one, so it is yours.
+- **The app's outlined buttons have a very faint edge** — the outline itself
+  measures 1.48 to 1 against what is behind it, where the accessibility
+  guideline for the edge of a control is 3 to 1. The *text* in them is fine
+  (that is the 15.45 above). This is true of every outlined button in the app,
+  not just the two in that box, so it is a change to the shared button rather
+  than something to patch in one place.
 - **The operator console's one-time-code field is a third copy** of the field
-  you see when you sign in with two-factor, at a slightly different spacing and
-  missing a centring correction the other two have. That console is out of
-  scope by an earlier ruling of yours, so it stays an open item.
+  you see when you sign in with two-factor, at a slightly different letter
+  spacing and missing a centring correction the other two have. That console
+  is out of scope by an earlier ruling of yours, so it stays an open item.
+
+And one thing in R.A.B.B.I.T. I found and did **not** touch: seven places
+where line spacing is written as a raw number. Three of them match the scale
+exactly and would be a free swap; four do not, so changing them would move
+text on a page this session does not own. They are recorded with their exact
+locations so whoever does own it can decide.
 
 ---
 
 ## Questions
 
-1. **The Close box** — happy with it as it is, or should its frame and the
-   Cancel button be finished at the same time? It is a small job and nobody
-   currently owns it.
-2. **O.T.T.E.R.'s lesson pages** are the largest un-overhauled surface left in
-   the app. They are scheduled, but late. Do you want them pulled forward?
+1. **The Close box** — it is the one thing in this batch you will actually
+   see, and it changed more than I first intended. Happy with it, or would
+   you rather it sat on the raised colour with a plain title?
+2. **Those faint button outlines** — worth a pass across the whole app? It is
+   one shared rule, so it is one change, but it touches every screen.
 3. **One small thing still needs you**, and it has now been asked six sessions
    running: a single `gh auth login` in this repo. Without it these sessions
-   read the build server's results anonymously, which is rate-limited per hour,
-   and twice now a session has been unable to confirm whether its own final
-   commit passed.
+   read the build server's results anonymously, which is rate-limited per
+   hour, and twice now a session has been unable to confirm whether its own
+   final commit passed.
 
 ---
 
