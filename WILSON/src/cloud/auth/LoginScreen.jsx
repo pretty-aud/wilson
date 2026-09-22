@@ -101,6 +101,7 @@ import AuthShell, {
   AUTH_TEXT_STYLE,
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
+  AUTH_CODE_FIELD_STYLE,
   AUTH_BUTTON_STYLE,
   AUTH_BUTTON_BUSY_STYLE,
   AUTH_LINK_STYLE,
@@ -817,9 +818,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 // — so it is an open item in the hand-off, not a to-do here
                 // with no owner.
                 style={{
-                  ...AUTH_INPUT_STYLE,
-                  letterSpacing: '0.35em',
-                  textIndent: '0.35em',
+                  ...AUTH_CODE_FIELD_STYLE,
                   textAlign: 'center',
                 }}
                 aria-label="Authenticator code"

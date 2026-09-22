@@ -769,7 +769,25 @@ describe('C7: one scale, and every size taken from it by name', () => {
    * whole inline-beats-class family in one token. The live expression is a
    * ternary whose CONDITION is `size >= 40`, and 40 is a threshold rather
    * than a size, so the two branches are read and the condition is not.
+   *
+   * T3 (2026-09-22) taught the branch reader `TYPE.<step>` as well as a bare
+   * number, because it converted that very expression from `size >= 40 ? 16
+   * : 11` to `size >= 40 ? TYPE.h2 : TYPE.label`. This is the scan getting
+   * STRONGER rather than looser, and the distinction matters because a
+   * loosened guard is how this suite has been fooled before: a bare `16` is
+   * the right number with nothing saying so, while `TYPE.h2` is the scale BY
+   * NAME, which is what this describe block is named after. Step names
+   * resolve through the same `STEP_PX` table the class-based arms already
+   * use, so an invented `TYPE.huge` resolves to `undefined`, fails the
+   * `Number.isFinite` check and lands in UNPARSED — it cannot pass as clean.
    */
+  const STEP_OR_PX = (raw) => {
+    const t = raw.trim().replace(/^['"`]|['"`]$/g, '')
+    const step = t.match(/^TYPE\.([a-z0-9]+)$/)
+    if (step) return STEP_PX[step[1]]
+    const n = t.match(/^([\d.]+)(?:px)?$/)
+    return n ? Number(n[1]) : undefined
+  }
   const INLINE = []
   const UNPARSED = []
   for (const [file, src] of Object.entries(sources)) {
@@ -777,10 +795,9 @@ describe('C7: one scale, and every size taken from it by name', () => {
       const where = `${file}:${src.slice(0, m.index).split('\n').length}`
       const v = m[1].trim()
       if (/^'?var\(--text-[a-z0-9-]+\)'?$/.test(v)) continue
-      const ternary = v.match(/\?\s*'?([\d.]+)(?:px)?'?\s*:\s*'?([\d.]+)(?:px)?'?$/)
-      const bare = v.match(/^'?([\d.]+)(?:px)?'?$/)
-      if (ternary) INLINE.push({ where, t: v, px: Number(ternary[1]) }, { where, t: v, px: Number(ternary[2]) })
-      else if (bare) INLINE.push({ where, t: v, px: Number(bare[1]) })
+      const ternary = v.match(/\?([^?:]+):([^?:]+)$/)
+      const branches = ternary ? [STEP_OR_PX(ternary[1]), STEP_OR_PX(ternary[2])] : [STEP_OR_PX(v)]
+      if (branches.every(Number.isFinite)) for (const px of branches) INLINE.push({ where, t: v, px })
       else UNPARSED.push(`${where} — \`fontSize: ${v}\` is a shape this scan cannot read`)
     }
   }

@@ -49,6 +49,7 @@ import StatusBadge from '../../ui/StatusBadge'
 import EmptyState from '../../ui/EmptyState'
 import Loading from '../../ui/Loading'
 import SectionTitle from '../../ui/SectionTitle'
+import { TYPE } from '../../ui/tokens'
 
 const ROLE_LABELS = { admin: 'Admin', manager: 'Manager', user: 'User' }
 const ROLE_OPTIONS = [
@@ -721,7 +722,11 @@ function Avatar({ member, size = 24 }) {
   return (
     <div
       className="at-avatar at-avatar-initial"
-      style={{ width: px, height: px, fontSize: size >= 40 ? 16 : 11 }}
+      // The initials scale with the avatar, and both sizes are steps: the
+      // H2 step on the 40px-and-up avatars, the Label step (the floor, C7)
+      // on the small ones. They were bare 16 and 11 — the right numbers with
+      // nothing saying so, which is how a step becomes a magic number.
+      style={{ width: px, height: px, fontSize: size >= 40 ? TYPE.h2 : TYPE.label }}
     >
       {initial}
     </div>

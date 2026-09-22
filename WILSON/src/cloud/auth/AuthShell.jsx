@@ -56,7 +56,7 @@ import { HOME_BAR_HEIGHT } from '../../layout/pages'
 // with its export names kept, so its 30 importers are unaffected.
 import {
   INK_LIGHT, RULE_LIGHT, SIGNAL, SIGNAL_FILL, ON_FILL, GROUND_LIGHT, FONT_MONO,
-  DANGER_LIGHT, TYPE, RADIUS_CONTROL, CONTROL_MD,
+  DANGER_LIGHT, TYPE, LEADING, TRACKING, WEIGHT, RADIUS_CONTROL, CONTROL_MD,
 } from '../../ui/tokens'
 
 // Timings — the intro's rhythm (see header note on their origin).
@@ -520,8 +520,8 @@ export const AUTH_ERROR_INK = DANGER_LIGHT
 export const AUTH_TEXT_STYLE = {
   color: AUTH_INK,
   fontSize: `${TYPE.body}px`,
-  lineHeight: 1.5,
-  fontWeight: 400,
+  lineHeight: LEADING.body,
+  fontWeight: WEIGHT.body,
 }
 
 // ── Shared field kit (Session 43 §A7) ───────────────────────────────────────
@@ -586,12 +586,16 @@ export const AUTH_FIELD_WIDTH = '240px'
 // The page title, at the H1 step. Sentence case (Q2) — the screens rendered
 // LOGIN / RESET PASSWORD / NEW PASSWORD / WELCOME at 24px with +0.18em, which
 // is the transition title's voice used for a page heading.
+// T3: all four columns of the step now come from one place. The size was
+// already `TYPE.h1`; the leading, the tracking and the weight were 1.2,
+// '0.01em' and 600 restated from `@theme` by hand — three chances for this
+// screen to drift off the H1 step with nothing going red.
 export const AUTH_TITLE_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.h1}px`,
-  lineHeight: 1.2,
-  letterSpacing: '0.01em',
-  fontWeight: 600,
+  lineHeight: LEADING.h1,
+  letterSpacing: TRACKING.h1,
+  fontWeight: WEIGHT.h1,
 }
 
 // The one surviving uppercase role on this surface (Q2): a field label is the
@@ -604,9 +608,11 @@ export const AUTH_TITLE_STYLE = {
 export const AUTH_LABEL_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.label}px`,
-  lineHeight: 1.3,
-  letterSpacing: '0.06em',
-  fontWeight: 600,
+  lineHeight: LEADING.label,
+  letterSpacing: TRACKING.label,
+  fontWeight: WEIGHT.label,
+  // The Label step is the ONE role that keeps its capitals (§3.1, and T0's
+  // map: `uppercase` under 18px stays upper). This is not a leftover.
   textTransform: 'uppercase',
 }
 
@@ -633,6 +639,41 @@ export const AUTH_INPUT_STYLE = {
   // visibly differed from row to row. Measured, not eyeballed. If this value
   // moves, the metrics object at the bottom of this file moves with it.
   lineHeight: '1.2',
+}
+
+// ── The one-time-code field (T3) ────────────────────────────────────────────
+// MfaSection and LoginScreen each render this field, and D2 matched them by
+// writing the same two values into both: `letterSpacing` to space the digits
+// apart so they can be read back off a phone, and `textIndent` at exactly the
+// same amount to undo the phantom trailing space that tracking adds after the
+// last glyph (a centred tracked string is otherwise offset left by half the
+// tracking, ~3px at this size).
+//
+// 🚨 THE TWO PROPERTIES MUST BE THE SAME VALUE, and that is the whole reason
+// this is one object rather than a `AUTH_CODE_TRACKING` constant used twice:
+// a constant would let one of them move. It is one number, spent twice, and
+// the optical centring is only correct while they agree.
+//
+// The tracking is FUNCTIONAL, not decorative, so it is not one of the two
+// tracked steps in §3.1 and does not belong in `@theme` — T0 left the
+// operator console's copy for the same reason ("functional, not decorative").
+//
+// ⚠️ There is a THIRD copy of this field, in `src/admin/OperatorLogin.jsx`
+// (an arbitrary 0.4em tracking utility, and no `textIndent` at all, so it is
+// both a different number and missing the correction). Q14 puts the operator
+// console out of D2's scope and out of this bundle's; it is an open item in
+// T3's hand-off, carried forward from D2's. When someone takes it, this is
+// what to point at.
+//
+// The class is described rather than quoted on purpose: `ui-audit.mjs`
+// greps source text, so spelling it here would have added a hit to the
+// arbitrary-tracking row and made a comment look like a fourth copy. T0's
+// remainder notes already carry two hits that are only comments.
+const AUTH_CODE_TRACK = '0.35em'
+export const AUTH_CODE_FIELD_STYLE = {
+  ...AUTH_INPUT_STYLE,
+  letterSpacing: AUTH_CODE_TRACK,
+  textIndent: AUTH_CODE_TRACK,
 }
 
 // Primary action. The history is kept because each step was a correction.
