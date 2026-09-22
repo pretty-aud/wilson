@@ -60,6 +60,12 @@ export const PATTERNS = [
   ['fontFamily (inline)',            /fontFamily\s*:/g],
   ['fontSize (inline)',              /fontSize\s*:/g],
   ['letterSpacing (inline)',         /letterSpacing\s*:/g],
+  /* T2: the fifth inline spelling, and the only one the table could not show.
+     `uppercase` below does count these — T0's hand-off says so, "18 are inline
+     textTransform" — but it counts them mixed in with 500-odd class sites, so
+     a lane clearing its own inline case had no column that moved. This one
+     moves. */
+  ['textTransform (inline)',         /textTransform\s*:/g],
   ['uppercase',                      /\buppercase\b/g],
   ['tracking-*',                     /\btracking-(?:wide|wider|widest|tight|tighter)\b/g],
   ['tracking-[…] (arbitrary)',       /\btracking-\[[^\]]+\]/g],
