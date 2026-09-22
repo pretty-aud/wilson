@@ -42,6 +42,18 @@
       "port": 5241
     },
     {
+      "name": "t1-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/silly-snyder-ee69bb/WILSON",
+        "--port",
+        "5242",
+        "--strictPort"
+      ],
+      "port": 5242
+    },
+    {
       "name": "t3-worktree",
       "runtimeExecutable": "npx",
       "runtimeArgs": [
