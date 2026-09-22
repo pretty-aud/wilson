@@ -84,6 +84,30 @@ describe('@theme and tokens.js agree', () => {
     }
   })
 
+  /* 🚨 THE STEPS ARE PINNED TO THEIR OWN VALUES, not just to a shape. A
+     reviewer pointed out that `LEADING` and `TRACKING` are DERIVED from
+     `THEME`, and `THEME` is pinned entry-for-entry against `@theme` — so
+     tokens.js cannot drift from index.css, but SWAPPING two steps' leadings
+     inside index.css passed every assertion in this file. §3.1's table is
+     the specification and these are its numbers; an editor who means to
+     change one now has to change it here too, which is the point. */
+  it('each step has the leading §3.1 gives it, not merely a leading', () => {
+    expect(T.LEADING).toEqual({
+      h1: 1.2, h2: 1.3, h3: 1.4, body: 1.5, dense: 1.45, caption: 1.4, label: 1.3,
+    })
+    // Tight leading belongs to the big steps and loose to the small ones —
+    // the invariant behind the numbers, so a future re-tuning that keeps the
+    // shape but inverts the intent still fails.
+    expect(T.LEADING.h1).toBeLessThan(T.LEADING.body)
+    expect(T.LEADING.h2).toBeLessThan(T.LEADING.body)
+  })
+
+  it('each step has the weight §3.1 gives it', () => {
+    expect(T.WEIGHT).toEqual({
+      h1: 600, h2: 600, h3: 600, body: 400, dense: 400, caption: 400, label: 600,
+    })
+  })
+
   // The two tracked steps are tracked and the other five are not: §3.1 gives
   // tracking to H1 (+0.01em) and Label (+0.06em) and says everything else is
   // "sentence case with zero tracking". A control, because a TRACKING map

@@ -2,17 +2,14 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
-import { PageHeader, IconButton, ToastProvider } from './ui'
+import { PageHeader, IconButton, ToastProvider, Button } from './ui'
 // T3: the close-confirmation dialog below is the one surface in this file
 // still written entirely as inline style objects. Its type now reads the
 // scale from here rather than restating 16px / 13px / 12px by hand.
-import { TYPE, LEADING, WEIGHT, SIGNAL_FILL, ON_FILL } from './ui/tokens'
-// The kit's primary-button hover, as an expression rather than a value:
-// `.ui-btn[data-variant="primary"]:hover` in index.css computes the same
-// thing. Kept as one const so the dialog's hover cannot drift from the kit's
-// without someone editing this line, and so no fourth orange is written as a
-// hex anywhere outside `@theme` (C8).
-const BTN_PRIMARY_HOVER = 'color-mix(in srgb, var(--color-signal-fill) 88%, black)'
+import {
+  TYPE, LEADING, WEIGHT, PAPER, INK_2, SIGNAL, BACKDROP,
+  RADIUS_FLOAT, SHADOW_FLOAT, DIALOG,
+} from './ui/tokens'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
@@ -2284,14 +2281,32 @@ export default function App() {
         <div style={{
           position: 'fixed', inset: 0, zIndex: 200,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.6)',
+          backgroundColor: BACKDROP,
         }}>
+          {/* ROUND ONE, FINDING 3: "take the whole object or take none of
+              it". The first pass converted ONE hex here — the Close button's
+              fill — and left seven, including a `color: '#ea580c'` three
+              lines above a `SIGNAL_FILL`, in a commit whose thesis was C8.
+              Every value on this surface is a token now. Where a hex had an
+              exact token it kept its value; the two that moved are named
+              where they moved.
+
+              The surface stays hand-rolled rather than becoming the kit's
+              `Dialog`: that component brings a modal stack and an Escape
+              handler, and adding Escape to the quit confirmation is an
+              INTERACTION change (C1). The two controls are the kit's
+              `Button`, which is a pure swap and is what fixes the contrast
+              and the hovers below. */}
           <div style={{
-            backgroundColor: '#1c1917',
-            border: '2px solid #ea580c',
-            borderRadius: '6px',
+            backgroundColor: PAPER,
+            // §3.3: one 1px hairline. The frame keeps the signal — §3.2 gives
+            // `signal` "the frame" as one of its four jobs — and loses the
+            // second pixel, which is the only thing §3.3 objects to.
+            border: `1px solid ${SIGNAL}`,
+            borderRadius: `${RADIUS_FLOAT}px`,
+            boxShadow: SHADOW_FLOAT,
             padding: '32px 36px 28px',
-            maxWidth: '400px',
+            maxWidth: `${DIALOG.confirm}px`,
             width: '90%',
             textAlign: 'center',
           }}>
@@ -2299,98 +2314,68 @@ export default function App() {
                 sentence / no tracking, in the app's sans. It was 16px BOLD
                 UPPERCASE at +0.15em in `monospace` — four emphasis mechanisms
                 on one four-word heading, and the only `monospace` left in
-                this file. The size is unchanged, so nothing moves. */}
+                this file. The SIZE is unchanged; the leading is not, because
+                it was unset and inheriting Tailwind preflight's 1.5. */}
             <h2 style={{
-              color: '#ea580c',
+              color: SIGNAL,
               fontSize: `${TYPE.h2}px`,
               lineHeight: LEADING.h2,
               fontWeight: WEIGHT.h2,
               marginBottom: '12px',
             }}>Close WILSON</h2>
+            {/* `#a8a29e` was one of the four inks §3.2 retires across 1,277
+                uses; `ink-2` is its replacement and reads 8.49:1 here. */}
             <p style={{
-              color: '#a8a29e',
+              color: INK_2,
               fontSize: `${TYPE.dense}px`,
               lineHeight: LEADING.dense,
               marginBottom: '24px',
             }}>
               Make sure you have exported your work before closing.
             </p>
+            {/* 🚨 ROUND ONE, FINDING 1, AND IT IS THE ONE THAT MATTERED. The
+                first pass fixed the Close button's 3.56:1 white-on-`#ea580c`
+                and left CANCEL beside it at `#a8a29e` on `#44403c` — 4.07:1
+                resting and **3.03:1 on hover**, both under the 4.5 §3.2 says
+                "does not ship", and both WORSE than the defect that was
+                fixed. It then reported the surface as clean. The hover half
+                is precisely D2's kit request K8, which the kit had already
+                fixed for light ghost buttons ("a light ghost button turned
+                2.10:1 at the exact moment the pointer reached it").
+
+                Both controls are the kit's `Button` now, which is why this is
+                a deletion rather than a repair: the secondary variant is
+                transparent with a hairline and the full ink (15.45:1, and
+                its hover is `--color-hover`, an overlay that cannot drop the
+                ink), the primary is `signal-fill` with white (5.18:1). The
+                type, the 3px control radius and BOTH hover states come from
+                `.ui-btn[data-variant]` in CSS.
+
+                That also settles the protocol's state-extraction step, which
+                round one correctly called a violation: the four
+                `onMouseEnter`/`onMouseLeave` handlers that wrote
+                `e.currentTarget.style.backgroundColor` are gone, and an
+                inline style can no longer beat a hover rule because there is
+                no inline style left to do it. */}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setShowCloseDialog(false)}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  // T0's map, control row: a `<button>` at 12px or under takes
-                  // the Dense step in sentence case. 700 became 600 in pass 2
-                  // app-wide; the faces are declared `font-weight: 400 600`,
-                  // so `bold` was clamping to 600 and rendering as 600 while
-                  // the source claimed a weight the system does not have.
-                  //
-                  // 600 is a literal and NOT `WEIGHT.dense`, deliberately: a
-                  // control takes the Dense SIZE but the control WEIGHT. The
-                  // kit's `.ui-btn` is 600 at every size, and `WEIGHT.dense`
-                  // is 400 — the step's weight is for the step's PROSE.
-                  fontSize: `${TYPE.dense}px`,
-                  fontWeight: 600,
-                  backgroundColor: '#44403c',
-                  color: '#a8a29e',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#57534e'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#44403c'; }}
+                style={{ flex: 1 }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => { setShowCloseDialog(false); window.electronAPI?.forceClose(); }}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  // Same control row as Cancel.
-                  fontSize: `${TYPE.dense}px`,
-                  fontWeight: 600,
-                  // 🚨 C6 / §3.2, and it is the SIZE that forces this, which
-                  // is why it could not be left alone once the type moved.
-                  // `signal` (#ea580c) is the frame, the active state and the
-                  // selection, and is "never a fill under text smaller than
-                  // 19px bold" — white on it measures 3.56:1. `signal-fill`
-                  // (#c2410c) is the app's one filled-primary token and
-                  // measures 5.18:1 with white (Q16; the table is in
-                  // AuthShell.jsx above AUTH_BUTTON_STYLE, which is the same
-                  // pairing on the auth surfaces). The hover was ALREADY
-                  // #c2410c, so this button has been spending its whole life
-                  // one mouse-move away from the legal colour.
-                  backgroundColor: SIGNAL_FILL,
-                  color: ON_FILL,
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-                // Hover darkens FROM `signal-fill` rather than resting on
-                // `signal` and darkening to it. The darkened value is the
-                // kit's own expression for this exact state, copied rather
-                // than approximated — `.ui-btn[data-variant="primary"]:hover`
-                // in index.css is the same `color-mix`. Writing a fourth
-                // orange as a hex here would have failed C8, and there is no
-                // `signal-fill-hover` token to reach for because the kit
-                // derives it instead of declaring it.
-                //
-                // Left as JS handlers rather than extracted to CSS: a rule
-                // needs a home in `src/index.css`, which is Foundation's
-                // (§6.5), and this dialog is Electron-only, so a browser
-                // page-check cannot prove the extraction. Recorded in the
-                // hand-off with the rest of this dialog's surface residue.
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = BTN_PRIMARY_HOVER; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = SIGNAL_FILL; }}
+                style={{ flex: 1 }}
               >
                 Close
-              </button>
+              </Button>
             </div>
           </div>
         </div>
+      )}
       )}
     </div>
     {/* ── Undo toast (soft-delete forgiveness window) ──
