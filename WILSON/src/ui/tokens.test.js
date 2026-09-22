@@ -55,11 +55,47 @@ describe('@theme and tokens.js agree', () => {
   })
 
   it('every @theme entry a JS site could need is in tokens.js', () => {
-    // The `--text-*--line-height` style sub-properties are Tailwind's own
-    // extension mechanism for the text utilities and have no JS consumer.
+    // The `--text-*--<sub>` properties are Tailwind's extension mechanism for
+    // the text utilities, so a site that can use a CLASS never needs them.
+    // They are not optional for a site that cannot — this filter says "not
+    // required here", not "has no consumer", and T3 exported all thirteen
+    // through LEADING / TRACKING / WEIGHT after finding inline sites
+    // restating them by hand. The first assertion in this block checks the
+    // ones that ARE in tokens.js against @theme, which is what matters.
     const jsFacing = Object.keys(theme).filter((k) => !k.includes('--'))
     for (const name of jsFacing) {
       expect(THEME[name], `--${name} is in @theme but not in tokens.js`).toBeDefined()
+    }
+  })
+
+  // §3.1's table has four columns — size, leading, tracking, weight — and
+  // until T3 this module carried one. A step that is missing any of the four
+  // sends its callers back to restating the value from memory, which is the
+  // drift the module exists to stop.
+  it('every step carries all four columns of §3.1', () => {
+    const steps = Object.keys(T.TYPE)
+    expect(steps).toHaveLength(7)
+    for (const step of steps) {
+      expect(T.TYPE[step], `TYPE.${step}`).toBeGreaterThan(0)
+      expect(T.LEADING[step], `LEADING.${step}`).toBeGreaterThan(1)
+      expect(T.TRACKING[step], `TRACKING.${step}`).toBeTypeOf('string')
+      expect([400, 600], `WEIGHT.${step} is not one of the system's two weights`)
+        .toContain(T.WEIGHT[step])
+    }
+  })
+
+  // The two tracked steps are tracked and the other five are not: §3.1 gives
+  // tracking to H1 (+0.01em) and Label (+0.06em) and says everything else is
+  // "sentence case with zero tracking". A control, because a TRACKING map
+  // that returned '0' for all seven would pass the shape test above.
+  it('only H1 and Label are tracked, and by the amounts @theme declares', () => {
+    expect(T.TRACKING.h1).toBe(theme['text-h1--letter-spacing'])
+    expect(T.TRACKING.label).toBe(theme['text-label--letter-spacing'])
+    expect(T.TRACKING.h1).not.toBe('0')
+    expect(T.TRACKING.label).not.toBe('0')
+    for (const step of ['h2', 'h3', 'body', 'dense', 'caption']) {
+      expect(T.TRACKING[step], `TRACKING.${step}`).toBe('0')
+      expect(theme[`text-${step}--letter-spacing`], `@theme tracks ${step}`).toBeUndefined()
     }
   })
 

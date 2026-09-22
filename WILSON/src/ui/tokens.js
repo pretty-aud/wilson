@@ -38,6 +38,28 @@ export const THEME = Object.freeze({
   'text-dense': '13px',
   'text-caption': '12px',
   'text-label': '11px',
+  /* The rest of each step (T3, 2026-09-22). A step is a SIZE, a LEADING, a
+     TRACKING and a WEIGHT — §3.1's table has four columns and this module
+     used to carry one of them. Everything else was left to the caller, so
+     every inline site that wanted the H1 step wrote `fontSize: TYPE.h1` and
+     then restated `1.2` and `'0.01em'` and `600` from memory. `tokens.js`'s
+     own header says the point of the module is that a site "can read a name
+     instead of a number"; three quarters of each step was still a number.
+     Tailwind's `text-h1` utility has carried all four since F1 — this is the
+     same four for the sites that cannot use a class. */
+  'text-h1--line-height': '1.2',
+  'text-h1--letter-spacing': '0.01em',
+  'text-h1--font-weight': '600',
+  'text-h2--line-height': '1.3',
+  'text-h2--font-weight': '600',
+  'text-h3--line-height': '1.4',
+  'text-h3--font-weight': '600',
+  'text-body--line-height': '1.5',
+  'text-dense--line-height': '1.45',
+  'text-caption--line-height': '1.4',
+  'text-label--line-height': '1.3',
+  'text-label--letter-spacing': '0.06em',
+  'text-label--font-weight': '600',
   // colour
   'color-paper': '#1c1917',
   'color-paper-raised': '#232020',
@@ -138,6 +160,51 @@ export const TYPE = Object.freeze({
 })
 /** The floor. Nothing smaller ships (C7). */
 export const TYPE_FLOOR = TYPE.label
+
+/* ── The other three columns of §3.1's table (T3, 2026-09-22) ──────────────
+   A kit request, recorded in T3's hand-off: `tokens.test.js` said the
+   `--text-*--line-height` sub-properties "have no JS consumer", and that
+   stopped being true the moment a bundle of inline style objects arrived.
+   `AuthShell.jsx` wrote `letterSpacing: '0.01em'` beside `fontSize:
+   TYPE.h1`; `App.jsx`'s close dialog wrote `lineHeight: 1.3` beside the H2
+   step. `DevFixturesBadge.jsx` had already reached the same values through
+   CSS (`var(--text-label--letter-spacing)`), which is the proof that the
+   sub-properties always did have consumers — they just could not be reached
+   from JS.
+
+   Defaults, where `@theme` declares nothing: tracking is ZERO and weight is
+   400, which is §3.1's table read literally ("Uppercase appears only in the
+   Label step … everything else is sentence case with zero tracking"). They
+   are written here rather than added to `@theme` because a token whose value
+   is the CSS initial value is a token that can only drift. */
+const num = (name) => Number(THEME[name])
+export const LEADING = Object.freeze({
+  h1: num('text-h1--line-height'),
+  h2: num('text-h2--line-height'),
+  h3: num('text-h3--line-height'),
+  body: num('text-body--line-height'),
+  dense: num('text-dense--line-height'),
+  caption: num('text-caption--line-height'),
+  label: num('text-label--line-height'),
+})
+export const TRACKING = Object.freeze({
+  h1: THEME['text-h1--letter-spacing'],
+  h2: '0',
+  h3: '0',
+  body: '0',
+  dense: '0',
+  caption: '0',
+  label: THEME['text-label--letter-spacing'],
+})
+export const WEIGHT = Object.freeze({
+  h1: num('text-h1--font-weight'),
+  h2: num('text-h2--font-weight'),
+  h3: num('text-h3--font-weight'),
+  body: 400,
+  dense: 400,
+  caption: 400,
+  label: num('text-label--font-weight'),
+})
 
 // ── Dark surfaces: the three tools and, under Q1, the six data pages ────────
 export const PAPER = THEME['color-paper']
