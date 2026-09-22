@@ -183,7 +183,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         </h2>
         <p className="text-dense mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
 
-        <div className="flex gap-8 mb-5 text-dense font-mono">
+        <div className="flex gap-8 mb-5 text-dense">
           <div>
             <span className="text-label uppercase block" style={{ color: '#78716c' }}>Project Code</span>
             <span style={{ color: '#1c1917' }}>{project?.project_code || '--'}</span>
@@ -219,7 +219,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             {/* Contingency as a flat dollar line item — NO percentage shown */}
             {contingencyAmt > 0 && (
               <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense font-mono py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>
                   Contingency
                 </td>
                 <td className="text-dense font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
@@ -231,10 +231,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             {/* Markup as "Production Fee" — NO percentage shown */}
             {markupAmt > 0 && (
               <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense font-mono tabular-nums py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>
                   Production Fee
                 </td>
-                <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-dense font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
                   {fmtCurrency(markupAmt, currency)}
                 </td>
               </tr>
@@ -243,7 +243,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             {/* Grand total */}
             <tr style={{ borderTop: '2px solid #1c1917' }}>
               <td className="text-dense font-semibold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
-              <td className="text-dense font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
+              <td className="text-dense font-mono font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
                 {fmtCurrency(grandTotal, currency)}
               </td>
             </tr>

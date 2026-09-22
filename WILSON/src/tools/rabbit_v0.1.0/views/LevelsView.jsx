@@ -374,7 +374,7 @@ export default function LevelsView() {
 
         {/* Right: count + add button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {sorted.length}/{levels.length}
           </span>
 
@@ -579,12 +579,12 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
           </span>
 
           {/* Assets count */}
-          <span className="w-16 text-dense text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
             {assetCountByLevel[lv.id] || 0}
           </span>
 
           {/* Tasks count */}
-          <span className="w-16 text-dense text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
             {taskCountByLevel[lv.id] || 0}
           </span>
 
@@ -655,7 +655,7 @@ function LevelGallery({ levels, gallerySize, onOpenDetail, onRequestDelete }) {
               {lv.name || 'Untitled level'}
             </span>
             <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 text-label uppercase rounded-control"
+              <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control"
                 style={{ color: statusColor(lv.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(lv.status)}30` }}>
                 {fmt(lv.status || 'not_started')}
               </span>
@@ -851,7 +851,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             <div>
               <FieldLabel>Linked counts</FieldLabel>
               <div className="flex items-center gap-2">
-                <span className="text-label uppercase" style={{ color: '#78716c' }}>
+                <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                   {assetCountByLevel[levelId] || 0} assets / {taskCountByLevel[levelId] || 0} tasks
                 </span>
               </div>

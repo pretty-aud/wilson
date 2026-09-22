@@ -545,7 +545,7 @@ export default function CrewTeamTab({
                     )}
                   </div>
                   <div style={{ width: W_TYPE, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center">
-                    <span className="text-dense font-mono tabular-nums px-1 py-0.5 rounded-control" style={{
+                    <span className="text-dense px-1 py-0.5 rounded-control" style={{
                       color: row.employmentType === 'fulltime' ? '#86efac' : '#fde68a',
                       backgroundColor: row.employmentType === 'fulltime' ? '#14532d33' : '#78350f33',
                     }}>{row.employmentType === 'fulltime' ? 'FT' : 'FR'}</span>
@@ -617,7 +617,7 @@ export default function CrewTeamTab({
 
               {/* Dept subtotal */}
               <div className="flex" style={{ borderBottom: '2px solid #44403c' }}>
-                <div style={{ width: W_NAME + W_TYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-1.5 text-dense font-mono tabular-nums font-semibold">
+                <div style={{ width: W_NAME + W_TYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-1.5 text-dense font-semibold">
                   <span style={{ color: '#a8a29e' }}>{group.department} total</span>
                 </div>
                 <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
@@ -643,7 +643,7 @@ export default function CrewTeamTab({
                       : '\u2014'}
                   </span>
                 </div>
-                <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
+                <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono text-right font-semibold">
                   <span style={{ color: '#38bdf8' }}>{group.actualTotal > 0 ? fmtCurrency(group.actualTotal, currency) : '\u2014'}</span>
                 </div>
                 <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />

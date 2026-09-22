@@ -3776,7 +3776,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       className="w-full p-2 text-left hover:bg-stone-700 transition-colors"
                     >
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-dense text-orange-400 font-semibold">#{item.pageNum}</span>
+                        <span className="text-dense font-mono text-orange-400 font-semibold">#{item.pageNum}</span>
                         <span className="text-caption text-stone-500 group-hover:opacity-0 transition-opacity">{item.timestamp}</span>
                       </div>
                       <p className="text-dense text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
@@ -3831,7 +3831,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="font-semibold uppercase flex items-center justify-between text-label">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white text-dense">1</span>
+                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-dense">1</span>
                   Project Documentation & Deck Context
                 </div>
                 {section1Collapsed ? (
@@ -4140,7 +4140,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="font-semibold uppercase flex items-center justify-between text-label">
                 <div className={`flex items-center gap-2 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-dense ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-dense ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
                   Generate Page Outline
                   {fullDeckMode && <span className="text-dense font-normal normal-case ml-2">(Disabled in Full Deck mode)</span>}
                 </div>
@@ -4302,7 +4302,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                           : 'bg-stone-700 text-stone-400 hover:text-stone-300 border border-stone-600 border-b-0 rounded-t-sm mb-0'
                       }`}
                     >
-                      <span className="">#{tab.pageNum}</span>
+                      <span className="font-mono">#{tab.pageNum}</span>
                       <span className="max-w-[100px] truncate">{tab.title}</span>
                       <button
                         onClick={(e) => closeTab(tab.id, e)}

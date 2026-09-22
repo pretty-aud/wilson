@@ -248,7 +248,7 @@ function Section({ title, count, defaultOpen = false, children }) {
         <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
           {title}
         </span>
-        <span className="text-dense" style={{ color: '#a8a29e' }}>({count})</span>
+        <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>({count})</span>
       </button>
       {open && <div className="flex flex-col">{children}</div>}
     </div>

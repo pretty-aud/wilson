@@ -41,19 +41,28 @@ export const MONO_TAGS = /^(?:code|pre|kbd|samp)$/;
 export const SANS_TAGS = /^(?:button|select|input|textarea|label|p|a|h[1-6])$/;
 
 /**
- * The Label step is sans, full stop: §3.1 gives Label "table headers, field
- * labels, eyebrows, Kbd, status badges" and not one of those is a figure.
+ * 🚨 NO STEP DECIDES THE FAMILY. This list is empty, deliberately.
  *
- * 🚨 THE HEADING STEPS ARE NOT ON THIS LIST, and the kit is why. F2 shipped
- * `Stat` with "the value is the mono at the H1 step", because a big number is
- * still a number and numbers line up. R.A.B.B.I.T.'s budget band sets BID DAYS
- * 125.5, LOGGED DAYS 65.0 and VARIANCE -60.5 as its own tiles at a heading
- * size; dropping mono there made three figures stop agreeing with every other
- * figure on the page. So a heading falls through to the content test: a
- * heading that renders prose loses mono, a heading that renders a figure keeps
- * it. C8 — the repeated thing is the kit's, and the kit already decided.
+ * Two earlier drafts put steps on it and both were wrong, for the same reason:
+ * the SIZE of a piece of text and the KIND of a piece of text are independent,
+ * and §3.1 treats them that way.
+ *
+ *   - The heading steps came off first. F2 shipped `Stat` as "the mono at the
+ *     H1 step" because a big number is still a number; dropping mono there made
+ *     R.A.B.B.I.T.'s BID DAYS 125.5 and VARIANCE -60.5 stop agreeing with every
+ *     other figure on the page.
+ *   - The Label step came off second, and §3.1's own Label row is the proof:
+ *     "table headers, field labels, eyebrows, **Kbd**, status badges". Kbd is
+ *     the mono at the label size — the kit's `.ui-kbd` says so. A step that
+ *     contains Kbd cannot be unconditionally sans. D2 had already decided this
+ *     by hand and written the reason next to it: HelpPage's version footer is
+ *     `text-label font-mono`, commented "mono because a version is data". The
+ *     rule was overriding a lane's deliberate, documented choice.
+ *
+ * So the family follows the CONTENT and the tag, and nothing else. A label that
+ * renders a word loses mono because it is a word, not because it is a label.
  */
-export const SANS_STEPS = /\btext-label\b/;
+export const SANS_STEPS = /(?!)/;   // matches nothing
 
 /**
  * Identifier fragments that mean the rendered value is data.
@@ -85,11 +94,19 @@ export const DATA_IDENT = [
 /** Literal content that is data on sight. */
 export const DATA_LITERAL = [
   /\\\\/,                       // a UNC path: \\server\share
+  /[A-Za-z]:\\/,                // a Windows drive path: Z:\…  (ONE backslash,
+                                // which the UNC pattern does not catch — two
+                                // spans of the same Admin Terminal help text
+                                // disagreed with each other over exactly this)
   /:\/\//,                      // a URL scheme
   /^[#$@]/,                     // #1234, $1,200
   /^[A-Z0-9][A-Z0-9_\-.]*\d[A-Z0-9_\-.]*$/,   // SH_010, v0.3.1, ABC-12
   /^[\d.,:%+\-/\s]+$/,          // pure figures, ratios, times
 ];
+
+/** A path or an id is data, but it is not a FIGURE, so it never wants
+ *  `tabular-nums` — that is for columns of digits that have to line up. */
+export const IS_PATHLIKE = [/\\\\/, /[A-Za-z]:\\/, /:\/\//];
 
 /** Identifier fragments that mean the value is a NAME, and names are prose. */
 export const PROSE_IDENT = [
@@ -135,7 +152,14 @@ export function classifyMono({ tag, run, body }) {
 
   /* Expressions anywhere in the body, not only at the start: `+{fmtCurrency(…)}`
      and `· {count} assets` are both a figure with a character in front of it. */
-  const exprs = body.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g) || [];
+  /* 🚨 `{' '}` IS NOT AN EXPRESSION FOR THIS PURPOSE. JSX spells a significant
+     space that way, and it appears constantly in prose. Counting it as an
+     expression made `exprs` non-empty, which skipped the literal test below,
+     which is how three UNC paths in Admin Terminal's storage help —
+     `\\server\share\...` and `Z:\...`, set in mono precisely because they are
+     paths — lost their mono. §3.1 puts "file names and paths" first. */
+  const exprs = (body.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g) || [])
+    .filter((e) => !/^\{\s*(['"`])[\s\u00a0]*\1\s*\}$/.test(e));
   const raw = exprs.join(' ');
   /* Every pattern is tested against BOTH spellings: the source form, where
      `display_name` still has its underscore, and the split form, where
@@ -149,7 +173,10 @@ export function classifyMono({ tag, run, body }) {
   if (expr && hit(PROSE_IDENT)) return { keep: false, why: 'renders a name or a message' };
   if (expr && hit(DATA_IDENT)) return { keep: true, why: 'renders an identifier, figure or timestamp' };
   if (NUMERIC_ALIGN.test(run) && exprs.length) return { keep: true, why: 'right-aligned figure column' };
-  if (!exprs.length && DATA_LITERAL.some((re) => re.test(body))) return { keep: true, why: 'literal is a path, figure or code' };
+  /* Tested whether or not the body also carries an expression: a literal path
+     next to an interpolation is still a path. It runs AFTER the prose test, so
+     `{project.title}` is still prose. */
+  if (DATA_LITERAL.some((re) => re.test(body))) return { keep: true, why: 'literal is a path, figure or code' };
 
   return { keep: false, why: 'no data evidence' };
 }

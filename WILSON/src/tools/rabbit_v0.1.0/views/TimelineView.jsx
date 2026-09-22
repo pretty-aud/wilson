@@ -4153,7 +4153,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-label uppercase font-semibold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
+          <span className="text-label font-mono uppercase font-semibold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset
@@ -5641,7 +5641,7 @@ function SummaryBand({
           <span className="text-label uppercase ml-1" style={{ color: '#78716c' }}>
             Zoom
           </span>
-          <span className="text-dense font-mono" style={{ color: '#78716c' }}>6mo</span>
+          <span className="text-dense" style={{ color: '#78716c' }}>6mo</span>
           <div className="relative" style={{ width: 195, height: 22 }}>
             <input
               type="range"

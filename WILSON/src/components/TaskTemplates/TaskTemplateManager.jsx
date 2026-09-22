@@ -237,7 +237,7 @@ export default function TaskTemplateManager({ onClose }) {
                         </span>
                       </Td>
                       <Td style={{ textAlign: 'center' }}>
-                        <span className="text-dense font-semibold" style={{ color: '#f4a261' }}>
+                        <span className="text-dense font-mono font-semibold" style={{ color: '#f4a261' }}>
                           {stats.totalDays}d
                         </span>
                       </Td>
@@ -429,7 +429,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
         {/* Tasks table */}
         <div className="flex-1 overflow-auto px-5 py-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-label uppercase" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
               Tasks ({localTasks.length})
             </span>
             {!readOnly && (
@@ -590,7 +590,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
   const [open, setOpen] = useState(false)
 
   if (availableDeps.length === 0) {
-    return <span className="text-dense italic" style={{ color: '#57534e' }}>--</span>
+    return <span className="text-dense font-mono italic" style={{ color: '#57534e' }}>--</span>
   }
 
   return (

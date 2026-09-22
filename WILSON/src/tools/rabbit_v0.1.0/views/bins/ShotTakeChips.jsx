@@ -42,7 +42,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
         </span>
       ))}
       {extra > 0 && (
-        <span className="text-dense font-mono px-1 rounded-control" style={{ color: C.muted, backgroundColor: C.panel, border: `1px solid ${C.line}` }}>+{extra}</span>
+        <span className="text-dense px-1 rounded-control" style={{ color: C.muted, backgroundColor: C.panel, border: `1px solid ${C.line}` }}>+{extra}</span>
       )}
       <span className="text-dense font-mono tabular-nums ml-0.5" style={{ color: C.muted }}>{list.length}</span>
     </button>

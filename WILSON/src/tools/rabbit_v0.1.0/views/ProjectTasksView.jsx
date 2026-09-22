@@ -625,7 +625,7 @@ export default function ProjectTasksView() {
         {/* Right: count, phase, new task */}
         <div className="flex items-center gap-2 ml-auto">
 
-          <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {processed.length}/{tasks.length}
           </span>
 
@@ -1257,7 +1257,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 style={{ backgroundColor: '#292524', color: phase.end_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
             </div>
-            <span className="text-dense px-1.5 py-0.5 rounded-control flex-shrink-0"
+            <span className="text-dense font-mono px-1.5 py-0.5 rounded-control flex-shrink-0"
               style={{ color: '#a8a29e', backgroundColor: '#292524' }}>
               {group.tasks.length}
             </span>
@@ -1456,7 +1456,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
         // Empty cell for other columns
         return (
           <div key={c.key} className="px-3.5 py-2" style={{ flex: c.flex, minWidth: 0 }}>
-            <span className="text-dense font-mono" style={{ color: '#3a3733' }}>—</span>
+            <span className="text-dense" style={{ color: '#3a3733' }}>—</span>
           </div>
         )
       })}
@@ -1595,7 +1595,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
           </div>
         )
       default:
-        return <span className="text-dense" style={{ color: '#a8a29e' }}>{task[col.key] ?? '--'}</span>
+        return <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{task[col.key] ?? '--'}</span>
     }
   }
 
@@ -1835,11 +1835,11 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Status + Priority */}
       <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-label uppercase font-semibold" style={{ color: sc }}>
+        <span className="text-label font-mono uppercase font-semibold" style={{ color: sc }}>
           {fmt(task.status || 'waiting_to_start')}
         </span>
         <span style={{ color: '#44403c' }}>&middot;</span>
-        <span className="text-label uppercase" style={{ color: pc }}>
+        <span className="text-label font-mono uppercase" style={{ color: pc }}>
           {fmt(task.priority || 'medium')}
         </span>
       </div>

@@ -231,7 +231,7 @@ export default function ProjectSummaryView() {
         <div className="p-6 flex flex-col gap-4">
           <Card title="All projects" icon={LayoutGrid}>
             <div className="flex items-center justify-between mb-3">
-              <span className="text-label uppercase" style={{ color: '#78716c' }}>
+              <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                 {allProjects.length} project{allProjects.length !== 1 ? 's' : ''}
               </span>
               <button type="button" onClick={handleNewProject} disabled={creating}
@@ -370,7 +370,7 @@ export default function ProjectSummaryView() {
                   </span>
                 )}
                 {project.start_date && project.end_date && (
-                  <span className="text-dense font-mono" style={{ color: '#57534e' }}>—</span>
+                  <span className="text-dense" style={{ color: '#57534e' }}>—</span>
                 )}
                 {project.end_date && (
                   <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -502,7 +502,7 @@ export default function ProjectSummaryView() {
                       border: '1px solid #44403c',
                     }}
                   >
-                    <span className="text-dense font-semibold" style={{ color: '#ea580c' }}>
+                    <span className="text-dense font-mono font-semibold" style={{ color: '#ea580c' }}>
                       {String(i + 1).padStart(2, '0')}
                     </span>
                     <span className="text-dense" style={{ color: '#d6d3d1' }}>{p.name}</span>
@@ -598,7 +598,7 @@ export default function ProjectSummaryView() {
                 .map(row => (
                   <div
                     key={row.role}
-                    className="flex items-center justify-between text-dense font-mono tabular-nums px-2.5 py-1.5 rounded-control"
+                    className="flex items-center justify-between text-dense px-2.5 py-1.5 rounded-control"
                     style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
                   >
                     <span style={{ color: '#d6d3d1' }}>{row.role}</span>
@@ -1157,7 +1157,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         <div className="flex flex-col items-center justify-center py-6 rounded-control"
           style={{ border: `2px dashed ${SECTION_ACCENT}30`, backgroundColor: '#1c191780' }}>
           <FileText className="w-5 h-5 mb-1.5" style={{ color: '#44403c' }} />
-          <span className="text-dense font-mono" style={{ color: '#57534e' }}>No files attached</span>
+          <span className="text-dense" style={{ color: '#57534e' }}>No files attached</span>
         </div>
       ) : (
         <ProjectFilesTable
@@ -1471,7 +1471,7 @@ function BudgetTile({ label, value, hint, tone = 'neutral' }) {
 
 function Empty({ children }) {
   return (
-    <div className="flex items-center gap-2 text-dense font-mono italic" style={{ color: '#78716c' }}>
+    <div className="flex items-center gap-2 text-dense italic" style={{ color: '#78716c' }}>
       <FileText className="w-3.5 h-3.5" />
       {children}
     </div>

@@ -588,7 +588,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <span className="text-label font-semibold uppercase" style={{ color: '#d6d3d1' }}>
               Base cost
             </span>
-            <div className="text-h2 font-mono font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+            <div className="text-h2 font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay value={baseCost} currency={currency} style={{ color: '#d6d3d1' }} />
             </div>
           </div>
@@ -617,7 +617,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <div className="flex items-center justify-between py-3 px-4 rounded-control mb-1"
             style={{ backgroundColor: '#1c1917' }}>
             <div className="flex items-center gap-2.5">
-              <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>+ Agency fee</span>
+              <span className="text-dense" style={{ color: '#a8a29e' }}>+ Agency fee</span>
               <button
                 type="button"
                 onClick={() => {
@@ -641,7 +641,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                   disabled={isActive} />
               )}
             </div>
-            <div className="text-dense font-mono tabular-nums text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
+            <div className="text-dense font-mono text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
               {agencyEnabled ? `+` : ''}{' '}
               {agencyEnabled
                 ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} style={{ color: '#a8a29e' }} />
@@ -658,7 +658,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <span className="text-h2 font-semibold" style={{ color: '#fb923c' }}>
               Grand Total
             </span>
-            <div className="text-h1 font-mono font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+            <div className="text-h1 font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay
                 value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
                 currency={currency}
@@ -1081,8 +1081,8 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
         {agencyEnabled && <span className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
         <span className={`text-dense font-mono text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
-        <span className="text-dense text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
-        <span className="text-dense text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
+        <span className="text-dense font-mono text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
+        <span className="text-dense font-mono text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
           {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
         </span>
       </div>
@@ -1198,7 +1198,7 @@ function PctInput({ label, value, onChange, disabled }) {
               className="w-full px-2 py-1.5 text-body font-semibold rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
             />
-            <span className="absolute right-2 text-dense pointer-events-none" style={{ color: '#78716c' }}>%</span>
+            <span className="absolute right-2 text-dense font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
           </div>
         ) : (
           <button
@@ -1292,7 +1292,7 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
           </button>
         )}
       </div>
-      <div className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
+      <div className="text-dense text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
         <CurrencyDisplay value={amount} currency={currency} style={{ color: '#a8a29e' }} />
       </div>
     </div>
@@ -1664,7 +1664,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
           <>
             <BreakdownTable rows={rows} currency={budget.currency} labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'} countHeader="Tasks" />
             <div
-              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-control text-dense font-mono tabular-nums items-center"
+              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-control text-dense items-center"
               style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
             >
               <span className="font-semibold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
@@ -2217,7 +2217,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           )}
         </div>
 
-        <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
+        <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
       </div>
 
       {/* Filter panel */}
@@ -2790,7 +2790,7 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
             </div>
           )}
           <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? <div className="px-3 py-2 text-dense font-mono" style={{ color: '#78716c' }}>No items</div> : (
+            {filtered.length === 0 ? <div className="px-3 py-2 text-dense" style={{ color: '#78716c' }}>No items</div> : (
               filtered.map(it => {
                 const checked = selectedIds.includes(it.id)
                 return (
@@ -2925,7 +2925,7 @@ function CenterMsg({ children }) {
 }
 
 function Empty({ children }) {
-  return <div className="text-dense font-mono tabular-nums italic" style={{ color: '#78716c' }}>{children}</div>
+  return <div className="text-dense italic" style={{ color: '#78716c' }}>{children}</div>
 }
 
 function varianceLabel(v) {

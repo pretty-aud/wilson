@@ -247,7 +247,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
             <div className="rounded-control px-3 py-3 flex items-start gap-2"
               style={{ backgroundColor: 'rgba(22,101,52,0.15)', border: '1px solid #166534' }}>
               <Check className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#4ade80' }} />
-              <div className="text-dense font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
+              <div className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
                 <span style={{ color: '#4ade80' }}>Relinked {applied.relinked} file{applied.relinked === 1 ? '' : 's'}.</span>{' '}
                 This project's files now resolve from{' '}
                 <span style={{ color: '#e7e5e4' }}>{applied.filesDir}</span>.

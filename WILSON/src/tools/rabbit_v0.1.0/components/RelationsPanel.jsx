@@ -120,7 +120,7 @@ export default function RelationsPanel({
               ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
               : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
             <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-            <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
               Assets ({relatedAssets.length})
             </span>
             <button type="button"
@@ -150,7 +150,7 @@ export default function RelationsPanel({
                       <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                         {a.name || 'Untitled'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                      <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                         style={{ color: statusColor(a.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(a.status)}30` }}>
                         {fmt(a.status || 'not_started')}
                       </span>
@@ -179,7 +179,7 @@ export default function RelationsPanel({
               ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
               : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
             <ListChecks className="w-3.5 h-3.5" style={{ color: '#fbbf24' }} />
-            <span className="text-label uppercase font-semibold" style={{ color: '#fbbf24' }}>
+            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fbbf24' }}>
               Tasks ({relatedTasks.length})
             </span>
             {onCreateTask && (
@@ -220,7 +220,7 @@ export default function RelationsPanel({
                             </span>
                           )}
                         </div>
-                        <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                        <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                           style={{ color: statusColor(t.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(t.status)}30` }}>
                           {fmt(t.status || 'waiting_to_start')}
                         </span>
@@ -298,7 +298,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
       {/* List */}
       <div className="flex-1 overflow-auto px-1 py-1">
         {filtered.length === 0 ? (
-          <div className="px-3 py-4 text-center text-label uppercase" style={{ color: '#57534e' }}>
+          <div className="px-3 py-4 text-center text-label font-mono uppercase" style={{ color: '#57534e' }}>
             {assets.length === 0 ? 'All assets already linked' : 'No matches'}
           </div>
         ) : (
@@ -714,7 +714,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                 : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
               <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
+              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
                 Scenes & Shots ({sceneShotCount})
               </span>
               <div className="ml-auto flex items-center gap-0.5">
@@ -796,7 +796,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                                   <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>
                                     {sh.name || 'Untitled'}
                                   </span>
-                                  <span className="px-1 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                                  <span className="px-1 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                                     style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                                     {fmt(sh.status || 'not_started')}
                                   </span>
@@ -830,7 +830,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                             <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                               {sh.name || 'Untitled'}
                             </span>
-                            <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                            <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                               style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                               {fmt(sh.status || 'not_started')}
                             </span>
@@ -895,7 +895,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                           <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                             {item.name || 'Untitled'}
                           </span>
-                          <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                          <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                             style={{ color: statusColor(item.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(item.status)}30` }}>
                             {fmt(item.status || 'not_started')}
                           </span>
@@ -1070,7 +1070,7 @@ export function RelationPickerPopup({
                     {getName(item)}
                   </span>
                   {/* Status badge */}
-                  <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                  <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                     style={{ color: statusColor(st), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(st)}30` }}>
                     {fmt(st)}
                   </span>

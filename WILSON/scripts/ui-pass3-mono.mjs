@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { sourceFiles } from './ui-audit.mjs';
 import { protectedRanges, isProtected } from './ui-source-regions.mjs';
 import { enclosingRun, enclosingTag } from './ui-type-inventory.mjs';
-import { classifyMono } from './ui-mono-map.mjs';
+import { classifyMono, IS_PATHLIKE } from './ui-mono-map.mjs';
 
 const DRY = process.argv.includes('--dry');
 const SAMPLE = process.argv.includes('--sample') ? process.argv[process.argv.indexOf('--sample') + 1] : null;
@@ -49,6 +49,16 @@ function elementBody(src, idx) {
   const gt = after.indexOf('>');
   if (gt < 0) return '';
   let s = after.slice(gt + 1, gt + 1 + 420);
+  /* 🚨 STOP AT THE FIRST CLOSING TAG. A fixed-length window runs past the end
+     of the element and reads the NEXT block's code as if it were this
+     element's content. Measured: Admin Terminal's storage help sets three UNC
+     paths in three sibling spans, and the middle one lost its mono because the
+     window reached a later `{probeSummary && …}` — and "summary" is on the
+     prose list. Three identical paths, two in mono and one not.
+     For a leaf this is exactly the element's text; for a wrapper it is the
+     first child, which is where the figure lives anyway. */
+  const close = s.indexOf('</');
+  if (close > 0) s = s.slice(0, close);
   s = s.replace(/className=(?:"[^"]*"|\{[^}]*\})/g, ' ');
   s = s.replace(/style=\{\{[^}]*\}\}/g, ' ');
   s = s.replace(/<[^>]*>/g, ' ');
@@ -95,7 +105,7 @@ for (const s of sites) {
 
 const tally = new Map();
 const bump = (k) => tally.set(k, (tally.get(k) || 0) + 1);
-let dropped = 0, kept = 0, numerics = 0;
+let dropped = 0, kept = 0, numerics = 0, emptyAttrs = 0;
 const report = [];
 
 for (const [file, list] of byFile) {
@@ -108,6 +118,7 @@ for (const [file, list] of byFile) {
       /* §3.1's numeric-cell clause: figures in tables line up or they are not
          a column. Only for figures, never for an id or a path. */
       const isFigure = /\b(?:count|total|totals|subtotal|sum|amount|price|cost|rate|budget|qty|quantity|size|bytes|pct|percent)\b/i.test(s.body)
+        && !IS_PATHLIKE.some((re) => re.test(s.body))   // a path is data, not a column of digits
         && !/\btabular-nums\b/.test(s.run);
       if (isFigure) { edits.push({ start: s.end, end: s.end, to: ' tabular-nums' }); numerics++; }
       continue;
@@ -124,13 +135,23 @@ for (const [file, list] of byFile) {
     else if (out[b] === ' ') b += 1;
     out = out.slice(0, a) + out.slice(b);
   }
+  /* When `font-mono` was the ONLY class on an element, removing it leaves
+     `className=""` — dead markup that a reviewer will (rightly) flag and that
+     says nothing about what the element is. Eight of these appeared in the
+     first run. The attribute goes with it. */
+  const emptied = out.match(/\s*className=""/g);
+  if (emptied) {
+    out = out.replace(/\s*className=""/g, '');
+    emptyAttrs += emptied.length;
+  }
+
   if (!DRY) writeFileSync(file, out, 'utf8');
   report.push([file, edits.length]);
 }
 
 report.sort((a, b) => b[1] - a[1]);
 console.log(`# pass 3 — font-mono${DRY ? ' (dry run)' : ''}`);
-console.log(`${sites.length} sites: ${dropped} dropped, ${kept} kept (${numerics} gained tabular-nums)\n`);
+console.log(`${sites.length} sites: ${dropped} dropped, ${kept} kept (${numerics} gained tabular-nums, ${emptyAttrs} empty className attributes removed)\n`);
 for (const [k, v] of [...tally].sort((a, b) => b[1] - a[1])) console.log(`  ${String(v).padStart(5)}  ${k}`);
 console.log('\n| file | edits |');
 console.log('|---|---|');

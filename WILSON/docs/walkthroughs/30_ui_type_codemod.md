@@ -40,9 +40,14 @@ the top read INTAKE SUMMARY TEAM TASKS TIMELINE and now reads Intake, Summary,
 Team, Tasks, Timeline. The task names down the left of the Gantt are bigger. The
 phase and task bars, the dates, the zoom control and the minimap are untouched.
 
-**Files** (`t0-*-files-*.png`) — almost no change, and that is the good news.
-This page was rebuilt by an earlier session and was already on the new sizes, so
-the sweep found nothing to do. Same for Settings.
+**Files** (`t0-*-files-*.png`) — **not one line changed**, and that is the good
+news rather than a gap. You called this page out by name as the worst of them;
+an earlier session rebuilt it, and the sweep re-derived every one of its type
+decisions from scratch and agreed with all of them. Settings is the same: zero
+changed lines. So is Home, and so are Team members, the Rate card, the Dashboard
+and the Admin terminal. The sweep only found work in the three tools, the help
+text and the operator console — everything the earlier sessions had not reached
+yet.
 
 **O.T.T.E.R.** (`t0-*-otter-*.png`) — course and lesson text steps up a size;
 the buttons stop shouting.

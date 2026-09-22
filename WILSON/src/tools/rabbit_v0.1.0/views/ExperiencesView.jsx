@@ -375,7 +375,7 @@ export default function ExperiencesView() {
 
         {/* Right: count + add button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {sorted.length}/{experiences.length}
           </span>
 
@@ -582,12 +582,12 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
           </span>
 
           {/* Assets count */}
-          <span className="w-16 text-dense text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
             {assetCountByExperience[ex.id] || 0}
           </span>
 
           {/* Tasks count */}
-          <span className="w-16 text-dense text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
             {taskCountByExperience[ex.id] || 0}
           </span>
 
@@ -658,7 +658,7 @@ function ExperienceGallery({ experiences, gallerySize, onOpenDetail, onRequestDe
               {ex.name || 'Untitled experience'}
             </span>
             <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 text-label uppercase rounded-control"
+              <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control"
                 style={{ color: statusColor(ex.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(ex.status)}30` }}>
                 {fmt(ex.status || 'not_started')}
               </span>
@@ -851,7 +851,7 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
             <div>
               <FieldLabel>Linked counts</FieldLabel>
               <div className="flex items-center gap-2">
-                <span className="text-label uppercase" style={{ color: '#78716c' }}>
+                <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                   {assetCountByExperience[experienceId] || 0} assets / {taskCountByExperience[experienceId] || 0} tasks
                 </span>
               </div>

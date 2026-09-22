@@ -928,7 +928,7 @@ export default function RequestsView({
                                 <span className="text-stone-500 font-normal"> · round {r.revision}</span>
                               )}
                             </span>
-                            <span className="block text-dense truncate text-stone-500">
+                            <span className="block text-dense font-mono truncate text-stone-500">
                               sent {fmt(r.created_at)}
                             </span>
                           </span>

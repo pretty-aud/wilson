@@ -498,7 +498,7 @@ export default function TeamView() {
 
         {/* Right: count + assign button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label uppercase" style={{ color: '#a8a29e' }}>
+          <span className="text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
             {processed.length}/{teamAssignments.length} member{teamAssignments.length === 1 ? '' : 's'}
           </span>
           <button type="button" onClick={openPicker}

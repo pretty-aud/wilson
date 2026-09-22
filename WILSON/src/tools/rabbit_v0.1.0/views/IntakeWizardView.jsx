@@ -365,7 +365,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input type="checkbox" checked={draft.budget_agency_enabled} onChange={e => patch('budget_agency_enabled', e.target.checked)}
                         className="accent-orange-500" />
-                      <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>Enable</span>
+                      <span className="text-dense" style={{ color: '#a8a29e' }}>Enable</span>
                     </label>
                     {draft.budget_agency_enabled && (
                       <input type="number" value={draft.budget_agency_pct} onChange={e => patch('budget_agency_pct', e.target.value)}
@@ -420,7 +420,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             </button>
             {files.length > 0 && (
               <div className="flex flex-col gap-2 mt-1">
-                <span className="text-label uppercase" style={{ color: '#57534e' }}>
+                <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
                   {files.length} file{files.length !== 1 ? 's' : ''} attached
                 </span>
                 {files.map((f, i) => (
@@ -435,7 +435,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                           </span>
                         )}
                         {f.type && (
-                          <span className="text-dense font-mono" style={{ color: '#57534e' }}>{f.type.split('/').pop()}</span>
+                          <span className="text-dense" style={{ color: '#57534e' }}>{f.type.split('/').pop()}</span>
                         )}
                         {f.lastModified && (
                           <span className="text-dense font-mono" style={{ color: '#57534e' }}>

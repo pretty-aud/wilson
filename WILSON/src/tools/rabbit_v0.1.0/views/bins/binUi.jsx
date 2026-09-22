@@ -144,7 +144,7 @@ export function Chip({ active = false, onClick, children, title, color = null, c
 
 export function Kbd({ children }) {
   return (
-    <kbd className="inline-block px-1 rounded-control text-dense font-mono tabular-nums leading-[14px]"
+    <kbd className="inline-block px-1 rounded-control text-dense font-mono leading-[14px]"
       style={{ color: C.muted, border: `1px solid ${C.line}`, backgroundColor: C.deep }}>{children}</kbd>
   )
 }

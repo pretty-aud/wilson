@@ -764,7 +764,7 @@ export default function FileManager({
       {/* Header bar */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-label uppercase" style={{ color: '#fb923c' }}>
+          <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
             Files ({assetFiles.length})
           </span>
           {/* Opening an OS explorer window only means anything when the file
@@ -906,7 +906,7 @@ export default function FileManager({
       {copyProgress && (
         <div className="mb-2">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-dense font-mono tabular-nums truncate" style={{ color: '#a8a29e', maxWidth: 200 }}>
+            <span className="text-dense font-mono truncate" style={{ color: '#a8a29e', maxWidth: 200 }}>
               {copyProgress.fileName}
             </span>
             <span className="text-dense font-mono tabular-nums" style={{ color: '#fb923c' }}>

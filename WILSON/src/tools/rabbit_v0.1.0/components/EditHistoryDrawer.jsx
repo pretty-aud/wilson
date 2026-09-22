@@ -183,7 +183,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
         <span className="text-dense font-semibold truncate flex-1" style={{ color: '#d6d3d1' }}>
           {actorName(entry)}
         </span>
-        <span className="text-dense flex-shrink-0" style={{ color: '#78716c' }}>
+        <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
           {formatHistoryTimestamp(entry.created_at)}
         </span>
         {onRevert && (

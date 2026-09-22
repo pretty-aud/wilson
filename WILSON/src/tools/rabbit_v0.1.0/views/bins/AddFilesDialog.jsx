@@ -75,7 +75,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
     <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width={860} busy={busy} error={error}
       subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
-        {busy && progress && <span className="flex items-center gap-2 text-dense font-mono mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
+        {busy && progress && <span className="flex items-center gap-2 text-dense mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
         <Btn onClick={guardedCancel} disabled={busy}>Cancel</Btn>
         <Btn primary onClick={confirm} disabled={busy || included.length === 0}><Check className="w-3 h-3" /> Add {included.length} {included.length === 1 ? 'item' : 'items'}</Btn>
       </>}>
@@ -144,7 +144,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                     </label>
                   ) : <span className="text-dense" style={{ color: C.dimmer }}>—</span>}
                 </div>
-                <div className="px-1 truncate text-dense font-mono flex items-center gap-1" style={{ color: C.dim }} title={it.sub_bin || ''}>
+                <div className="px-1 truncate text-dense flex items-center gap-1" style={{ color: C.dim }} title={it.sub_bin || ''}>
                   {it.sub_bin ? <><FolderTree className="w-2.5 h-2.5 flex-shrink-0" />{it.sub_bin}</> : ''}
                 </div>
               </div>

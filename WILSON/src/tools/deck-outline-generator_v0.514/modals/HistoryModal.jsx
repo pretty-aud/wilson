@@ -244,7 +244,7 @@ ${contentBody}
                     placeholder="Deck"
                     spellCheck={false}
                   />
-                  <span className="px-2 py-1.5 text-caption font-mono text-stone-500 bg-stone-800 border-l border-stone-600 flex-shrink-0">_DECKOUTLINE.md</span>
+                  <span className="px-2 py-1.5 text-caption text-stone-500 bg-stone-800 border-l border-stone-600 flex-shrink-0">_DECKOUTLINE.md</span>
                 </div>
               </div>
 

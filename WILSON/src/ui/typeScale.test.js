@@ -182,7 +182,15 @@ describe('mono is for data, sans for everything else (§3.1)', () => {
     ['{member.email}', 'span', RUN, false, 'an address reads as prose in a modern UI'],
     ['No projects yet.', 'div', RUN, false, 'an empty state'],
     ['Contingency', 'td', RUN, false, 'a row label in a table cell'],
-    ['{row.code}', 'span', 'text-label font-mono uppercase', false, 'the Label step is sans whatever it holds'],
+    // §3.1's Label row is "table headers, field labels, eyebrows, **Kbd**,
+    // status badges" — and Kbd is the mono at the label size. A step that
+    // contains Kbd cannot be unconditionally sans, so NO step decides the
+    // family: a label that renders a code keeps mono, a label that renders a
+    // word does not. D2 had already decided this by hand and left the reason
+    // in HelpPage: `text-label font-mono`, "mono because a version is data".
+    ['{row.code}', 'span', 'text-label font-mono uppercase', true, 'a label rendering a code is still a code'],
+    ['{col.label}', 'th', 'text-label font-mono uppercase', false, 'a label rendering a word is a word'],
+    ['{__WILSON_VERSION__}', 'span', 'text-label font-mono', true, "D2's version footer, which was decided by hand first"],
   ];
 
   for (const [body, tag, run, keep, why] of cases) {

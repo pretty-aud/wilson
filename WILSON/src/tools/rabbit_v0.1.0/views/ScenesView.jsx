@@ -1123,7 +1123,7 @@ export default function ScenesView() {
             entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
             onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
             onOpenPicker={() => setPickerShotId(shot.id)}>
-            {takesNotice && <div className="mt-2 text-dense font-mono" style={{ color: '#f59e0b' }}>{takesNotice}</div>}
+            {takesNotice && <div className="mt-2 text-dense" style={{ color: '#f59e0b' }}>{takesNotice}</div>}
           </ShotTakesDialog>
         )
       })()}
@@ -1172,7 +1172,7 @@ function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
       <div className="flex flex-col min-w-0">
         <span className="text-label uppercase" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
+        <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>
       </div>
     </div>
   )
@@ -1244,8 +1244,8 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
            : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
         <span className="w-7" />
-        <span style={{ width: tw }} className="text-label uppercase text-center flex-shrink-0" />
-        <span className="w-14 text-label uppercase text-center" style={{ color: '#78716c' }}>#</span>
+        <span style={{ width: tw }} className="text-label font-mono uppercase text-center flex-shrink-0" />
+        <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
         <span className="w-48 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
         <span className="w-36 text-label uppercase text-center" style={{ color: '#78716c' }}>Status</span>
         <span className="w-28 text-label uppercase text-center" style={{ color: '#78716c' }}>Time of Day</span>
@@ -1341,7 +1341,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
               </div>
 
               {/* Scene # */}
-              <span className="w-14 text-dense text-center flex-shrink-0" style={{ color: '#78716c' }}>
+              <span className="w-14 text-dense font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
                 {sc.scene_number ?? '—'}
               </span>
 
@@ -1519,7 +1519,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                       )}
                     </div>
                     {/* Shot # */}
-                    <span className="w-10 text-dense text-center flex-shrink-0" style={{ color: '#57534e' }}>
+                    <span className="w-10 text-dense font-mono text-center flex-shrink-0" style={{ color: '#57534e' }}>
                       {shot.shot_number ?? '—'}
                     </span>
                     {/* Name */}
@@ -1690,22 +1690,22 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
                 </span>
               )}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-label uppercase" style={{ color: '#78716c' }}>
+                <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                   {fmt(sc.type || '')}
                 </span>
                 {sc.time_of_day && (
-                  <span className="text-label uppercase" style={{ color: '#78716c' }}>
+                  <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
                     {fmt(sc.time_of_day)}
                   </span>
                 )}
-                <span className="px-1.5 py-0.5 text-label uppercase rounded-control"
+                <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control"
                   style={{ color: statusColor(sc.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sc.status)}30` }}>
                   {fmt(sc.status || 'not_started')}
                 </span>
               </div>
               <div className="flex items-center gap-3 mt-0.5">
                 {sceneShots.length > 0 && (
-                  <span className="text-dense font-mono tabular-nums" style={{ color: '#57534e' }}>
+                  <span className="text-dense font-mono" style={{ color: '#57534e' }}>
                     {sceneShots.length} shot{sceneShots.length !== 1 ? 's' : ''}
                   </span>
                 )}
@@ -1774,7 +1774,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
            : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
         <span style={{ width: tw }} className="flex-shrink-0" />
-        <span className="w-14 text-label uppercase text-center" style={{ color: '#78716c' }}>#</span>
+        <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
         <span className="w-48 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
         {takes?.supports && <span className="w-44 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
         <span className="w-36 text-label uppercase text-center" style={{ color: '#78716c' }}>Status</span>
@@ -1931,7 +1931,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                     </div>
 
                     {/* Shot # */}
-                    <span className="w-14 text-dense text-center flex-shrink-0" style={{ color: '#78716c' }}>
+                    <span className="w-14 text-dense font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
                       {shot.shot_number ?? '—'}
                     </span>
 
@@ -2211,7 +2211,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                       <span className="text-dense font-mono" style={{ color: '#78716c' }}>
                         #{shot.shot_number ?? '—'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-label uppercase rounded-control"
+                      <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control"
                         style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                         {fmt(shot.status || 'not_started')}
                       </span>
@@ -2353,7 +2353,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <span className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
               {scene.name || 'Untitled scene'}
             </span>
-            <span className="text-label uppercase px-1.5 py-0.5 rounded-control"
+            <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded-control"
               style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               {sceneCode}
             </span>
@@ -2573,7 +2573,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <div className="flex items-center gap-2 px-3 py-2 rounded-control"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
-              <span className="text-dense truncate" style={{ color: '#a8a29e' }}>
+              <span className="text-dense font-mono truncate" style={{ color: '#a8a29e' }}>
                 {sceneFolderPath}
               </span>
             </div>
@@ -2638,7 +2638,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                         {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
                       </span>
                     )}
-                    <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+                    <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
                       style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                       {fmt(shot.status || 'not_started')}
                     </span>
@@ -2787,7 +2787,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <span className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
               {shot.name || 'Untitled shot'}
             </span>
-            <span className="text-label uppercase px-1.5 py-0.5 rounded-control"
+            <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded-control"
               style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               {shotCode}
             </span>

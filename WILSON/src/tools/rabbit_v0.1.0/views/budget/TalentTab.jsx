@@ -407,7 +407,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> Add Talent
         </button>
-        <span className="text-dense font-mono" style={{ color: '#57534e' }}>Agent fees are per-row</span>
+        <span className="text-dense" style={{ color: '#57534e' }}>Agent fees are per-row</span>
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
           <span className="text-dense font-mono px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Margin: {defaultMarginPct}%

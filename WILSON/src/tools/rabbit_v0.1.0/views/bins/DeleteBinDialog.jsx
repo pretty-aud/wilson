@@ -40,7 +40,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
         <div className="text-dense leading-relaxed" style={{ color: C.text }}>The bin is empty. Nothing on disk changes.</div>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="text-dense font-mono leading-relaxed" style={{ color: C.text }}>
+          <div className="text-dense leading-relaxed" style={{ color: C.text }}>
             This bin holds <span style={{ color: C.bright }}>{n} file{n === 1 ? '' : 's'}</span>. Files are references; the media on disk is never touched.
           </div>
           <div className="rounded-control max-h-40 overflow-y-auto" style={{ border: `1px solid ${C.line}`, backgroundColor: C.deep }}>

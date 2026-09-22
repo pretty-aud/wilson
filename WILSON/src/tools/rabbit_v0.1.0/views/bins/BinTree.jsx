@@ -68,7 +68,7 @@ export default function BinTree({
           onDrop={e => handleDrop(e, null)}
         />
         {rows.length === 0 && (
-          <div className="px-3 py-3 text-dense font-mono tabular-nums leading-relaxed" style={{ color: C.dimmer }}>
+          <div className="px-3 py-3 text-dense leading-relaxed" style={{ color: C.dimmer }}>
             No bins yet. Make one with +, or drop a folder on the empty page.
           </div>
         )}

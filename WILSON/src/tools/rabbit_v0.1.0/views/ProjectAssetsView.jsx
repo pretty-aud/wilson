@@ -488,7 +488,7 @@ export default function ProjectAssetsView() {
 
         {/* Right: count + add asset */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-label uppercase px-1" style={{ color: '#78716c' }}>
+          <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>
             {processed.length}/{assets.length}
           </span>
 
@@ -908,7 +908,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                 <span className="text-label uppercase font-semibold" style={{ color: accent }}>
                   {g.label}
                 </span>
-                <span className="text-dense" style={{ color: '#78716c' }}>
+                <span className="text-dense font-mono" style={{ color: '#78716c' }}>
                   ({g.assets.length})
                 </span>
               </div>
@@ -1311,7 +1311,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           </>
         )}
         <div
-          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-label uppercase rounded-control"
+          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-label font-mono uppercase rounded-control"
           style={{ color: sc, backgroundColor: '#1c1917', border: `1px solid ${sc}33` }}>
           {fmt(asset.status || 'not_started')}
         </div>
@@ -1326,7 +1326,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           placeholder="Untitled"
           readOnly={readOnly}
         />
-        <div className="flex items-center justify-between text-label uppercase" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
           {phaseLabel && <span className="truncate max-w-[100px]">{'\u00B7'} {phaseLabel}</span>}
         </div>
@@ -1606,7 +1606,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             {previewTasks.length > 0 && (
               <div className="rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
                 <div className="px-3 py-1.5" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                  <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
+                  <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
                     Tasks to be created ({previewTasks.length})
                   </span>
                 </div>
@@ -1880,7 +1880,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                 )}
               </div>
               {hasThumbnail && (
-                <span className="text-dense truncate max-w-[280px]" style={{ color: '#78716c' }}
+                <span className="text-dense font-mono truncate max-w-[280px]" style={{ color: '#78716c' }}
                   title={asset.thumbnail_image}>
                   {asset.thumbnail_image.split(/[/\\]/).pop()}
                 </span>
@@ -2083,7 +2083,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
 
           {/* Tasks section */}
           <div className="mb-2">
-            <span className="text-label uppercase" style={{ color: '#fb923c' }}>
+            <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
               Tasks ({tasks.length})
             </span>
           </div>

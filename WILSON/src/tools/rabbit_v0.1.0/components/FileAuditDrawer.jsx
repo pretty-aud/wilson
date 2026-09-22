@@ -146,7 +146,7 @@ function FileEventCard({ evt }) {
           style={{ color: meta.color, backgroundColor: `${meta.color}1a`, border: `1px solid ${meta.color}40` }}>
           <Icon className="w-3 h-3" /> {meta.label}
         </span>
-        <span className="text-dense font-mono flex-1 truncate" style={{ color: '#a8a29e' }}>{actor}</span>
+        <span className="text-dense flex-1 truncate" style={{ color: '#a8a29e' }}>{actor}</span>
         <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
           {formatHistoryTimestamp(evt.created_at)}
         </span>
