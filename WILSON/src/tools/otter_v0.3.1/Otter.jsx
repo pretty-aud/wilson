@@ -4,6 +4,13 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Editor from '@monaco-editor/react';
+/* Monaco takes its size as a NUMBER, and `TYPE.body` IS a number: `tokens.js`
+   builds TYPE with `Number(THEME['text-body'].replace('px',''))`, so this is
+   the scale reaching a third-party API that cannot take a CSS string. T1
+   first allowlisted the hard-coded 14 on the grounds that "a token string
+   would break the editor" — true of a string, and beside the point, because
+   there was a numeric token the whole time. A reviewer found it. */
+import { TYPE } from '../../ui/tokens.js';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -4943,7 +4950,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         )}
         <div className="border border-stone-600 rounded-control overflow-hidden mb-4" style={{ height: '300px' }}>
           <Editor height="300px" defaultLanguage={codeLang} value={userCode} onChange={v => setUserCode(v || '')} theme="vs-dark"
-            options={{ minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false, wordWrap: 'on' }} />
+            options={{ minimap: { enabled: false }, fontSize: TYPE.body, scrollBeyondLastLine: false, wordWrap: 'on' }} />
         </div>
         <div className="flex items-center gap-2 mb-4">
           {ch.hints?.length > 0 && hintsShown < ch.hints.length && (

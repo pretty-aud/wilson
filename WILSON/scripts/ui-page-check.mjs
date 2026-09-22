@@ -19,6 +19,19 @@
  *
  * Needs the worktree's own dev server with fixtures on. T0 measured, at
  * 1280x700 on all twelve pages: 0 errors, 0 overflow, 0 off-scale.
+ *
+ * 🚨 TWELVE URLs IS NOT TWELVE SCREENS, AND T2 FOUND THE GAP THE HARD WAY.
+ * `/rabbit` without a project selected renders the project LIST — 33 text
+ * nodes — and every one of R.A.B.B.I.T.'s eleven tabs lives behind a project
+ * choice. So the strongest evidence in the bundle was measuring a screen that
+ * held none of T2's work: Intake, Team and Timeline were never visited. The
+ * same shape as trap 16, which caught the screenshots and not this.
+ *
+ * `--tabs` adds a second pass that opens the "Salt Hours" fixture project and
+ * walks each tab by name. It is opt-in so the twelve-page number stays
+ * comparable between sessions.
+ *
+ *   node scripts/ui-page-check.mjs 5243 1280 700 --tabs
  */
 import { chromium } from '@playwright/test';
 
@@ -26,6 +39,8 @@ const PORT = process.argv[2] || '5241';
 const BASE = `http://localhost:${PORT}`;
 const PAGES = ['/', '/dog', '/otter', '/rabbit', '/settings', '/project-manager',
   '/rate-card', '/team-members', '/project-files', '/dashboard', '/admin-terminal', '/help'];
+const TABS = ['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins'];
+const WITH_TABS = process.argv.includes('--tabs');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await chromium.launch();
@@ -38,10 +53,8 @@ page.on('pageerror', (e) => errors.push('PAGEERROR ' + String(e).slice(0, 110)))
 await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await sleep(12000);
 
-for (const p of PAGES) {
-  errors.length = 0;
-  await page.goto(BASE + p, { waitUntil: 'domcontentloaded' });
-  await sleep(5000);
+/** One measurement of whatever is on screen right now. */
+async function measure(label) {
   const info = await page.evaluate(() => {
     const seen = {};
     let offScale = 0;
@@ -57,7 +70,48 @@ for (const p of PAGES) {
   });
   const sizes = Object.entries(info.sizes).sort((a, b) => b[1] - a[1]).slice(0, 6)
     .map(([px, n]) => `${px}px:${n}`).join('  ');
-  console.log(`${p.padEnd(17)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}   ${sizes}`);
+  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}   ${sizes}`);
   for (const e of errors.slice(0, 2)) console.log(`      ! ${e}`);
+  return info;
 }
+
+/** Click a VISIBLE button by its exact text, in the page's own DOM.
+ *  `page.locator` would resolve a twin on a page nobody is looking at —
+ *  App.jsx renders every page at once and hides the inactive ones. */
+async function clickButton(text) {
+  return page.evaluate((t) => {
+    const b = [...document.querySelectorAll('button')]
+      .find((x) => (x.textContent || '').trim() === t && x.offsetParent !== null);
+    if (b) { b.click(); return true; }
+    return false;
+  }, text);
+}
+
+for (const p of PAGES) {
+  errors.length = 0;
+  await page.goto(BASE + p, { waitUntil: 'domcontentloaded' });
+  await sleep(5000);
+  await measure(p);
+}
+
+if (WITH_TABS) {
+  console.log('\n— R.A.B.B.I.T. tabs, with the fixture project open —');
+  await page.goto(BASE + '/rabbit', { waitUntil: 'domcontentloaded' });
+  await sleep(6000);
+  const picked = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')]
+      .find((x) => (x.textContent || '').includes('Salt Hours') && x.offsetParent !== null);
+    if (b) { b.click(); return true; }
+    return false;
+  });
+  await sleep(4000);
+  if (!picked) console.log('  ! could not open the fixture project — every row below is an empty state');
+  for (const t of TABS) {
+    errors.length = 0;
+    const ok = await clickButton(t);
+    await sleep(3500);
+    await measure(`  ${t}${ok ? '' : ' (NOT OPENED)'}`);
+  }
+}
+
 await browser.close();
