@@ -665,8 +665,16 @@
   .dash-note-editor .ProseMirror ol { list-style: decimal; padding-left: 1.4em; margin: 0.3em 0; }
   .dash-note-editor .ProseMirror a { color: var(--color-signal); text-decoration: underline; cursor: pointer; }
   .dash-note-editor .ProseMirror p { margin: 0.25em 0; }
+  /* T3: 2px → the hairline. This is the only 2px border in the five
+     stylesheets that is not an INDICATOR — it is a blockquote's decorative
+     rule inside the note editor's rich text: a neutral colour, no
+     conditional, no state. That is exactly the test T0's pass 4 used on the
+     102 class-based side borders when it flattened 64 and left 38, and this
+     rule answers it the same way. The ink beside it already carries the
+     quote; the edge does not need to be twice the app's one border weight
+     to say so. */
   .dash-note-editor .ProseMirror blockquote {
-    border-left: 2px solid var(--color-rule);
+    border-left: 1px solid var(--color-rule);
     padding-left: 0.8em;
     color: var(--color-ink-2);
     margin: 0.4em 0;

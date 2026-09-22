@@ -182,7 +182,11 @@
      reading all seven headers (Files' Hick's hotspot #2). The kit already
      reserves the sort slot at a fixed width, which is why the label no longer
      shifts sideways at the one moment you are looking straight at it. */
-  .ui-table[data-files-table] .ui-th[aria-sort] .ui-th-label { font-weight: 700; color: var(--color-ink); }
+  /* T3: 700 → 600, and it is a no-op on screen. Both faces are declared
+     `@font-face { font-weight: 400 600 }`, so a 700 clamps to 600 and has
+     always RENDERED as 600 — the declaration asked for a weight this app
+     does not have. §3.1 has two weights; this is now one of them. */
+  .ui-table[data-files-table] .ui-th[aria-sort] .ui-th-label { font-weight: 600; color: var(--color-ink); }
 
   /* ── The Finder columns ────────────────────────────────────────────────
      Same tokens as the table: same row height, same cell inset, same hover
