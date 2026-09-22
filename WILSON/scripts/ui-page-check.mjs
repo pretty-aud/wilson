@@ -29,7 +29,7 @@ const PAGES = ['/', '/dog', '/otter', '/rabbit', '/settings', '/project-manager'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 700 } });
+const ctx = await browser.newContext({ viewport: { width: Number(process.argv[3] || 1280), height: Number(process.argv[4] || 700) } });
 const page = await ctx.newPage();
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 110)); });
