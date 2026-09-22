@@ -28,7 +28,7 @@ import { reportAppEvent } from '../errorCodes'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 import { Button, SectionTitle } from '../../ui'
 import {
-  INK_LIGHT, ON_FILL, RADIUS_CONTROL, TYPE, ICON,
+  INK_LIGHT, ON_FILL, RADIUS_CONTROL, TYPE, LEADING, WEIGHT, ICON,
 } from '../../ui/tokens'
 
 async function listVerifiedTotp() {
@@ -498,8 +498,8 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
             <h2 style={{
               ...AUTH_TEXT_STYLE,
               fontSize: `${TYPE.h2}px`,
-              lineHeight: 1.3,
-              fontWeight: 600,
+              lineHeight: LEADING.h2,
+              fontWeight: WEIGHT.h2,
               margin: 0,
             }}>
               Secure your admin account

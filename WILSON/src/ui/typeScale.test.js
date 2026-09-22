@@ -77,7 +77,36 @@ const NAMED_TRACKING = /\btracking-(?:wide|wider|widest|tight|tighter)\b/g;
                         asks for 700 and clamps to 600, because the faces are
                         declared `font-weight: 400 600`. The pixels are right;
                         the source is not; the rule says leave it.) */
-const INLINE_WEIGHT = /fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/g;
+/* 🚨 REVIEW ROUND ONE. The first version demanded the weight IMMEDIATELY
+   after the colon — `/fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/` — so
+   every one of these was invisible:
+
+     fontWeight: cond ? 700 : 400
+     fontWeight: w ? 700 : undefined     ← LIVE, and uncounted, at
+                                           rabbit/components/ProjectFilesTable.jsx:101
+     fontWeight: hovered && 700
+     fontWeight: Number(700)
+
+   The stated population of 7 was therefore really 8, and T3's own hard
+   `toBe(1)` could have been regressed to a real 2 by writing a ternary. It
+   also saw only 500, 700 and bold, so `fontWeight: 800` and `fontWeight:
+   300` were guarded by NOTHING — `fontWeight` is deliberately outside the
+   value test above, on the grounds that "400 and 600 are the system's own
+   vocabulary", and that rule was being enforced for no value at all.
+
+   It captures the value now, strips comments the way the size test does, and
+   rejects any off-axis weight ANYWHERE in it. */
+const INLINE_WEIGHT = /['"]?fontWeight['"]?\s*:/g;
+const OFF_AXIS_WEIGHT = /\b(?:100|200|300|500|700|800|900|bold|bolder|lighter)\b/;
+/* Reads the value with the same scanner the size test uses, so a weight
+   inside parentheses or spread over two lines is judged the same way. */
+const isOffAxisWeight = (src, index) =>
+  OFF_AXIS_WEIGHT.test(stripInlineComments(inlineValueAt(src, index)));
+/** The control's spelling: judge a standalone `fontWeight: …` fragment. */
+const offAxisWeightIn = (fragment) => isOffAxisWeight(fragment, 0);
+/* 8, not 7: `ProjectFilesTable.jsx:101` became visible when the regex above
+   was fixed. 1 is T3's frozen transition title (the FLOOR) and 7 are T2's. */
+
 
 /* ── T1 and T3 MET IN THIS FILE, and T3's design won on the merge.
 
@@ -425,8 +454,19 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
     expect(fires(OFF_WEIGHT, 'a font-semibold b')).toBe(false);
     expect(fires(NAMED_TRACKING, 'a tracking-widest b')).toBe(true);
     expect(fires(NAMED_TRACKING, 'a tracking-[0.06em] b')).toBe(false);
-    expect(fires(INLINE_WEIGHT, "fontWeight: 'bold'")).toBe(true);
-    expect(fires(INLINE_WEIGHT, 'fontWeight: 600')).toBe(false);
+    expect(offAxisWeightIn("fontWeight: 'bold'")).toBe(true);
+    expect(offAxisWeightIn('fontWeight: 600')).toBe(false);
+    // 🚨 Round one: every one of these was invisible to the first version,
+    // which demanded the weight immediately after the colon. The second was
+    // LIVE in R.A.B.B.I.T. at the time.
+    expect(offAxisWeightIn('fontWeight: cond ? 700 : 400')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: w ? 700 : undefined')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: hovered && 700')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: Number(700)')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: 800')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: 300')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: 600 // was 700 before pass 2')).toBe(false);
+    expect(offAxisWeightIn('fontWeight: 700 // on the axis, honest')).toBe(true);
   });
 });
 
@@ -797,28 +837,201 @@ const IN_T3_SCOPE = (file) => !/(^|\/)tools\//.test(file);
    number of sites it claims. */
 const IN_ASSERTED_SCOPE = () => true;
 
-/* A value is ON THE SYSTEM when it reads a token, or when it is a CSS keyword
-   that RESETS rather than sets. A bare `0` is on the list because §3.1 gives
-   five of the seven steps zero tracking, so `letterSpacing: 0` states the
-   system's own default rather than inventing a number. */
-/* 🚨 THE KEYWORD ARM IS ANCHORED, and it was not. Unanchored, `\b(?:inherit|
-   initial|unset|revert|normal|none)\b` matched anywhere in the value
-   EXPRESSION, so any conditional whose TEST mentions one of the six words
-   exempted both of its arms:
-       fontSize: mode === 'normal' ? 14 : 16        <- both arms hidden
-       fontSize: icon === 'none' ? 12 : 18          <- both arms hidden
-       letterSpacing: kind === 'initial' ? '0.2em' : '0.1em'
-   A keyword that RESETS is the whole value or it is not a reset. Before T1
-   this covered T3's surfaces only; `IN_ASSERTED_SCOPE` extends it over D.O.G.
-   and O.T.T.E.R. too, which is why T1 is the one fixing it. */
-const ON_SYSTEM_VALUE = /(?:TYPE|LEADING|TRACKING|WEIGHT)\s*\.\s*[a-z0-9]+|\bTYPE_FLOOR\b|\bFONT_(?:MONO|SANS)\b|var\(--(?:text|font)-|\bAUTH_[A-Z_]+\b|^\s*['"]?(?:inherit|initial|unset|revert|normal|none)['"]?\s*$|^\s*0\s*$/;
+/* The seven steps, enumerated. 🚨 REVIEW ROUND ONE: the first draft accepted
+   `TYPE\.[a-z0-9]+`, so `TYPE.huge` — which is `undefined` at runtime — read
+   as on-system, and `var\(--(?:text|font)-` accepted `var(--text-xs)` (a
+   Tailwind step, not WILSON's) and `var(--font-size-i-invented)`. An
+   undefined custom property resolves to nothing and the element silently
+   inherits, which is a real defect that reads as compliance. The names are
+   listed now. `adminTerminalCss.test.js` had this right already, resolving
+   through its `STEP_PX` table; this file simply did not reuse the idea. */
+const STEP = 'h1|h2|h3|body|dense|caption|label';
+const SUB = 'line-height|letter-spacing|font-weight';
+const ON_SYSTEM_OPERAND = new RegExp(
+  '^(?:'
+  + `(?:TYPE|LEADING|TRACKING|WEIGHT)\\s*\\.\\s*(?:${STEP})`          // TYPE.dense
+  + '|TYPE_FLOOR'
+  + '|FONT_(?:MONO|SANS)'
+  + `|['"\`]?\\s*var\\(--text-(?:${STEP})(?:--(?:${SUB}))?\\)\\s*['"\`]?`
+  + '|[\'"`]?\\s*var\\(--font-(?:sans|mono)\\)\\s*[\'"`]?'
+  /* 🚨 AN `AUTH_*_STYLE` REFERENCE IS ACCEPTED ON ITS SHAPE, AND ONLY ITS
+     SHAPE — a composed STYLE OBJECT, whose own declarations this same sweep
+     reads where they are written in AuthShell.jsx, so accepting the
+     reference double-counts nothing and hides nothing.
+     Round one found that the first draft accepted `AUTH_[A-Z_]+` outright:
+     a name-shaped escape hatch, under which a future `const AUTH_H2 =
+     '17px'` would have passed on its prefix. A SCALAR `AUTH_*` constant is
+     not accepted here; it is resolved against its own declaration by
+     `operandOnSystem` below. */
+  + '|AUTH_[A-Z_]*STYLE(?:\\s*\\.\\s*\\w+)?'                            // AUTH_INPUT_STYLE.fontSize
+  + '|[\'"`]?(?:inherit|initial|unset|revert|normal|none)[\'"`]?'       // resets, not values
+  + '|[\'"`]?0(?:px|em|rem)?[\'"`]?'                                    // §3.1: five steps track at zero
+  + '|undefined|null'                                                   // "do not set this" is not a value
+  + ')$',
+);
 
-/* The three declarations that can carry a hard-coded type value. `fontWeight`
-   is NOT among them: it has its own ratchet above, and 400/600 written as
-   numerals is the system's own vocabulary rather than a magic number. */
-const INLINE_SIZE = /fontSize\s*:\s*([^,;\n}]+)/g;
-const INLINE_FAMILY = /fontFamily\s*:\s*([^,;\n}]+)/g;
-const INLINE_TRACKING = /letterSpacing\s*:\s*([^,;\n}]+)/g;
+/* 🚨 REVIEW ROUND ONE, THE TWO THAT MATTERED MOST. The first draft was a
+   CONTAINS test over the whole captured value, and a reviewer defeated it two
+   ways, both proved end to end:
+
+     fontSize: big ? TYPE.h1 : 9      ← ONE on-system operand launders the other
+     fontSize: '9px' // AUTH sets it  ← the COMMENT satisfies the regex
+
+   The second is the dangerous one, because this repo's house style is dense
+   explanatory comments and it lets a future session neutralise the assertion
+   WITHOUT EDITING THE GUARD. Both are closed here: comments are stripped
+   first, then the value is split into operands and EVERY operand must be on
+   the system. A ternary's CONDITION is not a value, so it is dropped — `size
+   >= 40` is a threshold, exactly as `adminTerminalCss.test.js` reasons about
+   the same expression. */
+function stripInlineComments(v) {
+  return v.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/g, ' ').trim();
+}
+function isOnSystem(rawValue) {
+  const v = stripInlineComments(rawValue);
+  if (!v) return false;
+  const operands = ternaryArms(v).map((s) => s.trim()).filter(Boolean);
+  if (!operands.length) return false;
+  return operands.every(operandOnSystem);
+}
+
+/* The VALUES a ternary can produce, with the CONDITIONS dropped — a condition
+   is a test, not a size (`size >= 40` is a threshold, which is how
+   `adminTerminalCss.test.js` reasons about the very same expression).
+   Recursive, because `a ? b : c ? d : e` yields b, d and e, and a flat
+   `split('?')` then `split(':')` leaves `c` in the list as though it were a
+   value. Scans for the TOP-LEVEL `?` so a `?` inside a string or a nested
+   call is not mistaken for one. */
+function topLevelIndex(s, chars, from = 0) {
+  let depth = 0; let quote = null;
+  for (let i = from; i < s.length; i++) {
+    const c = s[i];
+    if (quote) {
+      if (c === '\\') { i++; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
+    if ('([{'.includes(c)) { depth++; continue; }
+    if (')]}'.includes(c)) { depth--; continue; }
+    if (depth === 0 && chars.includes(c)) return i;
+  }
+  return -1;
+}
+function ternaryArms(v) {
+  const q = topLevelIndex(v, '?');
+  if (q < 0) return [v];
+  // The `:` that pairs with THIS `?`, skipping any nested ternary between.
+  let depth = 0; let colon = -1;
+  for (let i = q + 1; i < v.length; i++) {
+    const j = topLevelIndex(v, '?:', i);
+    if (j < 0) break;
+    if (v[j] === '?') { depth++; i = j; continue; }
+    if (depth === 0) { colon = j; break; }
+    depth--; i = j;
+  }
+  if (colon < 0) return [v.slice(q + 1)];
+  return [...ternaryArms(v.slice(q + 1, colon)), ...ternaryArms(v.slice(colon + 1))];
+}
+/* A template literal is the app's usual spelling — `` `${TYPE.h1}px` `` —
+   because the tokens are numbers and CSS wants units. It is on the system
+   when EVERY interpolation is, and when the literal text between them is
+   nothing but a unit. Without this arm the anchored operand test would
+   reject the most common correct form in the codebase. */
+/* A scalar constant is judged on its VALUE, by reading the declaration it
+   comes from. That is what closes round one's name-shaped hole: a reference
+   is only as on-system as the thing it refers to. Scoped to the auth field
+   kit, which is the one place this app declares shared type scalars. */
+const AUTH_SHELL = 'src/cloud/auth/AuthShell.jsx';
+function resolveAuthScalar(name) {
+  const entry = tree().find((t) => t.file === AUTH_SHELL);
+  if (!entry) return null;
+  const m = entry.src.match(new RegExp(`(?:export\\s+)?const\\s+${name}\\s*=\\s*([^\\n]+)`));
+  return m ? m[1].replace(/[,;]\s*$/, '').trim() : null;
+}
+
+function operandOnSystem(o) {
+  const scalar = o.match(/^(AUTH_[A-Z_]+)$/);
+  if (scalar && !/STYLE$/.test(scalar[1])) {
+    const value = resolveAuthScalar(scalar[1]);
+    // Unresolvable is NOT a pass: an operand nobody can read is a defect this
+    // scan cannot clear, which is the direction T0's trap 4 says to fail in.
+    return value !== null && isOnSystem(value);
+  }
+  if (!/^`[\s\S]*`$/.test(o)) return ON_SYSTEM_OPERAND.test(o);
+  const inner = o.slice(1, -1);
+  const exprs = [...inner.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1].trim());
+  if (!exprs.length) return false;
+  const literal = inner.replace(/\$\{[^}]*\}/g, '').trim();
+  if (literal && !/^(?:px|em|rem|%|\s)*$/.test(literal)) return false;
+  return exprs.every((e) => isOnSystem(e));
+}
+
+/* The three declarations that can carry a hard-coded type value. These find
+   the SITE; `inlineValueAt` below reads the value.
+   🚨 The key may be QUOTED — `{ 'fontSize': '9px' }` is valid JS and the
+   first draft's regexes saw nothing at all (round one, finding 10). */
+const INLINE_SIZE = /['"]?fontSize['"]?\s*:/g;
+const INLINE_FAMILY = /['"]?fontFamily['"]?\s*:/g;
+const INLINE_TRACKING = /['"]?letterSpacing['"]?\s*:/g;
+/* 🚨 ROUND ONE, FINDING 6. The commit that introduced `LEADING` justified it
+   with "every inline site that wanted the H1 step restated 1.2 from memory"
+   — and then converted three objects in `AuthShell.jsx` and left three more,
+   in the same file, in the same commit, each sitting directly under a
+   converted `fontSize: ${TYPE.caption}px`. A new token with no assertion
+   behind it only moves the drift somewhere quieter. */
+const INLINE_LEADING = /['"]?lineHeight['"]?\s*:/g;
+const INLINE_WEIGHT_KEY = /['"]?fontWeight['"]?\s*:/g;
+
+/* 🚨 A VALUE IS NOT `[^,;\n}]+`, AND THE ROUND-ONE FIX IS WHAT PROVED IT.
+   That character class stops at the first `}` — which in this codebase is
+   usually the one closing `${TYPE.h2}`, the single most common correct
+   spelling in the app. It reported sixteen perfectly good sites as defects
+   the moment the value test got strict enough to notice a truncated value.
+   It also truncated `fontFamily: 'Geist, sans-serif'` at the comma.
+
+   So the value is SCANNED, not matched: forward from the colon, tracking
+   quotes, template interpolations and bracket depth, stopping at a `,` `;`
+   `}` or newline that is genuinely at the top level. An evidence window is a
+   parser you did not write (T0 §5 trap 7) — so this one is written. */
+function inlineValueAt(src, index) {
+  let i = src.indexOf(':', index);
+  if (i < 0) return '';
+  i += 1;
+  const start = i;
+  let depth = 0;                 // ( ) [ ] { } at the current nesting level
+  const stack = [];              // 'sq' | 'dq' | 'tpl' | 'expr'
+  const top = () => stack[stack.length - 1];
+  for (; i < src.length; i++) {
+    const c = src[i];
+    const t = top();
+    if (t === 'sq' || t === 'dq') {
+      if (c === '\\') { i++; continue; }
+      if ((t === 'sq' && c === "'") || (t === 'dq' && c === '"')) stack.pop();
+      continue;                  // a comma or brace inside a string is text
+    }
+    if (t === 'tpl') {
+      if (c === '\\') { i++; continue; }
+      if (c === '`') { stack.pop(); continue; }
+      // `${` opens a real expression — quotes and braces count again inside it.
+      if (c === '$' && src[i + 1] === '{') { stack.push('expr'); i++; }
+      continue;
+    }
+    if (c === "'") { stack.push('sq'); continue; }
+    if (c === '"') { stack.push('dq'); continue; }
+    if (c === '`') { stack.push('tpl'); continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; continue; }
+    if (c === '}') {
+      if (t === 'expr' && depth === 0) { stack.pop(); continue; }
+      if (depth === 0) break;    // the brace closing the style object
+      depth--; continue;
+    }
+    if (c === ')' || c === ']') { if (depth === 0) break; depth--; continue; }
+    if (!stack.length && depth === 0 && (c === ',' || c === ';' || c === '\n')) break;
+  }
+  return src.slice(start, i).trim();
+}
+
 /* The fifth spelling. It has no value test because there are only two answers
    and one of them — `uppercase` — is the Label step's own, so what matters is
    whether the declaration exists at all in a lane that has landed. */
@@ -859,36 +1072,64 @@ const INLINE_TYPE_EXCEPTIONS = [
   },
   {
     file: 'src/cloud/auth/AuthShell.jsx',
+    // The declaration itself, two lines above the use. The prose that
+    // explains it sits 23 lines up, which is outside the ±400 window — a
+    // marker has to be NEAR the site, and "near" is measured, not assumed.
+    marker: 'const AUTH_CODE_TRACK =',
+    sites: 1,
+    why: "the one-time-code field's tracking. FUNCTIONAL, not decorative — it "
+      + 'spaces the digits so they can be read back off a phone — so it is '
+      + 'not one of §3.1\'s two tracked steps and does not belong in @theme. '
+      + 'T0 left the operator console\'s copy for the same reason. It is '
+      + 'named HERE rather than passing on its `AUTH_` prefix, because round '
+      + 'one showed the prefix was a name-shaped escape hatch under which a '
+      + "future `const AUTH_H2 = '17px'` would also have passed",
+  },
+  {
+    file: 'src/cloud/auth/AuthShell.jsx',
+    marker: 'metrics pin 1.2 and the two must agree',
+    sites: 1,
+    why: "AUTH_INPUT_STYLE's `lineHeight: '1.2'` — explicitly NOT the Body "
+      + "step's 1.5, because AuthPasswordInput's mask pins 1.2 and the two "
+      + 'layers must agree. Leaving it unset resolved to 1.5 and the plain '
+      + "fields came out 36.17px tall against the password field's 31.06px",
+  },
+  {
+    file: 'src/cloud/auth/AuthShell.jsx',
     marker: 'const metrics = {',
     sites: 1,
     why: "AuthPasswordInput's mask tracking — load-bearing for caret "
       + 'alignment, proved at 0.00px by scripts/ui-caret-check.mjs, and not a '
       + 'scale value (§3.1 tracks two steps and this is neither of them)',
   },
-  /* 🚨 T1 ADDED A THIRD ENTRY HERE AND A REVIEWER DELETED IT, RIGHTLY.
-     `Otter.jsx`'s Monaco editor takes `fontSize` as a NUMBER, so T1
-     allowlisted a hard-coded 14 on the grounds that "a token string would
-     break the editor". True of a string, and beside the point: `tokens.js`
-     builds `TYPE` with `Number(THEME['text-body'].replace('px',''))`, so
-     `TYPE.body` IS the number 14 and `ON_SYSTEM_VALUE` already accepts it.
-     The entry bought nothing and cost a permanent 800-character exempt window
-     in the largest file in T1's lane. `Otter.jsx` now reads `TYPE.body` and
-     the exemption is gone — which also makes T1's lane an HONEST empty-scope
-     assertion rather than one whose only member was excused. The best fix is
-     the one that deletes machinery. */
+  /* 🚨 T1's `Otter.jsx` entry was REMOVED here, and removing it is the
+     finding. It exempted Monaco's editor options, where `fontSize` is a
+     NUMBER on a third-party API — a real exception when it was written. T1
+     then converted the site to `fontSize: TYPE.body` in the same bundle and
+     left the exemption behind, so it had nothing to exempt: a name on an
+     allowlist that no longer describes anything, which is how an allowlist
+     rots into a list of files nobody re-checks. The control below is what
+     caught it — it asserts every entry still has a site to cover, not just
+     that the file exists. If Monaco ever needs a raw number again, add the
+     entry back WITH the number. */
 ];
 
 /** Inline type declarations whose VALUE is hard-coded. `applyExceptions` is a
  *  parameter so a control can run the same sweep with them off — proving the
  *  allowlist does work, rather than sitting beside an already-clean scan. */
-function hardCodedInline(re, applyExceptions = true, inScope = IN_ASSERTED_SCOPE) {
-  return sweep(re, ({ file, src, index, token }) => {
+/* 🚨 `exceptions` is a LIST, not a boolean, and round one is why. The control
+   below used to compute `raw.length - kept.length` with the whole allowlist
+   applied, which is the FILE's total rather than the entry's — so the moment
+   a second entry landed in `AuthShell.jsx` both entries were measured against
+   the same number and both failed, blaming the wrong marker. Passing one
+   entry at a time makes the count mean what its comment says. */
+function hardCodedInline(re, exceptions = INLINE_TYPE_EXCEPTIONS, inScope = IN_ASSERTED_SCOPE) {
+  return sweep(re, ({ file, src, index }) => {
     if (!inScope(file)) return false;
-    const value = token.slice(token.indexOf(':') + 1).trim();
-    if (ON_SYSTEM_VALUE.test(value)) return false;
-    if (!applyExceptions) return true;
+    if (isOnSystem(inlineValueAt(src, index))) return false;
+    if (!exceptions.length) return true;
     const window = src.slice(Math.max(0, index - EXEMPT_WINDOW), index + EXEMPT_WINDOW);
-    return !INLINE_TYPE_EXCEPTIONS.some((x) => x.file === file && window.includes(x.marker));
+    return !exceptions.some((x) => x.file === file && window.includes(x.marker));
   });
 }
 
@@ -985,47 +1226,93 @@ describe('the inline half: every type value reads a token (T3)', () => {
 
   it('CONTROL: the value test accepts tokens and rejects literals', () => {
     for (const v of ['`${TYPE.h1}px`', 'TYPE.dense', "'var(--text-label)'",
-      'FONT_MONO', 'AUTH_INPUT_STYLE.fontSize', 'AUTH_CODE_TRACK',
+      'FONT_MONO', 'AUTH_INPUT_STYLE.fontSize', 'AUTH_TEXT_STYLE',
       'size >= 40 ? TYPE.h2 : TYPE.label', "'inherit'", '0']) {
-      expect(ON_SYSTEM_VALUE.test(v), `${v} should be on-system`).toBe(true);
+      expect(isOnSystem(v), `${v} should be on-system`).toBe(true);
     }
     for (const v of ["'16px'", "'0.15em'", "'monospace'", '13', "'16.8px'",
       "'ui-monospace, SFMono-Regular, Menlo, monospace'"]) {
-      expect(ON_SYSTEM_VALUE.test(v), `${v} should read as a literal`).toBe(false);
+      expect(isOnSystem(v), `${v} should read as a literal`).toBe(false);
+    }
+  });
+
+  it('CONTROL: one on-system operand cannot launder a hard-coded one', () => {
+    // The whole value used to be a CONTAINS test, so the token in one arm
+    // vouched for the number in the other.
+    expect(isOnSystem('big ? TYPE.h1 : 9')).toBe(false);
+    expect(isOnSystem("big ? TYPE.h1 : '9px'")).toBe(false);
+    expect(isOnSystem('selected ? 600 : 400')).toBe(false);   // weights are not sizes
+    expect(isOnSystem('a ? TYPE.h1 : b ? TYPE.h2 : 11')).toBe(false);
+  });
+
+  it('CONTROL: a trailing comment cannot vouch for the value', () => {
+    // The most dangerous of the three: this repo's house style is dense
+    // explanatory comments, so it let a future session neutralise the
+    // assertion WITHOUT EDITING THE GUARD.
+    expect(isOnSystem("'9px' /* none of the steps fit here */")).toBe(false);
+    expect(isOnSystem("'9px' // AUTH_INPUT_STYLE sets the rest")).toBe(false);
+    expect(isOnSystem("'0.15em' // normal for a wordmark")).toBe(false);
+    // …and a comment must not break a value that IS on the system.
+    expect(isOnSystem('TYPE.dense // the table row step')).toBe(true);
+  });
+
+  it('CONTROL: a scalar AUTH_ constant is judged on its value, not its name', () => {
+    // Round one: `AUTH_[A-Z_]+` accepted any identifier with the prefix.
+    // A composed STYLE object is still accepted on shape — its own
+    // declarations are swept where they are written — but a scalar is
+    // resolved, so `AUTH_CODE_TRACK` ('0.35em') now needs a named exemption
+    // and a hypothetical `AUTH_H2 = '17px'` could never get one by accident.
+    expect(isOnSystem('AUTH_TEXT_STYLE')).toBe(true);
+    expect(isOnSystem('AUTH_INPUT_STYLE.fontSize')).toBe(true);
+    expect(isOnSystem('AUTH_CODE_TRACK')).toBe(false);
+    expect(isOnSystem('AUTH_NOT_DECLARED_ANYWHERE')).toBe(false);
+  });
+
+  it('CONTROL: a token name that does not exist is not a token', () => {
+    // `TYPE.huge` is `undefined` at runtime; `var(--text-xs)` is Tailwind's
+    // step, not this app's; an undefined custom property silently inherits.
+    expect(isOnSystem('TYPE.huge')).toBe(false);
+    expect(isOnSystem("'var(--text-xs)'")).toBe(false);
+    expect(isOnSystem("'var(--font-size-i-invented)'")).toBe(false);
+    expect(isOnSystem('PROTOTYPE.dense')).toBe(false);   // no left boundary, round one #11
+    for (const step of ['h1', 'h2', 'h3', 'body', 'dense', 'caption', 'label']) {
+      expect(isOnSystem(`TYPE.${step}`), step).toBe(true);
     }
   });
 
   it('CONTROL: each exception is the site it names, and swallows only it', () => {
-    const ALL = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING];
+    const ALL = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_LEADING];
     for (const x of INLINE_TYPE_EXCEPTIONS) {
       const entry = tree().find((t) => t.file === x.file);
       expect(entry, `${x.file} is allowlisted but not in scope`).toBeTruthy();
       expect(entry.src.includes(x.marker), `${x.file} no longer contains "${x.marker}"`).toBe(true);
 
-      // Without the allowlist the site IS reported…
-      const raw = ALL.flatMap((re) => hardCodedInline(re, false))
+      // With NO allowlist at all, the file's sites are reported…
+      const raw = ALL.flatMap((re) => hardCodedInline(re, []))
         .filter((hit) => hit.startsWith(`${x.file}:`));
       expect(raw.length, `${x.file} is allowlisted but has nothing to exempt`).toBeGreaterThan(0);
 
-      // …with it applied the site is gone…
-      const kept = ALL.flatMap((re) => hardCodedInline(re, true))
+      // …with THIS ENTRY ALONE applied, exactly `sites` of them go away. One
+      // entry at a time, because the difference is otherwise the FILE's total
+      // and two entries in one file would each be measured against it (round
+      // one, finding 12 — and it fired the moment a second entry landed).
+      const mine = ALL.flatMap((re) => hardCodedInline(re, [x]))
         .filter((hit) => hit.startsWith(`${x.file}:`));
-      expect(kept, `${x.file}'s exemption is not firing:\n${kept.join('\n')}`).toEqual([]);
-
-      // …and it covered EXACTLY the number of sites it claims.
-      expect(raw.length - kept.length,
-        `${x.file}: "${x.marker}" exempts ${raw.length - kept.length} sites, not ${x.sites}`)
+      expect(raw.length - mine.length,
+        `${x.file}: "${x.marker}" exempts ${raw.length - mine.length} sites, not ${x.sites}`)
         .toBe(x.sites);
+
+      // …and with the WHOLE allowlist the file is clean, so no exempted site
+      // is quietly still being reported by a different regex.
+      const kept = ALL.flatMap((re) => hardCodedInline(re))
+        .filter((hit) => hit.startsWith(`${x.file}:`));
+      expect(kept, `${x.file} still reports sites after every exemption:\n${kept.join('\n')}`).toEqual([]);
     }
   });
 
-  /* T3 asserted this over its own surfaces and left the rest ratcheting at 7,
-     because T2 still held six. T2 landed with none, so the scope predicate is
-     gone and the claim is app-wide: exactly one inline weight in `src/**`, and
-     it is the one the plan freezes. A number that may not rise is a much
-     weaker claim than a list that must be empty. */
   it('no inline weight off the 400/600 axis, except the frozen title', () => {
     const hits = sweep(INLINE_WEIGHT, ({ file, src, index }) => {
+      if (!isOffAxisWeight(src, index)) return false;
       const window = src.slice(Math.max(0, index - EXEMPT_WINDOW), index + EXEMPT_WINDOW);
       return !INLINE_TYPE_EXCEPTIONS.some((x) => x.file === file && window.includes(x.marker));
     });
@@ -1035,7 +1322,7 @@ describe('the inline half: every type value reads a token (T3)', () => {
   it('CONTROL: the frozen title is still there, and is still the only one', () => {
     // If C2's block were ever edited away this assertion would go quiet and
     // read as success, so the site is pinned positively as well as negatively.
-    const inScope = sweep(INLINE_WEIGHT);
+    const inScope = sweep(INLINE_WEIGHT, ({ src, index }) => isOffAxisWeight(src, index));
     expect(inScope.length, `inline weights, app-wide:\n${inScope.join('\n')}`).toBe(1);
     expect(inScope[0]).toMatch(/^src[/\\]App\.jsx:/);
     const app = tree().find((t) => t.file === 'src/App.jsx').src;
@@ -1131,7 +1418,7 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // resources.css carried the last one — a sorted column header at 700,
     // which the faces (declared `font-weight: 400 600`) were clamping to 600
     // anyway, so the declaration asked for a weight this app does not have.
-    const row = cssRow('font-weight 500/700/bold');
+    const row = cssRow('font-weight off the 400/600 axis');
     const where = row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`))
       .filter(PAGE_SHEETS);
     expect(where, `page stylesheets off the weight axis:\n${where.join('\n')}`).toEqual([]);
@@ -1178,25 +1465,39 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(rule[0]).toMatch(/border-left:\s*1px solid var\(--color-rule\)/);
   });
 
-  /* App.jsx's close dialog is not a kit component — it is inline styles — so
-     its primary button's hover is a JS handler rather than a `:hover` rule.
-     The VALUE is copied from the kit rather than approximated, and there is no
-     `signal-fill-hover` token to point at because the kit derives it instead
-     of declaring it. A copied value drifts unless something watches, so this
-     is the something: the two strings must be identical, character for
-     character. If the kit ever changes its primary hover, this goes red and
-     names the dialog as the other place that has to move. */
-  it('the close dialog\'s primary hover is the kit\'s own expression', () => {
-    const css = readFileSync('src/index.css', 'utf8');
-    const kit = css.match(/\[data-variant="primary"\]:hover[^{]*\{[^}]*?background-color:\s*([^;]+);/);
-    expect(kit, 'the kit no longer has a primary :hover background').toBeTruthy();
+  /* 🚨 THE QUIT DIALOG, WHICH IS THE LAST HAND-ROLLED SURFACE IN THE SHELL
+     AND THE ONE ROUND ONE CAUGHT HALF-CONVERTED.
+
+     Its first pass copied the kit's primary-hover `color-mix` into a JS
+     handler and guarded the copy. Round one's answer was better: take the
+     whole object. Both controls are `<Button>` now, so the hover is a `:hover`
+     RULE and there is no copy left to drift — which also settles the
+     state-extraction step §5 requires and round one called a violation.
+
+     What is pinned here is the property that made all of that true: NO
+     INLINE STYLE, NO HEX AND NO HOVER HANDLER inside the dialog. An inline
+     style beats a hover rule (§1, and it is the reason the state extraction
+     exists at all), so a future session re-adding one would silently
+     re-create the dead hover this commit deleted. */
+  it('the quit dialog carries no hex, no hover handler and no inline control style', () => {
     const app = tree().find((t) => t.file === 'src/App.jsx').src;
-    const mine = app.match(/const BTN_PRIMARY_HOVER = '([^']+)'/);
-    expect(mine, 'App.jsx no longer declares BTN_PRIMARY_HOVER').toBeTruthy();
-    expect(mine[1]).toBe(kit[1].trim());
-    // …and it is a derived expression, not a fourth orange written as a hex (C8).
-    expect(mine[1]).toMatch(/^color-mix\(/);
-    expect(mine[1]).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    const open = app.indexOf('{showCloseDialog && (');
+    expect(open, 'the quit dialog is gone').toBeGreaterThan(-1);
+    // To its closing brace — the next line that is exactly six spaces + `)}`.
+    const close = app.indexOf('\n      )}', open);
+    expect(close).toBeGreaterThan(open);
+    // Comments are where this file explains itself, and they quote the hexes
+    // they replaced; the CODE is what is under test.
+    const code = app.slice(open, close)
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    expect(code.match(/#[0-9a-fA-F]{3,8}\b/g), 'a hex is back in the quit dialog').toBeNull();
+    expect(code).not.toMatch(/onMouse(?:Enter|Leave)/);
+    expect(code).not.toMatch(/currentTarget\.style/);
+    // …and the two controls are the kit's, which is what puts the hover in CSS.
+    expect(code).toMatch(/<Button\s+variant="secondary"/);
+    expect(code).toMatch(/<Button\s+variant="primary"/);
+    expect(code).not.toMatch(/<button/);
   });
 
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {

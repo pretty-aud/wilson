@@ -586,7 +586,7 @@ const SELECTOR_HOME = {
 // `<h1 …>O.T.T.E.R.</h1>` (old App.jsx:1873) and the page title was
 // `<h1>{pageLabel}</h1>` with `pageLabel = PAGE_TITLES[currentPage]` (old
 // App.jsx:1910). F2 deleted BOTH. App.jsx now has exactly one heading of its
-// own — the quit dialog's `<h2 …>Close WILSON</h2>` (App.jsx:2276-2284) — and
+// own — the quit dialog's `<h2 …>Close WILSON</h2>` — and
 // every page title, wordmark included, travels the same three-link path:
 //
 //   1. DECLARED   src/layout/pages.js   { id: 'otter', title: 'O.T.T.E.R.' }
