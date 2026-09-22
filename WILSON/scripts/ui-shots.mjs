@@ -4,7 +4,9 @@
  *
  *   node scripts/ui-shots.mjs <before|after> [port] [outDir]
  *
- * Writes `docs/sessions/handoffs/img/t0-<phase>-<page>-<W>x<H>.png`.
+ * Writes `docs/sessions/handoffs/img/<prefix>-<phase>-<page>-<W>x<H>.png`.
+ * The prefix and the page set come from UI_SHOTS_PREFIX / UI_SHOTS_PAGES
+ * (see below); both default to exactly what T0 shipped.
  *
  * WHY A SCRIPT AND NOT THE BROWSER PANE. Twelve shots per phase is twelve
  * images into a session's context for no reading benefit — the shots are for
@@ -29,7 +31,7 @@ import { join } from 'node:path';
 
 const phase = process.argv[2];
 if (!['before', 'after'].includes(phase)) {
-  console.error('usage: node scripts/ui-shots.mjs <before|after> [port] [outDir]');
+  console.error('usage: [UI_SHOTS_PREFIX=x] [UI_SHOTS_PAGES=a,b] node scripts/ui-shots.mjs <before|after> [port] [outDir]');
   process.exit(1);
 }
 const PORT = process.argv[3] || '5241';
@@ -58,6 +60,13 @@ const ALL_PAGES = [
   { key: 'otter', path: '/otter' },
   { key: 'files', path: '/project-files', drive: driveToFiles },
   { key: 'rabbit-timeline', path: '/rabbit', drive: driveToTimeline },
+  /* T1: the lesson READING surface, which is not `/otter`. `/otter` is the
+     course library; `.lesson-content` does not exist in the DOM until a
+     course AND a subject have been clicked, which is why every check in this
+     repo reported "0 off-scale" over a pane carrying h1 at 24px. If the
+     empty course library is what you screenshot, you have photographed the
+     wrong thing — T0 trap 16 on a third surface. */
+  { key: 'otter-lesson', path: '/otter', drive: driveToLesson },
   /* T2's surfaces. Three of the four files in its bundle draw here; the
      fourth, `ProjectFilesTable`, is drawn by BOTH `rabbit-intake` and
      `files`, which is why it belongs to B4 and not to a lane. */
@@ -145,6 +154,33 @@ async function driveToFiles(page) {
     return true;
   });
   await sleep(4000);
+}
+
+/**
+ * Open a course, then a subject, which opens its first lesson — and only
+ * then is `.lesson-content` in the DOM.
+ *
+ * `clickByText` above searches `<button>` only, and O.T.T.E.R.'s subject card
+ * puts its title in a heading inside the clickable, so this one widens the
+ * search and clicks the nearest clickable ancestor. Verified by measuring the
+ * rendered surface afterwards rather than by trusting the click: the drive
+ * reports what it found so a silent miss cannot be read as a passing shot.
+ */
+async function driveToLesson(page) {
+  const clickWide = (text) => page.evaluate((text) => {
+    const all = [...document.querySelectorAll('button, [role="button"], h1, h2, h3, h4')];
+    const hit = all.find((e) => (e.textContent || '').trim() === text);
+    if (!hit) return false;
+    (hit.closest('button, [role="button"]') || hit).click();
+    return true;
+  }, text);
+
+  const course = await clickWide('DaVinci Resolve 19');
+  await sleep(3500);
+  const subject = await clickWide('Project setup and media');
+  await sleep(4000);
+  const open = await page.evaluate(() => !!document.querySelector('.lesson-content'));
+  if (!open) console.log(`    (drive: course=${course} subject=${subject} lesson-content=${open} — SHOT IS NOT THE READING SURFACE)`);
 }
 
 async function driveToTimeline(page) {
