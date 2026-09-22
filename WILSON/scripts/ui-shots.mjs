@@ -69,6 +69,15 @@ const ALL_PAGES = [
      where the same `fontSize: w ? 12 : 10` ternary takes its other arm. A shot
      of the dark one alone would have proved half of that file. */
   { key: 'projects', path: '/project-manager', drive: driveToProject },
+  /* T3's surfaces. All three are plain URLs — the light pages and the two
+     data pages whose stylesheets this bundle swept. `help` is here because it
+     is the third light page (§3.2 names Home, Settings and Help as the light
+     class) and nothing had ever shot it; `dashboard` and `admin-terminal`
+     because their page stylesheets are two of the five that no tool had read
+     until this bundle. */
+  { key: 'help', path: '/help' },
+  { key: 'dashboard', path: '/dashboard' },
+  { key: 'admin-terminal', path: '/admin-terminal' },
 ];
 
 const DEFAULT_KEYS = ['home', 'settings', 'dog', 'otter', 'files', 'rabbit-timeline'];
