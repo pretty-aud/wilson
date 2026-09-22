@@ -35,6 +35,7 @@ import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
 import { classifyMono } from '../../scripts/ui-mono-map.mjs';
 import { isIndicatorBorder } from '../../scripts/ui-pass4-surface.mjs';
 import { enclosingRunRaw, enclosingTag } from '../../scripts/ui-type-inventory.mjs';
+import { coverage, inlineClassEvidence } from '../../scripts/ui-inline-type.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
    on a string from the site: the reason names ONE site, and a bare path
@@ -64,11 +65,70 @@ const SCALE_STEP = /(?<![-\w])text-(?:h1|h2|h3|body|dense|caption|label)\b/g;
 const OFF_WEIGHT = /\bfont-(?:(?:bold|medium|black|extrabold|light|thin|extralight)\b|\[\d+\])/g;
 const NAMED_TRACKING = /\btracking-(?:wide|wider|widest|tight|tighter)\b/g;
 
-/* Inline weights are T1–T3's residue by plan, so this RATCHETS rather than
-   bans: the number may fall, never rise. Four of the eleven are in App.jsx and
-   one of those is the page-transition title, which C2 freezes. */
+/* Inline weights WERE T1–T3's residue by plan, and this ratcheted at 11 rather
+   than banning. T2 (2026-09-22) took the count to ONE, so the ratchet becomes
+   an assertion with a single keyed exemption: what is left is the page
+   transition's own `fontWeight: 'bold'`, which C2 and Q18 freeze — same
+   timings, same easing, same 16.8px and 0.3em, only the family follows
+   `--font-sans`.
+   🚨 Keyed on the file AND a marker from the SITE, never on the path alone.
+   Round two's finding on this file's own bare-label allowlist was exactly
+   that: keyed on the file, it let a fresh unrelated regression through. */
 const INLINE_WEIGHT = /fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/g;
-const INLINE_WEIGHT_RESIDUE = 11;
+const FROZEN_INLINE_WEIGHT = {
+  file: 'src/App.jsx',
+  marker: '16.8px',
+  why: 'the page-transition title — C2 and Q18 freeze it whole (plan §3.4)',
+};
+
+/* ── The inline half of the scale (T1–T3, plan §5 Wave 1) ───────────────────
+
+   A declaration inside a `style={{ … }}` BEATS every class, so an inline size
+   is not a smaller version of an off-scale class — it is the one spelling the
+   class-based guard above cannot see at all. These five are the whole
+   vocabulary; `scripts/ui-inline-type.mjs` classifies each site by asking T0's
+   map, and this block holds the scope to the answer. */
+const INLINE_FAMILY = /fontFamily\s*:/g;
+const INLINE_SIZE = /fontSize\s*:/g;
+const INLINE_TRACKING = /letterSpacing\s*:/g;
+const INLINE_CASE = /textTransform\s*:/g;
+
+/* 🚨 `fontSize: 10` AND `fontSize: '10px'` AND `fontSize: 9.5`, and NOT
+   `fontSize: 100`, and NOT `fontSize: '0.9em'`.
+   Two lookaheads, and each one was earned:
+     (?![\d.])      without it `fontSize: 110` matches as an "11" and a real
+                    below-floor site hides behind a lookalike. This is the
+                    boundary trap once more — the shape that made T0's first
+                    inventory report 706 sites instead of 2,584 — except `\b`
+                    would not help here, because `10` and `100` share one.
+     (?![a-z%])     a RELATIVE size is not a px value. The first draft flagged
+                    Otter's `fontSize: '0.9em'` on a `<code>` element, which is
+                    90 percent of whatever it inherits — 11.7px inside Dense —
+                    and is a different question entirely. An assertion about
+                    the 11px FLOOR that fires on an em is an assertion nobody
+                    can act on. */
+const BELOW_FLOOR = /fontSize\s*:\s*['"]?(?:10|\d)(?:\.\d+)?(?![\d.])(?:px)?['"]?(?![a-z%])/g;
+
+/* R.A.B.B.I.T. is T2's lane and it is DONE, so its scope is a hard `[]`
+   rather than a ratchet: 105 declarations in four files, none left. The rest
+   of the app ratchets until T1 lands. */
+const RABBIT_SCOPE = /^src\/tools\/rabbit_v0\.1\.0\//;
+
+/* Today's counts, app-wide, measured at this commit. They may FALL and never
+   rise. Every one of the survivors is T1's `DuplicateResolverModal` or a
+   token-reference spelling T3 chose (`fontSize: TYPE.dense`,
+   `fontSize: 'var(--text-dense)'`), which reads FROM the scale rather than
+   around it — the audit's grep cannot tell those apart, so the number is what
+   is pinned and the reading is in the hand-off. */
+const INLINE_RESIDUE = {
+  fontFamily: 6,
+  fontSize: 37,
+  letterSpacing: 8,
+  textTransform: 5,
+};
+/* One site, `DuplicateResolverModal.jsx`'s `fontSize: '10px'`, which is T1's
+   bundle and not yet landed. §3.1's floor is 11 and there is no step under it. */
+const BELOW_FLOOR_RESIDUE = 1;
 
 /** Any side, any width above the hairline, and arbitrary values too. */
 const OFF_BORDER = /\bborder(?:-[tblrxyse]{1,2})?-(?:[2-9]\b|\[[^\]]*\])/g;
@@ -237,13 +297,27 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
     expect(hits, `weights off the 400/600 axis:\n${hits.join('\n')}`).toEqual([]);
   });
 
-  it('the inline-weight residue does not grow while T1–T3 work it down', () => {
+  it('has no inline weight left but the frozen transition title', () => {
     // The first draft of the assertion above made a claim about WEIGHT and
     // checked only class names, so `fontWeight: 'bold'` sat four times in
-    // App.jsx underneath it.
-    const inline = sweep(INLINE_WEIGHT);
-    expect(inline.length, `inline weights:\n${inline.join('\n')}`)
-      .toBeLessThanOrEqual(INLINE_WEIGHT_RESIDUE);
+    // App.jsx underneath it. It then RATCHETED at 11 while T1–T3 worked it
+    // down; T2 took it to one, so it is an assertion now.
+    const hits = sweep(INLINE_WEIGHT, ({ file, near }) => !(
+      file === FROZEN_INLINE_WEIGHT.file && near.includes(FROZEN_INLINE_WEIGHT.marker)
+    ));
+    expect(hits, `inline weights off the 400/600 axis:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: the frozen-title exemption both exists and is the only one', () => {
+    // Two halves, because an exemption that never fires and an exemption that
+    // fires everywhere fail in opposite directions and one assertion cannot
+    // tell them apart. Round two split this file's bare-label control for the
+    // same reason.
+    const all = sweep(INLINE_WEIGHT);
+    expect(all.length, 'the exempted site must still BE there').toBe(1);
+    expect(all[0]).toMatch(/^src\/App\.jsx:/);
+    const src = tree().find((t) => t.file === FROZEN_INLINE_WEIGHT.file).src;
+    expect(src, 'the marker the exemption is keyed on').toContain(FROZEN_INLINE_WEIGHT.marker);
   });
 
   it('has no named tracking except on a label that kept its capitals', () => {
@@ -263,6 +337,103 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
     expect(fires(NAMED_TRACKING, 'a tracking-[0.06em] b')).toBe(false);
     expect(fires(INLINE_WEIGHT, "fontWeight: 'bold'")).toBe(true);
     expect(fires(INLINE_WEIGHT, 'fontWeight: 600')).toBe(false);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE INLINE HALF (T2, 2026-09-22 — plan §5 Wave 1, the T1/T2/T3 residue)
+
+   Everything above this line reads CLASS names. An inline declaration beats
+   every class, so until now the guard could watch 2,584 converted class sites
+   and miss a `style={{ fontSize: 9 }}` sitting on top of one of them — which
+   is not hypothetical: `ProjectFilesTable` set its column headers to 9px and
+   its cells to 10px from two consts, on four surfaces, under class names that
+   said nothing.
+   ═══════════════════════════════════════════════════════════════════════ */
+describe('the inline half — a style object is a type decision too', () => {
+  it('R.A.B.B.I.T. declares no type in a style object', () => {
+    // T2's lane, and it is finished: 105 declarations across IntakePrepare
+    // (84), ProjectFilesTable (11), TimelineView (7) and TeamView (3). A hard
+    // [] rather than a ratchet, because a lane that is done can regress.
+    const hits = [];
+    for (const re of [INLINE_FAMILY, INLINE_SIZE, INLINE_WEIGHT, INLINE_TRACKING, INLINE_CASE]) {
+      hits.push(...sweep(re, ({ file }) => RABBIT_SCOPE.test(file)));
+    }
+    expect(hits, `R.A.B.B.I.T. inline type:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('the app-wide inline residue only falls', () => {
+    // T1's bundle is still out, so the rest of the app ratchets. Each number
+    // is today's measurement; a lane that clears its share lowers it.
+    for (const [prop, re] of [
+      ['fontFamily', INLINE_FAMILY], ['fontSize', INLINE_SIZE],
+      ['letterSpacing', INLINE_TRACKING], ['textTransform', INLINE_CASE],
+    ]) {
+      const hits = sweep(re);
+      expect(hits.length, `inline ${prop}:\n${hits.join('\n')}`)
+        .toBeLessThanOrEqual(INLINE_RESIDUE[prop]);
+    }
+  });
+
+  it('no inline size sits below the 11px floor', () => {
+    // §3.1's floor is 11 and there is no step under it. One site is left and
+    // it is T1's, unlanded — so this ratchets at exactly that one.
+    const hits = sweep(BELOW_FLOOR);
+    expect(hits.length, `inline sizes below the 11px floor:\n${hits.join('\n')}`)
+      .toBeLessThanOrEqual(BELOW_FLOOR_RESIDUE);
+  });
+
+  it('🚨 the inventory sees every declaration the audit grep sees', () => {
+    // THE CONTROL THAT FOUND THE REAL BUG. `ui-inline-type.mjs`'s first draft
+    // matched braces quote-aware but comment-BLIND, so the apostrophe in
+    // App.jsx's "This overlay's own background is" opened a string it never
+    // closed and the whole page-transition style object came back as -1.
+    // Four declarations vanished silently, in the safe-looking direction, and
+    // the smaller number looked entirely plausible.
+    //
+    // So the inventory is not trusted to report its own completeness: this
+    // compares it, per file, against the audit's independent grep. The one
+    // exemption is declared in `NOT_A_STYLE` and keyed on a marker.
+    const bad = coverage().filter((c) => !c.ok)
+      .map((c) => `${c.file}: grep ${c.raw}, inventory ${c.seen} (+${c.exempt} exempt)`);
+    expect(bad, `files the inventory cannot fully see:\n${bad.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: every inline detector fires, and on the right spelling', () => {
+    expect(fires(INLINE_FAMILY, "fontFamily: 'monospace'")).toBe(true);
+    expect(fires(INLINE_FAMILY, 'font-mono')).toBe(false);
+    expect(fires(INLINE_SIZE, 'fontSize: 13')).toBe(true);
+    expect(fires(INLINE_SIZE, 'text-dense')).toBe(false);
+    expect(fires(INLINE_TRACKING, "letterSpacing: '0.06em'")).toBe(true);
+    expect(fires(INLINE_CASE, "textTransform: 'uppercase'")).toBe(true);
+
+    // 🚨 The below-floor detector is the one with a boundary to get wrong.
+    for (const s of ['fontSize: 9', "fontSize: '10px'", 'fontSize: 10.5', 'fontSize: 8']) {
+      expect(fires(BELOW_FLOOR, s), s).toBe(true);
+    }
+    for (const s of ['fontSize: 11', "fontSize: '13px'", 'fontSize: 100', 'fontSize: 20',
+      "fontSize: '0.9em'", "fontSize: '95%'", 'fontSize: 1.2rem']) {
+      expect(fires(BELOW_FLOOR, s), s).toBe(false);
+    }
+
+    // And the scope regex, which decides which assertion a file falls under.
+    expect(RABBIT_SCOPE.test('src/tools/rabbit_v0.1.0/views/TeamView.jsx')).toBe(true);
+    expect(RABBIT_SCOPE.test('src/tools/otter_v0.3.1/Otter.jsx')).toBe(false);
+  });
+
+  it('CONTROL: the map reads the inline spelling of its own evidence', () => {
+    // Without this translation `classifySite` is blind on this surface: it
+    // looks for `uppercase` and `font-semibold` in a CLASS run, and
+    // R.A.B.B.I.T. writes both in a style object. Nine sites on IntakePrepare
+    // alone classify one step wrong without it.
+    expect(inlineClassEvidence({ textTransform: ["'uppercase'"] })).toContain('uppercase');
+    expect(inlineClassEvidence({ fontWeight: ['600'] })).toContain('font-semibold');
+    expect(inlineClassEvidence({ fontWeight: ["'bold'"] })).toContain('font-semibold');
+    // 500 is a mood, not a decision — T0's rule, kept.
+    expect(inlineClassEvidence({ fontWeight: ['500'] })).toBe('');
+    // And a conditional arm is not evidence about every branch (T0 trap 6).
+    expect(inlineClassEvidence({ fontWeight: ['on ? 600 : 400'] })).toBe('');
+    expect(inlineClassEvidence({ textTransform: ["w ? 'uppercase' : 'none'"] })).toBe('');
   });
 });
 
