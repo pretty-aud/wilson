@@ -676,6 +676,27 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(rule[0]).toMatch(/border-left:\s*1px solid var\(--color-rule\)/);
   });
 
+  /* App.jsx's close dialog is not a kit component — it is inline styles — so
+     its primary button's hover is a JS handler rather than a `:hover` rule.
+     The VALUE is copied from the kit rather than approximated, and there is no
+     `signal-fill-hover` token to point at because the kit derives it instead
+     of declaring it. A copied value drifts unless something watches, so this
+     is the something: the two strings must be identical, character for
+     character. If the kit ever changes its primary hover, this goes red and
+     names the dialog as the other place that has to move. */
+  it('the close dialog\'s primary hover is the kit\'s own expression', () => {
+    const css = readFileSync('src/index.css', 'utf8');
+    const kit = css.match(/\[data-variant="primary"\]:hover[^{]*\{[^}]*?background-color:\s*([^;]+);/);
+    expect(kit, 'the kit no longer has a primary :hover background').toBeTruthy();
+    const app = tree().find((t) => t.file === 'src/App.jsx').src;
+    const mine = app.match(/const BTN_PRIMARY_HOVER = '([^']+)'/);
+    expect(mine, 'App.jsx no longer declares BTN_PRIMARY_HOVER').toBeTruthy();
+    expect(mine[1]).toBe(kit[1].trim());
+    // …and it is a derived expression, not a fourth orange written as a hex (C8).
+    expect(mine[1]).toMatch(/^color-mix\(/);
+    expect(mine[1]).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+  });
+
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
     // Every assertion above is an empty-list check, and an empty list is what
     // a scan that opened nothing also returns. These are the denominators.
