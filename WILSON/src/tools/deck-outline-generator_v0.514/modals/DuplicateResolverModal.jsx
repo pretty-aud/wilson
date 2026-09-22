@@ -90,8 +90,8 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
       >
         <div className="bg-stone-700 px-3 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
           <div>
-            <h3 className="font-semibold text-orange-400 uppercase tracking-wide" style={{ fontSize: '16px' }}>Resolve Duplicate</h3>
-            <p style={{ fontSize: '14px' }} className="text-stone-400">
+            <h3 className="text-h2 text-orange-400">Resolve Duplicate</h3>
+            <p className="text-body text-stone-400">
               Page #{pageNum} • {currentIndex + 1}/{duplicates.length} conflicts
             </p>
           </div>
@@ -114,24 +114,24 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className={`font-semibold ${selectedId === item.id ? 'text-orange-400' : 'text-stone-400'}`} style={{ fontSize: '13px' }}>
+                <span className={`text-dense font-semibold ${selectedId === item.id ? 'text-orange-400' : 'text-stone-400'}`}>
                   Option {idx + 1} • {item.layout}
                 </span>
                 {hoveredId === item.id && !showPreview && (
-                  <span style={{ fontSize: '12px' }} className="text-stone-500">Hold...</span>
+                  <span className="text-caption text-stone-500">Hold...</span>
                 )}
               </div>
               
               <div className="flex-1 bg-stone-950 p-2 rounded-control border border-stone-700 overflow-hidden flex flex-col">
                 {/* Title styled like visualizer */}
-                <p className={`font-semibold truncate ${selectedId === item.id ? 'text-orange-300' : 'text-orange-400/70'}`} style={{ fontSize: '14px' }}>
+                <p className={`text-h3 truncate ${selectedId === item.id ? 'text-orange-300' : 'text-orange-400/70'}`}>
                   {item.title}
                 </p>
                 {/* Subtitle styled like visualizer */}
                 {(() => {
                   const parsed = parseSlideContent(item.output);
                   return parsed.subtitle && (
-                    <p className="truncate mb-1" style={{ fontSize: '11px', color: selectedId === item.id ? '#a8a29e' : '#78716c' }}>
+                    <p className="text-dense truncate mb-1" style={{ color: selectedId === item.id ? '#a8a29e' : '#78716c' }}>
                       {parsed.subtitle}
                     </p>
                   );
@@ -139,7 +139,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
                 {/* Copy content preview */}
                 <div className="mt-1 pt-1 border-t border-stone-800">
                   {extractCopyContent(item.output).split('\n').slice(0, 2).map((line, i) => (
-                    <p key={i} className="truncate leading-tight" style={{ fontSize: '10px', color: selectedId === item.id ? '#a8a29e' : '#57534e' }}>
+                    <p key={i} className="text-dense truncate leading-tight" style={{ color: selectedId === item.id ? '#a8a29e' : '#57534e' }}>
                       • {line.replace(/:/g, '')}
                     </p>
                   ))}
@@ -149,7 +149,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               {selectedId === item.id && (
                 <div className="mt-1 flex items-center gap-1 text-orange-400 flex-shrink-0">
                   <Check className="w-4 h-4" />
-                  <span style={{ fontSize: '13px' }}>Selected</span>
+                  <span className="text-dense">Selected</span>
                 </div>
               )}
             </button>
@@ -159,16 +159,14 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
         <div className="px-3 py-2 border-t border-stone-600 flex items-center justify-end gap-2 flex-shrink-0">
           <button
             onClick={onExportAll}
-            className="px-4 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-control text-stone-300 transition-colors"
-            style={{ fontSize: '13px' }}
+            className="px-4 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-control text-stone-300 transition-colors text-body"
           >
             Export All
           </button>
           <button
             onClick={handleConfirm}
             disabled={!selectedId}
-            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control text-white disabled:text-stone-400 font-semibold transition-colors"
-            style={{ fontSize: '13px' }}
+            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control text-white disabled:text-stone-400 font-semibold transition-colors text-body"
           >
             Continue
           </button>

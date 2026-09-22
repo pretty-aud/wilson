@@ -929,6 +929,39 @@ export function AuthField({ label, children }) {
 // 31.06px, which is the defect the explicit line-height fixed; they are equal
 // now and stay equal because both layers read the same two keys.)
 //
+// ── T3, 2026-09-22: re-measured, and the measurement is a script now ───────
+// Plan §5 asks T3 to re-prove this and plan §8 risk 8 says why ("depends on
+// font metrics"). Every number above still holds, at BOTH window sizes:
+//
+//   node scripts/ui-caret-check.mjs 5244 1440 900     ✓ 0.00px on every axis
+//   node scripts/ui-caret-check.mjs 5244 1280 700     ✓ 0.00px on every axis
+//
+// It exits non-zero when any axis moves, so the claim above stops being a
+// number someone has to trust and becomes one anyone can reproduce.
+//
+// 🚨 AND THE ROW HEIGHT IS ONLY COMPARABLE AT A STATED DEVICE PIXEL RATIO.
+// The 27.80px above is DPR 1, where the 1px bottom border is 1 CSS px
+// (16.8 + 4 + 6 + 1). Measured in a browser pane at DPR 1.5 the same border
+// snaps to one DEVICE pixel — 0.667 CSS px — and the row reads 27.46. That
+// is a difference in the BORDER's rasterisation, not a drift between the
+// layers: every other number still measures 0.00 there. A session that
+// compares 27.46 against this comment and concludes the row moved will be
+// chasing nothing. The script prints the DPR and the border width for
+// exactly that reason.
+//
+// The three ways it was proved able to fail, each caught by a DIFFERENT one
+// of its three independent checks — which is the argument for keeping all
+// three rather than the one that looks most direct:
+//
+//   the mask's family swapped to the sans   25 bullets − 25 asterisks
+//     (the load-bearing monospace)          = −27.65px, while the eight
+//                                           metrics still AGREED and both
+//                                           boxes still matched exactly
+//   only the mask's tracking moved          −3.50px, and the metrics check
+//     (0.18em → 0.19em)                     named `letterSpacing` too
+//   the wrapper's width back to `22ch`      field-width parity broke, while
+//     (the pre-D2 shape, AUTH-22)           the glyphs and metrics stayed clean
+//
 // If any of those numbers is not 0.00 the mask and the caret have separated,
 // and the failure mode is a person who cannot tell how much of their password
 // they typed — on the gate every admin passes at every sign-in.

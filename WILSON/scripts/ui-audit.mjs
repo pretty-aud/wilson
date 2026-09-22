@@ -182,7 +182,39 @@ export const CSS_PATTERNS = [
   /* §3.3: ONE 1px hairline. A width of 2px or more is either an indicator
      (§3.2's "a 2px selected-row edge") or a defect, and this row cannot tell
      them apart — it reports the population and a human judges it, exactly as
-     T0's pass 4 judged the 102 class-based side borders and left 38. */
+     T0's pass 4 judged the 102 class-based side borders and left 38.
+     Flattening all of them would erase every active-tab underline in the app.
+
+     🚨 ALL EIGHTEEN REMAINING HITS WERE JUDGED BY HAND BY T3 (2026-09-22)
+     AND EVERY ONE IS DELIBERATE. Written down here so the next session does
+     not re-litigate a list that has already been walked:
+
+       index.css     1349  the Spinner's ring (a 2px ring is a spinner)
+                     1703  the Tabs underline — the kit contract is literally
+                           "one 2px signal underline", and its own comment
+                           cites C6 for why the edge is transparent, not a fill
+                     1269  the Toast / Banner tone edge
+                2227–2254  `.lesson-content` and `.companion-chat-md` — T1's
+                           by plan §5 and the pet's by C5, not swept here
+       settings.css   109  the Settings tab underline (same contract)
+                429/448  a semantic left edge on the danger button and the
+                         status block
+              458/777/819/825  🚨 THE LIGHT SURFACE HAS NO STATUS COLOUR.
+                           §3.2 draws none on `#f4a261` — success measures
+                           1.18:1, danger 1.09, warning 1.04 — so D1 carried
+                           ok / warning / error on WIDTH, WEIGHT and LINE
+                           STYLE instead, measured and documented at the
+                           rules: 2px solid at 400, 4px dashed at 600, 4px
+                           solid at 600. Flattening these does not tidy a
+                           border, it DELETES the difference between a
+                           warning and an error on the Settings page.
+       dashboard.css  443  the selected note row's 2px edge — §3.2 verbatim
+       adminTerminal  700  the decide panel's signal edge, same job
+
+     The one that was NOT an indicator — dashboard.css's ProseMirror
+     blockquote, a neutral colour with no conditional and no state — is the
+     hairline now. That is the whole yield of this row, and it is the right
+     yield. */
   ['border >= 2px', /\bborder(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-width)?\s*:\s*[^;{}]*?\b(?:[2-9]|[1-9]\d+)px/g],
   /* §3.3: two radii, 3px and 6px, both behind tokens. `0` is not a radius and
      `9999px` / `50%` are §6's `rounded-full`, which the plan's deletion list
