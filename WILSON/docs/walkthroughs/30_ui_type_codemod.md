@@ -93,27 +93,36 @@ round progress tracks were left alone.
 
 ---
 
-## Four questions the passes could not settle
+## One thing I decided, and four questions still open
 
-**1. The small-capitals section headings, and this is the one I would most like
-you to look at.** 77 headings across D.O.G., O.T.T.E.R., R.A.B.B.I.T. and the
-help pages were set at 13 or 14px in bold spaced capitals — things like OVERVIEW,
-BASIC WORKFLOW, KEY FEATURES. The design system calls that shape an "eyebrow" and
-gives it the 11px label size, so that is where they went: same capitals, same
-spacing, two sizes smaller. They still read as section markers, but on the help
-pages they are now noticeably smaller than the text underneath them.
+**The section headings became sentence case, and I want to tell you why I made
+that call rather than asking.** Across D.O.G., O.T.T.E.R., R.A.B.B.I.T. and the
+help pages, 54 section headings were written at 14px in bold spaced capitals —
+OVERVIEW, BASIC WORKFLOW, KEY FEATURES. The design system calls that shape an
+"eyebrow" and gives it the 11px label size, so the first run put them there. Two
+reviewers independently caught what that did: it left the headings **smaller
+than the paragraphs underneath them**. D.O.G.'s help pane had fifteen headings
+at 11px sitting above forty-seven sub-headings at 13px, and the operator
+console's only page title was 11px over a 13px paragraph. That is not a style
+preference, it is a hierarchy that reads as broken.
 
-The alternative is to make them ordinary sentence-case headings at 14 or 16px —
-"Overview", "Basic workflow" — which would look more like Notion and less like a
-control panel. That is a real choice about character and it is yours, not mine.
-Look at D.O.G.'s help panel and the O.T.T.E.R. course pages and tell me which you
-want; either is a one-line change to the map and a re-run.
+So a heading is now a heading: 14px, semibold, sentence case — "Overview",
+"Basic workflow". You can see it on O.T.T.E.R.'s library page, where the
+category marker that read SOFTWARE now reads "Software". It looks more like
+Notion and less like a control panel, which is the direction you asked for, but
+it is a real change of character and if you want the capitals back it is one
+line in the map and a re-run.
 
-**2. Checkbox and field labels still shout.** On D.O.G. you will see THEME
-GENERATOR, USE UPLOADED ASSETS, USE PROJECT ASSETS beside their checkboxes. Those
-are field labels, which the system does put in small capitals — so this is
-correct by the rules — but three of them in a row next to each other is the
-loudest thing left on that screen. Same question as above, narrower.
+**1. Checkbox and field labels still shout.** On D.O.G. you will see THEME
+GENERATOR, USE UPLOADED ASSETS, USE PROJECT ASSETS beside their checkboxes.
+Those are field labels, which the system does put in small capitals — correct by
+the rules — but three in a row is the loudest thing left on that screen. Same
+question as the headings, narrower, and this one I did not decide.
+
+**2. Some names are still shouted.** O.T.T.E.R.'s sidebar shows a course called
+DAVINCI RESOLVE in capitals. That span was already uppercase before this work,
+and the rule keeps a label's capitals — but a course name is arguably not a
+label. Tell me if you want names exempted and I will hand the lanes a list.
 
 **3. Email addresses.** A person's email in the team list is now in the normal
 font, not the typewriter one. I judged an address to be closer to a name than to
