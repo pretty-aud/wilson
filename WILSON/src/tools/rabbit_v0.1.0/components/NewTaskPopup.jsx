@@ -93,14 +93,14 @@ export default function NewTaskPopup({
   }
 
   const labelCls = 'text-label uppercase mb-1 block'
-  const fieldCls = 'w-full px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500'
+  const fieldCls = 'w-full px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500'
   const fieldStyle = { backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }
 
   return (
     <>
       <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
       <div
-        className="fixed z-50 top-1/2 left-1/2 w-full max-w-lg rounded overflow-hidden flex flex-col"
+        className="fixed z-50 top-1/2 left-1/2 w-full max-w-lg rounded-control overflow-hidden flex flex-col"
         style={{
           backgroundColor: '#292524',
           border: '2px solid #f97316',
@@ -220,7 +220,7 @@ export default function NewTaskPopup({
             every earlier failure look like an inert button. */}
         {error && (
           <div
-            className="mx-5 mb-3 px-3 py-2 text-dense rounded"
+            className="mx-5 mb-3 px-3 py-2 text-dense rounded-control"
             style={{ color: '#fecaca', backgroundColor: 'rgba(153,27,27,0.25)', border: '1px solid #991b1b' }}
           >
             {error}
@@ -234,13 +234,13 @@ export default function NewTaskPopup({
           </span>
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose}
-              className="px-4 py-1.5 text-dense rounded transition-colors"
+              className="px-4 py-1.5 text-dense rounded-control transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               Cancel
             </button>
             <button type="button" onClick={handleConfirm}
               disabled={!draft.title.trim() || creating}
-              className="px-4 py-1.5 text-dense font-semibold rounded transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               {creating ? 'Creating...' : 'Confirm & Create'}
             </button>

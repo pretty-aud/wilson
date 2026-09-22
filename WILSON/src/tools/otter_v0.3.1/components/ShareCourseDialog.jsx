@@ -316,7 +316,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="bg-stone-800 border-2 border-stone-600 rounded-sm w-[520px] max-h-[80vh] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]"
+        className="bg-stone-800 border border-stone-600 rounded-control w-[520px] max-h-[80vh] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]"
         onClick={e => e.stopPropagation()}
       >
         {/* header */}
@@ -328,14 +328,14 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
             <h3 className="text-orange-400 font-semibold text-label uppercase truncate">Share or submit</h3>
             <p className="text-stone-400 text-dense truncate">{course?.name}</p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-sm shrink-0" aria-label="Close">
+          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control shrink-0" aria-label="Close">
             <X className="w-4 h-4 text-stone-400" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* ── who can see this ── */}
-          <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
+          <section className="bg-stone-900 border border-stone-700 rounded-control p-3">
             <h4 className="text-label font-semibold text-orange-400 uppercase mb-2">
               Who can see this
             </h4>
@@ -361,7 +361,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       disabled={busy === 'visibility'}
                       onClick={() => chooseVisibility(tier)}
-                      className={`w-full text-left p-2 rounded-sm border-2 transition-colors disabled:opacity-60 ${
+                      className={`w-full text-left p-2 rounded-control border transition-colors disabled:opacity-60 ${
                         active
                           ? 'bg-orange-600/15 border-orange-500'
                           : 'bg-stone-950 border-stone-700 hover:border-stone-500'
@@ -413,7 +413,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
           </section>
 
           {/* ── who can edit it ── */}
-          <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
+          <section className="bg-stone-900 border border-stone-700 rounded-control p-3">
             <h4 className="text-label font-semibold text-orange-400 uppercase mb-1">
               Who can edit it
             </h4>
@@ -435,7 +435,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     {editors.map(ed => (
                       <li
                         key={ed.user_id}
-                        className="flex items-center gap-2 bg-stone-950 border border-stone-700 rounded-sm px-2 py-1"
+                        className="flex items-center gap-2 bg-stone-950 border border-stone-700 rounded-control px-2 py-1"
                       >
                         <span className="text-stone-300 text-dense truncate flex-1">
                           {ed.label}
@@ -465,7 +465,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       value={pick}
                       onChange={e => setPick(e.target.value)}
                       disabled={!!busy || candidates.length === 0}
-                      className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-2 py-1 text-dense focus:border-orange-500 disabled:opacity-50"
+                      className="flex-1 bg-stone-950 text-white border border-stone-600 rounded-control px-2 py-1 text-dense focus:border-orange-500 disabled:opacity-50"
                     >
                       <option value="">
                         {candidates.length === 0 ? 'Everyone already has access' : 'Choose someone…'}
@@ -480,7 +480,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       onClick={addEditor}
                       disabled={!pick || !!busy}
-                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-dense font-semibold flex items-center gap-1 disabled:opacity-50"
+                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 transition-colors text-dense font-semibold flex items-center gap-1 disabled:opacity-50"
                     >
                       {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
                       Add
@@ -510,7 +510,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
               nomination in every approver's queue, pointing at a course that
               already IS the standard, with no reachable control to clear it. */}
           {(current !== 'company_standard' || !!nom) && course?.is_own !== false && (
-            <section className="bg-stone-900 border border-stone-700 rounded-sm p-3">
+            <section className="bg-stone-900 border border-stone-700 rounded-control p-3">
               <h4 className="text-label font-semibold text-orange-400 uppercase mb-1 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 Put it forward as the company standard
@@ -523,7 +523,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
               ) : nom ? (
                 <>
                   {nom.status === 'changes_requested' ? (
-                    <div className="bg-stone-950 border border-orange-700/60 rounded-sm p-2.5 mb-2">
+                    <div className="bg-stone-950 border border-orange-700/60 rounded-control p-2.5 mb-2">
                       <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {nom.reviewer_label ?? 'A reviewer'} asked for changes
@@ -565,7 +565,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     type="button"
                     onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
                     disabled={nomBusy}
-                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Undo2 className="w-3 h-3" />}
                     Withdraw
@@ -580,7 +580,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     onChange={e => setPitch(e.target.value)}
                     disabled={nomBusy}
                     placeholder="Why should this be the company's official course on this topic?"
-                    className="w-full h-20 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600 disabled:opacity-60"
+                    className="w-full h-20 bg-stone-950 text-white border border-stone-600 rounded-control p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600 disabled:opacity-60"
                   />
                   <div className="flex justify-between items-center mt-1 mb-2">
                     <span className="text-stone-600 text-caption">
@@ -597,7 +597,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         type="button"
                         onClick={() => settleNomination('rejected', 'Closed. You can put it forward again later.')}
                         disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Check className="w-3 h-3" /> Accept the decision
                       </button>
@@ -607,7 +607,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                         type="button"
                         onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
                         disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Undo2 className="w-3 h-3" /> Withdraw
                       </button>
@@ -617,7 +617,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       type="button"
                       onClick={nom ? resubmitNomination : submitNomination}
                       disabled={nomBusy || !pitch.trim() || pitch.length > 4000}
-                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                       {nom
@@ -629,7 +629,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
               )}
 
               {nomDone && !error && (
-                <div className="mt-2 bg-green-900/25 border-2 border-green-800 rounded-sm p-2 flex items-center gap-2">
+                <div className="mt-2 bg-green-900/25 border border-green-800 rounded-control p-2 flex items-center gap-2">
                   <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
                   <p className="text-green-300 text-dense">{nomDone}</p>
                 </div>
@@ -638,13 +638,13 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
           )}
 
           {error && (
-            <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
+            <div className="bg-red-900/30 border border-red-700 rounded-control p-2.5 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
               <p className="text-red-300 text-dense">{error}</p>
             </div>
           )}
           {notice && !error && (
-            <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-center gap-2">
+            <div className="bg-green-900/25 border border-green-800 rounded-control p-2.5 flex items-center gap-2">
               <Check className="w-4 h-4 text-green-400 shrink-0" />
               <p className="text-green-300 text-dense">{notice}</p>
             </div>
@@ -661,13 +661,13 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
             <div className="flex gap-2">
               <button
                 onClick={() => setConfirmDrop(null)}
-                className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-1.5 rounded-sm hover:bg-stone-600 text-dense font-semibold"
+                className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-1.5 rounded-control hover:bg-stone-600 text-dense font-semibold"
               >
                 Keep it
               </button>
               <button
                 onClick={() => setVisibility(confirmDrop)}
-                className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-1.5 rounded-sm hover:bg-orange-700 text-dense font-semibold"
+                className="flex-1 bg-orange-600 text-white border border-orange-700 py-1.5 rounded-control hover:bg-orange-700 text-dense font-semibold"
               >
                 Remove standard
               </button>

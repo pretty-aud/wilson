@@ -122,7 +122,7 @@ export function SidebarCollapseButton({ onCollapse, label = 'Hide sidebar' }) {
         title={`${label} (${SHORTCUT_HINT})`}
         aria-label={label}
         aria-expanded="true"
-        className="p-1 rounded-sm text-stone-500 hover:text-orange-400 hover:bg-stone-700 transition-colors"
+        className="p-1 rounded-control text-stone-500 hover:text-orange-400 hover:bg-stone-700 transition-colors"
       >
         <ChevronsLeft className="w-3.5 h-3.5" />
       </button>

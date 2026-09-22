@@ -154,7 +154,7 @@ export default function AuditSection({ isActive }) {
           <select
             value={action}
             onChange={(e) => { setAction(e.target.value); reload(e.target.value) }}
-            className="px-2 py-1.5 text-dense font-semibold rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense font-semibold rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
           >
             {ACTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
@@ -162,7 +162,7 @@ export default function AuditSection({ isActive }) {
           <button
             onClick={() => reload(action)}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -171,17 +171,17 @@ export default function AuditSection({ isActive }) {
       </div>
 
       {missing && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
           platform_audit is not deployed in this environment yet (migration 0028).
         </p>
       )}
       {error && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
           {error}
         </p>
       )}
 
-      <div className="overflow-auto rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1' }}>
+      <div className="overflow-auto rounded-control wilson-light-scroll" style={{ border: '1px solid #d6d3d1' }}>
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr style={{ backgroundColor: '#e7e5e4' }}>
@@ -241,7 +241,7 @@ export default function AuditSection({ isActive }) {
                     <div className="text-dense" style={{ color: '#1c1917' }}>{r.message}</div>
                     {open && r.context && Object.keys(r.context).length > 0 && (
                       <pre
-                        className="mt-1 text-dense font-mono p-2 rounded-sm whitespace-pre-wrap break-all"
+                        className="mt-1 text-dense font-mono p-2 rounded-control whitespace-pre-wrap break-all"
                         style={{ backgroundColor: 'rgba(120,70,30,0.10)', color: '#57534e' }}
                       >{JSON.stringify(r.context, null, 2)}</pre>
                     )}

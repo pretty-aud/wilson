@@ -111,7 +111,7 @@ export default function RelationsPanel({
       <div className="p-3 flex flex-col gap-1">
 
         {/* ── Related Assets ── */}
-        <div className="rounded" style={{ border: '1px solid #292524' }}>
+        <div className="rounded-control" style={{ border: '1px solid #292524' }}>
           <button type="button"
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
             onClick={() => setCollapsedAssets(!collapsedAssets)}
@@ -125,7 +125,7 @@ export default function RelationsPanel({
             </span>
             <button type="button"
               onClick={e => { e.stopPropagation(); setShowAssetPicker(true) }}
-              className="ml-auto p-0.5 rounded hover:bg-stone-700 transition-colors"
+              className="ml-auto p-0.5 rounded-control hover:bg-stone-700 transition-colors"
               style={{ color: '#78716c' }}
               title="Add asset relation">
               <Plus className="w-3 h-3" />
@@ -144,19 +144,19 @@ export default function RelationsPanel({
                 <div className="flex flex-col gap-0.5">
                   {relatedAssets.map(a => (
                     <div key={a.id}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors group/rel cursor-pointer"
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel cursor-pointer"
                       onClick={() => onOpenAsset?.(a.id)}>
                       <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(a.status) }} />
                       <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                         {a.name || 'Untitled'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
+                      <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
                         style={{ color: statusColor(a.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(a.status)}30` }}>
                         {fmt(a.status || 'not_started')}
                       </span>
                       <button type="button"
                         onClick={e => { e.stopPropagation(); removeAssetRelation(a.id) }}
-                        className="p-0.5 rounded hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
+                        className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
                         style={{ color: '#ef4444' }}
                         title="Remove relation">
                         <X className="w-2.5 h-2.5" />
@@ -170,7 +170,7 @@ export default function RelationsPanel({
         </div>
 
         {/* ── Related Tasks ── */}
-        <div className="rounded" style={{ border: '1px solid #292524' }}>
+        <div className="rounded-control" style={{ border: '1px solid #292524' }}>
           <button type="button"
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
             onClick={() => setCollapsedTasks(!collapsedTasks)}
@@ -185,7 +185,7 @@ export default function RelationsPanel({
             {onCreateTask && (
               <button type="button"
                 onClick={e => { e.stopPropagation(); onCreateTask() }}
-                className="ml-auto p-0.5 rounded hover:bg-stone-700 transition-colors"
+                className="ml-auto p-0.5 rounded-control hover:bg-stone-700 transition-colors"
                 style={{ color: '#78716c' }}
                 title="Add new task">
                 <Plus className="w-3 h-3" />
@@ -207,7 +207,7 @@ export default function RelationsPanel({
                     const linkedAsset = t.asset_id ? assets.find(a => a.id === t.asset_id) : null
                     return (
                       <div key={t.id}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors cursor-pointer"
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors cursor-pointer"
                         onClick={() => onOpenTask?.(t.id)}>
                         <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(t.status) }} />
                         <div className="flex-1 min-w-0">
@@ -220,7 +220,7 @@ export default function RelationsPanel({
                             </span>
                           )}
                         </div>
-                        <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
+                        <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
                           style={{ color: statusColor(t.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(t.status)}30` }}>
                           {fmt(t.status || 'waiting_to_start')}
                         </span>
@@ -278,14 +278,14 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
         </span>
         <div className="flex-1" />
         <button type="button" onClick={onClose}
-          className="p-0.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}>
+          className="p-0.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}>
           <X className="w-3 h-3" />
         </button>
       </div>
 
       {/* Search */}
       <div className="px-3 py-2" style={{ borderBottom: '1px solid #292524' }}>
-        <div className="flex items-center rounded" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+        <div className="flex items-center rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search assets…"
@@ -305,7 +305,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
           filtered.map(a => (
             <button key={a.id} type="button"
               onClick={() => onPick(a.id)}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors text-left">
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors text-left">
               <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(a.status) }} />
               <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                 {a.name || 'Untitled'}
@@ -395,7 +395,7 @@ export function NewTaskSidePopup({
     : shots
 
   return (
-    <div className="flex flex-col h-full overflow-hidden rounded-sm"
+    <div className="flex flex-col h-full overflow-hidden rounded-control"
       style={{ width: 400, backgroundColor: '#292524', border: '2px solid #f97316', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
@@ -403,7 +403,7 @@ export function NewTaskSidePopup({
           <ListChecks className="w-4 h-4" style={{ color: '#fbbf24' }} />
           <span className="text-dense font-semibold" style={{ color: '#fbbf24' }}>New Task</span>
         </div>
-        <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+        <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -415,7 +415,7 @@ export function NewTaskSidePopup({
           <SideLabel>Title *</SideLabel>
           <input type="text" value={draft.title} onChange={e => upd({ title: e.target.value })}
             placeholder="Task title…" autoFocus
-            className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+            className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
         </div>
 
@@ -424,7 +424,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Status</SideLabel>
             <select value={draft.status} onChange={e => upd({ status: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
               {TASK_STATUSES_LIST.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -432,7 +432,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Priority</SideLabel>
             <select value={draft.priority} onChange={e => upd({ priority: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {PRIORITIES_LIST.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
             </select>
@@ -444,7 +444,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Asset</SideLabel>
             <select value={draft.asset_id || ''} onChange={e => upd({ asset_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -453,7 +453,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Phase</SideLabel>
             <select value={draft.phase_id || ''} onChange={e => upd({ phase_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -467,7 +467,7 @@ export function NewTaskSidePopup({
             <div>
               <SideLabel>Scene</SideLabel>
               <select value={draft.scene_id || ''} onChange={e => upd({ scene_id: e.target.value || null, shot_id: null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                 disabled={entityType === 'scene'}>
                 <option value="">--</option>
@@ -477,7 +477,7 @@ export function NewTaskSidePopup({
             <div>
               <SideLabel>Shot</SideLabel>
               <select value={draft.shot_id || ''} onChange={e => upd({ shot_id: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                 disabled={entityType === 'shot'}>
                 <option value="">--</option>
@@ -494,7 +494,7 @@ export function NewTaskSidePopup({
               <div>
                 <SideLabel>Level</SideLabel>
                 <select value={draft.level_id || ''} onChange={e => upd({ level_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   disabled={entityType === 'level'}>
                   <option value="">--</option>
@@ -506,7 +506,7 @@ export function NewTaskSidePopup({
               <div>
                 <SideLabel>Experience</SideLabel>
                 <select value={draft.experience_id || ''} onChange={e => upd({ experience_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   disabled={entityType === 'experience'}>
                   <option value="">--</option>
@@ -522,7 +522,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Assignee</SideLabel>
             <select value={draft.assignee_id || ''} onChange={e => upd({ assignee_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {projectMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -531,7 +531,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Role</SideLabel>
             <select value={draft.assigned_role_slug || ''} onChange={e => upd({ assigned_role_slug: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {roleEntries.map(r => <option key={r.role_slug} value={r.role_slug}>{r.role_label}</option>)}
@@ -545,20 +545,20 @@ export function NewTaskSidePopup({
             <SideLabel>Bid days</SideLabel>
             <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
               onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               placeholder="--" />
           </div>
           <div>
             <SideLabel>Start</SideLabel>
             <input type="date" value={draft.start_date || ''} onChange={e => upd({ start_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
           </div>
           <div>
             <SideLabel>End</SideLabel>
             <input type="date" value={draft.end_date || ''} onChange={e => upd({ end_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
           </div>
         </div>
@@ -568,7 +568,7 @@ export function NewTaskSidePopup({
           <SideLabel>Description</SideLabel>
           <textarea value={draft.description} onChange={e => upd({ description: e.target.value })}
             rows={3}
-            className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500 resize-y"
+            className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
             style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
             placeholder="Task description…" />
         </div>
@@ -577,13 +577,13 @@ export function NewTaskSidePopup({
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
         <button type="button" onClick={onClose}
-          className="px-3 py-1.5 text-dense rounded transition-colors hover:bg-stone-700"
+          className="px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           Cancel
         </button>
         <button type="button" onClick={handleConfirm}
           disabled={!draft.title.trim()}
-          className="px-4 py-1.5 text-dense rounded transition-colors"
+          className="px-4 py-1.5 text-dense rounded-control transition-colors"
           style={{
             color: draft.title.trim() ? '#fff7ed' : '#78716c',
             backgroundColor: draft.title.trim() ? '#ea580c' : '#292524',
@@ -704,7 +704,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
 
         {/* ── Combined Scenes & Shots section ── */}
         {scenesOn && (
-          <div className="rounded" style={{ border: '1px solid #292524' }}>
+          <div className="rounded-control" style={{ border: '1px solid #292524' }}>
             {/* Section header */}
             <button type="button"
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
@@ -720,14 +720,14 @@ export function AssetRelationsSidebar({ asset, ctx }) {
               <div className="ml-auto flex items-center gap-0.5">
                 <button type="button"
                   onClick={e => { e.stopPropagation(); setShowPicker('scenes') }}
-                  className="p-1 rounded hover:bg-stone-700 transition-colors flex items-center gap-0.5"
+                  className="p-1 rounded-control hover:bg-stone-700 transition-colors flex items-center gap-0.5"
                   style={{ color: '#78716c' }}
                   title="Link scene">
                   <Film className="w-2.5 h-2.5" /><Plus className="w-2.5 h-2.5" />
                 </button>
                 <button type="button"
                   onClick={e => { e.stopPropagation(); setShowPicker('shots') }}
-                  className="p-1 rounded hover:bg-stone-700 transition-colors flex items-center gap-0.5"
+                  className="p-1 rounded-control hover:bg-stone-700 transition-colors flex items-center gap-0.5"
                   style={{ color: '#78716c' }}
                   title="Link shot">
                   <Clapperboard className="w-2.5 h-2.5" /><Plus className="w-2.5 h-2.5" />
@@ -752,11 +752,11 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                       return (
                         <div key={sc.id}>
                           {/* Scene row */}
-                          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-stone-800/50 transition-colors group/rel">
+                          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel">
                             {/* Expand chevron */}
                             <button type="button"
                               onClick={() => toggleSceneExpand(sc.id)}
-                              className="p-0.5 rounded hover:bg-stone-700/50 transition-colors flex-shrink-0"
+                              className="p-0.5 rounded-control hover:bg-stone-700/50 transition-colors flex-shrink-0"
                               style={{ color: '#78716c' }}>
                               {childShots.length > 0 ? (
                                 isExpanded
@@ -778,7 +778,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                             )}
                             <button type="button"
                               onClick={() => removeRelation('scene_ids', sc.id)}
-                              className="p-0.5 rounded hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
+                              className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
                               style={{ color: '#ef4444' }}
                               title="Remove scene">
                               <X className="w-2.5 h-2.5" />
@@ -790,19 +790,19 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                             <div className="ml-5 flex flex-col gap-0.5" style={{ borderLeft: '1px solid #292524' }}>
                               {childShots.map(sh => (
                                 <div key={sh.id}
-                                  className="flex items-center gap-2 pl-3 pr-2 py-1 rounded hover:bg-stone-800/50 transition-colors group/sh">
+                                  className="flex items-center gap-2 pl-3 pr-2 py-1 rounded-control hover:bg-stone-800/50 transition-colors group/sh">
                                   <Clapperboard className="w-2.5 h-2.5 flex-shrink-0" style={{ color: '#f97316' }} />
                                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sh.status) }} />
                                   <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>
                                     {sh.name || 'Untitled'}
                                   </span>
-                                  <span className="px-1 py-0.5 text-label uppercase rounded flex-shrink-0"
+                                  <span className="px-1 py-0.5 text-label uppercase rounded-control flex-shrink-0"
                                     style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                                     {fmt(sh.status || 'not_started')}
                                   </span>
                                   <button type="button"
                                     onClick={() => removeRelation('shot_ids', sh.id)}
-                                    className="p-0.5 rounded hover:bg-stone-700 transition-colors opacity-0 group-hover/sh:opacity-100 flex-shrink-0"
+                                    className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/sh:opacity-100 flex-shrink-0"
                                     style={{ color: '#ef4444' }}
                                     title="Remove shot">
                                     <X className="w-2.5 h-2.5" />
@@ -823,20 +823,20 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                         )}
                         {orphanShots.map(sh => (
                           <div key={sh.id}
-                            className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors group/rel">
+                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel">
                             <span className="w-3.5 h-3.5 block flex-shrink-0" />
                             <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#f97316' }} />
                             <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sh.status) }} />
                             <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                               {sh.name || 'Untitled'}
                             </span>
-                            <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
+                            <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
                               style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
                               {fmt(sh.status || 'not_started')}
                             </span>
                             <button type="button"
                               onClick={() => removeRelation('shot_ids', sh.id)}
-                              className="p-0.5 rounded hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
+                              className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
                               style={{ color: '#ef4444' }}
                               title="Remove shot">
                               <X className="w-2.5 h-2.5" />
@@ -857,7 +857,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
           const Icon = sec.icon
           const isCollapsed = collapsed[sec.key]
           return (
-            <div key={sec.key} className="rounded" style={{ border: '1px solid #292524' }}>
+            <div key={sec.key} className="rounded-control" style={{ border: '1px solid #292524' }}>
               <button type="button"
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
                 onClick={() => toggle(sec.key)}
@@ -871,7 +871,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 </span>
                 <button type="button"
                   onClick={e => { e.stopPropagation(); setShowPicker(sec.key) }}
-                  className="ml-auto p-0.5 rounded hover:bg-stone-700 transition-colors"
+                  className="ml-auto p-0.5 rounded-control hover:bg-stone-700 transition-colors"
                   style={{ color: '#78716c' }}
                   title={`Add ${sec.label.toLowerCase()} relation`}>
                   <Plus className="w-3 h-3" />
@@ -890,18 +890,18 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                     <div className="flex flex-col gap-0.5">
                       {sec.items.map(item => (
                         <div key={item.id}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-stone-800/50 transition-colors group/rel">
+                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel">
                           <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(item.status) }} />
                           <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
                             {item.name || 'Untitled'}
                           </span>
-                          <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
+                          <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
                             style={{ color: statusColor(item.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(item.status)}30` }}>
                             {fmt(item.status || 'not_started')}
                           </span>
                           <button type="button"
                             onClick={() => removeRelation(sec.field, item.id)}
-                            className="p-0.5 rounded hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
+                            className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
                             style={{ color: '#ef4444' }}
                             title="Remove relation">
                             <X className="w-2.5 h-2.5" />
@@ -1000,7 +1000,7 @@ export function RelationPickerPopup({
   return (
     <>
       <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-md rounded overflow-hidden flex flex-col"
+      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden flex flex-col"
         style={{
           backgroundColor: '#292524',
           border: '2px solid #f97316',
@@ -1022,14 +1022,14 @@ export function RelationPickerPopup({
             </span>
           </div>
           <button type="button" onClick={onClose}
-            className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+            className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Search */}
         <div className="px-4 py-2" style={{ borderBottom: '1px solid #292524' }}>
-          <div className="flex items-center rounded" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+          <div className="flex items-center rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
             <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search…"
@@ -1052,10 +1052,10 @@ export function RelationPickerPopup({
               return (
                 <button key={item.id} type="button"
                   onClick={() => onToggle(item.id)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded hover:bg-stone-800/50 transition-colors text-left"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-control hover:bg-stone-800/50 transition-colors text-left"
                   style={{ backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.08)' : 'transparent' }}>
                   {/* Checkbox */}
-                  <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                  <div className="w-4 h-4 rounded-control flex items-center justify-center flex-shrink-0"
                     style={{
                       border: `1.5px solid ${isSelected ? '#fb923c' : '#57534e'}`,
                       backgroundColor: isSelected ? '#ea580c' : 'transparent',
@@ -1070,7 +1070,7 @@ export function RelationPickerPopup({
                     {getName(item)}
                   </span>
                   {/* Status badge */}
-                  <span className="px-1.5 py-0.5 text-label uppercase rounded flex-shrink-0"
+                  <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
                     style={{ color: statusColor(st), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(st)}30` }}>
                     {fmt(st)}
                   </span>
@@ -1083,7 +1083,7 @@ export function RelationPickerPopup({
         {/* Footer */}
         <div className="px-4 py-2.5 flex justify-end" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -1100,7 +1100,7 @@ export function RelationPickerPopup({
 export function RelationBadge({ icon: Icon, count, label, onClick }) {
   return (
     <button type="button" onClick={onClick}
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-stone-800 transition-colors"
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded-control hover:bg-stone-800 transition-colors"
       style={{
         color: count > 0 ? '#f4a261' : '#57534e',
         border: `1px solid ${count > 0 ? '#f4a261' + '40' : '#44403c'}`,

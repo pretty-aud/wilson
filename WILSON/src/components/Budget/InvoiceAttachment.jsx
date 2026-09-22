@@ -130,13 +130,13 @@ export default function InvoiceAttachment({
       <input ref={inputRef} type="file" onChange={handlePicked} className="hidden" />
 
       {name ? (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-sm"
+        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-control"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
           <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
           <span className="flex-1 text-dense truncate" style={{ color: '#d6d3d1' }}>{name}</span>
           {(isCloudRef(path) || canOpenLegacy) && (
             <button type="button" onClick={handleOpen} disabled={busy}
-              className="p-0.5 hover:bg-stone-700 rounded transition-colors"
+              className="p-0.5 hover:bg-stone-700 rounded-control transition-colors"
               title={isCloudRef(path) ? 'Open invoice' : 'Show in explorer'}>
               {busy
                 ? <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#a8a29e' }} />
@@ -144,13 +144,13 @@ export default function InvoiceAttachment({
             </button>
           )}
           <button type="button" onClick={() => { setError(null); onChange({ name: '', path: '' }) }}
-            className="p-0.5 hover:bg-stone-700 rounded transition-colors" title="Remove attachment">
+            className="p-0.5 hover:bg-stone-700 rounded-control transition-colors" title="Remove attachment">
             <X className="w-3 h-3" style={{ color: '#ef4444' }} />
           </button>
         </div>
       ) : (
         <button type="button" onClick={() => inputRef.current?.click()} disabled={busy || disabled}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40"
           style={{ border: '1px solid #44403c', color: '#a8a29e' }}>
           {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paperclip className="w-3 h-3" />}
           {busy ? 'Uploading…' : 'Attach Invoice'}

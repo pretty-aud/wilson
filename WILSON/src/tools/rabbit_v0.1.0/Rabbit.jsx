@@ -180,7 +180,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
               type="button"
               onClick={() => setSettingsOpen(true)}
               title="RABBIT settings"
-              className="p-1.5 rounded-sm transition-colors hover:bg-stone-700"
+              className="p-1.5 rounded-control transition-colors hover:bg-stone-700"
               style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
             >
               <SettingsIcon className="w-3.5 h-3.5" />
@@ -189,7 +189,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
               type="button"
               onClick={() => setShowHelpModal(true)}
               title="Help & Documentation"
-              className="p-1.5 rounded-sm transition-colors hover:bg-stone-700"
+              className="p-1.5 rounded-control transition-colors hover:bg-stone-700"
               style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
             >
               <HelpCircle className="w-3.5 h-3.5" />
@@ -337,7 +337,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
       style={{ left: 26, bottom: 13, zIndex: 50 }}
     >
       <span
-        className="text-label uppercase font-semibold px-1 py-px rounded-sm"
+        className="text-label uppercase font-semibold px-1 py-px rounded-control"
         title={realtimeStatus === 'live'
           ? 'Live sync connected — edits from teammates appear instantly'
           : realtimeStatus === 'error'
@@ -395,7 +395,7 @@ function NoProjectPlaceholder({ onPickSummary }) {
       <button
         type="button"
         onClick={onPickSummary}
-        className="px-4 py-1.5 text-dense rounded-sm transition-colors"
+        className="px-4 py-1.5 text-dense rounded-control transition-colors"
         style={{
           color: '#fff7ed',
           backgroundColor: '#ea580c',

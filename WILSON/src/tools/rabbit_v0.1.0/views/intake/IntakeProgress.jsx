@@ -87,11 +87,11 @@ export default function IntakeProgress({
       {phase !== 'error' && (
         <div className="w-full max-w-md flex flex-col gap-2">
           <div
-            className="h-3 w-full rounded-sm overflow-hidden"
+            className="h-3 w-full rounded-control overflow-hidden"
             style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <div
-              className="h-full transition-all duration-200"
+              className="h-full transition-[width] duration-200"
               style={{
                 width: `${pct}%`,
                 backgroundColor: '#ea580c',
@@ -120,7 +120,7 @@ export default function IntakeProgress({
       {/* Error block */}
       {phase === 'error' && errorMsg && (
         <div
-          className="max-w-md text-dense leading-relaxed p-3 rounded-sm text-center"
+          className="max-w-md text-dense leading-relaxed p-3 rounded-control text-center"
           style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
         >
           {errorMsg}
@@ -133,7 +133,7 @@ export default function IntakeProgress({
           <button
             type="button"
             onClick={handleAbort}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             <X className="w-3 h-3" />
@@ -148,7 +148,7 @@ export default function IntakeProgress({
               startedRef.current = false
               onBack?.()
             }}
-            className="px-3 py-1.5 text-dense rounded-sm"
+            className="px-3 py-1.5 text-dense rounded-control"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             ← Back to settings

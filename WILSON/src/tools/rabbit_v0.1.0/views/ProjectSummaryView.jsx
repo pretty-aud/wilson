@@ -235,7 +235,7 @@ export default function ProjectSummaryView() {
                 {allProjects.length} project{allProjects.length !== 1 ? 's' : ''}
               </span>
               <button type="button" onClick={handleNewProject} disabled={creating}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-50"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
                 <Plus className="w-3.5 h-3.5" />
                 {creating ? 'Creating…' : 'New project'}
@@ -277,7 +277,7 @@ export default function ProjectSummaryView() {
             <button
               type="button"
               onClick={() => setShowSettings(false)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense transition-colors hover:brightness-110"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense transition-colors hover:brightness-110"
               style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
             >
               <LayoutDashboard className="w-3 h-3" /> Dashboard
@@ -289,7 +289,7 @@ export default function ProjectSummaryView() {
         {/* ── All projects gallery strip ── */}
         {/* UX: Hick's Law (scannable cards, minimal choices), Fitts's Law (large click targets), */}
         {/* Miller's Law (key info only — title, client, status, budget), Jakob's Law (familiar card grid) */}
-        <div className="rounded-sm px-5 py-3.5" style={{ backgroundColor: '#0c0a09', border: '1px solid #292524' }}>
+        <div className="rounded-control px-5 py-3.5" style={{ backgroundColor: '#0c0a09', border: '1px solid #292524' }}>
           <div className="flex items-center gap-2.5 mb-3">
             <LayoutGrid className="w-4 h-4" style={{ color: '#a8a29e' }} />
             <span className="text-label uppercase font-semibold" style={{ color: '#a8a29e' }}>
@@ -313,7 +313,7 @@ export default function ProjectSummaryView() {
                     key={p.id}
                     type="button"
                     onClick={() => setActiveProject?.(p.id)}
-                    className="flex-shrink-0 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-sm transition-all hover:brightness-110"
+                    className="flex-shrink-0 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-control transition-[filter] hover:brightness-110"
                     style={{
                       width: 180,
                       backgroundColor: isActive ? '#292524' : '#1c1917',
@@ -408,7 +408,7 @@ export default function ProjectSummaryView() {
               <button
                 type="button"
                 onClick={() => setShowSettings(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-dense transition-colors hover:brightness-110 flex-shrink-0"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense transition-colors hover:brightness-110 flex-shrink-0"
                 style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
               >
                 <Settings className="w-3 h-3" /> Control Panel
@@ -437,7 +437,7 @@ export default function ProjectSummaryView() {
                   onClick={() => {
                     window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })
                   }}
-                  className="text-dense px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  className="text-dense px-2 py-0.5 rounded-control hover:bg-stone-700 flex-shrink-0"
                   style={{ color: '#fb923c', border: '1px solid #44403c' }}
                 >
                   Open
@@ -458,7 +458,7 @@ export default function ProjectSummaryView() {
                     const res = await pickAndSetProjectFolder(ctx, project)
                     if (!res.ok && res.error) setFolderMsg(res.error)
                   }}
-                  className="text-dense px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  className="text-dense px-2 py-0.5 rounded-control hover:bg-stone-700 flex-shrink-0"
                   style={{ color: '#a8a29e', border: '1px solid #44403c' }}
                 >
                   Change
@@ -496,7 +496,7 @@ export default function ProjectSummaryView() {
                 .map((p, i) => (
                   <div
                     key={p.id}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-control"
                     style={{
                       backgroundColor: '#1c1917',
                       border: '1px solid #44403c',
@@ -513,7 +513,7 @@ export default function ProjectSummaryView() {
                 ))}
               {phaseAssetCounts['__unphased__'] > 0 && (
                 <div
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-control"
                   style={{
                     backgroundColor: '#1c1917',
                     border: '1px dashed #57534e',
@@ -598,7 +598,7 @@ export default function ProjectSummaryView() {
                 .map(row => (
                   <div
                     key={row.role}
-                    className="flex items-center justify-between text-dense font-mono tabular-nums px-2.5 py-1.5 rounded-sm"
+                    className="flex items-center justify-between text-dense font-mono tabular-nums px-2.5 py-1.5 rounded-control"
                     style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
                   >
                     <span style={{ color: '#d6d3d1' }}>{row.role}</span>
@@ -662,7 +662,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
     <div className="flex flex-col gap-6">
 
       {/* ── Project header + classification + dates ── */}
-      <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #44403c' }}>
+      <div className="rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
         <div className="px-6 py-5" style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-3 mb-1">
             <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}60` }} />
@@ -736,7 +736,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
               </SettingsField>
             </div>
             {/* ── Real-time engine toggle (linked with Levels) ── */}
-            <div className="flex items-center justify-between px-3 py-2.5 mt-3 rounded-md" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+            <div className="flex items-center justify-between px-3 py-2.5 mt-3 rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               <span className="text-dense" style={{ color: '#a8a29e' }}>Uses real-time engine</span>
               <SettingsToggle checked={project.uses_realtime_engine} onChange={v => {
                 update('uses_realtime_engine', v)
@@ -777,7 +777,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
               <SettingsNumberInput value={project.budget_agency_pct ?? ''} onChange={v => update('budget_agency_pct', v === '' ? 0 : Number(v))} placeholder="20" />
             </SettingsField>
           </div>
-          <div className="flex items-center justify-between px-3 py-2.5 rounded-md" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
             <span className="text-dense" style={{ color: '#a8a29e' }}>Agency fee</span>
             <SettingsToggle checked={project.budget_agency_enabled} onChange={v => update('budget_agency_enabled', v)} />
           </div>
@@ -813,7 +813,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
       <div className="grid grid-cols-3 gap-4">
 
         {/* Scenes & Shots */}
-        <div className="rounded-lg overflow-hidden flex flex-col" style={{
+        <div className="rounded-control overflow-hidden flex flex-col" style={{
           backgroundColor: '#292524',
           border: `1px solid ${project.scenes_enabled ? '#44403c' : '#33302e'}`,
           opacity: project.scenes_enabled ? 1 : 0.7,
@@ -844,7 +844,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
                 </SettingsField>
               </div>
               {/* Naming preview */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ backgroundColor: '#0c0a09', border: '1px solid #44403c' }}>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: '#0c0a09', border: '1px solid #44403c' }}>
                 <span className="text-label uppercase" style={{ color: '#78716c' }}>Preview:</span>
                 <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>
                   {/* Session 25: built by the SAME function the Scenes view
@@ -878,7 +878,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         </div>
 
         {/* Levels */}
-        <div className="rounded-lg overflow-hidden flex flex-col" style={{
+        <div className="rounded-control overflow-hidden flex flex-col" style={{
           backgroundColor: '#292524',
           border: `1px solid ${project.levels_enabled ? '#44403c' : '#33302e'}`,
           opacity: project.levels_enabled ? 1 : 0.7,
@@ -940,7 +940,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         </div>
 
         {/* Experiences */}
-        <div className="rounded-lg overflow-hidden flex flex-col" style={{
+        <div className="rounded-control overflow-hidden flex flex-col" style={{
           backgroundColor: '#292524',
           border: `1px solid ${project.experiences_enabled ? '#44403c' : '#33302e'}`,
           opacity: project.experiences_enabled ? 1 : 0.7,
@@ -1046,7 +1046,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
       {/* ── Folder ── */}
       <SettingsField label="Project folder">
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md min-w-0"
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-control min-w-0"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
             <Folder className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
             <span className="text-dense font-mono truncate" style={{ color: project?.folder_root ? '#a8a29e' : '#57534e' }}>
@@ -1056,7 +1056,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           {project?.folder_root && (
             <button type="button"
               onClick={() => window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })}
-              className="text-dense px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+              className="text-dense px-2.5 py-2 rounded-control hover:brightness-125 flex-shrink-0 transition-[filter]"
               style={{ color: SECTION_ACCENT, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               Open
             </button>
@@ -1070,7 +1070,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
                   const res = await pickAndSetProjectFolder(ctx, project)
                   if (!res.ok && res.error) setFolderMsg(res.error)
                 }}
-                className="text-dense px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+                className="text-dense px-2.5 py-2 rounded-control hover:brightness-125 flex-shrink-0 transition-[filter]"
                 style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 Change
               </button>
@@ -1090,7 +1090,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
       {project?.files_dir && (
         <SettingsField label="Files folder (set by relink)">
           <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md min-w-0"
+            <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-control min-w-0"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               <FolderSearch className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
               <span className="text-dense font-mono truncate" style={{ color: '#a8a29e' }} title={project.files_dir}>
@@ -1100,7 +1100,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
             <button type="button"
               onClick={() => { update?.('files_dir', null); refreshMissing() }}
               title="Files resolve from the project folder again; relink afterwards if they moved"
-              className="text-dense px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+              className="text-dense px-2.5 py-2 rounded-control hover:brightness-125 flex-shrink-0 transition-[filter]"
               style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               Reset
             </button>
@@ -1120,7 +1120,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-dense transition-all hover:brightness-125"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense transition-[filter] hover:brightness-125"
             style={{ backgroundColor: SECTION_ACCENT, color: '#1c1917' }}
           >
             <Upload className="w-3 h-3" />
@@ -1139,14 +1139,14 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           the table so a broken state is impossible to miss (Selective
           Attention); the action sits inside the banner (Fitts's Law). */}
       {relinkSupported && missingCount > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md"
+        <div className="flex items-center gap-2 px-3 py-2 rounded-control"
           style={{ backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
           <span className="flex-1 text-dense font-mono" style={{ color: '#fbbf24' }}>
             {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
           </span>
           <button type="button" onClick={() => setRelinkOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-dense transition-all hover:brightness-125 flex-shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-control text-dense transition-[filter] hover:brightness-125 flex-shrink-0"
             style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
             <FolderSearch className="w-3 h-3" /> Relink…
           </button>
@@ -1154,7 +1154,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
       )}
 
       {allFiles.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 rounded-md"
+        <div className="flex flex-col items-center justify-center py-6 rounded-control"
           style={{ border: `2px dashed ${SECTION_ACCENT}30`, backgroundColor: '#1c191780' }}>
           <FileText className="w-5 h-5 mb-1.5" style={{ color: '#44403c' }} />
           <span className="text-dense font-mono" style={{ color: '#57534e' }}>No files attached</span>
@@ -1195,7 +1195,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
 function SettingsSection({ title, icon: Icon, accent, children }) {
   const color = accent || '#fb923c'
   return (
-    <div className="rounded-lg overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
+    <div className="rounded-control overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: '1px solid #44403c', borderLeft: `3px solid ${color}` }}>
         {Icon && <Icon className="w-4 h-4" style={{ color }} />}
         <h3 className="text-label uppercase font-semibold" style={{ color }}>
@@ -1248,7 +1248,7 @@ function SettingsInput({ value, onChange, placeholder, size }) {
       type="text" value={value} onChange={e => onChange(e.target.value)}
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
-      className={`w-full rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors ${lg ? 'px-4 py-2.5 text-body font-semibold' : 'px-3 py-2 text-dense'}`}
+      className={`w-full rounded-control focus:ring-1 focus:ring-orange-500/50 transition-colors ${lg ? 'px-4 py-2.5 text-body font-semibold' : 'px-3 py-2 text-dense'}`}
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1261,7 +1261,7 @@ function SettingsTextarea({ value, onChange, placeholder }) {
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
       rows={2}
-      className="w-full px-3 py-2 text-dense rounded-md resize-y focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-dense rounded-control resize-y focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1271,7 +1271,7 @@ function SettingsSelect({ value, options, labels, onChange, allowEmpty }) {
   return (
     <select
       value={value} onChange={e => onChange(e.target.value)}
-      className="w-full px-3 py-2 text-dense rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     >
       {allowEmpty && <option value="">{allowEmpty}</option>}
@@ -1285,7 +1285,7 @@ function SettingsDateInput({ value, onChange }) {
   return (
     <input
       type="date" value={display} onChange={e => onChange(e.target.value ? new Date(e.target.value).toISOString() : null)}
-      className="w-full px-3 py-2 text-dense rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1', colorScheme: 'dark' }}
     />
   )
@@ -1296,7 +1296,7 @@ function SettingsNumberInput({ value, onChange, placeholder, min, max }) {
     <input
       type="number" value={value} onChange={e => onChange(e.target.value)}
       placeholder={placeholder} min={min} max={max}
-      className="w-full px-3 py-2 text-dense rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1314,7 +1314,7 @@ function ProjectMiniCard({ project, active, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="text-left flex flex-col gap-2 p-3 rounded-sm transition-all hover:scale-[1.02]"
+      className="text-left flex flex-col gap-2 p-3 rounded-control transition-transform hover:scale-[1.02]"
       style={{
         backgroundColor: '#1c1917',
         border: `1px solid ${active ? '#ea580c' : '#44403c'}`,
@@ -1332,7 +1332,7 @@ function ProjectMiniCard({ project, active, onClick }) {
           {project.title || 'Untitled'}
         </span>
         <span
-          className="px-1 py-0.5 text-label uppercase rounded-sm flex-shrink-0"
+          className="px-1 py-0.5 text-label uppercase rounded-control flex-shrink-0"
           style={{
             color: '#fff7ed',
             backgroundColor: statusColor,
@@ -1357,7 +1357,7 @@ function ProjectMiniCard({ project, active, onClick }) {
 // ─── Sub-components ───
 function Card({ title, icon: Icon, children }) {
   return (
-    <div className="rounded-sm p-5" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
+    <div className="rounded-control p-5" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       {title && (
         <div className="flex items-center gap-2 mb-3">
           {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
@@ -1375,7 +1375,7 @@ function StatusPill({ status }) {
   const color = status === 'active' ? '#15803d' : status === 'archived' ? '#57534e' : '#ea580c'
   return (
     <span
-      className="px-2 py-0.5 text-label uppercase rounded-sm"
+      className="px-2 py-0.5 text-label uppercase rounded-control"
       style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
     >
       {status || 'draft'}
@@ -1393,7 +1393,7 @@ function StatusDropdown({ status, onChange }) {
       <select
         value={current}
         onChange={e => onChange(e.target.value)}
-        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
         style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
       >
         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -1406,7 +1406,7 @@ function StatusDropdown({ status, onChange }) {
 function Stat({ icon: Icon, label, value }) {
   return (
     <div
-      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm"
+      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-control"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
     >
       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
@@ -1433,7 +1433,7 @@ function ListRow({ title, tag, hint, danger }) {
       )}
       {tag && (
         <span
-          className="px-1.5 py-0.5 text-label uppercase rounded-sm"
+          className="px-1.5 py-0.5 text-label uppercase rounded-control"
           style={{
             color: danger ? '#fff7ed' : '#fb923c',
             backgroundColor: danger ? '#7f1d1d' : '#1c1917',
@@ -1455,7 +1455,7 @@ function BudgetTile({ label, value, hint, tone = 'neutral' }) {
   }[tone]
   return (
     <div
-      className="flex flex-col px-3.5 py-2.5 rounded-sm"
+      className="flex flex-col px-3.5 py-2.5 rounded-control"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
     >
       <span className="text-label uppercase" style={{ color: '#a8a29e' }}>

@@ -43,7 +43,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
           <div className="text-dense font-mono leading-relaxed" style={{ color: C.text }}>
             This bin holds <span style={{ color: C.bright }}>{n} file{n === 1 ? '' : 's'}</span>. Files are references; the media on disk is never touched.
           </div>
-          <div className="rounded-sm max-h-40 overflow-y-auto" style={{ border: `1px solid ${C.line}`, backgroundColor: C.deep }}>
+          <div className="rounded-control max-h-40 overflow-y-auto" style={{ border: `1px solid ${C.line}`, backgroundColor: C.deep }}>
             {inside.slice(0, 200).map(f => (
               <div key={f.id} className="px-2 py-1 text-dense font-mono truncate" style={{ color: C.muted, borderBottom: `1px solid ${C.faint}` }}>
                 {f.display_name || f.original_name}

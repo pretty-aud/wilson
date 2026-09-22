@@ -97,7 +97,7 @@ const cardStyle = {
   border: '1px solid rgba(120, 70, 30, 0.3)',
 }
 const darkBtnClass =
-  'flex items-center gap-1.5 px-3 py-1.5 text-label font-semibold uppercase rounded-sm transition-colors disabled:opacity-40'
+  'flex items-center gap-1.5 px-3 py-1.5 text-label font-semibold uppercase rounded-control transition-colors disabled:opacity-40'
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 const lightInputStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.55)',
@@ -105,7 +105,7 @@ const lightInputStyle = {
   border: 'none',
 }
 const inputClass =
-  'px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
+  'px-3 py-2 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500'
 
 function ThLight({ children }) {
   return (
@@ -163,7 +163,7 @@ function StorageCell({ plan }) {
       <span className="text-dense" style={{ color: '#78716c' }}>/{formatBytes(plan.quota_bytes)}</span>
       {held && (
         <span
-          className="ml-1.5 px-1.5 py-0.5 text-label font-semibold uppercase rounded-sm"
+          className="ml-1.5 px-1.5 py-0.5 text-label font-semibold uppercase rounded-control"
           style={{ backgroundColor: 'rgba(180,83,9,0.15)', color: AMBER }}
           title="Petal cloud uploads are suspended for this company. Nothing stored has been deleted."
         >
@@ -285,7 +285,7 @@ export default function CompaniesSection({ isActive }) {
       </div>
 
       {error && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
           {error}
         </p>
       )}
@@ -295,12 +295,12 @@ export default function CompaniesSection({ isActive }) {
           out", and the only place that distinction can be made is here — the
           cells themselves can only show a dash. */}
       {planError && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(180,83,9,0.10)', color: AMBER }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(180,83,9,0.10)', color: AMBER }}>
           {planError} Storage reads as “—” below; it is not zero.
         </p>
       )}
 
-      <div className="overflow-auto rounded-sm wilson-light-scroll mb-6" style={{ border: '1px solid #d6d3d1' }}>
+      <div className="overflow-auto rounded-control wilson-light-scroll mb-6" style={{ border: '1px solid #d6d3d1' }}>
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr style={{ backgroundColor: '#e7e5e4' }}>
@@ -339,7 +339,7 @@ export default function CompaniesSection({ isActive }) {
                 <TdLight>
                   <span className="text-dense font-semibold text-stone-900">{r.name}</span>
                   {r.deleted_at && (
-                    <span className="ml-2 px-1.5 py-0.5 text-label font-semibold uppercase rounded-sm"
+                    <span className="ml-2 px-1.5 py-0.5 text-label font-semibold uppercase rounded-control"
                       style={{ backgroundColor: 'rgba(220,38,38,0.15)', color: '#991b1b' }}>
                       Suspended
                     </span>
@@ -365,7 +365,7 @@ export default function CompaniesSection({ isActive }) {
       </div>
 
       {tornDown && (
-        <div className="p-4 rounded-sm mb-4" style={{ backgroundColor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
+        <div className="p-4 rounded-control mb-4" style={{ backgroundColor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-label font-semibold uppercase mb-1" style={{ color: '#991b1b' }}>
@@ -388,7 +388,7 @@ export default function CompaniesSection({ isActive }) {
             </div>
             <button
               onClick={() => setTornDown(null)}
-              className="px-2 py-1 text-dense font-semibold rounded-sm flex-shrink-0"
+              className="px-2 py-1 text-dense font-semibold rounded-control flex-shrink-0"
               style={{ backgroundColor: 'transparent', color: '#57534e' }}
             >
               Dismiss
@@ -519,7 +519,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
   }, [onDone])
 
   return (
-    <div className="p-4 rounded-sm" style={cardStyle}>
+    <div className="p-4 rounded-control" style={cardStyle}>
       <h3 className="text-label font-semibold uppercase text-stone-900 mb-1">{row.name}</h3>
       <p className="text-dense text-stone-950 mb-4 leading-relaxed">
         <code className="font-mono">{row.slug}</code> · created{' '}
@@ -773,7 +773,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
               // uploads, it does not shrink what is already stored, and an
               // operator lowering a quota below current usage is a legitimate
               // (if unkind) act. A bar drawn at 140% would break the card.
-              <div className="mb-3 rounded-sm" style={{ height: '4px', backgroundColor: 'rgba(120,70,30,0.25)' }}>
+              <div className="mb-3 rounded-control" style={{ height: '4px', backgroundColor: 'rgba(120,70,30,0.25)' }}>
                 <div
                   style={{
                     height: '4px',
@@ -976,7 +976,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           </div>
         ) : (
           <button
-            className="px-3 py-1.5 text-dense font-semibold rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense font-semibold rounded-control transition-colors"
             style={{ backgroundColor: 'transparent', color: '#dc2626', border: '1px solid rgba(220,38,38,0.5)' }}
             onClick={() => setTearStage('confirm')}
           >
@@ -1054,7 +1054,7 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
               value={f.value}
               onChange={(e) => { f.set(e.target.value); setErr('') }}
               disabled={busy}
-              className={`w-full px-3 py-2 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${f.mono ? '' : ''}`}
+              className={`w-full px-3 py-2 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500 ${f.mono ? '' : ''}`}
               style={{
                 backgroundColor: 'rgba(0,0,0,0.35)',
                 color: '#fde8d0',
@@ -1133,7 +1133,7 @@ function CredentialsDialog({ payload, onClose }) {
           — if it is lost, the admin has to be reset, not recovered.
         </p>
         <pre
-          className="text-dense font-mono p-3 rounded-sm mb-3 whitespace-pre-wrap break-all"
+          className="text-dense font-mono p-3 rounded-control mb-3 whitespace-pre-wrap break-all"
           style={{ backgroundColor: 'rgba(0,0,0,0.4)', color: '#fde8d0' }}
         >{both}</pre>
         {payload.email_synthesized && (

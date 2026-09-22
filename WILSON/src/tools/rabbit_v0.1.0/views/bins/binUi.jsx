@@ -40,7 +40,7 @@ export function Btn({ children, onClick, primary = false, danger = false, disabl
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 ${small ? 'px-2 py-1 text-dense' : 'px-3 py-1.5 text-dense'} rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${className}`}
+      className={`inline-flex items-center gap-1.5 ${small ? 'px-2 py-1 text-dense' : 'px-3 py-1.5 text-dense'} rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${className}`}
       style={{ ...base, ...style }}
       {...rest}
     >
@@ -57,7 +57,7 @@ export function IconBtn({ Icon, title, onClick, active = false, disabled = false
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
-      className={`p-1.5 rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed ${className}`}
+      className={`p-1.5 rounded-control transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed ${className}`}
       style={{
         color: danger ? '#fca5a5' : active ? C.bright : C.muted,
         backgroundColor: active ? C.accent : 'transparent',
@@ -76,7 +76,7 @@ export function MediaTag({ type, small = false, onClick, title }) {
     <span
       onClick={onClick}
       title={title || meta.label}
-      className={`inline-flex items-center rounded-sm uppercase ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
+      className={`inline-flex items-center rounded-control uppercase ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
       style={{ color: meta.color, backgroundColor: meta.bg, border: `1px solid ${meta.color}33` }}
     >
       {small ? meta.short : meta.label}
@@ -130,7 +130,7 @@ export function FlagMark({ flag, circled, size = 12, muted = false }) {
 export function Chip({ active = false, onClick, children, title, color = null, count = null }) {
   return (
     <button type="button" onClick={onClick} title={title}
-      className="inline-flex items-center gap-1 px-2 py-[3px] text-dense rounded-sm transition-colors hover:bg-stone-700 whitespace-nowrap"
+      className="inline-flex items-center gap-1 px-2 py-[3px] text-dense rounded-control transition-colors hover:bg-stone-700 whitespace-nowrap"
       style={{
         color: active ? C.bright : C.muted,
         backgroundColor: active ? (color || C.accent) : 'transparent',
@@ -144,7 +144,7 @@ export function Chip({ active = false, onClick, children, title, color = null, c
 
 export function Kbd({ children }) {
   return (
-    <kbd className="inline-block px-1 rounded-sm text-dense font-mono tabular-nums leading-[14px]"
+    <kbd className="inline-block px-1 rounded-control text-dense font-mono tabular-nums leading-[14px]"
       style={{ color: C.muted, border: `1px solid ${C.line}`, backgroundColor: C.deep }}>{children}</kbd>
   )
 }
@@ -177,7 +177,7 @@ export function Menu({ x, y, items, onClose, minWidth = 200 }) {
   const left = Math.min(x, vw - minWidth - 12)
   const maxH = Math.max(160, vh - y - 12)
   return (
-    <div ref={ref} className="fixed z-[80] rounded-sm shadow-2xl overflow-y-auto"
+    <div ref={ref} className="fixed z-[80] rounded-control shadow-2xl overflow-y-auto"
       style={{ left, top: Math.min(y, vh - 60), minWidth, maxHeight: maxH, backgroundColor: C.panel, border: `1px solid ${C.line}` }}
       onContextMenu={e => e.preventDefault()}>
       {items.filter(Boolean).map((it, i) => it.divider
@@ -226,14 +226,14 @@ export function Modal({ title, children, footer, onClose, width = 640, subtitle 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center" style={{ backgroundColor: 'rgba(12,10,9,0.72)' }}
       onMouseDown={e => { if (e.target === e.currentTarget) tryClose() }}>
-      <div className="rounded-sm shadow-2xl flex flex-col" style={{ width, maxWidth: '94vw', maxHeight: '88vh', backgroundColor: C.bg, border: `1px solid ${C.line}` }}
+      <div className="rounded-control shadow-2xl flex flex-col" style={{ width, maxWidth: '94vw', maxHeight: '88vh', backgroundColor: C.bg, border: `1px solid ${C.line}` }}
         role="dialog" aria-label={title}>
         <div className="flex items-start justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
           <div>
             <div className="text-label uppercase" style={{ color: C.bright }}>{title}</div>
             {subtitle && <div className="text-dense mt-0.5" style={{ color: C.dim }}>{subtitle}</div>}
           </div>
-          <button type="button" onClick={tryClose} disabled={busy} title="Close" className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.muted }}>
+          <button type="button" onClick={tryClose} disabled={busy} title="Close" className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30" style={{ color: C.muted }}>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -262,7 +262,7 @@ export function Field({ label, children, hint, inline = false, mixed = false }) 
 }
 
 const inputStyle = { backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }
-const inputClass = 'w-full px-2 py-1 text-dense font-mono rounded-sm focus:ring-1 focus:ring-orange-500 placeholder:text-stone-600'
+const inputClass = 'w-full px-2 py-1 text-dense font-mono rounded-control focus:ring-1 focus:ring-orange-500 placeholder:text-stone-600'
 
 // Escape in a field is "cancel this edit": the value goes back to what it was
 // when the field took focus, nothing is committed, and the key stops there so
@@ -336,7 +336,7 @@ export function Toggle({ checked, onChange, label }) {
     <label className="inline-flex items-center gap-2 cursor-pointer select-none">
       <span className="relative inline-block rounded-full transition-colors" style={{ width: 28, height: 16, backgroundColor: checked ? C.accent : C.line }}
         onClick={() => onChange(!checked)}>
-        <span className="absolute top-[2px] rounded-full transition-all" style={{ width: 12, height: 12, left: checked ? 14 : 2, backgroundColor: C.bright }} />
+        <span className="absolute top-[2px] rounded-full transition-[left]" style={{ width: 12, height: 12, left: checked ? 14 : 2, backgroundColor: C.bright }} />
       </span>
       {label && <span className="text-dense" style={{ color: C.text }}>{label}</span>}
     </label>

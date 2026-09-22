@@ -713,7 +713,7 @@ export default function BinsView() {
                   <Plus className="w-3 h-3" /> Add <ChevronDown className="w-3 h-3" />
                 </Btn>
               </div>
-              <div className="flex items-center rounded-sm" style={{ border: `1px solid ${C.line}` }}>
+              <div className="flex items-center rounded-control" style={{ border: `1px solid ${C.line}` }}>
                 <IconBtn Icon={LayoutGrid} title="Frame view" active={view === 'grid'} onClick={() => setView('grid')} style={{ border: 'none' }} />
                 <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} style={{ border: 'none' }} />
               </div>
@@ -724,13 +724,13 @@ export default function BinsView() {
               <div className="relative">
                 <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
-                  className="pl-6 pr-6 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500 w-56"
+                  className="pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500 w-56"
                   style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
                   onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() } e.stopPropagation() }} />
                 {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
               </div>
               <select value={sort.field} onChange={e => setSort(s => ({ ...s, field: e.target.value }))} title="Sort by"
-                className="py-1.5 px-2 text-dense rounded-sm" style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}>
+                className="py-1.5 px-2 text-dense rounded-control" style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}>
                 {SORT_FIELDS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
               </select>
               <IconBtn Icon={sort.dir === 'desc' ? ArrowDown : ArrowUp} title={sort.dir === 'desc' ? 'Descending' : 'Ascending'} onClick={() => setSort(s => ({ ...s, dir: s.dir === 'desc' ? 'asc' : 'desc' }))} />
@@ -762,7 +762,7 @@ export default function BinsView() {
           <div className="flex-1 min-h-0 flex flex-col relative">
             {dragOver && (
               <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" style={{ backgroundColor: 'rgba(234,88,12,0.12)', border: `2px dashed ${C.accent}` }}>
-                <div className="px-4 py-2 rounded-sm text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
+                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
                   Drop to add to {currentBin ? `"${currentBin.name}"` : 'a new bin'}
                 </div>
               </div>
@@ -870,12 +870,12 @@ function RenameBar({ row, onCommit, onCancel }) {
   const [v, setV] = useState(row?.display_name || '')
   if (!row) return null
   return (
-    <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-sm shadow-2xl" style={{ backgroundColor: C.panel, border: `1px solid ${C.accentBorder}` }}>
+    <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-control shadow-2xl" style={{ backgroundColor: C.panel, border: `1px solid ${C.accentBorder}` }}>
       <Edit3 className="w-3 h-3" style={{ color: C.accentText }} />
       <span className="text-label uppercase" style={{ color: C.dim }}>Rename</span>
       <input autoFocus value={v} onChange={e => setV(e.target.value)}
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { const t = v.trim(); if (t) onCommit(t); else onCancel() } if (e.key === 'Escape') onCancel() }}
-        className="flex-1 px-2 py-1 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+        className="flex-1 px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.line}` }} />
       <span className="text-dense font-mono truncate" style={{ color: C.dimmer, maxWidth: 240 }}>{row.original_name}</span>
       <Btn small primary onClick={() => { const t = v.trim(); if (t) onCommit(t); else onCancel() }}>Save</Btn>

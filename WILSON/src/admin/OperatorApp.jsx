@@ -127,7 +127,7 @@ export default function OperatorApp() {
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="px-3 py-1.5 text-dense font-semibold rounded-sm"
+            className="px-3 py-1.5 text-dense font-semibold rounded-control"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             Retry
@@ -151,7 +151,7 @@ export default function OperatorApp() {
           </p>
           <button
             onClick={handleSignOut}
-            className="px-3 py-1.5 text-dense font-semibold rounded-sm"
+            className="px-3 py-1.5 text-dense font-semibold rounded-control"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             Sign out
@@ -179,7 +179,7 @@ export default function OperatorApp() {
           <span className="text-dense" style={{ color: '#a8a29e' }}>{email}</span>
           <button
             onClick={handleSignOut}
-            className="flex items-center gap-1.5 px-2 py-1 text-dense font-semibold rounded-sm transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-dense font-semibold rounded-control transition-colors"
             style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: '#f4a261' }}
           >
             <LogOut size={12} /> Sign out

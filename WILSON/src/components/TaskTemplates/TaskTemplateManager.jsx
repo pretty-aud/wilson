@@ -126,7 +126,7 @@ export default function TaskTemplateManager({ onClose }) {
       <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.65)' }} onClick={onClose} />
       {/* Modal */}
       <div
-        className="fixed z-[60] top-1/2 left-1/2 w-full max-w-5xl rounded overflow-hidden flex flex-col"
+        className="fixed z-[60] top-1/2 left-1/2 w-full max-w-5xl rounded-control overflow-hidden flex flex-col"
         style={{
           backgroundColor: '#292524',
           border: '2px solid #f97316',
@@ -142,14 +142,14 @@ export default function TaskTemplateManager({ onClose }) {
             <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
               Task Templates
             </span>
-            <span className="text-dense font-mono px-1.5 py-0.5 rounded" style={{ color: '#a8a29e', backgroundColor: '#1c1917' }}>
+            <span className="text-dense font-mono px-1.5 py-0.5 rounded-control" style={{ color: '#a8a29e', backgroundColor: '#1c1917' }}>
               {tt.templates.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {canCreate && (
               <button type="button" onClick={handleCreate}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 title={newTemplateProjectId
                   ? 'Creates a template pinned to the project you have open'
@@ -158,7 +158,7 @@ export default function TaskTemplateManager({ onClose }) {
                 {newTemplateProjectId ? 'New Project Template' : 'New Template'}
               </button>
             )}
-            <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+            <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -250,7 +250,7 @@ export default function TaskTemplateManager({ onClose }) {
                       <Td style={{ textAlign: 'right' }}>
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" onClick={() => setEditingId(isEditing ? null : tmpl.id)}
-                            className="px-2 py-1 text-dense rounded transition-colors"
+                            className="px-2 py-1 text-dense rounded-control transition-colors"
                             style={{
                               color: isEditing ? '#fff7ed' : '#fb923c',
                               backgroundColor: isEditing ? '#ea580c' : 'transparent',
@@ -264,14 +264,14 @@ export default function TaskTemplateManager({ onClose }) {
                               create. */}
                           {canCreate && (
                             <button type="button" onClick={() => handleDuplicate(tmpl)}
-                              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}
+                              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}
                               title="Duplicate template">
                               <Copy className="w-3.5 h-3.5" />
                             </button>
                           )}
                           {rowWritable && (
                             <button type="button" onClick={() => setConfirmDelete(tmpl.id)}
-                              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
+                              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
                               title="Delete template">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -289,7 +289,7 @@ export default function TaskTemplateManager({ onClose }) {
         {/* Footer */}
         <div className="flex items-center justify-end px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded transition-colors"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             Done
           </button>
@@ -374,7 +374,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
       <div className="fixed inset-0 z-[70]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
       {/* Panel */}
       <div
-        className="fixed z-[70] top-1/2 left-1/2 w-full max-w-3xl rounded overflow-hidden flex flex-col"
+        className="fixed z-[70] top-1/2 left-1/2 w-full max-w-3xl rounded-control overflow-hidden flex flex-col"
         style={{
           backgroundColor: '#1c1917',
           border: '2px solid #fb923c',
@@ -394,7 +394,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
               {template.name}
             </span>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -413,13 +413,13 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
               }}
               onKeyDown={e => { if (e.key === 'Escape') { setDescDraft(template.description || ''); setEditingDesc(false) } }}
               rows={2}
-              className="w-full px-2 py-1 text-dense rounded focus:ring-2 focus:ring-orange-500 resize-y"
+              className="w-full px-2 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             />
           ) : (
             <button type="button" disabled={readOnly}
               onClick={() => { setDescDraft(template.description || ''); setEditingDesc(true) }}
-              className="text-dense text-left w-full hover:bg-stone-800 px-2 py-1 rounded min-h-[28px]"
+              className="text-dense text-left w-full hover:bg-stone-800 px-2 py-1 rounded-control min-h-[28px]"
               style={{ color: template.description ? '#d6d3d1' : '#78716c', cursor: readOnly ? 'default' : 'pointer' }}>
               {template.description || (readOnly ? '—' : 'Click to add description...')}
             </button>
@@ -434,7 +434,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
             </span>
             {!readOnly && (
               <button type="button" onClick={handleAddTask}
-                className="flex items-center gap-1 px-2.5 py-1 text-dense rounded transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
                 <Plus className="w-3 h-3" /> Add Task
               </button>
@@ -482,7 +482,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
             </span>
           </span>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded transition-colors"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             Done
           </button>
@@ -536,7 +536,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
           value={task.role_slug || ''}
           disabled={readOnly}
           onChange={e => onUpdate({ role_slug: e.target.value || '' })}
-          className="w-full px-1 py-0.5 text-dense rounded focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
+          className="w-full px-1 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
           style={{ backgroundColor: 'transparent', color: task.role_slug ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
           <option value="">--</option>
           {DEFAULT_ROLES.map(r => <option key={r} value={r}>{fmt(r)}</option>)}
@@ -552,7 +552,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
           value={task.bid_days ?? ''}
           disabled={readOnly}
           onChange={e => onUpdate({ bid_days: parseFloat(e.target.value) || 0 })}
-          className="w-full px-1 py-0.5 text-dense text-center rounded focus:ring-2 focus:ring-orange-500"
+          className="w-full px-1 py-0.5 text-dense text-center rounded-control focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'transparent', color: '#f4a261', border: '1px solid transparent' }}
         />
       </div>
@@ -572,7 +572,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
       <div style={{ width: 28 }}>
         {!readOnly && (
           <button type="button" onClick={onDelete}
-            className="p-1 rounded hover:bg-stone-700 transition-colors"
+            className="p-1 rounded-control hover:bg-stone-700 transition-colors"
             style={{ color: '#fca5a5', opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -596,7 +596,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
   return (
     <div className="relative">
       <button type="button" disabled={readOnly} onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 w-full px-1 py-0.5 text-dense rounded hover:bg-stone-700/40 transition-colors text-left"
+        className="flex items-center gap-1 w-full px-1 py-0.5 text-dense rounded-control hover:bg-stone-700/40 transition-colors text-left"
         style={{ color: currentDeps.length ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
         {currentDeps.length === 0 ? (
           <span className="flex items-center gap-1">
@@ -614,7 +614,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 top-full left-0 mt-1 py-1 rounded shadow-lg min-w-[200px] max-h-[180px] overflow-auto"
+          <div className="absolute z-20 top-full left-0 mt-1 py-1 rounded-control shadow-lg min-w-[200px] max-h-[180px] overflow-auto"
             style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
             {availableDeps.map(dep => {
               const checked = currentDeps.includes(dep.id)
@@ -623,7 +623,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
                   onClick={() => onToggle(dep.id)}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-stone-700/50 transition-colors"
                   style={{ color: checked ? '#fb923c' : '#d6d3d1' }}>
-                  <span className="w-3 h-3 rounded-sm flex items-center justify-center flex-shrink-0"
+                  <span className="w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
                     style={{
                       backgroundColor: checked ? '#ea580c' : 'transparent',
                       border: `1px solid ${checked ? '#ea580c' : '#44403c'}`,
@@ -659,7 +659,7 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
     <div className="flex items-center gap-1.5">
       <button type="button" disabled={readOnly}
         onClick={() => onUpdate({ project_id: isProjectSpecific ? null : (projects[0]?.id || null) })}
-        className="w-3 h-3 rounded-sm flex items-center justify-center flex-shrink-0"
+        className="w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
         style={{
           backgroundColor: isProjectSpecific ? '#ea580c' : 'transparent',
           border: `1px solid ${isProjectSpecific ? '#ea580c' : '#44403c'}`,
@@ -672,7 +672,7 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
           value={template.project_id || ''}
           disabled={readOnly}
           onChange={e => onUpdate({ project_id: e.target.value || null })}
-          className="px-1 py-0.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+          className="px-1 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'transparent', color: '#d6d3d1', border: '1px solid transparent', maxWidth: 120 }}>
           <option value="">--</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
@@ -705,7 +705,7 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(template.name); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-dense font-semibold rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-0.5 text-dense font-semibold rounded-control focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
@@ -713,7 +713,7 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(template.name || ''); setEditing(true) }}
-      className="text-dense font-semibold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors"
+      className="text-dense font-semibold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
       style={{ color: '#e7e5e4', cursor: readOnly ? 'default' : 'pointer' }}>
       {template.name || 'Untitled'}
     </button>
@@ -738,7 +738,7 @@ function EditableText({ value, placeholder, onCommit, readOnly = false }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
@@ -746,7 +746,7 @@ function EditableText({ value, placeholder, onCommit, readOnly = false }) {
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors"
+      className="text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
       style={{ color: value ? '#e7e5e4' : '#57534e', cursor: readOnly ? 'default' : 'pointer' }}>
       {value || (readOnly ? '\u2014' : placeholder || '\u2014')}
     </button>
@@ -761,7 +761,7 @@ function ConfirmDeleteDialog({ onConfirm, onCancel }) {
   return (
     <>
       <div className="fixed inset-0 z-[80]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onCancel} />
-      <div className="fixed z-[80] top-1/2 left-1/2 w-full max-w-sm rounded overflow-hidden"
+      <div className="fixed z-[80] top-1/2 left-1/2 w-full max-w-sm rounded-control overflow-hidden"
         style={{
           backgroundColor: '#292524',
           border: '2px solid #ef4444',
@@ -780,12 +780,12 @@ function ConfirmDeleteDialog({ onConfirm, onCancel }) {
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onCancel}
-            className="px-3 py-1.5 text-dense rounded transition-colors"
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Cancel
           </button>
           <button type="button" onClick={onConfirm}
-            className="px-3 py-1.5 text-dense rounded transition-colors"
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff', backgroundColor: '#dc2626', border: '1px solid #b91c1c' }}>
             Delete
           </button>

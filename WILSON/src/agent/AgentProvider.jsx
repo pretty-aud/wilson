@@ -22,7 +22,7 @@ export function useAgent() {
 // ── Toast notification component ──
 function AgentToast({ message, onDone }) {
   return (
-    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-stone-800 border border-orange-500 text-orange-400 px-4 py-2 rounded-sm text-dense shadow-lg animate-fade-in-up"
+    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-stone-800 border border-orange-500 text-orange-400 px-4 py-2 rounded-control text-dense shadow-lg animate-fade-in-up"
       onAnimationEnd={onDone}>
       {message}
     </div>

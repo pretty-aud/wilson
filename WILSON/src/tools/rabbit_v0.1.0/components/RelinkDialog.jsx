@@ -114,7 +114,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
   return (
     <>
       <div className="fixed inset-0 z-[70]" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={phase === 'applying' ? undefined : onClose} />
-      <div className="fixed left-1/2 top-1/2 z-[70] flex flex-col -translate-x-1/2 -translate-y-1/2 rounded-lg overflow-hidden"
+      <div className="fixed left-1/2 top-1/2 z-[70] flex flex-col -translate-x-1/2 -translate-y-1/2 rounded-float overflow-hidden"
         style={{ width: 640, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 96px)',
                  backgroundColor: '#1c1917', border: '1px solid #44403c', boxShadow: '0 0 60px rgba(0,0,0,0.6)' }}
         role="dialog" aria-label="Relink files">
@@ -127,7 +127,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
             Relink missing files
           </div>
           <button type="button" onClick={onClose} disabled={phase === 'applying'} title="Close"
-            className="p-1.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
+            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -135,7 +135,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
           {error && (
-            <div className="text-dense px-3 py-2 rounded flex items-start gap-2"
+            <div className="text-dense px-3 py-2 rounded-control flex items-start gap-2"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span className="min-w-0 break-words">{error}</span>
@@ -153,7 +153,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                       'Choose the folder the files now live in; WILSON walks it and matches them by name and size.'}
               </p>
               {scan != null && missingCount > 0 && (
-                <div className="rounded px-3 py-2 max-h-40 overflow-y-auto flex flex-col gap-1"
+                <div className="rounded-control px-3 py-2 max-h-40 overflow-y-auto flex flex-col gap-1"
                   style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
                   {scan.missing.map(f => (
                     <div key={f.id} className="text-dense truncate" style={{ color: '#78716c' }} title={f.storage_path}>
@@ -183,7 +183,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                   the write, not after. */}
               {scan?.filesDir && folder && match.proposals.length > 0
                 && folder.toLowerCase() !== String(scan.filesDir).toLowerCase() && (
-                <p className="text-dense leading-relaxed px-3 py-2 rounded"
+                <p className="text-dense leading-relaxed px-3 py-2 rounded-control"
                   style={{ color: '#fbbf24', backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
                   This also makes the picked folder the project's files
                   folder — new uploads will be saved there. You can reset it
@@ -193,7 +193,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
 
               <PreviewGroup label={`Will relink (${match.proposals.length})`} color="#4ade80" empty="No matches found in that folder.">
                 {match.proposals.map(p => (
-                  <div key={p.id} className="flex flex-col gap-0.5 py-1.5 px-2 rounded" style={{ backgroundColor: '#1c1917' }}>
+                  <div key={p.id} className="flex flex-col gap-0.5 py-1.5 px-2 rounded-control" style={{ backgroundColor: '#1c1917' }}>
                     <div className="flex items-center gap-2">
                       <span className="text-dense truncate flex-1" style={{ color: '#e7e5e4' }}>{p.name}</span>
                       <span className="text-label uppercase flex-shrink-0"
@@ -214,7 +214,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
               {match.ambiguous.length > 0 && (
                 <PreviewGroup label={`Ambiguous — left untouched (${match.ambiguous.length})`} color="#fbbf24">
                   {match.ambiguous.map(a => (
-                    <div key={a.id} className="py-1.5 px-2 rounded" style={{ backgroundColor: '#1c1917' }}>
+                    <div key={a.id} className="py-1.5 px-2 rounded-control" style={{ backgroundColor: '#1c1917' }}>
                       <div className="text-dense truncate" style={{ color: '#e7e5e4' }}>{a.name}</div>
                       <div className="text-dense font-mono" style={{ color: '#78716c' }}>
                         {a.candidates.length} same-name candidates — rename or remove duplicates, then rescan.
@@ -244,7 +244,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
           )}
 
           {phase === 'done' && applied && (
-            <div className="rounded px-3 py-3 flex items-start gap-2"
+            <div className="rounded-control px-3 py-3 flex items-start gap-2"
               style={{ backgroundColor: 'rgba(22,101,52,0.15)', border: '1px solid #166534' }}>
               <Check className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#4ade80' }} />
               <div className="text-dense font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
@@ -262,14 +262,14 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
           style={{ backgroundColor: '#292524', borderTop: '1px solid #44403c' }}>
           {phase === 'done' ? (
             <button type="button" onClick={onClose}
-              className="px-3 py-1.5 rounded-md text-dense transition-all hover:brightness-125"
+              className="px-3 py-1.5 rounded-float text-dense transition-[filter] hover:brightness-125"
               style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
               Done
             </button>
           ) : (
             <>
               <button type="button" onClick={onClose} disabled={phase === 'applying'}
-                className="px-3 py-1.5 rounded-md text-dense transition-colors hover:bg-stone-700"
+                className="px-3 py-1.5 rounded-float text-dense transition-colors hover:bg-stone-700"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
                 Cancel
               </button>
@@ -281,7 +281,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
               {(phase === 'idle' || phase === 'preview') && (
                 <button type="button" onClick={pickAndScan}
                   disabled={scan == null ? !error : missingCount === 0}
-                  className="px-3 py-1.5 rounded-md text-dense transition-colors hover:bg-stone-700 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-float text-dense transition-colors hover:bg-stone-700 disabled:opacity-40"
                   style={{ color: '#fb923c', border: '1px solid #44403c' }}>
                   {phase === 'preview' ? 'Pick a different folder' : 'Choose folder…'}
                 </button>
@@ -289,7 +289,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
               {phase === 'preview' && (
                 <button type="button" onClick={apply}
                   disabled={!match || match.proposals.length === 0}
-                  className="px-3 py-1.5 rounded-md text-dense transition-all hover:brightness-125 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-float text-dense transition-[filter] hover:brightness-125 disabled:opacity-40"
                   style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
                   Relink {match?.proposals.length ?? 0} file{(match?.proposals.length ?? 0) === 1 ? '' : 's'}
                 </button>
@@ -305,7 +305,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
 function PreviewGroup({ label, color, empty, children }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : !!children
   return (
-    <div className="rounded-md overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
+    <div className="rounded-float overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="px-3 py-1.5 text-label uppercase font-semibold"
         style={{ color, borderBottom: '1px solid #44403c' }}>
         {label}

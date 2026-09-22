@@ -68,7 +68,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
       </>}>
       <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
         {(files || []).slice(0, 12).map(f => (
-          <span key={f.id} className="flex-shrink-0 inline-flex items-center gap-1.5 pr-2 rounded-sm" style={{ backgroundColor: C.panel, border: `1px solid ${C.line}` }} title={f.display_name || f.original_name}>
+          <span key={f.id} className="flex-shrink-0 inline-flex items-center gap-1.5 pr-2 rounded-control" style={{ backgroundColor: C.panel, border: `1px solid ${C.line}` }} title={f.display_name || f.original_name}>
             <BinPoster row={f} src={thumbUrlFor?.(f.id)} width={44} height={25} radius={0} style={{ border: 'none' }} />
             <span className="text-dense font-mono truncate" style={{ color: C.text, maxWidth: 120 }}>{f.display_name || f.original_name}</span>
           </span>
@@ -80,7 +80,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
         <div className="relative flex-1">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
           <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shots by name, number, scene or framing…"
-            className="w-full pl-6 pr-6 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="w-full pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
           {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
@@ -88,7 +88,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
         <span className="text-dense" style={{ color: C.dimmer }}>tick several to use these takes in more than one shot · a shot's first take is always its primary</span>
       </div>
 
-      <div className="rounded-sm overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+      <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
         <div className="max-h-[48vh] overflow-y-auto">
           {shown.length === 0 && (
             <div className="px-3 py-6 text-center text-dense font-mono" style={{ color: C.dimmer }}>
@@ -112,7 +112,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
                     <span className="w-8 text-dense font-mono tabular-nums text-right flex-shrink-0" style={{ color: C.dim }}>#{shot.shot_number ?? '—'}</span>
                     <span className="flex-1 min-w-0 truncate text-dense" style={{ color: C.bright }}>{shot.name || 'Untitled shot'}</span>
                     {shot.framing && <span className="text-label uppercase flex-shrink-0" style={{ color: C.dim }}>{shot.framing}</span>}
-                    <span className="px-1.5 py-0.5 text-label uppercase rounded-sm flex-shrink-0" style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>{String(shot.status || 'not_started').replace(/_/g, ' ')}</span>
+                    <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0" style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>{String(shot.status || 'not_started').replace(/_/g, ' ')}</span>
                     <span className="w-36 text-right text-dense font-mono tabular-nums flex-shrink-0" style={{ color: t?.ofThese ? C.accentText : C.dimmer }}>
                       {t ? `${t.total} take${t.total === 1 ? '' : 's'}${t.ofThese ? ` · ${allIn ? (nFiles === 1 ? 'already assigned' : 'all of these already') : `${t.ofThese} of these already`}` : ''}` : 'no takes yet'}
                     </span>

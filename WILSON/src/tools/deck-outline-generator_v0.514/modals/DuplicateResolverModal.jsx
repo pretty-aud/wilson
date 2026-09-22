@@ -85,7 +85,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div 
-        className="bg-stone-800 border-2 border-stone-600 rounded-sm flex flex-col shadow-xl relative"
+        className="bg-stone-800 border border-stone-600 rounded-control flex flex-col shadow-xl relative"
         style={{ width: '894px', height: '349px' }}
       >
         <div className="bg-stone-700 px-3 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
@@ -95,7 +95,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               Page #{pageNum} • {currentIndex + 1}/{duplicates.length} conflicts
             </p>
           </div>
-          <button onClick={onCancel} className="p-1 hover:bg-stone-600 rounded-sm transition-colors">
+          <button onClick={onCancel} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
             <X className="w-5 h-5 text-stone-400" />
           </button>
         </div>
@@ -107,7 +107,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               onClick={() => setSelectedId(item.id)}
               onMouseEnter={() => handleMouseEnter(item)}
               onMouseLeave={handleMouseLeave}
-              className={`flex-1 text-left p-3 rounded-sm transition-all flex flex-col overflow-hidden ${
+              className={`flex-1 text-left p-3 rounded-control transition-shadow flex flex-col overflow-hidden ${
                 selectedId === item.id 
                   ? 'bg-orange-500/20 border border-orange-500 ring-1 ring-orange-500/30' 
                   : 'bg-stone-900 border border-stone-600 hover:border-stone-500'
@@ -122,7 +122,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
                 )}
               </div>
               
-              <div className="flex-1 bg-stone-950 p-2 rounded border border-stone-700 overflow-hidden flex flex-col">
+              <div className="flex-1 bg-stone-950 p-2 rounded-control border border-stone-700 overflow-hidden flex flex-col">
                 {/* Title styled like visualizer */}
                 <p className={`font-semibold truncate ${selectedId === item.id ? 'text-orange-300' : 'text-orange-400/70'}`} style={{ fontSize: '14px' }}>
                   {item.title}
@@ -159,7 +159,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
         <div className="px-3 py-2 border-t-2 border-stone-600 flex items-center justify-end gap-2 flex-shrink-0">
           <button
             onClick={onExportAll}
-            className="px-4 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-sm text-stone-300 transition-colors"
+            className="px-4 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-control text-stone-300 transition-colors"
             style={{ fontSize: '13px' }}
           >
             Export All
@@ -167,7 +167,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
           <button
             onClick={handleConfirm}
             disabled={!selectedId}
-            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-sm text-white disabled:text-stone-400 font-semibold transition-colors"
+            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control text-white disabled:text-stone-400 font-semibold transition-colors"
             style={{ fontSize: '13px' }}
           >
             Continue
@@ -178,7 +178,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
       {/* Slide Preview Popup - centered */}
       {showPreview && previewItem && (
         <div 
-          className="fixed bg-stone-900 border-2 border-orange-500 rounded-sm shadow-2xl z-[60] p-3 pointer-events-none"
+          className="fixed bg-stone-900 border border-orange-500 rounded-control shadow-2xl z-[60] p-3 pointer-events-none"
           style={{
             left: '50%',
             top: '50%',
@@ -190,7 +190,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
             <span className="text-label font-semibold text-orange-400 uppercase">Preview</span>
             <span className="text-caption text-stone-500">#{previewItem.pageNum} • {previewItem.layout}</span>
           </div>
-          <div className="overflow-hidden rounded border-2 border-stone-700" style={{ width: '714px', height: '402px' }}>
+          <div className="overflow-hidden rounded-control border border-stone-700" style={{ width: '714px', height: '402px' }}>
             <div style={{ width: '714px', height: '402px' }}>
               <LayoutVisualizer content={previewItem.output} compact />
             </div>

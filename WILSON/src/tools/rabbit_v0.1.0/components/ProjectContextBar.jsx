@@ -65,7 +65,7 @@ export default function ProjectContextBar() {
         </span>
         {status && (
           <span
-            className="px-1.5 py-0.5 text-label uppercase rounded-sm flex-shrink-0"
+            className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
             style={{
               color: '#fff7ed',
               backgroundColor: statusColor,
@@ -82,7 +82,7 @@ export default function ProjectContextBar() {
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm transition-colors"
+          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors"
           style={{
             color: '#a8a29e',
             backgroundColor: '#292524',
@@ -94,7 +94,7 @@ export default function ProjectContextBar() {
         </button>
         {open && (
           <div
-            className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
+            className="absolute right-0 mt-1 z-40 rounded-control shadow-2xl overflow-hidden"
             style={{
               backgroundColor: '#292524',
               border: '1px solid #44403c',

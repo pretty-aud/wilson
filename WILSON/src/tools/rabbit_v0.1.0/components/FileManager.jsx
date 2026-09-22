@@ -774,7 +774,7 @@ export default function FileManager({
             <button
               type="button"
               onClick={handleOpenFolder}
-              className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors"
+              className="p-0.5 rounded-control hover:bg-stone-700 transition-colors"
               title="Open folder in explorer"
               style={{ color: '#a8a29e' }}
             >
@@ -801,7 +801,7 @@ export default function FileManager({
             type="button"
             onClick={() => (managed ? handleAddManagedFiles() : cloudInputRef.current?.click())}
             disabled={copying}
-            className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-sm hover:brightness-110 transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-control hover:brightness-110 transition-colors"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',
@@ -816,7 +816,7 @@ export default function FileManager({
             type="button"
             onClick={() => setViewMode('table')}
             title="Table"
-            className="p-1 rounded-sm"
+            className="p-1 rounded-control"
             style={{
               color: viewMode === 'table' ? '#fb923c' : '#78716c',
               backgroundColor: viewMode === 'table' ? '#44403c' : 'transparent',
@@ -828,7 +828,7 @@ export default function FileManager({
             type="button"
             onClick={() => setViewMode('gallery')}
             title="Gallery"
-            className="p-1 rounded-sm"
+            className="p-1 rounded-control"
             style={{
               color: viewMode === 'gallery' ? '#fb923c' : '#78716c',
               backgroundColor: viewMode === 'gallery' ? '#44403c' : 'transparent',
@@ -846,7 +846,7 @@ export default function FileManager({
           write to — and it has to say so. */}
       {uploadError && (
         <div
-          className="mb-2 px-2 py-1 rounded-sm text-dense"
+          className="mb-2 px-2 py-1 rounded-control text-dense"
           style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
         >
           {uploadError}
@@ -860,14 +860,14 @@ export default function FileManager({
           error banner above uses: nothing here failed. */}
       {batchNotice && (
         <div
-          className="mb-2 px-2 py-1 rounded-sm text-dense flex items-start justify-between gap-2"
+          className="mb-2 px-2 py-1 rounded-control text-dense flex items-start justify-between gap-2"
           style={{ color: '#fcd34d', backgroundColor: 'rgba(234,179,8,0.10)', border: '1px solid #78350f' }}
         >
           <span>{batchNotice}</span>
           <button
             type="button"
             onClick={() => setBatchNotice(null)}
-            className="p-0.5 rounded-sm hover:bg-stone-700 shrink-0"
+            className="p-0.5 rounded-control hover:bg-stone-700 shrink-0"
             style={{ color: '#a8a29e' }}
             title="Dismiss"
           >
@@ -882,7 +882,7 @@ export default function FileManager({
           for the whole batch, listing every refusal — not one per file. */}
       {refusedFiles?.length > 0 && (
         <div
-          className="mb-2 px-2 py-1.5 rounded-sm text-dense"
+          className="mb-2 px-2 py-1.5 rounded-control text-dense"
           style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
         >
           <div className="flex items-start justify-between gap-2">
@@ -892,7 +892,7 @@ export default function FileManager({
             <button
               type="button"
               onClick={() => setRefusedFiles(null)}
-              className="p-0.5 rounded-sm hover:bg-stone-700 shrink-0"
+              className="p-0.5 rounded-control hover:bg-stone-700 shrink-0"
               style={{ color: '#fca5a5' }}
               title="Dismiss"
             >
@@ -915,7 +915,7 @@ export default function FileManager({
           </div>
           <div className="w-full rounded-full overflow-hidden" style={{ height: 3, backgroundColor: '#44403c' }}>
             <div
-              className="h-full rounded-full transition-all"
+              className="h-full rounded-full transition-[width]"
               style={{ width: `${copyProgress.percent}%`, backgroundColor: '#ea580c' }}
             />
           </div>
@@ -1012,13 +1012,13 @@ export default function FileManager({
                             if (e.key === 'Enter') handleSaveNotes(f.id)
                             if (e.key === 'Escape') setEditingNotes(null)
                           }}
-                          className="flex-1 px-1 py-0.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+                          className="flex-1 px-1 py-0.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
                           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                         />
-                        <button onClick={() => handleSaveNotes(f.id)} className="p-0.5 hover:bg-stone-700 rounded-sm" style={{ color: '#86efac' }}>
+                        <button onClick={() => handleSaveNotes(f.id)} className="p-0.5 hover:bg-stone-700 rounded-control" style={{ color: '#86efac' }}>
                           <Check className="w-2.5 h-2.5" />
                         </button>
-                        <button onClick={() => setEditingNotes(null)} className="p-0.5 hover:bg-stone-700 rounded-sm" style={{ color: '#fca5a5' }}>
+                        <button onClick={() => setEditingNotes(null)} className="p-0.5 hover:bg-stone-700 rounded-control" style={{ color: '#fca5a5' }}>
                           <X className="w-2.5 h-2.5" />
                         </button>
                       </div>
@@ -1039,7 +1039,7 @@ export default function FileManager({
                       stored_name per version. A cloud row has no version, and
                       printing "v001" on every one of them would be a confident
                       lie about a feature that is not there. */}
-                  <span className="text-dense px-1.5 py-0.5 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
+                  <span className="text-dense px-1.5 py-0.5 rounded-control" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
                     {f.version_label || (managed ? 'v001' : '--')}
                   </span>
                 </Td>
@@ -1058,7 +1058,7 @@ export default function FileManager({
                     <button
                       type="button"
                       onClick={() => (managed ? handleDownload(f) : handleCloudDownload(f))}
-                      className="p-1 rounded-sm hover:bg-stone-700"
+                      className="p-1 rounded-control hover:bg-stone-700"
                       title={managed ? 'Show in explorer' : 'Download'}
                       style={{ color: '#a8a29e' }}
                     >
@@ -1068,7 +1068,7 @@ export default function FileManager({
                       <button
                         type="button"
                         onClick={() => handleDelete(f)}
-                        className="p-1 rounded-sm hover:bg-stone-700"
+                        className="p-1 rounded-control hover:bg-stone-700"
                         title="Delete file"
                         style={{ color: '#fca5a5' }}
                       >
@@ -1090,7 +1090,7 @@ export default function FileManager({
           {assetFiles.map(f => (
             <div
               key={f.id}
-              className="rounded-sm overflow-hidden flex flex-col"
+              className="rounded-control overflow-hidden flex flex-col"
               style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
             >
               <div className="flex items-center justify-center" style={{ height: 100, backgroundColor: '#1c1917' }}>
@@ -1127,7 +1127,7 @@ export default function FileManager({
                   </span>
                 )}
                 <div className="flex items-center justify-between">
-                  <span className="text-dense px-1 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
+                  <span className="text-dense px-1 rounded-control" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
                     {f.version_label || (managed ? 'v001' : '--')}
                   </span>
                   <span className="text-dense font-mono" style={{ color: '#78716c' }}>
@@ -1142,7 +1142,7 @@ export default function FileManager({
                 <button
                   type="button"
                   onClick={() => (managed ? handleDownload(f) : handleCloudDownload(f))}
-                  className="p-1 rounded-sm hover:bg-stone-700"
+                  className="p-1 rounded-control hover:bg-stone-700"
                   title={managed ? 'Show in explorer' : 'Download'}
                   style={{ color: '#a8a29e' }}
                 >
@@ -1152,7 +1152,7 @@ export default function FileManager({
                   <button
                     type="button"
                     onClick={() => handleDelete(f)}
-                    className="p-1 rounded-sm hover:bg-stone-700"
+                    className="p-1 rounded-control hover:bg-stone-700"
                     title="Delete file"
                     style={{ color: '#fca5a5' }}
                   >

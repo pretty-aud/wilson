@@ -281,7 +281,7 @@ export default function LevelsView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
           style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
@@ -290,13 +290,13 @@ export default function LevelsView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-sm cursor-pointer"
+            className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
           <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-            className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
+            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors"
             style={{ color: sortField ? '#fb923c' : '#57534e' }}>
             <ArrowUpDown className="w-3.5 h-3.5" />
           </button>
@@ -307,7 +307,7 @@ export default function LevelsView() {
         {/* Group */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense rounded-sm cursor-pointer"
+          className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -315,7 +315,7 @@ export default function LevelsView() {
         <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* View mode toggle */}
-        <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <div className="flex items-center rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
             className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
             style={{
@@ -336,7 +336,7 @@ export default function LevelsView() {
 
         {/* Gallery size selector */}
         {viewMode === 'gallery' && (
-          <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+          <div className="flex rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
             {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
               <button key={key} type="button" onClick={() => setGallerySize(key)}
                 className="flex items-center justify-center w-7 h-7 transition-colors"
@@ -358,7 +358,7 @@ export default function LevelsView() {
         <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* Search */}
-        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
@@ -366,7 +366,7 @@ export default function LevelsView() {
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')}
-              className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
+              className="p-1 mr-0.5 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3 h-3" />
             </button>
           )}
@@ -379,7 +379,7 @@ export default function LevelsView() {
           </span>
 
           <button type="button" onClick={() => setShowCreatePopup(true)}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-dense rounded transition-colors"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             <Plus className="w-3.5 h-3.5" /> New level
           </button>
@@ -395,15 +395,15 @@ export default function LevelsView() {
       {showSaveDialog && (
         <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500 w-48"
+            className="px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-48"
             style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
           <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-dense rounded transition-colors"
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
           <button type="button" onClick={() => setShowSaveDialog(false)}
-            className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+            className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -524,16 +524,16 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
 
         {/* Bulk action bar */}
         {someSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
+          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-control"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
             <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <BulkSelect label="Status" options={LEVEL_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
+            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-1 rounded-control hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
               <Trash2 className="w-3 h-3" /> <span className="text-label uppercase">Delete</span>
             </button>
-            <button type="button" onClick={clearSelection} className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+            <button type="button" onClick={clearSelection} className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -567,7 +567,7 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
             <select
               value={lv.status || 'not_started'}
               onChange={e => ctx?.updateLevel?.(lv.id, { status: e.target.value })}
-              className="px-1.5 py-0.5 text-dense rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
+              className="px-1.5 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
               style={{
                 color: statusColor(lv.status),
                 backgroundColor: 'rgba(0,0,0,0.3)',
@@ -601,11 +601,11 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
           {/* Actions */}
           <span className="w-20 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button type="button" onClick={() => onOpenDetail(lv.id)}
-              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
+              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
               <Eye className="w-3.5 h-3.5" />
             </button>
             <button type="button" onClick={() => onRequestDelete({ id: lv.id, name: lv.name || 'Untitled' })}
-              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete level">
+              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete level">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </span>
@@ -636,7 +636,7 @@ function LevelGallery({ levels, gallerySize, onOpenDetail, onRequestDelete }) {
       {levels.map(lv => (
         <div key={lv.id}
           onClick={() => onOpenDetail(lv.id)}
-          className="rounded overflow-hidden hover:ring-2 hover:ring-orange-500/50 transition-all cursor-pointer group relative"
+          className="rounded-control overflow-hidden hover:ring-2 hover:ring-orange-500/50 transition-shadow cursor-pointer group relative"
           style={{ width: cardW, backgroundColor: '#292524', border: '1px solid #44403c' }}>
           {/* Thumbnail placeholder */}
           <div className="flex items-center justify-center relative"
@@ -644,7 +644,7 @@ function LevelGallery({ levels, gallerySize, onOpenDetail, onRequestDelete }) {
             <Gamepad2 className="w-8 h-8" style={{ color: '#44403c' }} />
             <button type="button"
               onClick={e => { e.stopPropagation(); onRequestDelete({ id: lv.id, name: lv.name || 'Untitled' }) }}
-              className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
+              className="absolute top-2 right-2 p-1 rounded-control opacity-0 group-hover:opacity-100 transition-[color,background-color,border-color,opacity] hover:bg-red-900/50"
               style={{ color: '#ef4444' }}>
               <Trash2 className="w-3 h-3" />
             </button>
@@ -655,7 +655,7 @@ function LevelGallery({ levels, gallerySize, onOpenDetail, onRequestDelete }) {
               {lv.name || 'Untitled level'}
             </span>
             <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 text-label uppercase rounded-sm"
+              <span className="px-1.5 py-0.5 text-label uppercase rounded-control"
                 style={{ color: statusColor(lv.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(lv.status)}30` }}>
                 {fmt(lv.status || 'not_started')}
               </span>
@@ -757,7 +757,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
 
         {/* ── MAIN POPUP ── */}
         <div
-          className="pointer-events-auto w-full max-w-4xl rounded-sm overflow-hidden flex flex-col"
+          className="pointer-events-auto w-full max-w-4xl rounded-control overflow-hidden flex flex-col"
           style={{
             backgroundColor: '#292524',
             border: '2px solid #f97316',
@@ -774,7 +774,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
               {level.name || 'Untitled level'}
             </span>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -799,7 +799,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
 
           {/* Thumbnail + Title */}
           <div className="flex items-start gap-4 mb-5">
-            <div className="relative flex-shrink-0 rounded-sm overflow-hidden flex items-center justify-center group/thumb"
+            <div className="relative flex-shrink-0 rounded-control overflow-hidden flex items-center justify-center group/thumb"
               style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               {hasThumbnail ? (
                 <>
@@ -809,10 +809,10 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                   <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
                     style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
                     <button type="button" onClick={handleSetThumbnail}
-                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
+                      className="p-1.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
                       title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
                     <button type="button" onClick={handleClearThumbnail}
-                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
+                      className="p-1.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
                       title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
                   </div>
                 </>
@@ -843,7 +843,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             <div>
               <FieldLabel>Status</FieldLabel>
               <select value={level.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                 {LEVEL_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
               </select>
@@ -862,7 +862,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                 type="date"
                 value={level.start_date || ''}
                 onChange={(e) => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                 style={{
                   backgroundColor: '#1c1917', color: '#d6d3d1',
                   border: '1px solid #44403c', colorScheme: 'dark',
@@ -875,7 +875,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                 type="date"
                 value={level.end_date || ''}
                 onChange={(e) => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                 style={{
                   backgroundColor: '#1c1917', color: '#d6d3d1',
                   border: '1px solid #44403c', colorScheme: 'dark',
@@ -890,7 +890,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             {editingDesc ? (
               <div>
                 <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded resize-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control resize-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -906,7 +906,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
               </div>
             ) : (
               <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-dense rounded cursor-pointer hover:bg-stone-800 transition-colors"
+                className="px-3 py-2 text-dense rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
                 style={{ backgroundColor: '#1c1917', color: level.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
                 {level.description || 'Click to add a description...'}
               </div>
@@ -919,7 +919,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             {editingNotes ? (
               <div>
                 <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded resize-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control resize-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -935,7 +935,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
               </div>
             ) : (
               <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-dense rounded cursor-pointer hover:bg-stone-800 transition-colors"
+                className="px-3 py-2 text-dense rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
                 style={{ backgroundColor: '#1c1917', color: level.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
                 {level.notes || 'Click to add notes...'}
               </div>
@@ -948,12 +948,12 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button"
             onClick={() => { onClose(); onRequestDelete({ id: level.id, name: level.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors hover:bg-red-900/30"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-red-900/30"
             style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
             <Trash2 className="w-3.5 h-3.5" /> Delete level
           </button>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Close
           </button>
@@ -971,7 +971,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
   return (
     <>
       <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onCancel} />
-      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-sm rounded overflow-hidden"
+      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-sm rounded-control overflow-hidden"
         style={{ backgroundColor: '#292524', border: '2px solid #ef4444', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
@@ -985,10 +985,10 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
         </div>
         <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
           <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-dense rounded-sm transition-colors hover:bg-red-800"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-red-800"
             style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>Delete</button>
         </div>
       </div>
@@ -1020,7 +1020,7 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
   return (
     <>
       <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded overflow-hidden flex flex-col"
+      <div className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden flex flex-col"
         style={{ backgroundColor: '#292524', border: '2px solid #f97316', maxHeight: '80vh', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '3px solid #fb923c' }}>
@@ -1028,7 +1028,7 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
             <Gamepad2 className="w-4 h-4" style={{ color: '#fb923c' }} />
             <span className="text-h3 font-semibold" style={{ color: '#fb923c' }}>New Level</span>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1036,13 +1036,13 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
           <div>
             <FieldLabel>Name <span style={{ color: '#ef4444' }}>*</span></FieldLabel>
             <input type="text" value={name} onChange={e => setName(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} autoFocus />
           </div>
           <div>
             <FieldLabel>Status</FieldLabel>
             <select value={status} onChange={e => setStatus(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: statusColor(status), border: '1px solid #44403c' }}>
               {LEVEL_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -1050,7 +1050,7 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
           <div>
             <FieldLabel>Description</FieldLabel>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
-              className="w-full px-2.5 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500 resize-none"
+              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-none"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               placeholder="Description..." />
           </div>
@@ -1058,17 +1058,17 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
             <FieldLabel>Files</FieldLabel>
             <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               <Upload className="w-3.5 h-3.5" /> Add files
             </button>
             {files.length > 0 && (
               <div className="mt-2 flex flex-col gap-1">
                 {files.map((f, i) => (
-                  <div key={i} className="flex items-center gap-2 px-2 py-1 rounded" style={{ backgroundColor: '#1c1917' }}>
+                  <div key={i} className="flex items-center gap-2 px-2 py-1 rounded-control" style={{ backgroundColor: '#1c1917' }}>
                     <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
                     <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
-                      className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#fca5a5' }}>
+                      className="p-0.5 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#fca5a5' }}>
                       <X className="w-3 h-3" />
                     </button>
                   </div>
@@ -1079,10 +1079,10 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
           <button type="button" onClick={handleConfirm} disabled={!name.trim()}
-            className="px-4 py-1.5 text-dense rounded transition-colors disabled:opacity-40"
+            className="px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-40"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Confirm & Create</button>
         </div>
       </div>
@@ -1113,19 +1113,19 @@ function LevelFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {LEVEL_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -1133,11 +1133,11 @@ function LevelFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-dense rounded focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
-            <button type="button" onClick={() => onRemove(i)} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#fca5a5' }}>
+            <button type="button" onClick={() => onRemove(i)} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#fca5a5' }}>
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1145,13 +1145,13 @@ function LevelFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -1176,12 +1176,12 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-30"
+        <div className="absolute right-0 top-full mt-1 w-56 rounded-control overflow-hidden z-30"
           style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {views.length === 0 && (
             <div className="px-3 py-2.5 text-dense italic" style={{ color: '#78716c' }}>No saved views</div>
@@ -1191,7 +1191,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
               onClick={() => { onLoad(v); setOpen(false) }}>
               <span className="text-dense truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
               <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
-                className="p-0.5 hover:bg-stone-600 rounded transition-colors" style={{ color: '#fca5a5' }}>
+                className="p-0.5 hover:bg-stone-600 rounded-control transition-colors" style={{ color: '#fca5a5' }}>
                 <X className="w-3 h-3" />
               </button>
             </div>
@@ -1214,7 +1214,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
   return (
     <select defaultValue="" onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-dense rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
       <option value="" disabled>{label}</option>
       {allowEmpty && <option value="">None</option>}
@@ -1243,7 +1243,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md' }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className={`w-full ${textSize} px-1.5 py-0.5 rounded focus:ring-1 focus:ring-orange-500`}
+        className={`w-full ${textSize} px-1.5 py-0.5 rounded-control focus:ring-1 focus:ring-orange-500`}
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
@@ -1273,13 +1273,13 @@ function PopupInlineText({ value, placeholder, onCommit }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full text-body px-2.5 py-1.5 rounded focus:ring-2 focus:ring-orange-500"
+        className="w-full text-body px-2.5 py-1.5 rounded-control focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <div onClick={() => setEditing(true)}
-      className="text-dense px-2.5 py-1.5 rounded cursor-pointer hover:bg-stone-800 transition-colors"
+      className="text-dense px-2.5 py-1.5 rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
       style={{ backgroundColor: '#1c1917', color: value ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
       {value || placeholder}
     </div>

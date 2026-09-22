@@ -183,7 +183,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="bg-stone-800 border-2 border-stone-600 rounded-sm w-[560px] max-h-[80vh] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]"
+        className="bg-stone-800 border border-stone-600 rounded-control w-[560px] max-h-[80vh] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]"
         onClick={e => e.stopPropagation()}
       >
         <div className="bg-stone-700 px-4 py-2.5 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
@@ -193,14 +193,14 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               to the company standard{standardName ? `: ${standardName}` : ''}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-sm shrink-0" aria-label="Close">
+          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control shrink-0" aria-label="Close">
             <X className="w-4 h-4 text-stone-400" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {!targetId && (
-            <div className="bg-stone-900 border border-stone-700 rounded-sm p-3">
+            <div className="bg-stone-900 border border-stone-700 rounded-control p-3">
               <p className="text-stone-400 text-dense">
                 This course wasn&apos;t copied from a company standard, so there is nothing to
                 suggest a change to. Start from a company standard course and you can send your
@@ -219,7 +219,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                 <>
                   {/* The admin answered: their note, then two ways forward. */}
                   {isDeclined && (
-                    <div className="bg-stone-900 border border-orange-700/60 rounded-sm p-3">
+                    <div className="bg-stone-900 border border-orange-700/60 rounded-control p-3">
                       <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {existing.reviewer_label ?? 'An admin'} asked for changes
@@ -236,7 +236,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   )}
 
                   {existing && !isDeclined && (
-                    <div className="bg-stone-900 border border-orange-700/50 rounded-sm p-2.5">
+                    <div className="bg-stone-900 border border-orange-700/50 rounded-control p-2.5">
                       <p className="text-orange-400 text-label font-semibold uppercase mb-0.5">
                         You already have a request open
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
@@ -256,7 +256,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                       onChange={e => setSummary(e.target.value)}
                       disabled={busy}
                       placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
-                      className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-body resize-none focus:border-orange-500 placeholder-stone-600"
+                      className="w-full h-36 bg-stone-950 text-white border border-stone-600 rounded-control p-3 text-body resize-none focus:border-orange-500 placeholder-stone-600"
                     />
                     <div className="flex justify-between mt-1">
                       <span className="text-stone-600 text-caption">
@@ -270,7 +270,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
                   {/* The review window, stated once (Session 13 — the "also
                       share my copy" checkbox is gone because this replaced it). */}
-                  <div className="bg-stone-900 border border-stone-700 rounded-sm p-2.5">
+                  <div className="bg-stone-900 border border-stone-700 rounded-control p-2.5">
                     <p className="text-stone-400 text-dense leading-relaxed">
                       Submitting lets reviewers open your copy of this course, read-only, while
                       the request is under review. That access ends when the request is decided.
@@ -285,13 +285,13 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
           )}
 
           {error && (
-            <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
+            <div className="bg-red-900/30 border border-red-700 rounded-control p-2.5 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
               <p className="text-red-300 text-dense">{error}</p>
             </div>
           )}
           {done && !error && (
-            <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-center gap-2">
+            <div className="bg-green-900/25 border border-green-800 rounded-control p-2.5 flex items-center gap-2">
               <Check className="w-4 h-4 text-green-400 shrink-0" />
               <p className="text-green-300 text-dense">{done}</p>
             </div>
@@ -304,7 +304,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               <button
                 onClick={withdraw}
                 disabled={busy}
-                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Undo2 className="w-3 h-3" /> Withdraw
               </button>
@@ -313,7 +313,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
               <button
                 onClick={acceptDecision}
                 disabled={busy}
-                className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Check className="w-3 h-3" /> Accept the decision
               </button>
@@ -321,14 +321,14 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
             <div className="flex-1" />
             <button
               onClick={onClose}
-              className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-dense font-semibold"
+              className="px-3 py-2 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold"
             >
               Close
             </button>
             <button
               onClick={submit}
               disabled={busy || !summary.trim() || tooLong}
-              className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
               {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}

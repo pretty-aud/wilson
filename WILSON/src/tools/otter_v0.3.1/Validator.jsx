@@ -611,7 +611,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
             <select
               value={scope}
               onChange={(e) => setScope(e.target.value)}
-              className="bg-stone-700 text-stone-200 text-body border border-stone-600 rounded-sm px-3 py-1.5 focus:border-orange-500"
+              className="bg-stone-700 text-stone-200 text-body border border-stone-600 rounded-control px-3 py-1.5 focus:border-orange-500"
             >
               <option value="full">Full Validation</option>
               <option value="targeted">Targeted Validation</option>
@@ -619,7 +619,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
             <button
               onClick={startValidation}
               disabled={allLessonIds.length === 0 || (scope === 'targeted' && selectedLessons.size === 0)}
-              className={`flex items-center gap-1.5 px-4 py-1.5 text-body font-semibold rounded-sm transition-colors ${
+              className={`flex items-center gap-1.5 px-4 py-1.5 text-body font-semibold rounded-control transition-colors ${
                 allLessonIds.length === 0 || (scope === 'targeted' && selectedLessons.size === 0)
                   ? 'bg-stone-700 text-stone-500 cursor-not-allowed'
                   : 'bg-orange-600 text-white hover:bg-orange-500'
@@ -639,8 +639,8 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
               <span className="text-body text-stone-400">
                 {selectedLessons.size} of {allLessonIds.length} lesson{allLessonIds.length !== 1 ? 's' : ''} selected
               </span>
-              <button onClick={selectAll} className="text-dense font-semibold text-orange-400 hover:text-orange-300 px-2 py-1 bg-stone-800 rounded-sm border border-stone-700">Select All</button>
-              <button onClick={deselectAll} className="text-dense font-semibold text-stone-400 hover:text-stone-300 px-2 py-1 bg-stone-800 rounded-sm border border-stone-700">Deselect All</button>
+              <button onClick={selectAll} className="text-dense font-semibold text-orange-400 hover:text-orange-300 px-2 py-1 bg-stone-800 rounded-control border border-stone-700">Select All</button>
+              <button onClick={deselectAll} className="text-dense font-semibold text-stone-400 hover:text-stone-300 px-2 py-1 bg-stone-800 rounded-control border border-stone-700">Deselect All</button>
             </div>
 
             {lessonTree.length === 0 ? (
@@ -660,7 +660,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
                   const swSomeSelected = swLessonIds.some(id => selectedLessons.has(id));
 
                   return (
-                    <div key={sw.slug} className="border-2 border-stone-600 rounded-sm overflow-hidden">
+                    <div key={sw.slug} className="border border-stone-600 rounded-control overflow-hidden">
                       {/* Software header */}
                       <div className="flex items-center gap-2 px-4 py-2.5 bg-stone-700 border-b-2 border-stone-600">
                         <input
@@ -811,7 +811,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
             {isProcessing && (
               <button
                 onClick={stopValidation}
-                className="px-2 py-1 bg-red-700 text-white text-dense font-semibold rounded-sm hover:bg-red-600 transition-colors"
+                className="px-2 py-1 bg-red-700 text-white text-dense font-semibold rounded-control hover:bg-red-600 transition-colors"
                 title="Stop validation"
               >
                 <Square className="w-3 h-3" />
@@ -879,7 +879,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
                     selectedAuditId === audit.id ? 'bg-stone-700' : 'hover:bg-stone-700/50'
                   }`}
                 >
-                  <span className={`${gc.bg} text-white text-dense font-semibold w-6 h-6 rounded-sm flex items-center justify-center shrink-0`}>
+                  <span className={`${gc.bg} text-white text-dense font-semibold w-6 h-6 rounded-control flex items-center justify-center shrink-0`}>
                     {audit.grade}
                   </span>
                   <div className="min-w-0 flex-1">
@@ -912,7 +912,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
               </div>
               <h2 className="text-h1 font-semibold text-stone-200 mb-2">{selectedAudit.lessonTitle}</h2>
               <div className="flex items-center gap-3 mb-3">
-                <span className={`${gradeColor(selectedAudit.grade).bg} text-white text-h1 font-semibold w-12 h-12 rounded-sm flex items-center justify-center shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]`}>
+                <span className={`${gradeColor(selectedAudit.grade).bg} text-white text-h1 font-semibold w-12 h-12 rounded-control flex items-center justify-center shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]`}>
                   {selectedAudit.grade}
                 </span>
                 <div>
@@ -946,7 +946,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
                     <button
                       onClick={requestFixes}
                       disabled={fixLoading}
-                      className={`flex items-center gap-1.5 px-3 py-1 text-dense font-semibold rounded-sm transition-colors ${
+                      className={`flex items-center gap-1.5 px-3 py-1 text-dense font-semibold rounded-control transition-colors ${
                         fixLoading ? 'bg-stone-700 text-stone-500' : 'bg-orange-600 text-white hover:bg-orange-500'
                       }`}
                     >
@@ -960,7 +960,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
                   {selectedAudit.fixes && hasUnhandledFixes && (
                     <button
                       onClick={acceptAllFixes}
-                      className="flex items-center gap-1.5 px-3 py-1 text-dense font-semibold rounded-sm bg-green-700 text-white hover:bg-green-600 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1 text-dense font-semibold rounded-control bg-green-700 text-white hover:bg-green-600 transition-colors"
                     >
                       <Check className="w-3 h-3" /> Accept All Fixes
                     </button>
@@ -996,7 +996,7 @@ function FindingCard({ finding }) {
   const [collapsed, setCollapsed] = useState(finding.verdict === 'accurate');
 
   return (
-    <div className={`border rounded-sm ${
+    <div className={`border rounded-control ${
       finding.verdict === 'inaccurate' ? 'border-red-700/50 bg-red-950/20' :
       finding.verdict === 'unverifiable' ? 'border-yellow-700/50 bg-yellow-950/20' :
       'border-stone-700 bg-stone-800/50'
@@ -1042,7 +1042,7 @@ function FixCard({ fix, index, outcome, onAccept, onDecline }) {
 
   if (accepted) {
     return (
-      <div className="border border-green-700/50 bg-green-950/20 rounded-sm p-3 flex items-center gap-2">
+      <div className="border border-green-700/50 bg-green-950/20 rounded-control p-3 flex items-center gap-2">
         <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
         <span className="text-dense text-green-400">Fix #{index + 1} applied</span>
       </div>
@@ -1051,7 +1051,7 @@ function FixCard({ fix, index, outcome, onAccept, onDecline }) {
 
   if (declined) {
     return (
-      <div className="border border-stone-700 bg-stone-800/30 rounded-sm p-3 flex items-center gap-2 opacity-50">
+      <div className="border border-stone-700 bg-stone-800/30 rounded-control p-3 flex items-center gap-2 opacity-50">
         <XCircle className="w-4 h-4 text-stone-500 shrink-0" />
         <span className="text-caption text-stone-500">Fix #{index + 1} declined</span>
       </div>
@@ -1059,7 +1059,7 @@ function FixCard({ fix, index, outcome, onAccept, onDecline }) {
   }
 
   return (
-    <div className="border border-stone-700 rounded-sm overflow-hidden">
+    <div className="border border-stone-700 rounded-control overflow-hidden">
       <div className="px-3 py-2 bg-stone-800 border-b border-stone-700 flex items-center justify-between">
         <span className="text-dense font-semibold text-stone-300">Fix #{index + 1}</span>
         <span className="text-caption text-stone-500">{fix.explanation}</span>
@@ -1068,14 +1068,14 @@ function FixCard({ fix, index, outcome, onAccept, onDecline }) {
         {/* Current */}
         <div className="p-3">
           <div className="text-label font-semibold text-stone-500 uppercase mb-1">Current</div>
-          <div className="text-dense text-stone-300 leading-relaxed bg-red-500/10 p-2 rounded-sm border border-red-800/30">
+          <div className="text-dense text-stone-300 leading-relaxed bg-red-500/10 p-2 rounded-control border border-red-800/30">
             {fix.original}
           </div>
         </div>
         {/* Proposed */}
         <div className="p-3">
           <div className="text-label font-semibold text-stone-500 uppercase mb-1">Proposed</div>
-          <div className="text-dense text-stone-300 leading-relaxed bg-green-500/10 p-2 rounded-sm border border-green-800/30">
+          <div className="text-dense text-stone-300 leading-relaxed bg-green-500/10 p-2 rounded-control border border-green-800/30">
             {fix.proposed}
           </div>
         </div>
@@ -1094,13 +1094,13 @@ function FixCard({ fix, index, outcome, onAccept, onDecline }) {
       <div className="px-3 py-2 bg-stone-800 border-t border-stone-700 flex items-center gap-2 justify-end">
         <button
           onClick={onDecline}
-          className="px-3 py-1 text-dense font-semibold text-stone-400 bg-stone-700 rounded-sm hover:bg-stone-600 hover:text-stone-200 transition-colors"
+          className="px-3 py-1 text-dense font-semibold text-stone-400 bg-stone-700 rounded-control hover:bg-stone-600 hover:text-stone-200 transition-colors"
         >
           Decline Fix
         </button>
         <button
           onClick={onAccept}
-          className="px-3 py-1 text-dense font-semibold text-white bg-green-700 rounded-sm hover:bg-green-600 transition-colors"
+          className="px-3 py-1 text-dense font-semibold text-white bg-green-700 rounded-control hover:bg-green-600 transition-colors"
         >
           {failed ? 'Try Again' : 'Accept Fix'}
         </button>

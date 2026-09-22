@@ -98,11 +98,11 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
             </div>
           </div>
           <button type="button" onClick={load} title="Refresh"
-            className="p-1.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
+            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
             <RefreshCw className={`w-3.5 h-3.5${loading ? ' animate-spin' : ''}`} />
           </button>
           <button type="button" onClick={onClose} title="Close"
-            className="p-1.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
+            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -110,13 +110,13 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
           {!cloudMode ? (
-            <div className="text-dense px-3 py-4 rounded"
+            <div className="text-dense px-3 py-4 rounded-control"
               style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
               Edit history is only recorded in cloud (supabase) mode. The
               current adapter ({adapterMode}) does not capture changes.
             </div>
           ) : error ? (
-            <div className="text-dense px-3 py-4 rounded"
+            <div className="text-dense px-3 py-4 rounded-control"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               Could not load history: {error}
             </div>
@@ -131,7 +131,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
           ) : (
             <>
               {revertError && (
-                <div className="text-dense px-3 py-2 rounded"
+                <div className="text-dense px-3 py-2 rounded-control"
                   style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
                   Revert failed: {revertError}
                 </div>
@@ -173,10 +173,10 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
   const summary = entry.action !== 'update' ? snapshotSummary(entry) : null
 
   return (
-    <div className="rounded px-3 py-2.5 flex flex-col gap-1.5"
+    <div className="rounded-control px-3 py-2.5 flex flex-col gap-1.5"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2">
-        <span className="text-label uppercase font-semibold px-1.5 py-0.5 rounded-sm flex-shrink-0"
+        <span className="text-label uppercase font-semibold px-1.5 py-0.5 rounded-control flex-shrink-0"
           style={{ color: meta.color, border: `1px solid ${meta.color}`, opacity: 0.9 }}>
           {meta.label}
         </span>
@@ -192,7 +192,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
             onClick={() => onRevert(entry)}
             disabled={disabled}
             title={revertActionLabel(entry)}
-            className="p-1 rounded hover:bg-stone-700 transition-colors flex-shrink-0 disabled:opacity-40"
+            className="p-1 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0 disabled:opacity-40"
             style={{ color: '#fb923c' }}
           >
             <RotateCcw className={`w-3.5 h-3.5${reverting ? ' animate-spin' : ''}`} />

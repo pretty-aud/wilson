@@ -30,14 +30,14 @@ export default function LessonOutlinePopup({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-      <div className="bg-stone-900 border-2 border-orange-500 rounded-sm shadow-2xl flex flex-col" style={{ width: '500px', maxHeight: '70vh' }}>
+      <div className="bg-stone-900 border border-orange-500 rounded-control shadow-2xl flex flex-col" style={{ width: '500px', maxHeight: '70vh' }}>
         {/* Header */}
         <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0 rounded-t-sm">
           <div className="flex items-center gap-2">
             <HeaderIcon className="w-4 h-4 text-orange-400" />
             <span className="text-label font-semibold text-orange-400 uppercase">{headerText}</span>
           </div>
-          <button onClick={onCancel} className="p-1 hover:bg-stone-700 rounded transition-colors" disabled={loading}>
+          <button onClick={onCancel} className="p-1 hover:bg-stone-700 rounded-control transition-colors" disabled={loading}>
             <X className="w-4 h-4 text-stone-400" />
           </button>
         </div>
@@ -63,7 +63,7 @@ export default function LessonOutlinePopup({
           )}
 
           {/* Info note */}
-          <div className="bg-stone-800 border border-stone-600 rounded-sm px-3 py-2">
+          <div className="bg-stone-800 border border-stone-600 rounded-control px-3 py-2">
             <p className="text-dense text-stone-400 leading-relaxed">{noteText}</p>
           </div>
         </div>
@@ -73,14 +73,14 @@ export default function LessonOutlinePopup({
           <button
             onClick={onGenerate}
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-semibold rounded-sm hover:bg-green-600 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-semibold rounded-control hover:bg-green-600 transition-colors disabled:opacity-50"
           >
             <Play className="w-3.5 h-3.5" /> {loading ? generatingLabel : generateLabel}
           </button>
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-sm hover:bg-stone-600 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-control hover:bg-stone-600 transition-colors disabled:opacity-50"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Refresh
           </button>
@@ -88,7 +88,7 @@ export default function LessonOutlinePopup({
           <button
             onClick={onCancel}
             disabled={loading}
-            className="px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-sm hover:bg-stone-600 transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-control hover:bg-stone-600 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>

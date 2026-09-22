@@ -170,14 +170,14 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
           </span>
         </div>
         <button type="button" onClick={handlePrint}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <Printer className="w-3.5 h-3.5" /> Print / Export
         </button>
       </div>
 
       {/* Preview card */}
-      <div ref={printRef} className="rounded-sm p-6" style={{ backgroundColor: '#fafaf9', border: '1px solid #d6d3d1' }}>
+      <div ref={printRef} className="rounded-control p-6" style={{ backgroundColor: '#fafaf9', border: '1px solid #d6d3d1' }}>
         <h2 className="text-h1 font-semibold mb-1" style={{ color: '#1c1917' }}>
           {project?.title || 'Project'}
         </h2>
@@ -253,7 +253,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         {/* Note + Signature area */}
         <div className="mt-8">
           <p className="text-dense mb-1" style={{ color: '#78716c' }}>Note:</p>
-          <div className="h-16 rounded-sm mb-8" style={{ border: '1px solid #e7e5e4' }} />
+          <div className="h-16 rounded-control mb-8" style={{ border: '1px solid #e7e5e4' }} />
 
           <div className="flex flex-col gap-4 text-dense" style={{ color: '#1c1917' }}>
             <div className="flex items-end gap-2">

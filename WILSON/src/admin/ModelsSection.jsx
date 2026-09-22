@@ -152,7 +152,7 @@ export default function ModelsSection({ isActive }) {
         <button
           onClick={reload}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
           style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -160,17 +160,17 @@ export default function ModelsSection({ isActive }) {
       </div>
 
       {missing && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
           operator-models is not deployed in this environment yet (Session 20).
         </p>
       )}
       {error && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
           {error}
         </p>
       )}
       {notice && (
-        <p className="text-dense mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
+        <p className="text-dense mb-3 px-3 py-2 rounded-control" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
           {notice}
         </p>
       )}
@@ -180,7 +180,7 @@ export default function ModelsSection({ isActive }) {
         Approved catalogue
       </h3>
 
-      <div className="overflow-auto rounded-sm wilson-light-scroll mb-3" style={{ border: '1px solid #d6d3d1' }}>
+      <div className="overflow-auto rounded-control wilson-light-scroll mb-3" style={{ border: '1px solid #d6d3d1' }}>
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr style={{ backgroundColor: '#e7e5e4' }}>
@@ -233,7 +233,7 @@ export default function ModelsSection({ isActive }) {
                     <button
                       onClick={() => onRetire(m.model_id, !retired)}
                       disabled={busyKey === m.model_id}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-semibold rounded-sm disabled:opacity-40"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-dense font-semibold rounded-control disabled:opacity-40"
                       style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0' }}
                     >
                       {retired ? <><RotateCcw size={11} /> Restore</> : <><Archive size={11} /> Retire</>}
@@ -255,7 +255,7 @@ export default function ModelsSection({ isActive }) {
             onChange={(e) => setNewId(e.target.value)}
             placeholder="claude-…"
             required
-            className="px-2 py-1.5 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ border: '1px solid #d6d3d1', width: '260px', color: '#1c1917' }}
           />
         </label>
@@ -266,7 +266,7 @@ export default function ModelsSection({ isActive }) {
             onChange={(e) => setNewLabel(e.target.value)}
             placeholder="Opus 5"
             required
-            className="px-2 py-1.5 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ border: '1px solid #d6d3d1', width: '140px', color: '#1c1917' }}
           />
         </label>
@@ -276,14 +276,14 @@ export default function ModelsSection({ isActive }) {
             value={newHint}
             onChange={(e) => setNewHint(e.target.value)}
             placeholder="Most capable. Slowest and dearest."
-            className="px-2 py-1.5 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ border: '1px solid #d6d3d1', width: '260px', color: '#1c1917' }}
           />
         </label>
         <button
           type="submit"
           disabled={busyKey === 'new' || !newId.trim() || !newLabel.trim()}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-sm disabled:opacity-40"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense font-semibold rounded-control disabled:opacity-40"
           style={{ backgroundColor: '#ea580c', color: '#fff' }}
         >
           <Plus size={12} /> {busyKey === 'new' ? 'Checking…' : 'Add'}
@@ -303,7 +303,7 @@ export default function ModelsSection({ isActive }) {
       {[...registryByTool().entries()].map(([tool, entries]) => (
         <div key={tool} className="mb-4">
           <div className="text-label font-semibold uppercase mb-1" style={{ color: '#a8a29e' }}>{tool}</div>
-          <div className="rounded-sm" style={{ border: '1px solid #d6d3d1' }}>
+          <div className="rounded-control" style={{ border: '1px solid #d6d3d1' }}>
             {entries.map((entry, i) => {
               const d = defaults[entry.key] ?? {}
               const busy = busyKey === entry.key
@@ -324,7 +324,7 @@ export default function ModelsSection({ isActive }) {
                     value={d.model_id ?? ''}
                     disabled={busy}
                     onChange={(e) => onDefault(entry.key, e.target.value, d.effort ?? '')}
-                    className="px-2 py-1 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
+                    className="px-2 py-1 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
                     style={{ border: '1px solid #d6d3d1', color: '#1c1917' }}
                   >
                     <option value="">Built-in ({BUILTIN[entry.tier]})</option>
@@ -341,7 +341,7 @@ export default function ModelsSection({ isActive }) {
                       disabled={busy}
                       onChange={(e) => onDefault(entry.key, d.model_id ?? '', e.target.value)}
                       title="Operator-only. Trades wall-clock against quality on a call that runs against ai-proxy's Edge deadline."
-                      className="px-2 py-1 text-dense rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
+                      className="px-2 py-1 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
                       style={{ border: '1px solid #d6d3d1', color: '#1c1917' }}
                     >
                       <option value="">effort: registry ({entry.effort ?? 'unset'})</option>

@@ -168,7 +168,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
       {/* Error block */}
       {errorMsg && (
         <div
-          className="text-dense p-2 rounded-sm"
+          className="text-dense p-2 rounded-control"
           style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
         >
           {errorMsg}
@@ -181,7 +181,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
           type="button"
           onClick={onBack}
           disabled={busy}
-          className="px-4 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-30"
+          className="px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
           style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
         >
           ← Back
@@ -191,7 +191,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             type="button"
             onClick={handleDiscard}
             disabled={busy}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-30"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             {discarding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -201,7 +201,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             type="button"
             onClick={handleSave}
             disabled={busy || (phases.length === 0 && assets.length === 0 && tasks.length === 0)}
-            className="flex items-center gap-1 px-4 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-30"
+            className="flex items-center gap-1 px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',
@@ -221,7 +221,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
 function CountTile({ icon: Icon, label, n }) {
   return (
     <div
-      className="flex items-center gap-2 px-3 py-2 rounded-sm"
+      className="flex items-center gap-2 px-3 py-2 rounded-control"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
     >
       <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
@@ -237,7 +237,7 @@ function Section({ title, count, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen)
   const Chevron = open ? ChevronDown : ChevronRight
   return (
-    <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+    <div className="rounded-control overflow-hidden" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -263,7 +263,7 @@ function Row({ title, subtitle, tag, hint }) {
         <span className="flex-1 text-dense" style={{ color: '#d6d3d1' }}>{title}</span>
         {tag && (
           <span
-            className="px-1.5 py-0.5 text-label uppercase rounded-sm"
+            className="px-1.5 py-0.5 text-label uppercase rounded-control"
             style={{ backgroundColor: '#1c1917', color: '#fb923c', border: '1px solid #57534e' }}
           >
             {tag}

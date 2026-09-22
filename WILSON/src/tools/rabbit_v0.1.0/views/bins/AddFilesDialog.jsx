@@ -80,7 +80,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
         <Btn primary onClick={confirm} disabled={busy || included.length === 0}><Check className="w-3 h-3" /> Add {included.length} {included.length === 1 ? 'item' : 'items'}</Btn>
       </>}>
       {plan?.truncated && (
-        <div className="flex items-center gap-2 px-2 py-1.5 mb-3 rounded-sm text-dense" style={{ color: C.amber, border: `1px solid ${C.amber}55`, backgroundColor: 'rgba(245,158,11,0.08)' }}>
+        <div className="flex items-center gap-2 px-2 py-1.5 mb-3 rounded-control text-dense" style={{ color: C.amber, border: `1px solid ${C.amber}55`, backgroundColor: 'rgba(245,158,11,0.08)' }}>
           <AlertTriangle className="w-3.5 h-3.5" /> The folder was too large to walk completely; add the rest in a second pass.
         </div>
       )}
@@ -107,7 +107,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
           onClick={() => setItems(list => list.map(it => ({ ...it, apply: !!it.suggestions && it.apply === false })))}>Toggle suggestions</button>
       </div>
 
-      <div className="rounded-sm overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+      <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
         <div className="grid items-center px-2 text-label uppercase" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
           <span /><span className="px-1 py-1.5">Name</span><span className="px-1">Type</span><span className="px-1">Size</span><span className="px-1">From the name</span><span className="px-1">Folder</span>
         </div>

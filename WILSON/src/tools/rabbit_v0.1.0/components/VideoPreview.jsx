@@ -128,7 +128,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
       }}
     >
       <div
-        className="rounded-sm overflow-hidden flex flex-col"
+        className="rounded-control overflow-hidden flex flex-col"
         style={{
           backgroundColor: '#1c1917',
           border: '1px solid #44403c',
@@ -147,7 +147,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
           <button
             type="button"
             onClick={onClose}
-            className="p-0.5 rounded-sm hover:bg-stone-700"
+            className="p-0.5 rounded-control hover:bg-stone-700"
             style={{ color: '#a8a29e' }}
             title="Close"
           >
@@ -165,7 +165,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
                 <button
                   type="button"
                   onClick={() => { onOpenExternally(); onClose?.() }}
-                  className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm hover:brightness-110"
+                  className="flex items-center gap-1 px-2 py-1 text-dense rounded-control hover:brightness-110"
                   style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 >
                   <ExternalLink className="w-3 h-3" />

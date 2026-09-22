@@ -106,7 +106,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
                   onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } if (e.key === 'Escape') { e.preventDefault(); onRenameEnd?.() } e.stopPropagation() }}
                   onBlur={commit}
-                  className="w-full px-1 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+                  className="w-full px-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
               ) : (
                 <div className="truncate text-dense" style={{ color: row.online === false ? C.dim : C.bright }} title={row.display_name}>{row.display_name || row.original_name}</div>
@@ -120,7 +120,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
         return (
           <button type="button" title="Click to cycle select → reject → unflagged" disabled={!canWrite}
             onClick={e => { e.stopPropagation(); onPatch({ review_flag: FLAG_NEXT[row.review_flag || 'unflagged'] }) }}
-            className="flex items-center gap-1 px-1 rounded-sm hover:bg-stone-700 disabled:cursor-default" style={{ minHeight: 18 }}>
+            className="flex items-center gap-1 px-1 rounded-control hover:bg-stone-700 disabled:cursor-default" style={{ minHeight: 18 }}>
             <FlagMark flag={row.review_flag} circled={row.circled} />
             {row.color && <ColorDot color={row.color} size={8} />}
             {!row.color && row.review_flag === 'unflagged' && !row.circled && <span className="text-dense" style={{ color: C.dimmer }}>—</span>}

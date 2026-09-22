@@ -81,11 +81,11 @@ export default function ShotTakesPanel({
       </div>
 
       {list.length === 0 ? (
-        <div className="px-3 py-4 text-center text-dense rounded-sm leading-relaxed" style={{ color: C.dim, backgroundColor: C.deep, border: `1px dashed ${C.line}` }}>
+        <div className="px-3 py-4 text-center text-dense rounded-control leading-relaxed" style={{ color: C.dim, backgroundColor: C.deep, border: `1px dashed ${C.line}` }}>
           Assign the bin files this shot is cut from. The first becomes the primary take; a shot rebuilt from several takes lists them in order as parts.
         </div>
       ) : (
-        <div className="rounded-sm overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+        <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
           {list.map(({ take, file }, i) => {
             const meta = TAKE_ROLE_META[take.role] || TAKE_ROLE_META.alt
             const isPrimary = take.role === 'primary'

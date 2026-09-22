@@ -204,3 +204,46 @@ describe('mono is for data, sans for everything else (§3.1)', () => {
     }
   });
 });
+
+// ── Pass 4: one border, two radii, named transitions, no white ─────────────
+describe('surface tokens (§3.3, §3.4, C9)', () => {
+  it('has one border width: the 1px hairline', () => {
+    // C4 keeps LayoutVisualizer's border-2, and the scope already excludes it.
+    const hits = sweep(/\bborder-[2-9]\b/g);
+    expect(hits, `border widths off the hairline:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('has two radii: rounded-control and rounded-float', () => {
+    // §3.3 deletes 2, 4, 5, 8 and 10px. `rounded-full` is NOT on that list and
+    // is not a radius — its 48 sites are dots, avatars, icon circles and pill
+    // progress tracks, and squaring an avatar is a view change (C1).
+    const hits = sweep(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g);
+    expect(hits, `radii off the two-step system:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('has no transition-all', () => {
+    // Home is out of the codemod's scope entirely (Q2/W4), and keeps its two.
+    const hits = sweep(/\btransition-all\b/g, ({ file }) => !/Home\.jsx$/.test(file));
+    expect(hits, `transition-all survives:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('has no white ground outside the one dark selection fill', () => {
+    // `border-white bg-white/20` on O.T.T.E.R.'s checkbox indicator is a
+    // selected-state fill on the DARK surface, not a ground. `well-light` is
+    // rgba(120,70,30,0.18) — a warm screen for `#f4a261` — and on dark paper
+    // it would make the selection invisible. C9 names grounds, cards and
+    // wells; this is none of them. Named here so the swap is a decision.
+    const hits = sweep(/\bbg-white(?:\/\d+)?\b/g,
+      ({ file }) => !/otter_v0\.3\.1[\/]Otter\.jsx$/.test(file));
+    expect(hits, `white grounds:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: every surface detector fires on a real string', () => {
+    expect('a border-2 b'.match(/\bborder-[2-9]\b/g)).toEqual(['border-2']);
+    expect('a rounded-sm b'.match(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g)).toEqual(['rounded-sm']);
+    expect('a rounded b'.match(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g)).toEqual(['rounded']);
+    expect('a rounded-control b'.match(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g)).toBeNull();
+    expect('a rounded-full b'.match(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g)).toBeNull();
+    expect('a bg-white/40 b'.match(/\bbg-white(?:\/\d+)?\b/g)).toEqual(['bg-white/40']);
+  });
+});

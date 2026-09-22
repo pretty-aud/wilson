@@ -97,25 +97,25 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
   }
 
   return (
-    <div ref={ref} className="fixed z-[9999] rounded-sm shadow-2xl flex flex-col gap-2 p-3"
+    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2 p-3"
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-label uppercase truncate" style={{ color: '#fb923c' }}>{lineName} / {colLabel}</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
+        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
         <label className="text-label uppercase" style={{ color: '#78716c' }}>Amount ({currency})</label>
         <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
       </div>
       <div className="flex flex-col gap-0.5">
         <label className="text-label uppercase" style={{ color: '#78716c' }}>Invoice #</label>
         <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)} placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
       </div>
       <InvoiceAttachment
@@ -128,11 +128,11 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
       />
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={handleSave}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         {actual?.id && onDelete && (
           <button type="button" onClick={() => onDelete(actual.id)}
-            className="px-2 py-1.5 text-dense rounded-sm"
+            className="px-2 py-1.5 text-dense rounded-control"
             style={{ color: '#ef4444', border: '1px solid #7f1d1d' }}>Clear</button>
         )}
       </div>
@@ -171,7 +171,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261', textAlign: type === 'number' ? 'right' : 'left' }}
       />
     )
@@ -179,7 +179,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
 
   return (
     <button type="button" onClick={start} disabled={disabled}
-      className="w-full text-left px-1 py-0.5 text-dense rounded-sm transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
+      className="w-full text-left px-1 py-0.5 text-dense rounded-control transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
       style={{ color: value ? '#d6d3d1' : '#57534e', textAlign: type === 'number' ? 'right' : 'left' }}>
       {type === 'number' ? (value || placeholder || '\u2014') : (value || placeholder || '\u2014')}
     </button>
@@ -211,12 +211,12 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
   const contAmt   = bidTotal * cPct / 100
 
   return (
-    <div ref={ref} className="fixed z-[9999] rounded-sm shadow-2xl flex flex-col gap-2.5 p-3"
+    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2.5 p-3"
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-label uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
+        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
@@ -225,7 +225,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
           <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
@@ -235,17 +235,17 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
           <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-sm"
+          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-control"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Default
         </button>
@@ -378,7 +378,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
           Add talent performers manually. Use the Talent Type column to tag each performer. Agent representation fees are set per row.
         </p>
         <button type="button" onClick={handleAddTalent}
-          className="flex items-center gap-1.5 px-4 py-2 text-dense rounded-sm"
+          className="flex items-center gap-1.5 px-4 py-2 text-dense rounded-control"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> Add Talent
         </button>
@@ -403,30 +403,30 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 px-1 flex-wrap">
         <button type="button" onClick={handleAddTalent}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> Add Talent
         </button>
         <span className="text-dense font-mono" style={{ color: '#57534e' }}>Agent fees are per-row</span>
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-dense font-mono px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Margin: {defaultMarginPct}%
           </span>
         )}
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-dense font-mono px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Contingency: {defaultContPct}%
           </span>
         )}
         <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Reset M/C
         </button>
       </div>
 
       {/* ── Unified table (flat — no department groups) ── */}
-      <div className="rounded-sm" style={{ border: '1px solid #44403c' }}>
+      <div className="rounded-control" style={{ border: '1px solid #44403c' }}>
         <div style={{ minWidth: totalW }}>
 
           {/* ═══ HEADER ROW ═══ */}
@@ -462,7 +462,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                 <div className="flex transition-colors hover:brightness-110 group/trow" style={{ borderBottom: '1px solid #3a3733' }}>
                   {/* Name — click to expand detail */}
                   <div style={{ width: W_NAME, backgroundColor: '#1c1917' }} className="px-3 py-2 flex items-center gap-1">
-                    <button type="button" onClick={() => toggleExpand(line.id)} className="flex-shrink-0 p-0.5 rounded hover:bg-stone-700 transition-colors">
+                    <button type="button" onClick={() => toggleExpand(line.id)} className="flex-shrink-0 p-0.5 rounded-control hover:bg-stone-700 transition-colors">
                       {isExpanded
                         ? <svg className="w-3 h-3" style={{ color: '#fb923c' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 9l-7 7-7-7"/></svg>
                         : <svg className="w-3 h-3" style={{ color: '#78716c' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5l7 7-7 7"/></svg>}
@@ -475,7 +475,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                   <div style={{ width: W_TTYPE, backgroundColor: '#1c1917' }} className="px-1 py-2 flex items-center">
                     <select value={line.talent_type || 'actor'}
                       onChange={e => updateLine(line.id, { talent_type: e.target.value })}
-                      className="w-full px-1 py-0.5 text-dense rounded-sm cursor-pointer focus:ring-1 focus:ring-orange-500 appearance-none"
+                      className="w-full px-1 py-0.5 text-dense rounded-control cursor-pointer focus:ring-1 focus:ring-orange-500 appearance-none"
                       style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#d6d3d1' }}>
                       {TALENT_TYPE_OPTIONS.map(t => (
                         <option key={t.value} value={t.value}>{t.label}</option>
@@ -502,14 +502,14 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                     return (<>
                       <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                         <button type="button" onClick={e => handleMcCellClick(e, line.id)}
-                          className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
+                          className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                           style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
                           {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
                         </button>
                       </div>
                       <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
                         <button type="button" onClick={e => handleMcCellClick(e, line.id)}
-                          className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
+                          className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                           style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
                           {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
                         </button>
@@ -520,7 +520,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                     <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? fmtCurrency(comp.bidTotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_DEL, backgroundColor: '#1c1917' }} className="flex items-center justify-center opacity-0 group-hover/trow:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => deleteLine(line.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }}>
+                    <button type="button" onClick={() => deleteLine(line.id)} className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }}>
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
@@ -550,7 +550,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                         className="px-1 py-2 flex items-center justify-center">
                         <button type="button"
                           onClick={e => handleCellClick(e, line.id, colIdx)}
-                          className="relative w-full text-dense rounded-sm py-0.5 transition-colors hover:bg-stone-700"
+                          className="relative w-full text-dense rounded-control py-0.5 transition-colors hover:bg-stone-700"
                           style={{
                             color: cellActual?.value ? '#d6d3d1' : '#44403c',
                             border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
@@ -678,11 +678,11 @@ function TalentDetailField({ label, value, placeholder, onChange, wide }) {
       {editing ? (
         <input ref={ref} type="text" value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false) }}
-          className="px-1.5 py-0.5 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="px-1.5 py-0.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#d6d3d1' }} />
       ) : (
         <button type="button" onClick={start}
-          className="px-1.5 py-0.5 text-dense rounded-sm text-left truncate transition-colors hover:bg-stone-800"
+          className="px-1.5 py-0.5 text-dense rounded-control text-left truncate transition-colors hover:bg-stone-800"
           style={{ color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
           {value || placeholder || '\u2014'}
         </button>
@@ -699,7 +699,7 @@ function SummaryTile({ label, value, tone = 'neutral' }) {
     neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
   }[tone]
   return (
-    <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
+    <div className="flex-1 min-w-[120px] flex flex-col rounded-control px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
       <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
       <span className="text-h1 font-semibold" style={{ color: colors.text }}>{value}</span>

@@ -45,7 +45,7 @@ export default function IngestionToast({ onJumpToReview }) {
 
   return (
     <div
-      className="fixed bottom-4 left-4 z-50 flex flex-col rounded-sm shadow-2xl"
+      className="fixed bottom-4 left-4 z-50 flex flex-col rounded-control shadow-2xl"
       style={{
         backgroundColor: '#292524',
         border: `1px solid ${accent}`,
@@ -71,7 +71,7 @@ export default function IngestionToast({ onJumpToReview }) {
         <button
           type="button"
           onClick={handleClose}
-          className="p-0.5 rounded-sm hover:bg-stone-700"
+          className="p-0.5 rounded-control hover:bg-stone-700"
           title={phase === 'running' ? 'Cancel' : 'Dismiss'}
           style={{ color: '#a8a29e' }}
         >
@@ -84,11 +84,11 @@ export default function IngestionToast({ onJumpToReview }) {
         {/* Progress bar */}
         {phase !== 'error' && (
           <div
-            className="h-2 w-full rounded-sm overflow-hidden"
+            className="h-2 w-full rounded-control overflow-hidden"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
           >
             <div
-              className="h-full transition-all duration-200"
+              className="h-full transition-[width] duration-200"
               style={{
                 width: `${phase === 'done' ? 100 : pct}%`,
                 backgroundColor: accent,
@@ -122,7 +122,7 @@ export default function IngestionToast({ onJumpToReview }) {
             onClick={() => {
               onJumpToReview?.()
             }}
-            className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors"
+            className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',

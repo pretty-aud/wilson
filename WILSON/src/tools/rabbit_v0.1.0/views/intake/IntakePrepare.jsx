@@ -153,7 +153,7 @@ export default function IntakePrepare({
             </h2>
             {onNewProject && (
               <button type="button" onClick={onNewProject}
-                className="flex items-center gap-1.5 rounded transition-colors"
+                className="flex items-center gap-1.5 rounded-control transition-colors"
                 style={{
                   padding: '7px 16px', fontSize: 11, fontFamily: SANS,
                   fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em',

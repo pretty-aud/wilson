@@ -3716,7 +3716,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <button
                 onClick={undoHistoryDelete}
                 disabled={historyUndoStack.length === 0}
-                className={`p-0.5 rounded transition-colors ${historyUndoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
+                className={`p-0.5 rounded-control transition-colors ${historyUndoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
                 title="Undo delete"
               >
                 <Undo2 className="w-4 h-4" />
@@ -3724,14 +3724,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <button
                 onClick={redoHistoryDelete}
                 disabled={historyRedoStack.length === 0}
-                className={`p-0.5 rounded transition-colors ${historyRedoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
+                className={`p-0.5 rounded-control transition-colors ${historyRedoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
                 title="Redo delete"
               >
                 <Redo2 className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setShowHistoryModal(true)}
-                className="p-0.5 hover:bg-stone-600 rounded transition-colors"
+                className="p-0.5 hover:bg-stone-600 rounded-control transition-colors"
                 title="Import/Export History"
               >
                 <FolderUp className="w-4 h-4 text-stone-400" />
@@ -3739,7 +3739,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               {history.length > 0 ? (
                 <button
                   onClick={clearHistory}
-                  className="p-0.5 hover:bg-stone-600 rounded transition-colors"
+                  className="p-0.5 hover:bg-stone-600 rounded-control transition-colors"
                   title="Clear history"
                 >
                   <Trash2 className="w-4 h-4 text-stone-400" />
@@ -3747,7 +3747,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               ) : (
                 <button
                   disabled
-                  className="p-0.5 rounded transition-colors text-stone-600 cursor-not-allowed"
+                  className="p-0.5 rounded-control transition-colors text-stone-600 cursor-not-allowed"
                   title="Clear history"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -3787,7 +3787,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {/* Delete button - appears on hover */}
                     <button
                       onClick={(e) => removeHistoryItem(item.id, e)}
-                      className="absolute top-2 right-2 p-1 bg-stone-600 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute top-2 right-2 p-1 bg-stone-600 hover:bg-red-600 rounded-control opacity-0 group-hover:opacity-100 transition-opacity"
                       title="Remove from outline"
                     >
                       <X className="w-3 h-3 text-stone-300" />
@@ -3802,7 +3802,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         {/* Main Content */}
         <main className="flex-1 min-h-0 p-4 space-y-4 overflow-y-auto bg-stone-900">
           {error && (
-            <div className="p-3 bg-red-900/50 border-2 border-red-600 rounded-sm text-red-300 text-body">
+            <div className="p-3 bg-red-900/50 border border-red-600 rounded-control text-red-300 text-body">
               {error}
             </div>
           )}
@@ -3811,7 +3811,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               are applied, so this is a partial failure and should not read as
               a dead generation. Dismissable because it is non-blocking. */}
           {themeError && (
-            <div className="p-3 bg-amber-900/50 border-2 border-amber-600 rounded-sm text-amber-200 text-body flex items-start justify-between gap-3">
+            <div className="p-3 bg-amber-900/50 border border-amber-600 rounded-control text-amber-200 text-body flex items-start justify-between gap-3">
               <span>{themeError}</span>
               <button
                 onClick={() => setThemeError('')}
@@ -3824,7 +3824,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           )}
 
           {/* Section 1: Document & Context Input */}
-          <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
+          <section className="bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
             <div 
               className="bg-stone-700 text-orange-400 px-3 py-2 border-b-2 border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
               onClick={() => setSection1Collapsed(!section1Collapsed)}
@@ -3856,7 +3856,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       value={selectedProjectId}
                       onChange={(e) => { setSelectedProjectId(e.target.value); refreshProjects(); }}
                       onFocus={refreshProjects}
-                      className={`w-full px-3 py-1.5 text-dense bg-stone-900 border-2 border-stone-600 rounded-sm focus:border-orange-500 transition-colors appearance-none cursor-pointer ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
+                      className={`w-full px-3 py-1.5 text-dense bg-stone-900 border border-stone-600 rounded-control focus:border-orange-500 transition-colors appearance-none cursor-pointer ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
                     >
                       <option value="" className="text-orange-400">No project selected</option>
                       {projects.map(p => (
@@ -3867,14 +3867,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                   <button
                     onClick={() => setShowNewProjectModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm text-dense text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-all"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border border-stone-600 rounded-control text-dense text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-colors"
                   >
                     <Plus className="w-3 h-3" />
                     New Project
                   </button>
                 </div>
                 {selectedProject && (
-                  <div className="mt-1.5 px-2 py-1.5 bg-stone-900/50 rounded-sm border border-stone-700">
+                  <div className="mt-1.5 px-2 py-1.5 bg-stone-900/50 rounded-control border border-stone-700">
                     {selectedProject.description && (
                       <p className="text-dense text-stone-400 mb-0.5">{selectedProject.description}</p>
                     )}
@@ -3908,7 +3908,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore('documents', doc.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-dense transition-colors flex-shrink-0"
+                                  className="px-1.5 py-0.5 rounded-control text-dense transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
@@ -3930,7 +3930,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-dense transition-colors flex-shrink-0"
+                                  className="px-1.5 py-0.5 rounded-control text-dense transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
@@ -3962,7 +3962,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <p className="text-caption text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
                   
                   {uploadedFiles.length === 0 ? (
-                    <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm cursor-pointer hover:border-orange-500 hover:bg-stone-600 transition-all">
+                    <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-stone-700 border border-stone-600 rounded-control cursor-pointer hover:border-orange-500 hover:bg-stone-600 transition-colors">
                       {isFileLoading ? (
                         <Loader2 className="w-4 h-4 text-orange-500 animate-spin" />
                       ) : (
@@ -3986,7 +3986,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                             const globalIndex = colIdx * 5 + index;
                             const isLast = globalIndex === uploadedFiles.length - 1;
                             return (
-                              <div key={fileData.id} className="flex items-center gap-2 px-2 py-1.5 bg-stone-700 rounded-sm border border-stone-600 w-72 h-8">
+                              <div key={fileData.id} className="flex items-center gap-2 px-2 py-1.5 bg-stone-700 rounded-control border border-stone-600 w-72 h-8">
                                 {fileData.type === 'image' ? (
                                   <Image className="w-4 h-4 text-orange-500 flex-shrink-0" />
                                 ) : (
@@ -3996,13 +3996,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <span className="text-caption text-stone-500 flex-shrink-0">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
                                 <button
                                   onClick={() => removeFile(fileData.id)}
-                                  className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors flex-shrink-0"
+                                  className="p-0.5 hover:bg-stone-600 rounded-control transition-colors flex-shrink-0"
                                 >
                                   <X className="w-3 h-3 text-stone-400" />
                                 </button>
                                 {/* Add button on last file if under limit */}
                                 {isLast && uploadedFiles.length < 20 && (
-                                  <label className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors flex-shrink-0 cursor-pointer">
+                                  <label className="p-0.5 hover:bg-stone-600 rounded-control transition-colors flex-shrink-0 cursor-pointer">
                                     {isFileLoading ? (
                                       <Loader2 className="w-3 h-3 text-orange-400 animate-spin" />
                                     ) : (
@@ -4037,7 +4037,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setEnableThemeGen(!enableThemeGen)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${enableThemeGen ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
+                        className={`w-3.5 h-3.5 rounded-control border flex items-center justify-center transition-colors ${enableThemeGen ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
                       >
                         {enableThemeGen && <Check className="w-2.5 h-2.5 text-orange-400" />}
                       </button>
@@ -4047,7 +4047,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${useUploadedAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
+                        className={`w-3.5 h-3.5 rounded-control border flex items-center justify-center transition-colors ${useUploadedAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
                       >
                         {useUploadedAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
                       </button>
@@ -4057,7 +4057,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseProjectAssets(!useProjectAssets)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${useProjectAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
+                        className={`w-3.5 h-3.5 rounded-control border flex items-center justify-center transition-colors ${useProjectAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
                       >
                         {useProjectAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
                       </button>
@@ -4104,7 +4104,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     }
                   }}
                   placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
-                  className={`w-full px-3 py-2 bg-stone-900 border-2 border-stone-600 rounded-sm text-stone-300 placeholder-stone-500 focus:border-orange-500 resize-none text-body transition-all duration-200 ${systemPromptFocused ? 'h-40' : 'h-20'}`}
+                  className={`w-full px-3 py-2 bg-stone-900 border border-stone-600 rounded-control text-stone-300 placeholder-stone-500 focus:border-orange-500 resize-none text-body transition-colors duration-200 ${systemPromptFocused ? 'h-40' : 'h-20'}`}
                 />
               </div>
 
@@ -4113,7 +4113,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <button
                   onClick={generateFullDeck}
                   disabled={isGenerating || !hasFileContent}
-                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
+                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
                 >
                   {isGenerating ? (
                     <>
@@ -4133,7 +4133,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           </section>
 
           {/* Section 2: Page Generation */}
-          <section className={`bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] ${fullDeckMode ? 'opacity-50' : ''}`}>
+          <section className={`bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] ${fullDeckMode ? 'opacity-50' : ''}`}>
             <div 
               className={`bg-stone-700 px-3 py-2 border-b-2 border-stone-600 ${fullDeckMode ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-stone-600'} transition-colors`}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
@@ -4166,7 +4166,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       value={selectedLayout}
                       onChange={(e) => setSelectedLayout(e.target.value)}
                       disabled={fullDeckMode}
-                      className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm appearance-none text-body ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-orange-400 cursor-pointer focus:border-orange-500'}`}
+                      className={`w-full px-3 py-2 border border-stone-600 rounded-control appearance-none text-body ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-orange-400 cursor-pointer focus:border-orange-500'}`}
                     >
                       <option value="" className="text-orange-400">Select layout...</option>
                       {SLIDE_LAYOUTS.map((layout) => (
@@ -4196,7 +4196,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     onChange={(e) => setPageNumber(e.target.value)}
                     disabled={fullDeckMode}
                     placeholder="5 or 1-10"
-                    className={`w-24 px-3 py-2 border-2 border-stone-600 rounded-sm placeholder-stone-500 text-body ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-stone-300 focus:border-orange-500'}`}
+                    className={`w-24 px-3 py-2 border border-stone-600 rounded-control placeholder-stone-500 text-body ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-stone-300 focus:border-orange-500'}`}
                   />
                 </div>
               </div>
@@ -4224,7 +4224,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   }}
                   disabled={fullDeckMode}
                   placeholder="Example: I need a page listing all the main characters with summaries for each..."
-                  className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm placeholder-stone-500 resize-none text-body transition-all duration-200 ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed h-24' : `bg-stone-900 text-stone-300 focus:border-orange-500 ${pagePromptFocused ? 'h-40' : 'h-24'}`}`}
+                  className={`w-full px-3 py-2 border border-stone-600 rounded-control placeholder-stone-500 resize-none text-body transition-colors duration-200 ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed h-24' : `bg-stone-900 text-stone-300 focus:border-orange-500 ${pagePromptFocused ? 'h-40' : 'h-24'}`}`}
                 />
               </div>
 
@@ -4232,7 +4232,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <button
                 onClick={generatePageOutline}
                 disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout || fullDeckMode}
-                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
+                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
               >
                 {isGenerating ? (
                   <>
@@ -4251,21 +4251,21 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           </section>
 
           {/* Output Section - Below Input */}
-          <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
+          <section className="bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
             <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b-2 border-stone-600">
               <span className="font-semibold uppercase text-label">Generated Output</span>
               {activeTab && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={downloadMarkdown}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-dense text-white"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-control transition-colors text-dense text-white"
                   >
                     <Download className="w-3 h-3" />
                     Export .md
                   </button>
                   <button
                     onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-dense text-white"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-control transition-colors text-dense text-white"
                   >
                     {copied ? (
                       <>
@@ -4299,14 +4299,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       className={`flex items-center gap-1 px-3 py-1.5 text-dense transition-colors whitespace-nowrap ${
                         activeTabId === tab.id 
                           ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-[2px] relative z-10' 
-                          : 'bg-stone-700 text-stone-400 hover:text-stone-300 border-2 border-stone-600 border-b-0 rounded-t-sm mb-0'
+                          : 'bg-stone-700 text-stone-400 hover:text-stone-300 border border-stone-600 border-b-0 rounded-t-sm mb-0'
                       }`}
                     >
                       <span className="">#{tab.pageNum}</span>
                       <span className="max-w-[100px] truncate">{tab.title}</span>
                       <button
                         onClick={(e) => closeTab(tab.id, e)}
-                        className="ml-1 p-0.5 hover:bg-stone-600 rounded"
+                        className="ml-1 p-0.5 hover:bg-stone-600 rounded-control"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -4318,14 +4318,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <div className="flex items-center gap-1 ml-2 flex-shrink-0 pb-1">
                   <button
                     onClick={() => setViewMode('text')}
-                    className={`p-1.5 rounded-sm transition-colors ${viewMode === 'text' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
+                    className={`p-1.5 rounded-control transition-colors ${viewMode === 'text' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
                     title="Text View"
                   >
                     <Code className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setViewMode('visualizer')}
-                    className={`p-1.5 rounded-sm transition-colors ${viewMode === 'visualizer' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
+                    className={`p-1.5 rounded-control transition-colors ${viewMode === 'visualizer' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
                     title="Layout Visualizer"
                   >
                     <Eye className="w-4 h-4" />
@@ -4353,7 +4353,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     }}
                     disabled={isRegenerating}
                     placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
-                    className="flex-1 px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-sm text-stone-300 text-dense placeholder-stone-500 focus:border-orange-500 disabled:opacity-50"
+                    className="flex-1 px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-control text-stone-300 text-dense placeholder-stone-500 focus:border-orange-500 disabled:opacity-50"
                   />
                   
                   {/* Layout Dropdown */}
@@ -4362,7 +4362,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       value={regenerateLayout}
                       onChange={(e) => setRegenerateLayout(e.target.value)}
                       disabled={isRegenerating}
-                      className="px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-sm text-stone-300 text-dense focus:border-orange-500 appearance-none pr-6 cursor-pointer disabled:opacity-50"
+                      className="px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-control text-stone-300 text-dense focus:border-orange-500 appearance-none pr-6 cursor-pointer disabled:opacity-50"
                       style={{ minWidth: '140px' }}
                     >
                       <option value="">Keep layout</option>
@@ -4379,7 +4379,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <button
                     onClick={regeneratePage}
                     disabled={isRegenerating || !hasFileContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-sm font-semibold text-white text-dense transition-colors flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-control font-semibold text-white text-dense transition-colors flex-shrink-0"
                   >
                     {isRegenerating ? (
                       <>
@@ -4398,7 +4398,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <button
                     onClick={undoRegeneration}
                     disabled={!(previousContent[activeTab.id]?.length > 0)}
-                    className={`p-1.5 rounded-sm transition-colors flex-shrink-0 ${
+                    className={`p-1.5 rounded-control transition-colors flex-shrink-0 ${
                       previousContent[activeTab.id]?.length > 0
                         ? 'bg-stone-700 hover:bg-stone-600 text-orange-400'
                         : 'bg-stone-800 text-stone-600 cursor-not-allowed'
@@ -4412,7 +4412,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <button
                     onClick={redoRegeneration}
                     disabled={!(redoContent[activeTab.id]?.length > 0)}
-                    className={`p-1.5 rounded-sm transition-colors flex-shrink-0 ${
+                    className={`p-1.5 rounded-control transition-colors flex-shrink-0 ${
                       redoContent[activeTab.id]?.length > 0
                         ? 'bg-stone-700 hover:bg-stone-600 text-orange-400'
                         : 'bg-stone-800 text-stone-600 cursor-not-allowed'
@@ -4432,7 +4432,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <button
                   onClick={handleTextUndo}
                   disabled={undoRedoCounts.undo === 0}
-                  className={`p-1 rounded transition-colors ${undoRedoCounts.undo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
+                  className={`p-1 rounded-control transition-colors ${undoRedoCounts.undo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
                   title="Undo (text)"
                 >
                   <Undo2 className="w-3.5 h-3.5" />
@@ -4440,7 +4440,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <button
                   onClick={handleTextRedo}
                   disabled={undoRedoCounts.redo === 0}
-                  className={`p-1 rounded transition-colors ${undoRedoCounts.redo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
+                  className={`p-1 rounded-control transition-colors ${undoRedoCounts.redo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
                   title="Redo (text)"
                 >
                   <Redo2 className="w-3.5 h-3.5" />
@@ -4454,7 +4454,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {/* Bold */}
                     <button
                       onClick={handleToggleBold}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
+                      className="p-1 rounded-control transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
                       title="Bold"
                     >
                       <Bold className="w-3.5 h-3.5" />
@@ -4463,7 +4463,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {/* Bullet List */}
                     <button
                       onClick={handleToggleBullet}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
+                      className="p-1 rounded-control transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
                       title="Toggle Bullet List"
                     >
                       <List className="w-3.5 h-3.5" />
@@ -4472,7 +4472,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {/* Numbered List */}
                     <button
                       onClick={handleToggleNumbered}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
+                      className="p-1 rounded-control transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
                       title="Toggle Numbered List"
                     >
                       <ListOrdered className="w-3.5 h-3.5" />
@@ -4524,7 +4524,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 )
               ) : (
                 <div className="p-8 text-center text-stone-500 flex flex-col items-center justify-center bg-stone-950 min-h-[780px]">
-                  <div className="w-14 h-14 mb-3 bg-stone-900 rounded-full flex items-center justify-center border-2 border-dashed border-stone-700">
+                  <div className="w-14 h-14 mb-3 bg-stone-900 rounded-full flex items-center justify-center border border-dashed border-stone-700">
                     <FileText className="w-7 h-7 text-stone-600" />
                   </div>
                   <p className="text-body text-stone-500">No output yet</p>
@@ -4539,7 +4539,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 const relY = Math.max(8, Math.min(contextMenu.y - rect.top + 10, rect.height - 320));
                 return (
                   <div
-                    className="absolute z-[80] bg-stone-800 border-2 border-orange-500/40 rounded-sm shadow-2xl w-[420px] max-h-[310px] flex flex-col"
+                    className="absolute z-[80] bg-stone-800 border border-orange-500/40 rounded-control shadow-2xl w-[420px] max-h-[310px] flex flex-col"
                     style={{ left: relX, top: relY }}
                   >
                     {/* Original text being replaced */}
@@ -4567,16 +4567,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                     {/* Compact action bar */}
                     <div className="px-3 py-1.5 border-t border-stone-700 flex items-center justify-end gap-1.5 flex-shrink-0">
-                      <button onClick={handleRewriteCancel} className="p-1.5 hover:bg-stone-700 rounded-sm transition-colors" title="Cancel">
+                      <button onClick={handleRewriteCancel} className="p-1.5 hover:bg-stone-700 rounded-control transition-colors" title="Cancel">
                         <X className="w-3.5 h-3.5 text-stone-500 hover:text-stone-300" />
                       </button>
-                      <button onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} className="p-1.5 hover:bg-stone-700 disabled:opacity-50 rounded-sm transition-colors" title="Regenerate">
+                      <button onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} className="p-1.5 hover:bg-stone-700 disabled:opacity-50 rounded-control transition-colors" title="Regenerate">
                         <RefreshCw className={`w-3.5 h-3.5 ${rewritePreview.isLoading ? 'animate-spin text-orange-400' : 'text-stone-500 hover:text-orange-400'}`} />
                       </button>
                       <button
                         onClick={handleRewriteReplace}
                         disabled={rewritePreview.isLoading || !rewritePreview.text || rewritePreview.text.startsWith('Error:')}
-                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm text-white font-semibold text-dense transition-colors"
+                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-control text-white font-semibold text-dense transition-colors"
                       >
                         Replace
                       </button>
@@ -4651,7 +4651,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
               <button 
                 onClick={() => setShowSettingsMenu(false)}
-                className="p-1 hover:bg-stone-600 rounded transition-colors"
+                className="p-1 hover:bg-stone-600 rounded-control transition-colors"
               >
                 <X className="w-5 h-5 text-stone-400" />
               </button>
@@ -4763,7 +4763,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.sp_sys && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
-                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4780,7 +4780,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.sp_rules && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4798,7 +4798,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.fd_sys && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
-                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4815,7 +4815,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.fd_rules && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4838,7 +4838,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.theme_prompt && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
-                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4855,7 +4855,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_shared && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4872,7 +4872,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_midjourney && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4889,7 +4889,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_flux && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4906,7 +4906,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_nanobanana && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4923,7 +4923,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_chatgpt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4941,7 +4941,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {!settingsCollapsed.img_api_sys && (
                       <div className="px-3 pb-3 pt-2">
                         <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
-                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -4969,7 +4969,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                               value={rewritePrompts[mode]}
                               onChange={(e) => setRewritePrompts(prev => ({ ...prev, [mode]: e.target.value }))}
                               disabled={promptsTabLocked}
-                              className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-y wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`}
+                              className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-y wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`}
                             />
                             <button
                               onClick={() => setRewritePrompts(prev => ({ ...prev, [mode]: DEFAULT_REWRITE_PROMPTS[mode] }))}
@@ -4997,7 +4997,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.sp_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-dense ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -5014,7 +5014,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.fd_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-96 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-96 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-dense ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -5031,7 +5031,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.vis_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-stone-400 text-dense resize-none wilson-dark-scroll cursor-not-allowed" />
+                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-stone-400 text-dense resize-none wilson-dark-scroll cursor-not-allowed" />
                       </div>
                     )}
                   </div>
@@ -5047,7 +5047,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_fmt && (
                       <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
+                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-dense ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
                     )}
@@ -5063,7 +5063,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </p>
               <button
                 onClick={() => setShowHelpModal(true)}
-                className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-sm transition-colors"
+                className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-control transition-colors"
                 title="Help & Documentation"
               >
                 <HelpCircle className="w-4 h-4 text-orange-400" />
@@ -5094,7 +5094,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             onClick={() => setShowHelpModal(false)}
           />
           {/* Modal */}
-          <div className="relative bg-stone-800 border-2 border-stone-600 rounded-sm shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
+          <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
             {/* Modal Header */}
             <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
               <div className="flex items-center gap-2">
@@ -5103,7 +5103,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
               <button
                 onClick={() => setShowHelpModal(false)}
-                className="p-1 hover:bg-stone-600 rounded transition-colors"
+                className="p-1 hover:bg-stone-600 rounded-control transition-colors"
               >
                 <X className="w-5 h-5 text-stone-400" />
               </button>
@@ -5147,7 +5147,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       {/* Right-Click Context Menu */}
       {contextMenu.visible && (
         <div
-          className="fixed z-[70] bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl py-1 min-w-[180px]"
+          className="fixed z-[70] bg-stone-800 border border-stone-600 rounded-control shadow-xl py-1 min-w-[180px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -5221,7 +5221,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl"
+            className="bg-stone-800 border border-stone-600 rounded-control shadow-xl"
             style={{ width: '520px', maxHeight: '85vh', padding: '24px', overflowY: 'auto' }}
           >
             <h3 className="text-label font-semibold uppercase text-orange-400 mb-4">Create New Project</h3>
@@ -5235,7 +5235,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   onChange={(e) => setNewProjectTitle(e.target.value)}
                   placeholder="Enter project title..."
                   autoFocus
-                  className="w-full px-3 py-2 text-body rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-body rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
                 />
               </div>
@@ -5248,7 +5248,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="Brief description of the project..."
                   rows={3}
-                  className="w-full px-3 py-2 text-body rounded-sm focus:ring-2 focus:ring-orange-500 resize-none"
+                  className="w-full px-3 py-2 text-body rounded-control focus:ring-2 focus:ring-orange-500 resize-none"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
                 />
               </div>
@@ -5261,7 +5261,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     type="date"
                     value={newProjectStartDate}
                     onChange={(e) => setNewProjectStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
                   />
                 </div>
@@ -5271,7 +5271,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     type="date"
                     value={newProjectEndDate}
                     onChange={(e) => setNewProjectEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
                   />
                 </div>
@@ -5281,7 +5281,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   yet (locked #17 / S14 storage work), so the pickers degrade
                   to an explanation rather than losing files silently. */}
               {cloudProjects ? (
-                <p className="text-caption text-stone-500 border border-stone-700 rounded-sm px-2 py-2 bg-stone-900/50">
+                <p className="text-caption text-stone-500 border border-stone-700 rounded-control px-2 py-2 bg-stone-900/50">
                   File attachments on cloud projects arrive with the storage
                   work. Create the project here, then upload files in the
                   generator panel to include them in generation.
@@ -5291,7 +5291,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Documents</label>
                 <div
                   onClick={() => document.getElementById('new-proj-docs-input')?.click()}
-                  className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
+                  className="border border-dashed border-stone-600 rounded-control px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
                   style={{ backgroundColor: '#1c1917' }}
                 >
                   <p className="text-caption text-stone-500">Click to upload documents (.pdf, .doc, .txt, .md, .csv)</p>
@@ -5307,7 +5307,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 {newProjectDocuments.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {newProjectDocuments.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
+                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-control border border-stone-700">
                         <span className="text-dense text-stone-400 truncate flex-1 mr-2">{f.name}</span>
                         <button
                           onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
@@ -5324,7 +5324,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Visual Assets</label>
                 <div
                   onClick={() => document.getElementById('new-proj-assets-input')?.click()}
-                  className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
+                  className="border border-dashed border-stone-600 rounded-control px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
                   style={{ backgroundColor: '#1c1917' }}
                 >
                   <p className="text-caption text-stone-500">Click to upload images or videos</p>
@@ -5340,9 +5340,9 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 {newProjectAssets.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {newProjectAssets.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
+                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-control border border-stone-700">
                         {f.type?.startsWith('image/') && (
-                          <img src={f.content} alt="" className="w-6 h-6 object-cover rounded-sm mr-2 flex-shrink-0" />
+                          <img src={f.content} alt="" className="w-6 h-6 object-cover rounded-control mr-2 flex-shrink-0" />
                         )}
                         <span className="text-dense text-stone-400 truncate flex-1 mr-2">{f.name}</span>
                         <button
@@ -5361,7 +5361,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="flex gap-3 mt-5">
               <button
                 onClick={resetNewProjectModal}
-                className="flex-1 px-4 py-2 text-dense font-semibold rounded-sm transition-colors"
+                className="flex-1 px-4 py-2 text-dense font-semibold rounded-control transition-colors"
                 style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
               >
                 Cancel
@@ -5369,7 +5369,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <button
                 onClick={handleCreateProjectFromModal}
                 disabled={!newProjectTitle.trim()}
-                className="flex-1 px-4 py-2 text-dense font-semibold rounded-sm transition-colors disabled:opacity-40"
+                className="flex-1 px-4 py-2 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
                 style={{ backgroundColor: '#ea580c', color: '#fff' }}
               >
                 Create Project

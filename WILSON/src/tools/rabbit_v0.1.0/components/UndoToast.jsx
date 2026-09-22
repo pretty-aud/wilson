@@ -78,7 +78,7 @@ export default function UndoToast() {
   return (
     <div
       key={toast.key}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-sm shadow-2xl overflow-hidden pl-4 pr-2 py-2"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-control shadow-2xl overflow-hidden pl-4 pr-2 py-2"
       style={{
         backgroundColor: '#292524',
         border: '1px solid #ea580c',
@@ -98,7 +98,7 @@ export default function UndoToast() {
         type="button"
         onClick={handleUndo}
         disabled={busy}
-        className="flex items-center gap-1.5 px-4 rounded-sm text-dense font-semibold transition-colors"
+        className="flex items-center gap-1.5 px-4 rounded-control text-dense font-semibold transition-colors"
         style={{
           minHeight: 32,
           color: '#fff7ed',
@@ -115,7 +115,7 @@ export default function UndoToast() {
       <button
         type="button"
         onClick={() => dismiss?.()}
-        className="p-1 rounded-sm hover:bg-stone-700"
+        className="p-1 rounded-control hover:bg-stone-700"
         title="Dismiss"
         style={{ color: '#a8a29e' }}
       >

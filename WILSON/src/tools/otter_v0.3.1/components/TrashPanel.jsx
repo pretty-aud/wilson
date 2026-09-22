@@ -69,7 +69,7 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
   // An error means we do not KNOW the trash is empty. Saying "Nothing deleted"
   // here would be the exact lie this feature exists to prevent.
   const banner = error ? (
-    <div className="m-2 bg-red-900/30 border border-red-700 rounded-sm p-2">
+    <div className="m-2 bg-red-900/30 border border-red-700 rounded-control p-2">
       <p className="text-red-300 text-dense leading-snug">{error}</p>
       {onDismissError && (
         <button
@@ -143,7 +143,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
         </div>
 
         {error && (
-          <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-start gap-2">
+          <div className="mb-4 bg-red-900/30 border border-red-700 rounded-control p-3 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
             <p className="text-red-300 text-body flex-1">{error}</p>
             <button onClick={onDismissError} className="text-red-400 hover:text-red-200 text-dense font-semibold">
@@ -169,7 +169,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
             {rows.map(r => (
               <div
                 key={`${r.kind}:${r.id}`}
-                className="bg-stone-800 border-2 border-dashed border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] flex flex-col"
+                className="bg-stone-800 border border-dashed border-stone-600 rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] flex flex-col"
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <h3 className="text-stone-300 font-semibold text-h2 leading-tight line-clamp-2">{r.name}</h3>
@@ -202,7 +202,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
                   type="button"
                   onClick={() => onRestore(r)}
                   disabled={!!busyId}
-                  className="mt-3 w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-body font-semibold disabled:opacity-50"
+                  className="mt-3 w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors text-body font-semibold disabled:opacity-50"
                 >
                   {busyId === r.id
                     ? <Loader2 className="w-4 h-4 animate-spin" />

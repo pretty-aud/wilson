@@ -82,7 +82,7 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         if (!r || r.width <= 0) return
         setScrubFrac(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)))
       }}
-      className="rounded-sm overflow-hidden cursor-default flex flex-col"
+      className="rounded-control overflow-hidden cursor-default flex flex-col"
       style={{
         backgroundColor: selected ? 'rgba(234,88,12,0.14)' : C.panel,
         border: `1px solid ${selected ? C.accentBorder : C.line}`,
@@ -101,17 +101,17 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         )}
         {hex && <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ backgroundColor: hex }} />}
         {used > 0 && (
-          <div className="absolute top-1 left-1 inline-flex items-center gap-0.5 px-1 rounded-sm text-dense font-mono tabular-nums" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.accentText }}
+          <div className="absolute top-1 left-1 inline-flex items-center gap-0.5 px-1 rounded-control text-dense font-mono tabular-nums" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.accentText }}
             title={`Used in ${used} shot${used === 1 ? '' : 's'}`}>
             <Clapperboard style={{ width: 9, height: 9 }} /> {used}
           </div>
         )}
-        <div className="absolute top-1 right-1 flex items-center gap-1 px-1 rounded-sm" style={{ backgroundColor: 'rgba(12,10,9,0.7)' }}>
+        <div className="absolute top-1 right-1 flex items-center gap-1 px-1 rounded-control" style={{ backgroundColor: 'rgba(12,10,9,0.7)' }}>
           <FlagMark flag={row.review_flag} circled={row.circled} size={11} />
         </div>
         <div className="absolute bottom-1 left-1"><MediaTag type={row.media_type} small /></div>
         {row.is_sequence && row.frame_count ? (
-          <div className="absolute bottom-1 right-1 px-1 rounded-sm text-dense font-mono" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.muted }}>{row.frame_count} fr</div>
+          <div className="absolute bottom-1 right-1 px-1 rounded-control text-dense font-mono" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.muted }}>{row.frame_count} fr</div>
         ) : null}
       </div>
       <div className="px-2 py-1.5 min-w-0">

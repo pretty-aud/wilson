@@ -109,7 +109,7 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
   if (src && erroredSrc !== src) {
     return (
       <div
-        className="rounded-sm overflow-hidden flex items-center justify-center"
+        className="rounded-control overflow-hidden flex items-center justify-center"
         style={{
           width: px,
           height: px,
@@ -134,7 +134,7 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
   const Icon = iconForExt(ext)
   return (
     <div
-      className="rounded-sm flex flex-col items-center justify-center gap-0.5"
+      className="rounded-control flex flex-col items-center justify-center gap-0.5"
       style={{
         width: px,
         height: px,

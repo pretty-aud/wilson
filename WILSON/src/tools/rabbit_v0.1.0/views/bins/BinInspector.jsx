@@ -160,7 +160,7 @@ export default function BinInspector({
                       <span className="truncate flex-1" style={{ color: C.text }} title={`${scene?.name ? scene.name + ' · ' : ''}#${shot.shot_number ?? '—'} ${shot.name || 'Untitled shot'}${take.notes ? ' — ' + take.notes : ''}`}>
                         {scene?.name ? <span style={{ color: C.dim }}>{scene.name} · </span> : null}#{shot.shot_number ?? '—'} {shot.name || 'Untitled shot'}
                       </span>
-                      <span className="px-1 rounded-sm text-label uppercase flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
+                      <span className="px-1 rounded-control text-label uppercase flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
                         {take.role === 'primary' && <Star className="w-2 h-2" style={{ fill: meta.color }} />}{meta.label}
                       </span>
                       <IconBtn Icon={ExternalLink} title="Open the shot in Scenes" size={3} onClick={() => navigateTo({ view: 'scenes', shotId: shot.id, projectId })} />
@@ -254,7 +254,7 @@ export default function BinInspector({
 function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={`${label} (${hint})`}
-      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
+      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40"
       style={{ color: active ? C.bright : C.muted, backgroundColor: active ? color : 'transparent', border: `1px solid ${active ? color : C.line}` }}>
       <Icon className="w-3 h-3" /> {label}
     </button>
@@ -320,7 +320,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
 
   if (row.online === false) {
     return (
-      <div className="rounded-sm flex flex-col items-center justify-center gap-1 py-6 text-center" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}` }}>
+      <div className="rounded-control flex flex-col items-center justify-center gap-1 py-6 text-center" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}` }}>
         <Unplug className="w-5 h-5" style={{ color: C.amber }} />
         <div className="text-dense" style={{ color: C.amber }}>Offline</div>
         <div className="text-dense px-4" style={{ color: C.dim }}>The file is not at its recorded path. Plug the drive in, or use Relink.</div>
@@ -337,7 +337,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
           poster={thumbUrl || undefined}
           onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
           onError={() => setFailed('Chromium could not decode this file. The poster frame stands in.')}
-          className="w-full rounded-sm" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, maxHeight: 240 }} />
+          className="w-full rounded-control" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, maxHeight: 240 }} />
         {notice(playing ? 'Playing · Space pauses' : 'Space plays · hover a tile in the grid to scrub')}
       </div>
     )
@@ -345,7 +345,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
   if (kind === 'audio' && streamUrl && !failed) {
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="rounded-sm flex items-center justify-center py-4" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}` }}>
+        <div className="rounded-control flex items-center justify-center py-4" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}` }}>
           <BinPoster row={row} src={null} width={64} height={64} iconSize={28} style={{ border: 'none', backgroundColor: 'transparent' }} />
         </div>
         <audio ref={mediaRef} key={streamUrl} src={streamUrl} controls preload="metadata" className="w-full"
@@ -359,7 +359,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
     return (
       <div className="flex flex-col gap-1.5">
         <img key={streamUrl} src={streamUrl} alt="" onError={() => setFailed('The image could not be decoded by the browser; the poster stands in.')}
-          className="w-full rounded-sm object-contain" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, maxHeight: 240 }} />
+          className="w-full rounded-control object-contain" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, maxHeight: 240 }} />
       </div>
     )
   }
@@ -373,7 +373,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
         : failed
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="rounded-sm flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
+      <div className="rounded-control flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
         <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
       </div>
       {notice(posterNotice)}

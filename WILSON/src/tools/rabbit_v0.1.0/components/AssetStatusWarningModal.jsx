@@ -42,7 +42,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}
     >
       <div
-        className="w-full max-w-md rounded-sm overflow-hidden flex flex-col"
+        className="w-full max-w-md rounded-control overflow-hidden flex flex-col"
         style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
       >
         {/* Header */}
@@ -59,7 +59,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-sm hover:bg-stone-700"
+            className="p-1 rounded-control hover:bg-stone-700"
             style={{ color: '#fca5a5' }}
           >
             <X className="w-3.5 h-3.5" />
@@ -71,7 +71,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
           <p className="text-dense leading-relaxed" style={{ color: '#d6d3d1' }}>
             <span className="font-semibold">{asset.name}</span> is marked
             <span
-              className="mx-1 px-1.5 py-0.5 text-label uppercase rounded-sm"
+              className="mx-1 px-1.5 py-0.5 text-label uppercase rounded-control"
               style={{ backgroundColor: '#1c1917', color: '#86efac', border: '1px solid #15803d' }}
             >
               {asset.status}
@@ -82,7 +82,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
 
           {pending.length > 0 && (
             <div
-              className="rounded-sm overflow-hidden"
+              className="rounded-control overflow-hidden"
               style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}
             >
               <div
@@ -102,7 +102,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
                       {t.title}
                     </span>
                     <span
-                      className="px-1.5 py-0.5 text-label uppercase rounded-sm"
+                      className="px-1.5 py-0.5 text-label uppercase rounded-control"
                       style={{ backgroundColor: '#292524', color: '#fb923c', border: '1px solid #57534e' }}
                     >
                       {t.status || '—'}
@@ -122,7 +122,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control"
             style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             <Check className="w-3 h-3" />
@@ -131,7 +131,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
           <button
             type="button"
             onClick={handleBumpBack}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm"
+            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control"
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',

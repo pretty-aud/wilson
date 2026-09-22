@@ -54,7 +54,7 @@ export default function BinTree({
       <div className="flex items-center justify-between px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
         <span className="text-label uppercase" style={{ color: C.dim }}>Bins</span>
         <button type="button" title="New bin" disabled={!canWrite} onClick={() => onCreateBin?.(null)}
-          className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30" style={{ color: C.accentText, border: `1px solid ${C.line}` }}>
+          className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30" style={{ color: C.accentText, border: `1px solid ${C.line}` }}>
           <Plus className="w-3 h-3" />
         </button>
       </div>
@@ -148,7 +148,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
           onClick={e => e.stopPropagation()}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onRename(draft.trim() || bin.name) } if (e.key === 'Escape') { e.preventDefault(); onRenameCancel() } }}
           onBlur={() => onRename(draft.trim() || bin.name)}
-          className="flex-1 min-w-0 px-1 text-dense rounded-sm focus:ring-1 focus:ring-orange-500"
+          className="flex-1 min-w-0 px-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
       ) : (
         <span className="flex-1 truncate" title={bin.description || bin.name}>{bin.name || 'Untitled'}</span>

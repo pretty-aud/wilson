@@ -1359,7 +1359,7 @@ const OverviewPane = forwardRef(function OverviewPane({
             onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
           }}
           title="Detail view is off-screen (left) — click to pan"
-          className="absolute flex items-center justify-center rounded-sm"
+          className="absolute flex items-center justify-center rounded-control"
           style={{
             left: 4,
             top: OVERVIEW_HEADER + 4,
@@ -1382,7 +1382,7 @@ const OverviewPane = forwardRef(function OverviewPane({
             onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
           }}
           title="Detail view is off-screen (right) — click to pan"
-          className="absolute flex items-center justify-center rounded-sm"
+          className="absolute flex items-center justify-center rounded-control"
           style={{
             right: 4,
             top: OVERVIEW_HEADER + 4,
@@ -1404,7 +1404,7 @@ const OverviewPane = forwardRef(function OverviewPane({
           row in this minimap. */}
       {hoverPopup && (hoverPopup.row?.kind === 'phase' || hoverPopup.row?.kind === 'milestone') && (
         <div
-          className="fixed pointer-events-none rounded-sm shadow-lg"
+          className="fixed pointer-events-none rounded-control shadow-lg"
           style={{
             left: hoverPopup.x + 14,
             top:  hoverPopup.y + 14,
@@ -1797,7 +1797,7 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
       onMouseMove={onHoverMove}
       onMouseLeave={onHoverLeave}
       data-minimap-nojump="1"
-      className="absolute rounded-sm"
+      className="absolute rounded-control"
       style={{
         left, width,
         top: 2,
@@ -2427,7 +2427,7 @@ function DetailPane({
                       e.stopPropagation()
                       onToggleCollapse?.(r.phase)
                     }}
-                    className="absolute flex items-center justify-center rounded-sm hover:bg-stone-800"
+                    className="absolute flex items-center justify-center rounded-control hover:bg-stone-800"
                     style={{
                       left: 4 + depth * INDENT_UNIT,
                       top: (rowPx - 16) / 2,
@@ -2732,7 +2732,7 @@ function DetailPane({
                         the reason. */}
                     {(isDzHover || isReparentHoverDz) && canWrite && (
                       <div
-                        className="absolute rounded-sm flex items-center justify-center pointer-events-none"
+                        className="absolute rounded-control flex items-center justify-center pointer-events-none"
                         style={{
                           left: mouseXInChart != null
                             ? Math.max(0, mouseXInChart - ghostWidth / 2)
@@ -2868,7 +2868,7 @@ function DetailPane({
                   return (
                     <div
                       key={`pdg-${r.key}`}
-                      className="absolute rounded-sm"
+                      className="absolute rounded-control"
                       style={{
                         top:  i * rowPx + (isPhase ? 3 : 5),
                         height: isPhase ? rowPx - 6 : rowPx - 10,
@@ -2902,7 +2902,7 @@ function DetailPane({
                 const width = Math.max(6, right - left)
                 return (
                   <div
-                    className="absolute rounded-sm pointer-events-none"
+                    className="absolute rounded-control pointer-events-none"
                     style={{
                       top: targetIdx * rowPx + 5,
                       height: rowPx - 10,
@@ -2960,7 +2960,7 @@ function DetailPane({
           the user is dragging a task onto another phase row. */}
       {reparentGhost && (
         <div
-          className="fixed pointer-events-none rounded-sm shadow-lg"
+          className="fixed pointer-events-none rounded-control shadow-lg"
           style={{
             left: reparentGhost.x + 12,
             top:  reparentGhost.y + 12,
@@ -3775,7 +3775,7 @@ function DetailBar({
       onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
       onMouseLeave={scheduleHoverOff}
       data-row-bar={dataRowBar}
-      className={`absolute flex items-center px-2 rounded-sm ${canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      className={`absolute flex items-center px-2 rounded-control ${canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       style={{
         left, width,
         top: subgroupStyle ? 4 : (phaseStyle ? 3 : 5),
@@ -3887,7 +3887,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="rounded-sm flex flex-col w-full max-w-md"
+        className="rounded-control flex flex-col w-full max-w-md"
         style={{ backgroundColor: '#292524', border: '1px solid #fb923c' }}
       >
         <div
@@ -3913,7 +3913,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onClampTask}
-            className="px-3 py-1.5 text-dense rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
           >
             Clamp task
@@ -3921,7 +3921,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onExtendPhase}
-            className="px-3 py-1.5 text-dense rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
           >
             Extend phase
@@ -4140,7 +4140,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="rounded-sm flex flex-col w-full max-w-md"
+        className="rounded-control flex flex-col w-full max-w-md"
         style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
       >
         <div
@@ -4165,7 +4165,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
           <button
             type="button"
             onClick={() => !saving && onClose()}
-            className="ml-auto p-0.5 rounded-sm hover:bg-stone-700"
+            className="ml-auto p-0.5 rounded-control hover:bg-stone-700"
             style={{ color: '#a8a29e' }}
           >
             <X className="w-3 h-3" />
@@ -4195,7 +4195,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.title}
                   onChange={(e) => patch('title', e.target.value)}
                   placeholder="e.g. Alpha Delivery"
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4205,7 +4205,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.date}
                     onChange={(e) => patch('date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                     style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4215,7 +4215,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                       type="color"
                       value={draft.color || '#f59e0b'}
                       onChange={(e) => patch('color', e.target.value)}
-                      className="w-8 h-8 rounded-sm border-0 cursor-pointer"
+                      className="w-8 h-8 rounded-control border-0 cursor-pointer"
                       style={{ backgroundColor: '#1c1917' }}
                     />
                     <span className="text-dense" style={{ color: '#78716c' }}>{draft.color || '#f59e0b'}</span>
@@ -4226,7 +4226,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase — project-level)</option>
@@ -4239,7 +4239,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.description}
                   onChange={(e) => patch('description', e.target.value)}
                   placeholder="What does this milestone mark?"
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4253,7 +4253,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.name}
                   onChange={(e) => patch('name', e.target.value)}
                   placeholder="e.g. Hero Character Model"
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4263,7 +4263,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4272,7 +4272,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.due_date || ''}
                     onChange={(e) => patch('due_date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4282,7 +4282,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.status || 'not_started'}
                     onChange={(e) => patch('status', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
@@ -4302,7 +4302,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     value={draft.type || ''}
                     onChange={(e) => patch('type', e.target.value)}
                     placeholder="e.g. 3D Model, Texture"
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4311,7 +4311,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase)</option>
@@ -4324,7 +4324,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.description || ''}
                   onChange={(e) => patch('description', e.target.value)}
                   placeholder="Asset description"
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4338,7 +4338,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.name}
                   onChange={(e) => patch('name', e.target.value)}
                   placeholder="e.g. Pre-production"
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4346,7 +4346,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.parent_phase_id || ''}
                   onChange={(e) => patch('parent_phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(top-level)</option>
@@ -4362,7 +4362,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     required
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4372,7 +4372,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     required
                     value={draft.end_date || ''}
                     onChange={(e) => patch('end_date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4388,7 +4388,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.status || 'not_started'}
                   onChange={(e) => patch('status', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
@@ -4402,7 +4402,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   rows={3}
                   value={draft.description}
                   onChange={(e) => patch('description', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4416,7 +4416,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.title}
                   onChange={(e) => patch('title', e.target.value)}
                   placeholder="e.g. Storyboard pass 1"
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4424,7 +4424,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase)</option>
@@ -4437,7 +4437,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.asset_id || ''}
                   onChange={(e) => patch('asset_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no asset — task lives directly under the phase)</option>
@@ -4458,7 +4458,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     <select
                       value={draft.scene_id || ''}
                       onChange={(e) => { patch('scene_id', e.target.value); patch('shot_id', '') }}
-                      className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                       style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                     >
                       <option value="">(no scene)</option>
@@ -4469,7 +4469,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     <select
                       value={draft.shot_id || ''}
                       onChange={(e) => patch('shot_id', e.target.value)}
-                      className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                       style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                     >
                       <option value="">(no shot)</option>
@@ -4484,7 +4484,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.level_id || ''}
                     onChange={(e) => patch('level_id', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">(no level)</option>
@@ -4497,7 +4497,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.experience_id || ''}
                     onChange={(e) => patch('experience_id', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">(no experience)</option>
@@ -4511,7 +4511,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4520,7 +4520,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.end_date || ''}
                     onChange={(e) => patch('end_date', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4533,7 +4533,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     step="0.5"
                     value={draft.bid_days}
                     onChange={(e) => patch('bid_days', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4541,7 +4541,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.assignee_id || ''}
                     onChange={(e) => patch('assignee_id', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">-- unassigned --</option>
@@ -4556,7 +4556,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.priority}
                     onChange={(e) => patch('priority', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="low" style={{ color: '#a8a29e' }}>Low</option>
@@ -4569,7 +4569,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.status}
                     onChange={(e) => patch('status', e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-sm focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="waiting_to_start" style={{ color: '#a8a29e' }}>Waiting to start</option>
@@ -4613,7 +4613,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
 
           {error && (
             <div
-              className="text-dense p-2 rounded-sm"
+              className="text-dense p-2 rounded-control"
               style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
             >
               {error}
@@ -4631,7 +4631,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 type="button"
                 onClick={handleDelete}
                 disabled={saving}
-                className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-30"
+                className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
                 style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
               >
                 <Trash2 className="w-3 h-3" />
@@ -4644,7 +4644,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               type="button"
               onClick={() => !saving && onClose()}
               disabled={saving}
-              className="px-3 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-30"
+              className="px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
               style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
             >
               {canWrite ? 'Cancel' : 'Close'}
@@ -4654,7 +4654,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-sm transition-colors disabled:opacity-30"
+                className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
               >
                 <Save className="w-3 h-3" />
@@ -4827,7 +4827,7 @@ function DetailZoomToolbar({
           type="button"
           onClick={onUndo}
           disabled={!canUndo}
-          className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
+          className="p-1.5 rounded-control transition-colors hover:bg-stone-800"
           style={{
             color: canUndo ? '#d6d3d1' : '#44403c',
             cursor: canUndo ? 'pointer' : 'not-allowed',
@@ -4840,7 +4840,7 @@ function DetailZoomToolbar({
           type="button"
           onClick={onRedo}
           disabled={!canRedo}
-          className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
+          className="p-1.5 rounded-control transition-colors hover:bg-stone-800"
           style={{
             color: canRedo ? '#d6d3d1' : '#44403c',
             cursor: canRedo ? 'pointer' : 'not-allowed',
@@ -4859,7 +4859,7 @@ function DetailZoomToolbar({
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-2.5 py-1 text-dense rounded-sm transition-colors"
+            className="px-2.5 py-1 text-dense rounded-control transition-colors"
             style={{
               color: zoomId === z.id ? '#fff7ed' : '#78716c',
               backgroundColor: zoomId === z.id ? '#ea580c' : 'transparent',
@@ -4876,7 +4876,7 @@ function DetailZoomToolbar({
       <button
         type="button"
         onClick={onCenterToday}
-        className="flex items-center gap-1 px-2 py-1 rounded-sm hover:bg-stone-800 transition-colors"
+        className="flex items-center gap-1 px-2 py-1 rounded-control hover:bg-stone-800 transition-colors"
         style={{ color: '#78716c' }}
         title="Center the detail timeline on today"
       >
@@ -4903,7 +4903,7 @@ function DetailZoomToolbar({
                 key={g.id}
                 type="button"
                 onClick={() => onGroupByChange(g.id)}
-                className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
+                className="p-1.5 rounded-control transition-colors hover:bg-stone-800"
                 style={{
                   color: groupBy === g.id ? '#fb923c' : '#57534e',
                 }}
@@ -4923,7 +4923,7 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('asc')}
-          className="px-2 py-1 text-dense rounded-sm transition-colors hover:bg-stone-800"
+          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
           style={{
             color: sortOrder === 'asc' ? '#fb923c' : '#57534e',
           }}
@@ -4934,7 +4934,7 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('desc')}
-          className="px-2 py-1 text-dense rounded-sm transition-colors hover:bg-stone-800"
+          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
           style={{
             color: sortOrder === 'desc' ? '#fb923c' : '#57534e',
           }}
@@ -4951,7 +4951,7 @@ function DetailZoomToolbar({
           <button
             type="button"
             onClick={onNewPhase}
-            className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-sm transition-colors hover:bg-stone-800"
+            className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
             style={{ color: '#78716c' }}
           >
             <Plus className="w-3 h-3" />
@@ -4963,7 +4963,7 @@ function DetailZoomToolbar({
           <button
             type="button"
             onClick={onNewMilestone}
-            className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-sm transition-colors hover:bg-stone-800"
+            className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
             style={{ color: '#f59e0b' }}
           >
             <Diamond className="w-3 h-3" />
@@ -4974,7 +4974,7 @@ function DetailZoomToolbar({
           <button
             type="button"
             onClick={onNewTask}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
           >
             <Plus className="w-3 h-3" />
@@ -5042,7 +5042,7 @@ function HolidaysEditor({ holidays, onChange }) {
   }
 
   return (
-    <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+    <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
       <label className="block text-h3 font-semibold mb-1 text-orange-400">
         Holidays / Blocked Days
       </label>
@@ -5057,19 +5057,19 @@ function HolidaysEditor({ holidays, onChange }) {
           type="date"
           value={newDate}
           onChange={(e) => setNewDate(e.target.value)}
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-dense text-stone-300 focus:border-orange-500"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-control text-dense text-stone-300 focus:border-orange-500"
         />
         <input
           type="text"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Holiday name"
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-dense text-stone-300 focus:border-orange-500 flex-1 min-w-0"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-control text-dense text-stone-300 focus:border-orange-500 flex-1 min-w-0"
         />
         <button
           type="button"
           onClick={() => { if (newDate) { addDate(newDate, newTitle); setNewDate(''); setNewTitle('') } }}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm flex-shrink-0"
+          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control flex-shrink-0"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
         >
           <Plus className="w-3 h-3" />
@@ -5083,7 +5083,7 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm"
+          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control"
           style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
           <Upload className="w-3 h-3" />
@@ -5092,7 +5092,7 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm"
+          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control"
           style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
           <Download className="w-3 h-3" />
@@ -5105,7 +5105,7 @@ function HolidaysEditor({ holidays, onChange }) {
 
       {/* Date list */}
       <div
-        className="overflow-y-auto border border-stone-700 rounded-sm"
+        className="overflow-y-auto border border-stone-700 rounded-control"
         style={{ maxHeight: 200, backgroundColor: '#0c0a09' }}
       >
         {sorted.length === 0 ? (
@@ -5127,7 +5127,7 @@ function HolidaysEditor({ holidays, onChange }) {
               <button
                 type="button"
                 onClick={() => removeDate(iso)}
-                className="p-0.5 hover:bg-stone-700 rounded-sm transition-colors flex-shrink-0"
+                className="p-0.5 hover:bg-stone-700 rounded-control transition-colors flex-shrink-0"
                 title="Remove this date"
               >
                 <X className="w-3 h-3 text-stone-500 hover:text-red-400" />
@@ -5193,7 +5193,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
             <SettingsIcon className="w-5 h-5 text-orange-400" />
             <span className="font-semibold text-orange-400 uppercase tracking-wide">RABBIT Settings</span>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded transition-colors">
+          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
             <X className="w-5 h-5 text-stone-400" />
           </button>
         </div>
@@ -5254,7 +5254,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {settingsTab === 'settings' && (
             <div className={toolsLocked ? 'opacity-60 pointer-events-none' : ''}>
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
                 <label className="block text-h3 font-semibold mb-2 text-orange-400">Timeline Display</label>
                 <div className="flex items-center justify-between">
                   <div>
@@ -5274,7 +5274,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                   </button>
                 </div>
               </div>
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
                 <label className="block text-h3 font-semibold mb-2 text-orange-400">About</label>
                 <p className="text-dense text-stone-500">
                   RABBIT is WILSON's resource allocation tool. Settings are scoped to the
@@ -5283,7 +5283,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               </div>
 
               {/* ── Task Templates ── */}
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
                 <label className="block text-h3 font-semibold mb-2 text-orange-400">Task Templates</label>
                 <p className="text-dense text-stone-500 mb-3">
                   Create and manage reusable task templates that can be applied when creating new assets.
@@ -5291,7 +5291,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 <button
                   type="button"
                   onClick={() => setShowTemplateManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-sm transition-colors hover:bg-stone-700"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
                   style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 >
                   <ListChecks className="w-3.5 h-3.5" />
@@ -5300,13 +5300,13 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               </div>
 
               {/* ── Project Type Defaults ── */}
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
                 <label className="block text-h3 font-semibold mb-2 text-orange-400">Project Type Defaults</label>
                 <p className="text-dense text-stone-500 mb-3">
                   When creating a new project, these databases will be toggled on by default based on the project type.
                   You can override these per-project in the Project Control Panel.
                 </p>
-                <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+                <div className="rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
                   {/* Header row */}
                   <div className="flex items-center px-3 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
                     <span className="flex-1 text-label uppercase font-semibold" style={{ color: '#78716c' }}>Type</span>
@@ -5332,7 +5332,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                                 templates[type] = { ...(templates[type] || {}), [field]: !tpl[field] }
                                 patchSettings({ projectTypeTemplates: templates })
                               }}
-                              className="w-4 h-4 rounded-sm flex items-center justify-center transition-colors"
+                              className="w-4 h-4 rounded-control flex items-center justify-center transition-colors"
                               style={{
                                 backgroundColor: tpl[field] ? '#ea580c' : 'transparent',
                                 border: `1px solid ${tpl[field] ? '#ea580c' : '#57534e'}`,
@@ -5389,7 +5389,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                           setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))
                         }
                         disabled={promptsLocked}
-                        className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-dense focus:border-orange-500 resize-none ${promptsLocked ? 'cursor-not-allowed' : ''}`}
+                        className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none ${promptsLocked ? 'cursor-not-allowed' : ''}`}
                       />
                       <div className="flex gap-3 mt-1">
                         <button
@@ -5428,7 +5428,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               type="button"
               onClick={onOpenHelp}
               title="Open RABBIT help & documentation"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-dense font-semibold transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-control text-dense font-semibold transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
             >
               <HelpCircle className="w-3.5 h-3.5" />
               Help
@@ -5454,7 +5454,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div
-        className="relative bg-stone-800 border-2 border-stone-600 rounded-sm shadow-2xl flex flex-col"
+        className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col"
         style={{ width: '850px', height: '82vh' }}
       >
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
@@ -5464,7 +5464,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
               Help & Documentation
             </span>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded transition-colors">
+          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
             <X className="w-5 h-5 text-stone-400" />
           </button>
         </div>
@@ -5513,13 +5513,13 @@ function ZoomControls({ zoomId, onChange }) {
         type="button"
         onClick={() => canZoomIn && onChange(ZOOM_LEVELS[idx - 1].id)}
         disabled={!canZoomIn}
-        className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30"
+        className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30"
         title="Zoom in"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}
       >
         <ZoomIn className="w-3 h-3" />
       </button>
-      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+      <div className="flex rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
         {ZOOM_LEVELS.map(z => (
           <button
             key={z.id}
@@ -5540,7 +5540,7 @@ function ZoomControls({ zoomId, onChange }) {
         type="button"
         onClick={() => canZoomOut && onChange(ZOOM_LEVELS[idx + 1].id)}
         disabled={!canZoomOut}
-        className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30"
+        className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30"
         title="Zoom out"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}
       >
@@ -5622,7 +5622,7 @@ function SummaryBand({
             type="button"
             onClick={onMinimapFitProject}
             title="Fit minimap to project start/end"
-            className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors"
             style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <Maximize2 className="w-3 h-3" />
@@ -5632,7 +5632,7 @@ function SummaryBand({
             type="button"
             onClick={onMinimapCenterToday}
             title="Center minimap on today"
-            className="flex items-center gap-1 px-2 py-1 text-dense rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors"
             style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <Crosshair className="w-3 h-3" />
