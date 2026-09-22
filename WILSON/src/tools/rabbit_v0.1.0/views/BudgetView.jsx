@@ -1234,7 +1234,7 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
       <CurrencyDisplay
         value={amount}
         currency={currency}
-        className={`font-mono ${bold ? 'font-bold' : ''} ${large ? 'text-body' : 'text-body'}`}
+        className={`font-mono ${bold ? 'font-bold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
         style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
       />
     </div>

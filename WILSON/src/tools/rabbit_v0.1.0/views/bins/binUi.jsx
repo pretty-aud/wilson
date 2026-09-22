@@ -76,7 +76,7 @@ export function MediaTag({ type, small = false, onClick, title }) {
     <span
       onClick={onClick}
       title={title || meta.label}
-      className={`inline-flex items-center rounded-sm font-mono uppercase tracking-wider ${small ? 'px-1 text-dense leading-[14px]' : 'px-1.5 text-dense leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
+      className={`inline-flex items-center rounded-sm font-mono uppercase tracking-wider ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
       style={{ color: meta.color, backgroundColor: meta.bg, border: `1px solid ${meta.color}33` }}
     >
       {small ? meta.short : meta.label}

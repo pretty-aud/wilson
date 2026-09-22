@@ -35,8 +35,18 @@ const NL = String.fromCharCode(10);
 
 /* The class list a size token sits in is the quoted run containing it: a
    string literal, a template chunk, or one arm of a ternary. Walking back to
-   the nearest unescaped quote gets that run without parsing JSX. */
+   the nearest unescaped quote gets that run without parsing JSX.
+ *
+ * 🚨 WITH ONE CORRECTION. In a template literal the nearest quote is often an
+ * interpolation's own — `${small ? 'px-2 py-1 text-dense' : '…'} font-mono
+ * uppercase` walks back into the ternary arm and returns `px-2 py-1
+ * text-dense`, which hides the `uppercase` sitting outside it. The whole
+ * template is the class list, so when the position is inside one, that is
+ * what gets returned. Measured: 18 step tokens sit inside an interpolation
+ * and 4 had an `uppercase` hidden this way, all in binUi.jsx. */
 export function enclosingRun(src, idx) {
+  const tpl = enclosingTemplate(src, idx);
+  if (tpl) return tpl;
   const opens = ['"', "'", '`'];
   let start = -1, q = null;
   for (let i = idx; i >= 0 && idx - i < 4000; i--) {
@@ -45,6 +55,20 @@ export function enclosingRun(src, idx) {
   if (start < 0) return null;
   let end = src.indexOf(q, idx);
   if (end < 0) end = idx + 200;
+  return src.slice(start + 1, end);
+}
+
+/** The full body of the template literal containing `idx`, or null. */
+function enclosingTemplate(src, idx) {
+  const TICK = String.fromCharCode(96);
+  const back = src.slice(Math.max(0, idx - 4000), idx);
+  const tick = back.lastIndexOf(TICK);
+  if (tick < 0) return null;
+  const interp = back.lastIndexOf('${');
+  if (interp < tick) return null;             // not inside an interpolation
+  const start = Math.max(0, idx - 4000) + tick;
+  let end = src.indexOf(TICK, idx);
+  if (end < 0) end = Math.min(src.length, idx + 600);
   return src.slice(start + 1, end);
 }
 

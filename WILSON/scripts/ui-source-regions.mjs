@@ -56,8 +56,19 @@ export function protectedRanges(src) {
       i = end < 0 ? n : end + 2;
       continue;
     }
-    /* Ordinary string — skipped, not protected: className="…" lives here. */
+    /* Ordinary string — skipped, not protected: className="…" lives here.
+       🚨 An apostrophe in JSX TEXT ("don't", "Audrey's") is not a string
+       opener, and treating it as one makes the scanner skip forward to the
+       next apostrophe — swallowing real code, and with it any `//` that
+       started a comment further down. One comment in RateCardPage.jsx came
+       back unprotected for exactly this reason. A quote that opens a string
+       never directly follows a letter or a digit; one in prose almost always
+       does. */
     if (c === '"' || c === "'") {
+      let k = i - 1;
+      while (k >= 0 && (src[k] === ' ' || src[k] === '\t')) k--;
+      const prev = k >= 0 ? src[k] : '';
+      if (c === "'" && /[A-Za-z0-9]/.test(prev)) { i++; continue; }  // prose
       i++;
       while (i < n && src[i] !== c) { if (src[i] === '\\') i++; i++; }
       i++;
