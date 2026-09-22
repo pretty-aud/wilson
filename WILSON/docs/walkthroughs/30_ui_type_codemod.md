@@ -38,7 +38,17 @@ job the small-capitals style is for.
 **R.A.B.B.I.T. Timeline** (`t0-*-rabbit-timeline-*.png`) — the row of tabs along
 the top read INTAKE SUMMARY TEAM TASKS TIMELINE and now reads Intake, Summary,
 Team, Tasks, Timeline. The task names down the left of the Gantt are bigger. The
-phase and task bars, the dates, the zoom control and the minimap are untouched.
+bars, the dates and the zoom control all sit where they did.
+
+**One thing on this page got worse and I could not fix it properly.** The labels
+written on the phase bars used to be in small capitals, which was the only thing
+that told a phase bar apart from a task bar at a glance. Capitals now belong to
+short labels only, and a phase name is not a label, so they are sentence case
+like everything else — and the two kinds of bar now look the same. Giving phase
+bars a new distinction is a design decision rather than a font change, so I have
+left it for the session that rebuilds the Timeline, where making the minimap
+readable is already on the list. If it bothers you before then, say so and it
+can be pulled forward.
 
 **Files** (`t0-*-files-*.png`) — **not one line changed**, and that is the good
 news rather than a gap. You called this page out by name as the worst of them;
