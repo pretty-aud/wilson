@@ -595,10 +595,10 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
     return (
       <div className="flex flex-col h-full bg-stone-900">
         {/* Header bar */}
-        <div className="shrink-0 px-6 py-4 border-b-2 border-stone-600 bg-stone-800 flex items-center justify-between">
+        <div className="shrink-0 px-6 py-4 border-b border-stone-600 bg-stone-800 flex items-center justify-between">
           <div>
             <h2 className="text-h2 font-semibold text-stone-200">Lesson Validator</h2>
-            <p className="text-caption text-stone-500 mt-0.5">
+            <p className="text-dense text-stone-500 mt-0.5">
               {scope === 'targeted' ? 'Select lessons to validate' : 'Validate all lessons across all software'}
             </p>
           </div>
@@ -662,7 +662,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
                   return (
                     <div key={sw.slug} className="border border-stone-600 rounded-control overflow-hidden">
                       {/* Software header */}
-                      <div className="flex items-center gap-2 px-4 py-2.5 bg-stone-700 border-b-2 border-stone-600">
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-stone-700 border-b border-stone-600">
                         <input
                           type="checkbox"
                           checked={swAllSelected}
@@ -774,11 +774,11 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           /* Full validation — show summary */
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center max-w-md">
-              <div className="text-5xl font-semibold text-stone-600 mb-2">{allLessonIds.length}</div>
+              <div className="text-h1 font-semibold text-stone-600 mb-2">{allLessonIds.length}</div>
               <p className="text-stone-400 text-body mb-1">
                 lessons across {lessonTree.reduce((n, sw) => n + sw.subjects.length, 0)} subject{lessonTree.reduce((n, sw) => n + sw.subjects.length, 0) !== 1 ? 's' : ''} will be validated
               </p>
-              <p className="text-stone-500 text-caption">Switch to "Targeted Validation" to pick specific lessons</p>
+              <p className="text-stone-500 text-dense">Switch to "Targeted Validation" to pick specific lessons</p>
             </div>
           </div>
         )}
@@ -794,7 +794,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
     <div className="flex h-full">
 
       {/* ── LEFT SIDEBAR ── */}
-      <div className="w-[290px] shrink-0 border-r-2 border-stone-600 bg-stone-800 flex flex-col overflow-hidden">
+      <div className="w-[290px] shrink-0 border-r border-stone-600 bg-stone-800 flex flex-col overflow-hidden">
 
         {/* Back to setup + controls */}
         <div className="p-3 border-b border-stone-700 flex items-center gap-2">
@@ -824,7 +824,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
         {validationQueue.length > 0 && (
           <div className="border-b border-stone-700 max-h-[200px] overflow-y-auto">
             <div className="px-3 py-1.5 border-b border-stone-700 sticky top-0 bg-stone-800 z-10">
-              <span className="text-label font-semibold text-stone-400 uppercase">
+              <span className="text-dense font-semibold text-stone-400">
                 Queue {queuedCount > 0 && `(${queuedCount} remaining)`}
               </span>
             </div>
@@ -929,7 +929,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
 
             {/* Findings */}
             <div className="mb-5">
-              <h3 className="text-label font-semibold text-stone-300 uppercase mb-2">Findings</h3>
+              <h3 className="text-h3 font-semibold text-stone-300 mb-2">Findings</h3>
               <div className="space-y-2">
                 {selectedAudit.findings.map((finding, fi) => (
                   <FindingCard key={fi} finding={finding} />
@@ -941,7 +941,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
             {inaccurateCount > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <h3 className="text-label font-semibold text-stone-300 uppercase">Fixes</h3>
+                  <h3 className="text-h3 font-semibold text-stone-300">Fixes</h3>
                   {!selectedAudit.fixes && (
                     <button
                       onClick={requestFixes}

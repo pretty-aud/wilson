@@ -31,10 +31,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { sourceFiles } from './ui-audit.mjs';
 import { classifySite } from './ui-type-map.mjs';
 import { protectedRanges, isProtected } from './ui-source-regions.mjs';
-import { enclosingRun, enclosingTag } from './ui-type-inventory.mjs';
+import { enclosingRun, enclosingTag, elementBody, enclosingStyle } from './ui-type-inventory.mjs';
 
-const SIZE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|2xl|3xl)\b)/g;
-const TW = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24, '3xl': 30 };
+const SIZE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|[2-9]xl)\b)/g;
+const TW = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24, '3xl': 30, '4xl': 36, '5xl': 48, '6xl': 60, '7xl': 72, '8xl': 96, '9xl': 128 };
 
 /* Already converted by an earlier session and carrying a ruled exception:
    Home is ALL CAPITALS by Audrey's decision (W4) and its label strings are
@@ -61,7 +61,7 @@ for (const file of files) {
     const px = m[1] ? parseFloat(m[1]) : TW[m[2]];
     const run = enclosingRun(src, m.index) || '';
     const tag = enclosingTag(src, m.index);
-    const step = classifySite(file, px, run, tag);
+    const step = classifySite(file, px, run, tag, elementBody(src, m.index), enclosingStyle(src, m.index));
     if (m[0] === step) continue;                       // already there
     edits.push({ start: m.index, end: m.index + m[0].length, from: m[0], to: step });
     stepTally.set(step, (stepTally.get(step) || 0) + 1);

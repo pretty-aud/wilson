@@ -91,13 +91,13 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
         <div className="max-h-[48vh] overflow-y-auto">
           {shown.length === 0 && (
-            <div className="px-3 py-6 text-center text-dense font-mono" style={{ color: C.dimmer }}>
+            <div className="px-3 py-6 text-center text-dense font-mono tabular-nums" style={{ color: C.dimmer }}>
               {totalShots === 0 ? 'No shots to assign to yet. Add shots on the Scenes tab first.' : 'No shot matches.'}
             </div>
           )}
           {shown.map(g => (
             <div key={g.key}>
-              <div className="flex items-center gap-2 px-3 py-1 text-label uppercase" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 px-3 py-1 text-dense" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
                 <Film className="w-3 h-3" /> {g.scene ? `${g.scene.scene_number != null ? `Sc ${g.scene.scene_number} · ` : ''}${g.scene.name || 'Untitled scene'}` : 'Shots without a scene'}
                 {g.key === preferSceneId && <span className="normal-case tracking-normal" style={{ color: C.dim }}>· where these files are logged</span>}
               </div>

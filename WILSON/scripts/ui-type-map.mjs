@@ -24,7 +24,10 @@
  * |----------------------------------------------|---------------|----|-----|----------|
  * | tag is button/select/input/textarea, <=12.5px| `text-dense`  | 13 | kit | sentence |
  * | tag is button/select/input/textarea, >12.5px | `text-body`   | 14 | kit | sentence |
- * | carries `uppercase` OR `tracking-*`          | `text-label`  | 11 | 600 | KEEPS UPPER |
+ * | `uppercase` on an h1–h6 tag                  | h3/h2/h1 by px| .. | 600 | sentence |
+ * | `uppercase` on >30 chars of literal text     | `text-dense`  | 13 | 400 | sentence |
+ * | `uppercase`, under 18px                      | `text-label`  | 11 | 600 | KEEPS UPPER |
+ * | `uppercase`, 18px and over                   | `text-h1`     | 20 | 600 | sentence |
  * | plain, <= 12.5px, positive metadata evidence | `text-caption`| 12 | 400 | sentence |
  * | plain, <= 12.5px, otherwise                  | `text-dense`  | 13 | 400 | sentence |
  * | plain, 13 – 13.5px                           | `text-dense`  | 13 | 400 | sentence |
@@ -129,6 +132,13 @@ export const META_INK = [
   /\btext-(?:stone|neutral|zinc|gray|slate)-(?:500|600)\b/,
   /\btext-\[#(?:78716c|8d8986|57534e)\]/i,
   /\bopacity-(?:40|50|60|70)\b/,
+  /* The SAME muted ink, written inline. `META_INK` was a class-list rule, and
+     R.A.B.B.I.T. and the operator console write `style={{ color: '#78716c' }}`
+     where D.O.G. writes `text-stone-500` — so the Caption step was unreachable
+     on the largest surface in the app and a seven-step scale shipped as six.
+     `#a8a29e` is deliberately absent for the same reason `-400` is: it is
+     ink-2, the secondary BODY ink. */
+  /color:\s*['"]#(?:78716c|8d8986|57534e)['"]/i,
 ];
 
 /* ── Prose evidence: a leading or a stack rhythm the author set means running
@@ -143,7 +153,12 @@ export const PROSE_CLASS = [
 
 /* ── Dense evidence: the structural mass. A table cell is a table cell even
    when it is dim, so this is tested BEFORE the metadata promotion. */
-export const DENSE_TAGS = /^(?:td|th|tr|li|option)$/;
+/* `p`, `ul`, `ol` and `blockquote` are here for the same reason `td` and `li`
+   are: the tag says what the content IS, and it outranks how dim the author
+   made it. Without them, `META_INK` fired first and two paragraphs of the same
+   kind in one D.O.G. help card landed on Dense and Caption — a 13px and a 12px
+   paragraph side by side reads as a rendering fault, not as a hierarchy. */
+export const DENSE_TAGS = /^(?:td|th|tr|li|option|p|ul|ol|blockquote|dd|dt)$/;
 export const DENSE_FILE = /(?:Table|Row|Tree|Sidebar|List|Grid|Cell|Bin|Timeline|Gantt|Budget|Scenes|Assets|FileManager|ProjectFiles|Tasks)/i;
 export const DENSE_CLASS = [
   /\btabular-nums\b/,
@@ -162,22 +177,51 @@ export const TAILWIND_PX = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24
  * @param {string} [tag] the JSX tag the className is on, lowercased
  * @returns {string} one of text-label|caption|dense|body|h3|h2|h1
  */
-export function classifySite(file, px, run, tag = '') {
+/**
+ * Literal text long enough that it is a sentence rather than a label. Counts
+ * only the words: an interpolation is a value, and a value can legitimately be
+ * long. Thirty characters is about five words — no column header, field label,
+ * eyebrow or status badge in this app comes close.
+ */
+export function isShoutingSentence(body = '') {
+  const words = body.replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+  return words.length > 30 && /\s/.test(words);
+}
+
+/**
+ * @param {string} body the element's rendered content, as evidence for (b)
+ */
+export function classifySite(file, px, run, tag = '', body = '', style = '') {
   /* 0. A control is a control, whatever case it was shouting in. The kit
         rules these and the kit's split is 13 small / 14 normal. */
   if (CONTROL_TAGS.test(tag)) return px <= 12.5 ? 'text-dense' : 'text-body';
 
-  /* 1. Label, and nothing else can reach it — but only at label sizes.
-        §3.1 gives Label "table headers, field labels, eyebrows, Kbd, status
-        badges", and not one of those is ever set at 16px or more. A big
-        uppercase run is a heading shouting, not a label, and the fix for a
-        heading that shouts is sentence case (Q2), not an 11px heading.
-        Measured: 2 sites, both real. R.A.B.B.I.T.'s client estimate sets the
-        project title in an 18px uppercase <h2>; the naive rule put a
-        client-facing document title at 11px. */
+  /* 1. Label — but three things outrank it, and each one was a real defect.
+
+     (a) A HEADING TAG IS A HEADING, whatever size it was written at. §3.1
+         gives Label "table headers, field labels, eyebrows, Kbd, status
+         badges" and a heading is none of them. This codebase writes section
+         headings as `<h3 className="text-sm font-bold uppercase">`, so the
+         size test alone sent 54 heading tags to the 11px floor — and left
+         them SMALLER than the body they introduce. D.O.G.'s help pane had 15
+         `<h3>` at 11px over 47 `<h4>` at 13px; the operator console's only
+         `<h1>` was 11px above a 13px paragraph. A heading that shouts is
+         fixed by sentence case (Q2), not by shrinking it.
+
+     (b) A SHOUTING SENTENCE IS A SENTENCE. `uppercase` with forty characters
+         of literal text behind it is prose someone set in capitals, not a
+         label: "No shots yet — create a scene first, then add shots" was
+         ratified as a label and got smaller. 14 sites.
+
+     (c) THE SIZE CLIFF IS AT 18, NOT 16. At 16 it split one designed pair of
+         row labels in R.A.B.B.I.T.'s cost breakdown — "BASE COST" at 11px in
+         capitals four rows from "Grand Total" at 16px in sentence case, when
+         13.5 and 16 had been one author's emphasis inside one waterfall. */
   if (LABEL_EVIDENCE.some((re) => re.test(run))) {
-    if (px < 16) return 'text-label';
-    return px >= 18 ? 'text-h1' : 'text-h2';
+    if (HEADING_TAGS.test(tag)) return px >= 18 ? 'text-h1' : px >= 15 ? 'text-h2' : 'text-h3';
+    if (isShoutingSentence(body)) return 'text-dense';
+    if (px < 18) return 'text-label';
+    return 'text-h1';
   }
 
   const heading = HEADING_WEIGHT.test(run) || HEADING_TAGS.test(tag);
@@ -202,7 +246,7 @@ export function classifySite(file, px, run, tag = '') {
   if (DENSE_CLASS.some((re) => re.test(run))) return 'text-dense';
   if (PROSE_CLASS.some((re) => re.test(run))) return 'text-dense';
   if (DENSE_FILE.test(file)) return 'text-dense';
-  if (META_INK.some((re) => re.test(run))) return 'text-caption';
+  if (META_INK.some((re) => re.test(run) || re.test(style))) return 'text-caption';
   return 'text-dense';
 }
 

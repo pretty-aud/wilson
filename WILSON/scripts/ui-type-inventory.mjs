@@ -28,8 +28,11 @@ import { protectedRanges, isProtected } from './ui-source-regions.mjs';
    whole arbitrary-size arm silently matches nothing. The `\b` belongs on the
    named arm only. This cost one confused inventory run; it would have cost a
    whole silent pass. */
-const SIZE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|2xl|3xl)\b)/g;
-const TW = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24, '3xl': 30 };
+/* `[2-9]xl`, not `2xl|3xl`: Tailwind goes to 9xl and this codebase reaches
+   `text-5xl` and `text-6xl` — a quiz score and a lesson count, both display
+   figures. A three-value alternation looked complete and was not. */
+const SIZE = /\btext-(?:\[(\d+(?:\.\d+)?)px\]|(xs|sm|base|lg|xl|[2-9]xl)\b)/g;
+const TW = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, '2xl': 24, '3xl': 30, '4xl': 36, '5xl': 48, '6xl': 60, '7xl': 72, '8xl': 96, '9xl': 128 };
 const BS = String.fromCharCode(92);
 const NL = String.fromCharCode(10);
 
@@ -46,7 +49,7 @@ const NL = String.fromCharCode(10);
  * and 4 had an `uppercase` hidden this way, all in binUi.jsx. */
 export function enclosingRun(src, idx) {
   const tpl = enclosingTemplate(src, idx);
-  if (tpl) return tpl;
+  if (tpl) return stripConditionalArms(tpl, idx, src);
   const opens = ['"', "'", '`'];
   let start = -1, q = null;
   for (let i = idx; i >= 0 && idx - i < 4000; i--) {
@@ -55,7 +58,80 @@ export function enclosingRun(src, idx) {
   if (start < 0) return null;
   let end = src.indexOf(q, idx);
   if (end < 0) end = idx + 200;
+  const run = src.slice(start + 1, end);
+  /* A token BEFORE the template's first `${` reaches here rather than through
+     `enclosingTemplate`, and it needs the same treatment: the run still spans
+     every conditional arm. This is the path R.A.B.B.I.T.'s Gantt bar label
+     takes — `text-[10.5px] truncate … ${phase ? '… uppercase' : ''}` — and
+     without this it is still judged by a class only phase bars ever get. */
+  if (q === String.fromCharCode(96)) {
+    return run.replace(/\$\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, ' ');
+  }
+  return run;
+}
+
+/**
+ * The run with the conditional arms LEFT IN.
+ *
+ * Two different questions want two different runs, and conflating them broke a
+ * Bins badge. "What ROLE is this site?" must ignore a class only one branch
+ * ever gets (the Gantt bar). "Does this site carry a step at all?" must see
+ * every branch, because `${small ? 'px-1 text-label' : 'px-1.5 text-label'}`
+ * genuinely does carry one — and pass 2 reading the stripped run concluded the
+ * badge had no step, filed it as an inherited eyebrow, and left its tracking
+ * on. Pass 1 asks the first question; pass 2 and the guard ask the second.
+ */
+export function enclosingRunRaw(src, idx) {
+  /* The template FIRST. A token inside a ternary arm has a `'` as its nearest
+     quote, so a quote-walk returns the arm alone — which is how the Bins badge
+     reported as a case-less label: its `text-label` is in the arm and its
+     `uppercase` is in the template around it. */
+  const tpl = enclosingTemplate(src, idx);
+  if (tpl) return tpl;
+  const BT = String.fromCharCode(96);
+  const opens = ['"', "'", BT];
+  let start = -1, q = null;
+  for (let i = idx; i >= 0 && idx - i < 4000; i--) {
+    if (opens.includes(src[i]) && src[i - 1] !== BS) { q = src[i]; start = i; break; }
+  }
+  if (start < 0) return '';
+  let end = src.indexOf(q, idx);
+  if (end < 0) end = idx + 200;
   return src.slice(start + 1, end);
+}
+
+/**
+ * Widening the run to the whole template literal fixes one problem and creates
+ * another: a class that applies to only ONE BRANCH of a ternary then decides
+ * the site for every branch.
+ *
+ *   `text-[10.5px] ${subgroup ? 'font-bold' : (phase ? 'font-bold uppercase' : '')}`
+ *
+ * That is R.A.B.B.I.T.'s Gantt bar label. Only a PHASE bar was ever uppercase,
+ * but the widened run saw `uppercase` and put every TASK bar's name — a name,
+ * truncated inside a fixed-width bar — on the Label step, with 600 weight and
+ * 0.06em of tracking it never had, fitting fewer characters before the
+ * ellipsis. Two sites, both real.
+ *
+ * So: when the token being classified sits OUTSIDE every `${…}`, the
+ * interpolations are conditional and their classes are not evidence about it.
+ * When the token is inside one, the whole template is the right context — which
+ * is the binUi case the widening was written for, and it still works.
+ */
+function stripConditionalArms(tpl, idx, src) {
+  const TICK = String.fromCharCode(96);
+  const back = src.slice(Math.max(0, idx - 4000), idx);
+  const tick = back.lastIndexOf(TICK);
+  const start = Math.max(0, idx - 4000) + tick + 1;
+  const offset = idx - start;                       // where the token sits in tpl
+  let depth = 0, inInterp = false;
+  for (let i = 0; i < tpl.length && i <= offset; i++) {
+    if (tpl[i] === '$' && tpl[i + 1] === '{') { depth++; i++; continue; }
+    if (depth > 0 && tpl[i] === '}') { depth--; continue; }
+    if (i === offset) inInterp = depth > 0;
+  }
+  if (inInterp) return tpl;                         // classify with full context
+  return tpl.replace(/\$\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, ' ');
 }
 
 /** The full body of the template literal containing `idx`, or null. */
@@ -86,6 +162,72 @@ export function enclosingTag(src, idx) {
   return '';
 }
 
+/**
+ * The element's own inline `style={{…}}`, as a string.
+ *
+ * `META_INK` is a class-list rule, so the Caption step was unreachable
+ * anywhere the ink is written inline — and R.A.B.B.I.T. and the operator
+ * console write `style={{ color: '#78716c' }}` where D.O.G. writes
+ * `text-stone-500`. 92 sites fell through to Dense while their own opening tag
+ * set the muted ink, with the result that **not one Caption site existed
+ * anywhere in R.A.B.B.I.T.**: a seven-step scale shipping as six on the
+ * largest surface.
+ */
+export function enclosingStyle(src, idx) {
+  const around = src.slice(Math.max(0, idx - 400), idx + 400);
+  const m = /style=\{\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\}/.exec(around);
+  return m ? m[0] : '';
+}
+
+/**
+ * What an element renders, as evidence: its text, plus every `{…}` expression
+ * in its subtree INCLUDING its children's props.
+ *
+ * 🚨 THREE ATTEMPTS, AND THE FIRST TWO EACH BROKE R.A.B.B.I.T.'S MONEY.
+ *
+ *  1. Text up to the next `<` — empty for a wrapper, so every money column
+ *     (wrapper carries the family, child carries the figure) lost its mono.
+ *  2. A fixed 420-character window — runs past the element into the next
+ *     block, so one of three sibling UNC paths saw a later `{probeSummary …}`
+ *     and "summary" is on the prose list.
+ *  3. Stop at the first `</` — stops at the first CHILD's close, so
+ *     `<div …><span>{row.name}</span><span>{row.cost}</span></div>` is judged
+ *     on the name column alone, and the whole Breakdown table went sans. And
+ *     `<CurrencyDisplay value={baseCost} />` is self-closing: stripping tags
+ *     wholesale erased the only expression there was.
+ *
+ * So: walk to the element's MATCHING close, keep the text, and harvest `{…}`
+ * from props as well as from children. A prop's NAME is dropped — only its
+ * value is evidence — because a prop called `label` is not prose.
+ */
+export function elementBody(src, idx, limit = 1600) {
+  const after = src.slice(idx, idx + limit);
+  const gt = after.indexOf('>');
+  if (gt < 0) return '';
+  const selfClosing = after[gt - 1] === '/';
+  let span;
+  if (selfClosing) {
+    span = after.slice(0, gt);                       // its own props are the content
+  } else {
+    let depth = 0, end = after.length;
+    const re = /<\/?[A-Za-z][\w.-]*|\/>/g;
+    re.lastIndex = gt + 1;
+    let m;
+    while ((m = re.exec(after))) {
+      if (m[0] === '/>') { depth--; continue; }
+      if (m[0].startsWith('</')) { if (depth === 0) { end = m.index; break; } depth--; }
+      else depth++;
+    }
+    span = after.slice(gt + 1, end);
+  }
+  const cleaned = span
+    .replace(/className=(?:"[^"]*"|'[^']*'|\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})/g, ' ')
+    .replace(/style=\{\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\}/g, ' ');
+  const exprs = cleaned.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g) || [];
+  const text = cleaned.replace(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, ' ').replace(/<[^>]*>?/g, ' ');
+  return `${text} ${exprs.join(' ')}`.trim().replace(/\s+/g, ' ').slice(0, 300);
+}
+
 export function collectSites(files = sourceFiles()) {
   const rows = [];
   for (const f of files) {
@@ -98,8 +240,10 @@ export function collectSites(files = sourceFiles()) {
       const px = m[1] ? parseFloat(m[1]) : TW[m[2]];
       const run = enclosingRun(src, m.index) || '';
       const tag = enclosingTag(src, m.index);
+      const body = elementBody(src, m.index);
+      const style = enclosingStyle(src, m.index);
       const line = src.slice(0, m.index).split(NL).length;
-      rows.push({ f, line, token: m[0], px, run, tag, step: classifySite(f, px, run, tag) });
+      rows.push({ f, line, token: m[0], px, run, tag, body, step: classifySite(f, px, run, tag, body, style) });
     }
   }
   return rows;

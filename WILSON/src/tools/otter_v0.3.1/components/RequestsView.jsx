@@ -392,7 +392,7 @@ export default function RequestsView({
   }, [noms, userId, isApprover])
 
   const sectionHeader = (icon, text, count) => (
-    <h3 className="text-orange-400 font-semibold text-label uppercase mb-2 flex items-center gap-1.5">
+    <h3 className="text-orange-400 font-semibold text-h3 mb-2 flex items-center gap-1.5">
       {icon} {text}{count != null ? <span className="text-stone-500">· {count}</span> : null}
     </h3>
   )
@@ -408,7 +408,7 @@ export default function RequestsView({
               <GitPullRequestArrow className="w-5 h-5 text-orange-400" />
               {isAdmin || isManager ? 'Company library — requests' : 'My change requests'}
             </h2>
-            <p className="text-stone-500 text-caption mt-0.5">
+            <p className="text-stone-500 text-dense mt-0.5">
               {isAdmin
                 ? 'Courses put forward to become the company standard, and suggested changes to the standards you already have.'
                 : isManager
@@ -481,7 +481,7 @@ export default function RequestsView({
         )}
 
         {loading && rows.length === 0 ? (
-          <p className="text-stone-500 text-caption flex items-center gap-1.5 py-8 justify-center">
+          <p className="text-stone-500 text-dense flex items-center gap-1.5 py-8 justify-center">
             <Loader2 className="w-3 h-3 animate-spin" /> Loading…
           </p>
         ) : (
@@ -491,7 +491,7 @@ export default function RequestsView({
               <section>
                 {sectionHeader(null, 'For your review', toReview.length)}
                 {toReview.length === 0 ? (
-                  <p className="text-stone-600 text-caption italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
+                  <p className="text-stone-600 text-dense italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
                     Nothing is waiting on you. When someone suggests a change to a company
                     standard course, it lands here.
                   </p>
@@ -526,7 +526,7 @@ export default function RequestsView({
                               <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{r.summary}</p>
 
                               {r.source_readable ? (
-                                <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
+                                <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
                                   <Eye className="w-3 h-3 mt-0.5 shrink-0" />
                                   <span>
                                     Submitting shared their copy with reviewers while this request is open.{' '}
@@ -540,7 +540,7 @@ export default function RequestsView({
                                   </span>
                                 </p>
                               ) : (
-                                <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
+                                <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
                                   <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
                                   <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                                 </p>
@@ -613,7 +613,7 @@ export default function RequestsView({
                                     </button>
                                   </div>
                                   {!note.trim() && (
-                                    <p className="text-caption mt-1 text-stone-500">
+                                    <p className="text-dense mt-1 text-stone-500">
                                       A note is required — the proposer needs to know what to change.
                                     </p>
                                   )}
@@ -677,7 +677,7 @@ export default function RequestsView({
                               What they changed, and why
                             </p>
                             <p className="text-dense whitespace-pre-wrap mb-2 text-stone-300">{r.summary}</p>
-                            <p className="text-caption flex items-center gap-1.5 text-stone-600">
+                            <p className="text-dense flex items-center gap-1.5 text-stone-600">
                               <Lock className="w-3 h-3 shrink-0" />
                               An admin or the course&apos;s owner decides this one.
                             </p>
@@ -702,7 +702,7 @@ export default function RequestsView({
                   isApprover ? nomToDecide.length : nomMine.length)}
 
                 {isApprover && nomToDecide.length === 0 && nomMine.length === 0 && (
-                  <p className="text-stone-600 text-caption italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
+                  <p className="text-stone-600 text-dense italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
                     Nothing is waiting on you. When someone puts a course forward to become
                     the company standard, it lands here.
                   </p>
@@ -747,7 +747,7 @@ export default function RequestsView({
                             <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
 
                             {isMine ? (
-                              <p className="text-caption flex items-start gap-1.5 text-stone-500">
+                              <p className="text-dense flex items-start gap-1.5 text-stone-500">
                                 <Lock className="w-3 h-3 mt-0.5 shrink-0" />
                                 <span>
                                   {n.status === 'changes_requested'
@@ -762,7 +762,7 @@ export default function RequestsView({
                             ) : (
                               <>
                                 {n.course_readable ? (
-                                  <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
+                                  <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
                                     <Eye className="w-3 h-3 mt-0.5 shrink-0" />
                                     <span>
                                       Putting it forward opened their course to reviewers while this is
@@ -777,7 +777,7 @@ export default function RequestsView({
                                     </span>
                                   </p>
                                 ) : (
-                                  <p className="text-caption mb-3 flex items-start gap-1.5 text-stone-500">
+                                  <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
                                     <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
                                     <span>Their course is not readable right now — refresh to see its current state.</span>
                                   </p>
@@ -840,7 +840,7 @@ export default function RequestsView({
                                       </button>
                                     </div>
                                     {!nomNote.trim() && (
-                                      <p className="text-caption mt-1 text-stone-500">
+                                      <p className="text-dense mt-1 text-stone-500">
                                         A note is required — the proposer needs to know what to change.
                                       </p>
                                     )}
@@ -861,7 +861,7 @@ export default function RequestsView({
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="text-caption flex items-center gap-1.5 text-stone-600">
+                                  <p className="text-dense flex items-center gap-1.5 text-stone-600">
                                     <Lock className="w-3 h-3 shrink-0" />
                                     {n.status === 'changes_requested'
                                       ? 'Sent back to the proposer — waiting on them.'
@@ -905,7 +905,7 @@ export default function RequestsView({
             <section>
               {sectionHeader(null, 'My requests', mine.length)}
               {mine.length === 0 ? (
-                <p className="text-stone-600 text-caption italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
+                <p className="text-stone-600 text-dense italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
                   You haven&apos;t suggested any changes yet. Fork a company standard course,
                   make it better, then use “Suggest a change” from the course row.
                 </p>
@@ -948,7 +948,7 @@ export default function RequestsView({
                           )}
 
                           {!needsMe && r.status !== 'open' && (
-                            <p className="text-caption flex items-center gap-1.5 text-stone-500">
+                            <p className="text-dense flex items-center gap-1.5 text-stone-500">
                               <Lock className="w-3 h-3 shrink-0" />
                               {r.status === 'withdrawn' ? (
                                 // A withdrawal is the PROPOSER's act — the server pins the

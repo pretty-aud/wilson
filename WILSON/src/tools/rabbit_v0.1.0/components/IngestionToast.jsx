@@ -98,7 +98,7 @@ export default function IngestionToast({ onJumpToReview }) {
         )}
 
         {/* Status line */}
-        <div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-dense" style={{ color: '#a8a29e' }}>
           <span className="truncate">
             {phase === 'running' && (chunksTotal > 0
               ? `${chunksDone}/${chunksTotal} chunks · ${pct}%`

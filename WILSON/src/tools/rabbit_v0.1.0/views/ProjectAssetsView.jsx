@@ -1107,7 +1107,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
           </span>
         )
       case 'tasks':
-        return <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>{taskCount}</span>
+        return <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>{taskCount}</span>
       case '_actions':
         return (
           <div className="flex items-center"
@@ -1326,7 +1326,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           placeholder="Untitled"
           readOnly={readOnly}
         />
-        <div className="flex items-center justify-between text-label font-mono uppercase" style={{ color: '#a8a29e' }}>
+        <div className="flex items-center justify-between text-dense" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
           {phaseLabel && <span className="truncate max-w-[100px]">{'\u00B7'} {phaseLabel}</span>}
         </div>
@@ -1334,7 +1334,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
 
       {/* Footer */}
       <div className="flex items-center justify-between px-2 py-1" style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-        <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
+        <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
           {taskCount} task{taskCount === 1 ? '' : 's'}
         </span>
         {onDelete && (
@@ -1622,7 +1622,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                           {fmt(t.role_slug)}
                         </span>
                       )}
-                      <span className="text-dense font-mono font-semibold flex-shrink-0" style={{ color: '#f4a261' }}>
+                      <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#f4a261' }}>
                         {t.bid_days || 0}d
                       </span>
                     </div>
@@ -2168,7 +2168,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         </select>
       </Td>
       <Td>
-        <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
+        <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
           {task.bid_days ? `${task.bid_days}d` : '--'}
         </span>
       </Td>

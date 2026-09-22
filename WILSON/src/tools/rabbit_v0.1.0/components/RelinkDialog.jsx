@@ -166,7 +166,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
           )}
 
           {phase === 'scanning' && (
-            <div className="flex items-center gap-2 text-dense font-mono px-1 py-4" style={{ color: '#a8a29e' }}>
+            <div className="flex items-center gap-2 text-caption font-mono px-1 py-4" style={{ color: '#a8a29e' }}>
               <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#fb923c' }} />
               Walking {folder}…
             </div>
@@ -196,7 +196,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
                   <div key={p.id} className="flex flex-col gap-0.5 py-1.5 px-2 rounded-control" style={{ backgroundColor: '#1c1917' }}>
                     <div className="flex items-center gap-2">
                       <span className="text-dense truncate flex-1" style={{ color: '#e7e5e4' }}>{p.name}</span>
-                      <span className="text-label uppercase flex-shrink-0"
+                      <span className="text-dense flex-shrink-0"
                         style={{ color: (CONFIDENCE_LABEL[p.confidence] || {}).color || '#a8a29e' }}>
                         {(CONFIDENCE_LABEL[p.confidence] || {}).text || p.confidence}
                       </span>
@@ -237,7 +237,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
           )}
 
           {phase === 'applying' && (
-            <div className="flex items-center gap-2 text-dense font-mono px-1 py-4" style={{ color: '#a8a29e' }}>
+            <div className="flex items-center gap-2 text-caption font-mono px-1 py-4" style={{ color: '#a8a29e' }}>
               <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#fb923c' }} />
               Relinking {match?.proposals.length} file{match?.proposals.length === 1 ? '' : 's'}…
             </div>
@@ -247,7 +247,7 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
             <div className="rounded-control px-3 py-3 flex items-start gap-2"
               style={{ backgroundColor: 'rgba(22,101,52,0.15)', border: '1px solid #166534' }}>
               <Check className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#4ade80' }} />
-              <div className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
+              <div className="text-dense font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
                 <span style={{ color: '#4ade80' }}>Relinked {applied.relinked} file{applied.relinked === 1 ? '' : 's'}.</span>{' '}
                 This project's files now resolve from{' '}
                 <span style={{ color: '#e7e5e4' }}>{applied.filesDir}</span>.

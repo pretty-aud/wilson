@@ -3795,8 +3795,8 @@ function DetailBar({
       <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
       {width > 32 && (
         <span
-          className={`text-label truncate pointer-events-none overflow-hidden ${
-            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-semibold uppercase' : '')
+          className={`text-dense truncate pointer-events-none overflow-hidden ${
+            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-semibold' : '')
           }`}
           style={{ color: tone.fg }}
         >
@@ -5179,7 +5179,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/50 transition-opacity" onClick={onClose} />
       <div
-        className="absolute top-0 right-0 h-full bg-stone-800 border-l-2 border-stone-600 shadow-2xl flex flex-col"
+        className="absolute top-0 right-0 h-full bg-stone-800 border-l border-stone-600 shadow-2xl flex flex-col"
         style={{
           width: '40%',
           minWidth: '420px',
@@ -5188,7 +5188,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         }}
       >
         {/* Header */}
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
+        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0">
           <div className="flex items-center gap-2">
             <SettingsIcon className="w-5 h-5 text-orange-400" />
             <span className="font-semibold text-orange-400 uppercase tracking-wide">RABBIT Settings</span>
@@ -5223,7 +5223,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         </div>
 
         {/* Lock bar */}
-        <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
+        <div className="bg-stone-900 px-4 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
             {isLocked
               ? <Lock className="w-4 h-4 text-stone-500" />
@@ -5418,7 +5418,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 border-t border-stone-600 flex-shrink-0 flex items-center justify-between gap-3">
           <p className="text-dense text-stone-500 flex-1">
             Changes are applied immediately. Use &quot;Reset to default&quot; to restore
             original settings.
@@ -5457,7 +5457,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
         className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col"
         style={{ width: '850px', height: '82vh' }}
       >
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
+        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-orange-400" />
             <span className="font-semibold text-orange-400 uppercase tracking-wide">

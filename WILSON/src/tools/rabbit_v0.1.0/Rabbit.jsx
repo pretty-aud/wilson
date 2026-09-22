@@ -375,7 +375,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
         )
       })}
       {overflow > 0 && (
-        <span className="text-dense" style={{ color: '#78716c' }}>
+        <span className="text-caption" style={{ color: '#78716c' }}>
           +{overflow}
         </span>
       )}

@@ -38,7 +38,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { sourceFiles } from './ui-audit.mjs';
 import { protectedRanges, isProtected } from './ui-source-regions.mjs';
-import { enclosingRun, enclosingTag } from './ui-type-inventory.mjs';
+import { enclosingRun, enclosingRunRaw, enclosingTag } from './ui-type-inventory.mjs';
 import { CONTROL_TAGS } from './ui-type-map.mjs';
 
 const DRY = process.argv.includes('--dry');
@@ -75,7 +75,9 @@ for (const file of files) {
       if (/textTransform\s*:\s*['"]?\s*$/.test(before)) continue;
     }
 
-    const run = enclosingRun(src, m.index) || '';
+    /* RAW: pass 2 asks "does this site carry a step at all?", and a step
+       inside a ternary arm is still a step. See enclosingRunRaw. */
+    const run = enclosingRunRaw(src, m.index) || '';
     const tag = enclosingTag(src, m.index);
     let to = null;                                   // null = delete the token
 

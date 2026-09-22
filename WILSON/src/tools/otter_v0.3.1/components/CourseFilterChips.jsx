@@ -38,7 +38,7 @@ export default function CourseFilterChips({ value, onChange, role, counts = {} }
 
   return (
     <div
-      className="flex flex-wrap gap-1 px-2 py-1.5 border-b-2 border-stone-600 shrink-0"
+      className="flex flex-wrap gap-1 px-2 py-1.5 border-b border-stone-600 shrink-0"
       role="group"
       aria-label="Filter courses"
     >

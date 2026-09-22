@@ -714,7 +714,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                 ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                 : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
               <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
+              <span className="text-label font-mono tabular-nums uppercase font-semibold" style={{ color: '#fb923c' }}>
                 Scenes & Shots ({sceneShotCount})
               </span>
               <div className="ml-auto flex items-center gap-0.5">

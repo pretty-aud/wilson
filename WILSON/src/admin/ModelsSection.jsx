@@ -144,7 +144,7 @@ export default function ModelsSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-label font-semibold uppercase text-stone-900">Models</h2>
+          <h2 className="text-h3 font-semibold text-stone-900">Models</h2>
           <p className="text-dense text-stone-950 leading-relaxed">
             What every company may choose from, and what each function uses by default.
           </p>
@@ -176,7 +176,7 @@ export default function ModelsSection({ isActive }) {
       )}
 
       {/* ── Catalogue ───────────────────────────────────────────────────────── */}
-      <h3 className="text-label font-semibold uppercase mb-2" style={{ color: '#57534e' }}>
+      <h3 className="text-h3 font-semibold mb-2" style={{ color: '#57534e' }}>
         Approved catalogue
       </h3>
 
@@ -187,7 +187,7 @@ export default function ModelsSection({ isActive }) {
               <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Model</th>
               <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e' }}>Name</th>
               <th className="px-3 py-2 text-label font-semibold uppercase text-left" style={{ color: '#57534e', width: '130px' }}>State</th>
-              <th className="px-3 py-2 text-label font-semibold uppercase text-right" style={{ color: '#57534e', width: '110px' }} />
+              <th className="px-3 py-2 text-dense font-semibold text-right" style={{ color: '#57534e', width: '110px' }} />
             </tr>
           </thead>
           <tbody>
@@ -291,7 +291,7 @@ export default function ModelsSection({ isActive }) {
       </form>
 
       {/* ── Defaults ────────────────────────────────────────────────────────── */}
-      <h3 className="text-label font-semibold uppercase mb-1" style={{ color: '#57534e' }}>
+      <h3 className="text-h3 font-semibold mb-1" style={{ color: '#57534e' }}>
         Platform defaults
       </h3>
       <p className="text-dense mb-2" style={{ color: '#78716c' }}>

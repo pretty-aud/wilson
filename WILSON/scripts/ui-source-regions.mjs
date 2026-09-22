@@ -103,15 +103,42 @@ export function protectedRanges(src) {
     if (CSS_SHAPE.test(body) || AT_RULE.test(body)) ranges.push([s, e]);
   }
 
-  /* <style> … </style>, whatever the content shape. */
+  /* <style> … </style>, whatever the content shape.
+   *
+   * 🚨 TWO RULES HERE, AND THE FIRST DRAFT HAD NEITHER.
+   *
+   * 1. An UNMATCHED `<style>` protects NOTHING. It used to protect to end of
+   *    file, and that is catastrophic rather than merely conservative: a `//`
+   *    comment in `NotesView.jsx` reads "Those rules lived in a `<style>`
+   *    element inside NoteEditor", there is no `</style>` anywhere in the
+   *    file, and the result was **787 of its 821 lines invisible** — to the
+   *    passes AND to the guard. An 820-line component silently sat out the
+   *    whole codemod and no assertion could see it.
+   * 2. The scan runs over a source with comments and strings BLANKED, so a
+   *    `<style>` merely mentioned in prose is not a tag. That is the same
+   *    comment, and it is why rule 1 alone is not enough.
+   *
+   * Over-protecting is normally the safe direction, which is what made this
+   * one dangerous: it failed silently and in the safe-looking direction. */
+  const blanked = blankOut(src, ranges);
   const styleRe = /<style\b[^>]*>/gi;
   let m;
-  while ((m = styleRe.exec(src))) {
-    const close = src.toLowerCase().indexOf('</style>', m.index);
-    ranges.push([m.index, close < 0 ? n : close + 8]);
+  while ((m = styleRe.exec(blanked))) {
+    const close = blanked.toLowerCase().indexOf('</style>', m.index);
+    if (close < 0) continue;                       // not a tag, or never closed
+    ranges.push([m.index, close + 8]);
   }
 
   return merge(ranges);
+}
+
+/** Replace every already-protected range with spaces, preserving offsets, so a
+ *  later scan cannot mistake commented-out prose for markup. */
+function blankOut(src, ranges) {
+  if (!ranges.length) return src;
+  const out = src.split('');
+  for (const [s, e] of merge(ranges)) for (let i = s; i < e && i < out.length; i++) out[i] = ' ';
+  return out.join('');
 }
 
 function merge(ranges) {

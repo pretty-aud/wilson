@@ -1244,7 +1244,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
            : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
         <span className="w-7" />
-        <span style={{ width: tw }} className="text-label font-mono uppercase text-center flex-shrink-0" />
+        <span style={{ width: tw }} className="text-dense text-center flex-shrink-0" />
         <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
         <span className="w-48 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
         <span className="w-36 text-label uppercase text-center" style={{ color: '#78716c' }}>Status</span>
@@ -1757,7 +1757,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-label uppercase" style={{ color: '#57534e' }}>
+        <span className="text-dense" style={{ color: '#57534e' }}>
           No shots yet — create a scene first, then add shots
         </span>
       </div>
@@ -2482,7 +2482,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                 <span className="text-dense font-mono font-semibold" style={{ color: '#d6d3d1' }}>
                   {sceneShots.length}
                 </span>
-                <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+                <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
                   / {assetCountByScene[sceneId] || 0} / {taskCountByScene[sceneId] || 0}
                 </span>
               </div>

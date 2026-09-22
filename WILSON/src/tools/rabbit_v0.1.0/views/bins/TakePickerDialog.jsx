@@ -69,7 +69,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
         <div className="max-h-[52vh] overflow-y-auto">
           {rows.length === 0 && (
-            <div className="px-3 py-6 text-center text-dense font-mono" style={{ color: C.dimmer }}>
+            <div className="px-3 py-6 text-center text-dense font-mono tabular-nums" style={{ color: C.dimmer }}>
               {(files || []).length === 0 ? 'No files in any bin yet. Add footage on the Bins tab first.' : sameSceneOnly ? 'Nothing logged to this scene matches. Switch off "same scene only" to see every file.' : 'Nothing matches.'}
             </div>
           )}

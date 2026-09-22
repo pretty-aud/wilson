@@ -425,7 +425,7 @@ export default function ExperiencesView() {
                   <span className="text-label uppercase font-semibold" style={{ color: groupAccent(g.key) }}>
                     {g.label}
                   </span>
-                  <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-caption font-mono" style={{ color: '#78716c' }}>
                     ({g.experiences.length})
                   </span>
                 </div>
@@ -529,7 +529,7 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-control"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <span className="text-caption font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <BulkSelect label="Status" options={EXPERIENCE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
@@ -582,12 +582,12 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
           </span>
 
           {/* Assets count */}
-          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono tabular-nums text-center" style={{ color: '#a8a29e' }}>
             {assetCountByExperience[ex.id] || 0}
           </span>
 
           {/* Tasks count */}
-          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono tabular-nums text-center" style={{ color: '#a8a29e' }}>
             {taskCountByExperience[ex.id] || 0}
           </span>
 
@@ -851,7 +851,7 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
             <div>
               <FieldLabel>Linked counts</FieldLabel>
               <div className="flex items-center gap-2">
-                <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
+                <span className="text-label font-mono tabular-nums uppercase" style={{ color: '#78716c' }}>
                   {assetCountByExperience[experienceId] || 0} assets / {taskCountByExperience[experienceId] || 0} tasks
                 </span>
               </div>

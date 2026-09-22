@@ -27,9 +27,13 @@
  *   pill progress tracks. Turning a circular avatar into a 3px-cornered
  *   square is a view change (C1), not a token swap.
  *
- *   `rounded-t/b/l/r-*`, 4 sites. A single-corner radius is doing a layout
- *   job (a tab meeting its panel, a bar meeting its rail). Listed, not
- *   guessed at.
+ *   A SINGLE-SIDE 2px RULE THAT IS AN INDICATOR, 38 sites. §3.2 gives the
+ *   signal "a 2px selected-row edge" and F2's `Row` ships exactly that, so a
+ *   one-sided 2px rule can be a deliberate active or selected marking rather
+ *   than a border that forgot the hairline. The 64 that carry a neutral colour
+ *   and no conditional are structural and do become hairlines; the 38 that
+ *   carry the signal or sit in a ternary are left. Flattening all 102 would
+ *   have erased every active-tab underline in the app.
  *
  *   BORDER COLOUR. `border-2 border-stone-600` becomes `border
  *   border-stone-600`. The WIDTH is §3.3 and is T0's; the COLOUR is §3.2's
@@ -79,10 +83,32 @@ function namedTransition(run) {
   return 'transition-colors';
 }
 
+/* ── A 2px edge on ONE SIDE is often not a border at all ──────────────────
+   §3.2 gives the signal "the frame, the one active state, the one selection,
+   **a 2px selected-row edge**", and F2's `Row` ships exactly that. So a
+   single-side 2px rule can be a deliberate indicator rather than a border that
+   forgot the hairline. Measured across the 102 sites: 64 carry a neutral
+   stone/zinc/gray colour and are structural (panel headers, sidebars,
+   footers); 38 carry the signal or sit in a conditional and are active or
+   selected edges. Only the structural ones become hairlines. Flattening all
+   102 would have erased every active-tab underline in the app. */
+const NEUTRAL_BORDER = /\bborder-(?:[tblrxyse]{1,2}-)?(?:stone|neutral|zinc|gray|slate)-\d/;
+const INDICATOR = /\?|\bactive\b|\bselected\b|isActive|current|border-orange|border-signal|border-l-transparent/i;
+
 const EDITS = [
   { name: 'border-2 -> border (the 1px hairline)', re: /\bborder-2\b/g, to: () => 'border' },
+  {
+    name: 'border-{side}-[2-9] -> 1px, structural only',
+    re: /\bborder-([tblrxyse]{1,2})-[2-9]\b/g,
+    to: (run, file, m) => (NEUTRAL_BORDER.test(run) && !INDICATOR.test(run) ? `border-${m[1]}` : null),
+  },
   { name: 'rounded-sm -> rounded-control', re: /\brounded-sm\b/g, to: () => 'rounded-control' },
   { name: 'rounded (bare 4px) -> rounded-control', re: /\brounded(?![-\w])/g, to: () => 'rounded-control' },
+  {
+    name: 'rounded-{side}-sm/md/lg -> the two-radius system',
+    re: /\brounded-([tblr]|tl|tr|bl|br)-(?:sm|md|lg|xl|2xl|3xl)\b/g,
+    to: (run, file, m) => `rounded-${m[1]}-${(FLOATING_FILE.test(file) || (FLOATING_RUN.test(run) && FLOATING_HINT.test(run))) ? 'float' : 'control'}`,
+  },
   {
     name: 'rounded-md/lg -> control or float',
     re: /\brounded-(?:md|lg)\b/g,
@@ -121,7 +147,7 @@ for (const file of files) {
     while ((m = re.exec(src))) {
       if (isProtected(guarded, m.index)) continue;
       const run = enclosingRun(src, m.index) || '';
-      const to = spec.to(run, file);
+      const to = spec.to(run, file, m);
       if (to === null) { tally.set(`LEFT — ${spec.name}`, (tally.get(`LEFT — ${spec.name}`) || 0) + 1); continue; }
       if (to === m[0]) continue;
       edits.push({ start: m.index, end: m.index + m[0].length, to });

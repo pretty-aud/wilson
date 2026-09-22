@@ -424,7 +424,7 @@ export default function LevelsView() {
                   <span className="text-label uppercase font-semibold" style={{ color: groupAccent(g.key) }}>
                     {g.label}
                   </span>
-                  <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-caption font-mono" style={{ color: '#78716c' }}>
                     ({g.levels.length})
                   </span>
                 </div>
@@ -526,7 +526,7 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-control"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <span className="text-caption font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <BulkSelect label="Status" options={LEVEL_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
@@ -579,12 +579,12 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
           </span>
 
           {/* Assets count */}
-          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono tabular-nums text-center" style={{ color: '#a8a29e' }}>
             {assetCountByLevel[lv.id] || 0}
           </span>
 
           {/* Tasks count */}
-          <span className="w-16 text-dense font-mono text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-dense font-mono tabular-nums text-center" style={{ color: '#a8a29e' }}>
             {taskCountByLevel[lv.id] || 0}
           </span>
 
@@ -851,7 +851,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             <div>
               <FieldLabel>Linked counts</FieldLabel>
               <div className="flex items-center gap-2">
-                <span className="text-label font-mono uppercase" style={{ color: '#78716c' }}>
+                <span className="text-label font-mono tabular-nums uppercase" style={{ color: '#78716c' }}>
                   {assetCountByLevel[levelId] || 0} assets / {taskCountByLevel[levelId] || 0} tasks
                 </span>
               </div>

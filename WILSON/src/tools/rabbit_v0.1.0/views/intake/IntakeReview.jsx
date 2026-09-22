@@ -68,7 +68,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
   return (
     <div className="h-full flex flex-col p-6 gap-4 overflow-auto" style={{ backgroundColor: '#1c1917' }}>
       <div>
-        <h2 className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
+        <h2 className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
           Step 5 · Review & save breakdown
         </h2>
         <p className="text-dense mt-1" style={{ color: '#a8a29e' }}>

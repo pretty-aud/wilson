@@ -201,7 +201,7 @@ ${contentBody}
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-stone-800 border border-stone-600 rounded-control w-[500px] max-h-[80vh] flex flex-col shadow-xl">
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600">
+        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600">
           <span className="font-semibold text-orange-400 uppercase text-label">History Import/Export</span>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control">
             <X className="w-4 h-4 text-stone-400" />
@@ -281,7 +281,7 @@ ${contentBody}
                   )}
                 </div>
                 {exportDirHandle && (
-                  <p className="text-caption text-stone-500 mt-1">Files will be saved directly to this folder.</p>
+                  <p className="text-dense text-stone-500 mt-1">Files will be saved directly to this folder.</p>
                 )}
                 {exportFolderPath && !exportDirHandle && (
                   <p className="text-dense text-amber-600 mt-1">Folder access expired. Click Browse to re-select.</p>

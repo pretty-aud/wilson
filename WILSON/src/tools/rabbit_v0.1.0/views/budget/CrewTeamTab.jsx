@@ -450,17 +450,17 @@ export default function CrewTeamTab({
       <div className="flex items-center gap-3 px-1 flex-wrap">
         <span className="text-label uppercase" style={{ color: '#78716c' }}>Crew/Team Budget</span>
         {agencyEnabled && (
-          <span className="text-dense font-mono px-2 py-0.5 rounded-control" style={{ color: '#fbbf24', border: '1px solid #78350f' }}>
+          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fbbf24', border: '1px solid #78350f' }}>
             Agency: {agencyPct}%
           </span>
         )}
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Margin: {defaultMarginPct}%
           </span>
         )}
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Contingency: {defaultContPct}%
           </span>
         )}
@@ -553,31 +553,31 @@ export default function CrewTeamTab({
                   <div style={{ width: W_RATE, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <span style={{ color: row.rate > 0 ? '#a8a29e' : '#57534e' }}>{row.rate > 0 ? fmtCurrency(row.rate, currency) : '\u2014'}</span>
                   </div>
-                  <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <span style={{ color: row.bidDays > 0 ? '#a8a29e' : '#57534e' }}>{row.bidDays > 0 ? row.bidDays.toFixed(1) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <span style={{ color: row.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{row.subtotal > 0 ? fmtCurrency(row.subtotal, currency) : '\u2014'}</span>
                   </div>
-                  <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <button type="button" onClick={e => handleMcCellClick(e, row.id)}
                       className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                       style={{ color: row.marginAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
                       {row.marginAmt > 0 ? `+${fmtCurrency(row.marginAmt, currency)}` : '\u2014'}
                     </button>
                   </div>
-                  <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <button type="button" onClick={e => handleMcCellClick(e, row.id)}
                       className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                       style={{ color: row.contAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
                       {row.contAmt > 0 ? `+${fmtCurrency(row.contAmt, currency)}` : '\u2014'}
                     </button>
                   </div>
-                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono text-right font-semibold flex items-center justify-end">
+                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right font-semibold flex items-center justify-end">
                     <span style={{ color: row.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.bidTotal > 0 ? fmtCurrency(row.bidTotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <span style={{
                       color: (row.bidTotal > 0 || row.actualTotal > 0)
                         ? (row.variance > 0 ? '#fca5a5' : row.variance < 0 ? '#86efac' : '#78716c')
@@ -588,7 +588,7 @@ export default function CrewTeamTab({
                         : '\u2014'}
                     </span>
                   </div>
-                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono text-right flex items-center justify-end">
+                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <span style={{ color: row.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.actualTotal > 0 ? fmtCurrency(row.actualTotal, currency) : '\u2014'}</span>
                   </div>
                   {/* Period cells — click opens fixed popover */}
@@ -623,17 +623,17 @@ export default function CrewTeamTab({
                 <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
                   <span style={{ color: '#a8a29e' }}>{fmtCurrency(group.subtotal, currency)}</span>
                 </div>
-                <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono text-right font-semibold">
+                <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
                   <span style={{ color: group.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{group.marginTotal > 0 ? `+${fmtCurrency(group.marginTotal, currency)}` : '\u2014'}</span>
                 </div>
-                <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono text-right font-semibold">
+                <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
                   <span style={{ color: group.contTotal > 0 ? '#fb923c' : '#57534e' }}>{group.contTotal > 0 ? `+${fmtCurrency(group.contTotal, currency)}` : '\u2014'}</span>
                 </div>
-                <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono text-right font-semibold">
+                <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
                   <span style={{ color: '#d6d3d1' }}>{fmtCurrency(group.bidTotal, currency)}</span>
                 </div>
                 <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono text-right font-semibold">
+                <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
                   <span style={{
                     color: (group.actualTotal - group.bidTotal) > 0 ? '#fca5a5'
                       : (group.actualTotal - group.bidTotal) < 0 ? '#86efac' : '#78716c',
@@ -643,7 +643,7 @@ export default function CrewTeamTab({
                       : '\u2014'}
                   </span>
                 </div>
-                <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono text-right font-semibold">
+                <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
                   <span style={{ color: '#38bdf8' }}>{group.actualTotal > 0 ? fmtCurrency(group.actualTotal, currency) : '\u2014'}</span>
                 </div>
                 <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
@@ -659,17 +659,17 @@ export default function CrewTeamTab({
             <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
               <span style={{ color: '#a8a29e' }}>{fmtCurrency(grandTotals.subtotal, currency)}</span>
             </div>
-            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-semibold">
+            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
               <span style={{ color: grandTotals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.marginTotal > 0 ? `+${fmtCurrency(grandTotals.marginTotal, currency)}` : '\u2014'}</span>
             </div>
-            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-semibold">
+            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
               <span style={{ color: grandTotals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.contTotal > 0 ? `+${fmtCurrency(grandTotals.contTotal, currency)}` : '\u2014'}</span>
             </div>
-            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono text-right font-semibold">
+            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
               <span style={{ color: '#d6d3d1' }}>{fmtCurrency(grandTotals.bidTotal, currency)}</span>
             </div>
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono text-right font-semibold">
+            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
               <span style={{
                 color: grandTotals.variance > 0 ? '#fca5a5' : grandTotals.variance < 0 ? '#86efac' : '#a8a29e',
               }}>
@@ -678,7 +678,7 @@ export default function CrewTeamTab({
                   : '\u2014'}
               </span>
             </div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono text-right font-semibold">
+            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
               <span style={{ color: '#d6d3d1' }}>{grandTotals.actualTotal > 0 ? fmtCurrency(grandTotals.actualTotal, currency) : '\u2014'}</span>
             </div>
             <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />

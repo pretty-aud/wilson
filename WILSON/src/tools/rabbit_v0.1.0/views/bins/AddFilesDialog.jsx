@@ -108,7 +108,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
       </div>
 
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-        <div className="grid items-center px-2 text-label uppercase" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+        <div className="grid items-center px-2 text-dense" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', color: C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
           <span /><span className="px-1 py-1.5">Name</span><span className="px-1">Type</span><span className="px-1">Size</span><span className="px-1">From the name</span><span className="px-1">Folder</span>
         </div>
         <div className="max-h-[46vh] overflow-y-auto">
@@ -125,7 +125,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                 <input type="checkbox" checked={!!it.include} disabled={disabled} onChange={e => set(idx, { include: e.target.checked })} className="accent-orange-600" />
                 <div className="px-1 py-1 min-w-0">
                   <TextInput value={it.display_name} onChange={v => set(idx, { display_name: v })} disabled={disabled} className="!py-0.5" />
-                  <div className="truncate text-dense font-mono mt-0.5 flex items-center gap-1" style={{ color: it.duplicate ? C.amber : C.dimmer }} title={it.source_path}>
+                  <div className="truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" style={{ color: it.duplicate ? C.amber : C.dimmer }} title={it.source_path}>
                     {it.kind === 'sequence' && <Layers className="w-2.5 h-2.5" />}
                     {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
                     {disabled && ' · missing on disk'}

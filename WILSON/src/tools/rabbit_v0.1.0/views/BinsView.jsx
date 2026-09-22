@@ -677,7 +677,7 @@ export default function BinsView() {
             <div className="min-w-0 flex items-center gap-2">
               {currentBin ? <ColorDot color={currentBin.color} size={10} /> : <Layers className="w-3.5 h-3.5" style={{ color: C.accentText }} />}
               <div className="min-w-0">
-                <div className="text-label uppercase truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
+                <div className="text-dense truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
                   {currentBin ? currentBin.name : 'All files'}
                   {currentBin && <span className="ml-2 text-dense normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
                 </div>
@@ -762,7 +762,7 @@ export default function BinsView() {
           <div className="flex-1 min-h-0 flex flex-col relative">
             {dragOver && (
               <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" style={{ backgroundColor: 'rgba(234,88,12,0.12)', border: `2px dashed ${C.accent}` }}>
-                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
+                <div className="px-4 py-2 rounded-control text-dense" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
                   Drop to add to {currentBin ? `"${currentBin.name}"` : 'a new bin'}
                 </div>
               </div>
@@ -812,7 +812,7 @@ export default function BinsView() {
             {selection.size > 0 && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 flex-shrink-0 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, backgroundColor: C.deep }}>
                 <span className="text-dense font-mono tabular-nums mr-1" style={{ color: C.bright }}>{selection.size} selected</span>
-                {shownStats && selection.size > 1 && <span className="text-dense font-mono" style={{ color: C.dim }}>{formatDuration(binStats(selectedRows).durationSec)} {formatBytes(binStats(selectedRows).sizeBytes)}</span>}
+                {shownStats && selection.size > 1 && <span className="text-dense font-mono tabular-nums" style={{ color: C.dim }}>{formatDuration(binStats(selectedRows).durationSec)} {formatBytes(binStats(selectedRows).sizeBytes)}</span>}
                 {canWrite && <>
                   <Btn small onClick={() => patchSelection({ review_flag: 'select' })} title="Select (S)"><Check className="w-3 h-3" style={{ color: C.green }} /> Select</Btn>
                   <Btn small onClick={() => patchSelection({ review_flag: 'reject' })} title="Reject (R)"><Ban className="w-3 h-3" style={{ color: C.red }} /> Reject</Btn>
@@ -841,7 +841,7 @@ export default function BinsView() {
           and the presence pill at left 26 / bottom 13, over whatever view is
           open. The bar is tall enough to hold the dot and the keys start to
           its right, so the light reads as part of the bar (Audrey, 2026-09-10). */}
-      <div className="flex items-center gap-3 pr-3 text-dense flex-shrink-0 flex-wrap"
+      <div className="flex items-center gap-3 pr-3 text-dense font-mono flex-shrink-0 flex-wrap"
         style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep, minHeight: 34, paddingLeft: 30 }}>
         <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>A</Kbd> assign to shot</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
         <span className="ml-auto">{files.length} file{files.length === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{offlineAll.length ? ` · ${offlineAll.length} offline` : ''}</span>

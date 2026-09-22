@@ -55,7 +55,7 @@ export function sourceFiles(root = ROOT) {
    you how much the pass moves, the spread tells you how much can break. */
 export const PATTERNS = [
   ['text-[Npx] (off-scale sizes)',   /\btext-\[\d+(?:\.\d+)?px\]/g],
-  ['text-xs…3xl (Tailwind sizes)',   /\btext-(?:xs|sm|base|lg|xl|2xl|3xl)\b/g],
+  ['text-xs…9xl (Tailwind sizes)',   /\btext-(?:xs|sm|base|lg|xl|[2-9]xl)\b/g],
   ['font-mono (class)',              /\bfont-mono\b/g],
   ['fontFamily (inline)',            /fontFamily\s*:/g],
   ['fontSize (inline)',              /fontSize\s*:/g],

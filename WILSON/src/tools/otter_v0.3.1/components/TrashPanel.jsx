@@ -39,7 +39,7 @@ function Countdown({ purgesAt }) {
   const urgent = days <= 7
   return (
     <span
-      className={`text-caption font-mono ${urgent ? 'text-red-400' : 'text-stone-500'}`}
+      className={`text-dense font-mono ${urgent ? 'text-red-400' : 'text-stone-500'}`}
       title={`Deleted for good on ${new Date(purgesAt).toLocaleDateString()}`}
     >
       {days === 0 ? 'deletes today' : `${days}d left`}
@@ -89,8 +89,8 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
         {!error && (
           <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
             <Trash2 className="w-7 h-7 text-stone-600 mb-2" />
-            <p className="text-stone-500 text-caption">Nothing deleted</p>
-            <p className="text-stone-600 text-caption mt-1">Deleted courses stay here for 30 days.</p>
+            <p className="text-stone-500 text-dense">Nothing deleted</p>
+            <p className="text-stone-600 text-dense mt-1">Deleted courses stay here for 30 days.</p>
           </div>
         )}
       </div>
@@ -191,7 +191,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
                   )}
                 </div>
 
-                <p className="text-stone-600 text-caption">
+                <p className="text-stone-600 text-dense">
                   {r.is_own ? 'Yours' : `Owned by ${r.owner_label ?? 'someone else'}`}
                   {r.deleted_by_label ? ` · deleted by ${r.deleted_by_label}` : ''}
                   {r.deleted_at ? ` · ${new Date(r.deleted_at).toLocaleDateString()}` : ''}

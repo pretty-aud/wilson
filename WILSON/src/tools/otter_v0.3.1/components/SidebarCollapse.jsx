@@ -144,7 +144,7 @@ export function SidebarReopenRail({ onExpand, label = 'Show sidebar' }) {
       title={`${label} (${SHORTCUT_HINT})`}
       aria-label={label}
       aria-expanded="false"
-      className="group w-6 shrink-0 bg-stone-800 border-r-2 border-stone-600 flex flex-col items-center hover:bg-stone-700 transition-colors cursor-pointer"
+      className="group w-6 shrink-0 bg-stone-800 border-r border-stone-600 flex flex-col items-center hover:bg-stone-700 transition-colors cursor-pointer"
     >
       <span className="flex items-center justify-center h-6 w-full">
         <ChevronsRight className="w-3.5 h-3.5 text-stone-500 group-hover:text-orange-400 transition-colors" />

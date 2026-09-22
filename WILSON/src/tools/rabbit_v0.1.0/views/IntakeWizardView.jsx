@@ -435,10 +435,10 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                           </span>
                         )}
                         {f.type && (
-                          <span className="text-dense" style={{ color: '#57534e' }}>{f.type.split('/').pop()}</span>
+                          <span className="text-caption" style={{ color: '#57534e' }}>{f.type.split('/').pop()}</span>
                         )}
                         {f.lastModified && (
-                          <span className="text-dense font-mono" style={{ color: '#57534e' }}>
+                          <span className="text-caption font-mono" style={{ color: '#57534e' }}>
                             {new Date(f.lastModified).toLocaleDateString()}
                           </span>
                         )}
@@ -595,7 +595,7 @@ function ConfirmRow({ label, value }) {
   return (
     <div className={isLong ? 'flex flex-col gap-0.5' : 'flex gap-3'}>
       <span className="text-label uppercase flex-shrink-0" style={{ color: '#57534e', width: isLong ? undefined : 90 }}>{label}</span>
-      <span className={`text-dense ${isLong ? '' : 'truncate'}`} style={{ color: '#d6d3d1', whiteSpace: isLong ? 'pre-wrap' : undefined }}>{value}</span>
+      <span className={`text-caption ${isLong ? '' : 'truncate'}`} style={{ color: '#d6d3d1', whiteSpace: isLong ? 'pre-wrap' : undefined }}>{value}</span>
     </div>
   )
 }
@@ -627,7 +627,7 @@ function StepIndicator({ step }) {
               <span className="text-label uppercase">{s.label}</span>
             </div>
             {i < STEPS.length - 1 && (
-              <span className="text-dense" style={{ color: '#78716c' }}>›</span>
+              <span className="text-caption" style={{ color: '#78716c' }}>›</span>
             )}
           </div>
         )

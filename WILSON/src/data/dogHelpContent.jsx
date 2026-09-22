@@ -52,7 +52,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'overview' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Overview</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Overview</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-4">
           D.O.G. (Deck Outline Generator) is an AI-powered tool that transforms your project documentation into structured presentation slide outlines.
           Upload your source materials (PDFs, markdown files, text files, or images), provide context about your deck, and generate either individual slides or complete deck outlines.
@@ -84,7 +84,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'workflow' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Basic Workflow</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Basic Workflow</h3>
         <div className="text-dense text-stone-300 leading-relaxed space-y-2">
           <p><span className="text-orange-400 font-semibold">1. Upload Documents:</span> Add up to 5 source files (PDFs, markdown, text, or images) that contain your project information.</p>
           <p><span className="text-orange-400 font-semibold">2. Set Deck Context:</span> Provide guidelines about the overall tone, style, and objectives for your presentation.</p>
@@ -104,7 +104,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'upload' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Document Upload Best Practices</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Document Upload Best Practices</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           The quality of your uploaded documents directly impacts the quality of generated slides. The system reads and references your documents as context when generating content.
         </p>
@@ -148,7 +148,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'prompting' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Deck Context & Page Request Prompting</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Deck Context & Page Request Prompting</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           Your Deck Context and Page Request prompts are the primary way you steer the AI. Specific, well-structured prompts produce dramatically better results than vague ones.
         </p>
@@ -206,7 +206,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'editing' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Editing & Regenerating Output</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Editing & Regenerating Output</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           After generating a slide, the Edit Output bar gives you powerful tools to refine content without starting over.
         </p>
@@ -251,7 +251,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className="text-stone-300">Shorten:</span> Condenses text while preserving key meaning</li>
               <li>• <span className="text-stone-300">Custom:</span> Type your own rewrite instruction for full control</li>
             </ul>
-            <p className="text-caption text-stone-500 mt-2">
+            <p className="text-dense text-stone-500 mt-2">
               Rewrite prompts can be customized in Settings &rarr; Prompts tab &rarr; "AI Rewrite Prompts" section.
             </p>
           </div>
@@ -267,7 +267,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className="text-stone-300">Numbered List:</span> Converts lines to numbered list items with auto-increment</li>
               <li>• <span className="text-stone-300">Heading:</span> Adds heading markers to selected text</li>
             </ul>
-            <p className="text-caption text-stone-500 mt-2">
+            <p className="text-dense text-stone-500 mt-2">
               Press Enter at the end of a bullet or numbered list item to automatically continue the list on the next line.
             </p>
           </div>
@@ -280,7 +280,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'system-prompts' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Understanding System Prompts</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Understanding System Prompts</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           System prompts are the instructions that tell the AI how to generate your slide content. They control everything from formatting rules to content style.
           There are two types of prompts for each generation mode (single page and full deck), and understanding their purpose is key to customizing the tool effectively.
@@ -295,7 +295,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <div className="mt-3 space-y-2">
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Required Elements (DO NOT REMOVE):</p>
-                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
+                <ul className="text-dense text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• Instruction to generate "presentation slide outlines"</li>
                   <li>• Rule to start output with "SLIDE #" (no preamble text)</li>
                   <li>• Rule to use &#9656; markers (&#9656; TITLE:, &#9656; SUBTITLE:, etc.)</li>
@@ -306,7 +306,7 @@ export function DogHelpContent({ helpPage, theme }) {
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Safe to Modify:</p>
-                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
+                <ul className="text-dense text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• Tone instructions (e.g., "Be concise" vs "Be detailed")</li>
                   <li>• Creativity level (e.g., "Be creative with titles" or "Use straightforward language")</li>
                   <li>• Industry-specific terminology preferences</li>
@@ -316,7 +316,7 @@ export function DogHelpContent({ helpPage, theme }) {
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Example Customization:</p>
-                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded-control">
+                <p className="text-dense text-stone-500 mt-1 bg-stone-950 p-2 rounded-control">
                   Add: "Use professional business language suitable for executive presentations. Avoid jargon and keep bullet points to 10 words or fewer."
                 </p>
               </div>
@@ -331,7 +331,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <div className="mt-3 space-y-2">
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Required Sections (Must Keep All 7):</p>
-                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
+                <ul className="text-dense text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• <span className="text-orange-400/70">&#9656; TITLE:</span> The main headline for the slide</li>
                   <li>• <span className="text-orange-400/70">&#9656; SUBTITLE:</span> Supporting text beneath the title</li>
                   <li>• <span className="text-orange-400/70">&#9656; LAYOUT STRUCTURE:</span> How content is arranged visually</li>
@@ -343,7 +343,7 @@ export function DogHelpContent({ helpPage, theme }) {
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Safe to Modify:</p>
-                <ul className="text-caption text-stone-500 mt-1 space-y-0.5 ml-2">
+                <ul className="text-dense text-stone-500 mt-1 space-y-0.5 ml-2">
                   <li>• Content length limits (e.g., "max 3 bullet points per section")</li>
                   <li>• Which layouts should have body text vs. title-only</li>
                   <li>• Asset requirements and suggestions</li>
@@ -354,14 +354,14 @@ export function DogHelpContent({ helpPage, theme }) {
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Layout-Specific Rules:</p>
-                <p className="text-caption text-stone-500 mt-1">
+                <p className="text-dense text-stone-500 mt-1">
                   The default rules specify that certain layouts (Title slide, Section header, Title Page w/Gradient, Title only, Big number) should only have title and subtitle with no body text.
                   You can modify which layouts follow this rule by editing the list in rule #7.
                 </p>
               </div>
               <div>
                 <p className="text-dense text-orange-400 font-semibold">Example Customization:</p>
-                <p className="text-caption text-stone-500 mt-1 bg-stone-950 p-2 rounded-control">
+                <p className="text-dense text-stone-500 mt-1 bg-stone-950 p-2 rounded-control">
                   Change: "max 4 sentences per section" &rarr; "max 2 sentences per section, use punchy language"
                   <br/>Add: "8. Always suggest a specific stock photo description in REQUIRED ASSETS"
                 </p>
@@ -373,7 +373,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <p className="text-dense text-stone-400 leading-relaxed">
               When you generate a slide, the system combines these prompts with your uploaded documents and page request:
             </p>
-            <ol className="text-caption text-stone-500 mt-2 space-y-1 ml-2">
+            <ol className="text-dense text-stone-500 mt-2 space-y-1 ml-2">
               <li>1. <span className="text-stone-400">API System Message</span> is sent as the AI's system instruction</li>
               <li>2. Your <span className="text-stone-400">uploaded documents</span> are included as context</li>
               <li>3. Your <span className="text-stone-400">Deck Context & Guidelines</span> from the main interface is added</li>
@@ -403,7 +403,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'output-format' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Understanding Output Format</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Understanding Output Format</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           Output formats define the markdown schema used when exporting slides. The system parses generated content based on these patterns.
           All format schemas are accessible in the Settings panel under the Format tab as collapsible sections.
@@ -414,14 +414,14 @@ export function DogHelpContent({ helpPage, theme }) {
             <p className="text-dense text-stone-400 leading-relaxed">
               Template for individual slide exports. Each slide uses this structure.
             </p>
-            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> SLIDE #[NUMBER] — [Layout Name] header, ═══ delimiters, and all six &#9656; section markers must be present for the parser to work correctly.</p>
+            <p className="text-dense text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> SLIDE #[NUMBER] — [Layout Name] header, ═══ delimiters, and all six &#9656; section markers must be present for the parser to work correctly.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-control border border-stone-700">
             <h4 className="text-dense font-semibold text-orange-400 mb-1">Full Deck Export Schema</h4>
             <p className="text-dense text-stone-400 leading-relaxed">
               Template showing how multiple slides are concatenated in a full deck export. Each slide follows the single page format, separated by delimiters.
             </p>
-            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> Consistent delimiter pattern between slides (═══════), sequential slide numbering format.</p>
+            <p className="text-dense text-stone-500 mt-2"><span className="text-orange-400">Critical elements:</span> Consistent delimiter pattern between slides (═══════), sequential slide numbering format.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-control border border-stone-700">
             <h4 className="text-dense font-semibold text-orange-400 mb-1">Visual Deck Export Schema (VIS_DECKOUTLINE)</h4>
@@ -429,15 +429,15 @@ export function DogHelpContent({ helpPage, theme }) {
               Extended export format that wraps the standard DECKOUTLINE with a deck summary header (title, page count, selected theme colors, visual description)
               and an alternate themes footer listing all unused themes. This schema is read-only and cannot be edited.
             </p>
-            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> In the Import/Export modal, check "Include theme colors & deck visual description" to switch the download button to VIS_DECKOUTLINE format. The file is named <span className="text-orange-400">PROJECTNAME_VIS_DECKOUTLINE.md</span>.</p>
-            <p className="text-caption text-stone-500 mt-1"><span className="text-orange-400">Importing:</span> VIS_DECKOUTLINE files can be imported back — the system will parse theme colors from the header and footer and restore them automatically.</p>
+            <p className="text-dense text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> In the Import/Export modal, check "Include theme colors & deck visual description" to switch the download button to VIS_DECKOUTLINE format. The file is named <span className="text-orange-400">PROJECTNAME_VIS_DECKOUTLINE.md</span>.</p>
+            <p className="text-dense text-stone-500 mt-1"><span className="text-orange-400">Importing:</span> VIS_DECKOUTLINE files can be imported back — the system will parse theme colors from the header and footer and restore them automatically.</p>
           </div>
           <div className="bg-stone-900 p-3 rounded-control border border-stone-700">
             <h4 className="text-dense font-semibold text-orange-400 mb-1">Image Prompt Export Schema</h4>
             <p className="text-dense text-stone-400 leading-relaxed">
               Template showing the markdown output format for generated image prompts. Each asset includes title, aspect ratio, and the full prompt text.
             </p>
-            <p className="text-caption text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> This schema defines how the DECKNAME_IMG_PROMPTS.md file is structured. Assets are grouped by slide number with formatted prompt blocks.</p>
+            <p className="text-dense text-stone-500 mt-2"><span className="text-orange-400">How to use:</span> This schema defines how the DECKNAME_IMG_PROMPTS.md file is structured. Assets are grouped by slide number with formatted prompt blocks.</p>
           </div>
         </div>
       </section>
@@ -448,7 +448,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'theme' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Theme Generator</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Theme Generator</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           The Theme Generator creates color palettes tailored to your deck content using the Haiku AI model. Theme colors are applied in the slide visualizer preview and can be exported with the VIS_DECKOUTLINE format.
         </p>
@@ -503,7 +503,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'image-prompts' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Image Prompt Generation</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Image Prompt Generation</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-4">
           The Image Prompt Generation system creates detailed AI image prompts for every visual asset defined in your slide outlines.
           Prompts are generated at export time and downloaded as a separate markdown file alongside your deck outline.
@@ -566,7 +566,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'asset-placement' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Visual Asset Placement</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Visual Asset Placement</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-4">
           Visual Asset Placement allows you to embed your own uploaded images and videos directly into generated slide outlines.
           When enabled, the AI reviews your visual assets and assigns them to contextually matching slide frames. The visualizer then renders your actual images instead of placeholder boxes.
@@ -633,7 +633,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'layouts' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Available Slide Layouts</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Available Slide Layouts</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           15 layout types are available. Layouts with visual assets have maximum asset limits enforced by the system. Column layouts (2, 3, 4) feature dynamic image sizing that adjusts asset height based on text content volume.
         </p>
@@ -695,7 +695,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <div className="text-stone-400">Section title and description</div>
               <div className="text-orange-400 font-semibold">3 assets max</div>
             </div>
-            <p className="text-caption text-stone-500 mt-2 ml-2">
+            <p className="text-dense text-stone-500 mt-2 ml-2">
               Assets beyond these limits are not rendered in the visualizer. The AI is instructed to respect these limits when generating content.
             </p>
           </div>
@@ -708,7 +708,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'settings' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Settings Panel</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Settings Panel</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-3">
           The Settings panel (gear icon) contains all system prompts and output format schemas in collapsible dropdown sections.
           Each section has a title bar that expands/collapses the content and a "Reset to default" button.
@@ -751,7 +751,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'tips' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Tips for Best Results</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Tips for Best Results</h3>
         <ul className="text-dense text-stone-300 leading-relaxed space-y-1">
           <li>• <span className="text-orange-400">Be specific</span> in your deck context about tone, audience, and visual style preferences.</li>
           <li>• <span className="text-orange-400">Use descriptive page requests</span> that reference specific content from your uploaded documents.</li>
@@ -778,7 +778,7 @@ export function DogHelpContent({ helpPage, theme }) {
       </section>
 
       <section className="bg-orange-500/10 border border-orange-500/30 rounded-control p-3">
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-2">Important Notes</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-2">Important Notes</h3>
         <ul className="text-dense text-stone-300 leading-relaxed space-y-1">
           <li>• Modifying system prompts incorrectly may cause parsing errors or unexpected output formats.</li>
           <li>• Always use "Reset to default" if you encounter issues after editing prompts.</li>
@@ -797,7 +797,7 @@ export function DogHelpContent({ helpPage, theme }) {
       {helpPage === 'slides-extension' && (
       <div className="space-y-5">
       <section>
-        <h3 className="text-label font-semibold text-orange-400 uppercase mb-3">Download Slides Extension</h3>
+        <h3 className="text-h3 font-semibold text-orange-400 mb-3">Download Slides Extension</h3>
         <p className="text-dense text-stone-300 leading-relaxed mb-4">
           The D.O.G. Bridge is a Google Slides Apps Script extension that reads your exported VIS_DECKOUTLINE markdown files and programmatically builds
           Google Slides decks with precise coordinate-based placement. It bridges the gap between D.O.G.'s outline generation and your final presentation.

@@ -145,7 +145,7 @@ export default function AuditSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-label font-semibold uppercase text-stone-900">Platform audit</h2>
+          <h2 className="text-h3 font-semibold text-stone-900">Platform audit</h2>
           <p className="text-dense text-stone-950 leading-relaxed">
             Append-only. Teardown certificates outlive the company they name.
           </p>
@@ -238,7 +238,7 @@ export default function AuditSection({ isActive }) {
                     <span className="text-dense" style={{ color: '#57534e' }}>{r.actor_label ?? '—'}</span>
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <div className="text-dense" style={{ color: '#1c1917' }}>{r.message}</div>
+                    <div className="text-caption" style={{ color: '#1c1917' }}>{r.message}</div>
                     {open && r.context && Object.keys(r.context).length > 0 && (
                       <pre
                         className="mt-1 text-dense font-mono p-2 rounded-control whitespace-pre-wrap break-all"

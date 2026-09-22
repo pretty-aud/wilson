@@ -118,7 +118,7 @@ export default function OperatorApp() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
         <div style={{ maxWidth: '380px' }}>
-          <h1 className="text-label font-semibold uppercase mb-2" style={{ color: '#f4a261' }}>
+          <h1 className="text-h3 font-semibold mb-2" style={{ color: '#f4a261' }}>
             Could not verify operator status
           </h1>
           <p className="text-dense leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
@@ -141,7 +141,7 @@ export default function OperatorApp() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
         <div style={{ maxWidth: '380px' }}>
-          <h1 className="text-label font-semibold uppercase mb-2" style={{ color: '#f4a261' }}>
+          <h1 className="text-h3 font-semibold mb-2" style={{ color: '#f4a261' }}>
             Not a platform operator
           </h1>
           <p className="text-dense leading-relaxed mb-4" style={{ color: '#a8a29e' }}>

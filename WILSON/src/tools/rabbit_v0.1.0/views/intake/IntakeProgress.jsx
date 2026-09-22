@@ -70,7 +70,7 @@ export default function IntakeProgress({
         ) : (
           <Sparkles className="w-6 h-6" style={{ color: '#fb923c' }} />
         )}
-        <h2 className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
+        <h2 className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
           {phase === 'starting' && 'Preparing intake…'}
           {phase === 'running'  && 'Running intake'}
           {phase === 'done'     && 'Intake complete'}
@@ -98,7 +98,7 @@ export default function IntakeProgress({
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-label font-mono tabular-nums uppercase" style={{ color: '#a8a29e' }}>
+          <div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
             <span>
               {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'

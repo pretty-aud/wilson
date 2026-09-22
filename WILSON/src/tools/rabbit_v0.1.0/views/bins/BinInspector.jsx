@@ -122,7 +122,7 @@ export default function BinInspector({
   return (
     <div className="flex-shrink-0 h-full flex flex-col overflow-hidden" style={{ width, borderLeft: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="px-3 py-2 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="text-label font-mono uppercase flex-1 truncate" style={{ color: C.dim }}>
+        <span className="text-dense font-mono flex-1 truncate" style={{ color: C.dim }}>
           {single ? 'Inspector' : `${rows.length} files selected`}
         </span>
         {canWrite && <IconBtn Icon={Trash2} title={single ? 'Remove from bin (Delete)' : `Remove ${rows.length} from bin (Delete)`} onClick={() => onRemove?.(rows.map(r => r.id))} danger size={3} />}

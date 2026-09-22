@@ -14,26 +14,26 @@ export const OTTER_HELP_SIDEBAR_ITEMS = [
 
 // Light-theme style tokens matching HelpPage's L constants
 const L = {
-  sectionTitle: 'text-label font-semibold text-stone-900 uppercase mb-3',
+  sectionTitle: 'text-dense font-semibold text-stone-900 mb-3',
   bodyText: 'text-dense text-stone-800 leading-relaxed',
   card: 'bg-well-light p-3 rounded-control border border-stone-400/30',
   cardTitle: 'text-dense font-semibold text-stone-900 mb-2',
   listItem: 'text-dense text-stone-700 leading-relaxed',
   listBold: 'text-stone-900',
   notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-control p-3',
-  notesTitle: 'text-label font-semibold text-stone-900 uppercase mb-2',
+  notesTitle: 'text-dense font-semibold text-stone-900 mb-2',
 }
 
 // Dark-theme style tokens for in-tool help modal
 const D = {
-  sectionTitle: 'text-label font-semibold text-orange-400 uppercase mb-3',
+  sectionTitle: 'text-dense font-semibold text-orange-400 mb-3',
   bodyText: 'text-dense text-stone-300 leading-relaxed',
   card: 'bg-stone-900 p-3 rounded-control border border-stone-700',
   cardTitle: 'text-dense font-semibold text-orange-400 mb-2',
   listItem: 'text-dense text-stone-300 leading-relaxed',
   listBold: 'text-orange-400/70',
   notesBox: 'bg-orange-500/10 border border-orange-500/30 rounded-control p-3',
-  notesTitle: 'text-label font-semibold text-orange-400 uppercase mb-2',
+  notesTitle: 'text-dense font-semibold text-orange-400 mb-2',
 }
 
 export function OtterHelpContent({ helpPage, theme }) {

@@ -1862,7 +1862,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Date + bid */}
       {(task.start_date || task.bid_days != null) && (
-        <div className="flex items-center gap-2 text-dense font-mono" style={{ color: '#57534e' }}>
+        <div className="flex items-center gap-2 text-dense font-mono tabular-nums" style={{ color: '#57534e' }}>
           {task.start_date && <span>{task.start_date}</span>}
           {task.bid_days != null && <span>{task.bid_days}d</span>}
         </div>

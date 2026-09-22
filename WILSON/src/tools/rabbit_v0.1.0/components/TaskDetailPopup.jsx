@@ -295,7 +295,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 {!linkedAsset && !linkedShot && !(scenesOn && linkedScene) && (
                   <div className="px-3 py-6 text-center">
                     <FolderOpen className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-                    <p className="text-label uppercase" style={{ color: '#57534e' }}>
+                    <p className="text-dense" style={{ color: '#57534e' }}>
                       Link an asset, scene, or shot to see files here
                     </p>
                   </div>
@@ -473,7 +473,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               </div>
               <div>
                 <FieldLabel>Bid total</FieldLabel>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono rounded-control"
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono tabular-nums rounded-control"
                   style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: bidTotal != null ? '#4ade80' : '#57534e', minHeight: 34 }}>
                   <DollarSign className="w-3 h-3 flex-shrink-0" style={{ opacity: 0.6 }} />
                   {bidTotal != null
@@ -482,7 +482,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                     : '--'}
                 </div>
                 {dayRate != null && (
-                  <div className="text-dense font-mono mt-0.5" style={{ color: '#57534e' }}>
+                  <div className="text-caption font-mono tabular-nums mt-0.5" style={{ color: '#57534e' }}>
                     {fmt(task.assigned_role_slug || '')} @ ${Number(dayRate).toLocaleString()}/day
                   </div>
                 )}

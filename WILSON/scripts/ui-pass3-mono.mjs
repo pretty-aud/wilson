@@ -18,8 +18,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { sourceFiles } from './ui-audit.mjs';
 import { protectedRanges, isProtected } from './ui-source-regions.mjs';
-import { enclosingRun, enclosingTag } from './ui-type-inventory.mjs';
-import { classifyMono, IS_PATHLIKE } from './ui-mono-map.mjs';
+import { enclosingRun, enclosingTag, elementBody } from './ui-type-inventory.mjs';
+import { classifyMono, IS_PATHLIKE, NUMERIC_ALIGN, splitIdentifiers } from './ui-mono-map.mjs';
 
 const DRY = process.argv.includes('--dry');
 const SAMPLE = process.argv.includes('--sample') ? process.argv[process.argv.indexOf('--sample') + 1] : null;
@@ -27,43 +27,6 @@ const SAMPLE_N = parseInt(process.argv[process.argv.indexOf('--sample') + 2] || 
 const SKIP = [/[\/]Home\.jsx$/];
 const files = sourceFiles().filter((f) => !SKIP.some((re) => re.test(f)));
 
-/**
- * What the element renders, as evidence.
- *
- * 🚨 NOT just the direct text. A money column is written as a wrapper that
- * carries the alignment and the family, with the figure in a child:
- *
- *   <div className="… text-dense font-mono text-right …">
- *     <span …>{fmtCurrency(row.rate, currency)}</span>
- *   </div>
- *
- * Reading only up to the next `<` gives the empty string for that div, and an
- * empty string has no data evidence, so R.A.B.B.I.T.'s rate column would have
- * lost its mono AND its figures would never have been recognised as figures.
- * So the window reaches into the subtree, with the markup and the attribute
- * noise stripped, leaving the text and the `{…}` expressions — which is all
- * the map ever asks about.
- */
-function elementBody(src, idx) {
-  const after = src.slice(idx, idx + 1600);
-  const gt = after.indexOf('>');
-  if (gt < 0) return '';
-  let s = after.slice(gt + 1, gt + 1 + 420);
-  /* 🚨 STOP AT THE FIRST CLOSING TAG. A fixed-length window runs past the end
-     of the element and reads the NEXT block's code as if it were this
-     element's content. Measured: Admin Terminal's storage help sets three UNC
-     paths in three sibling spans, and the middle one lost its mono because the
-     window reached a later `{probeSummary && …}` — and "summary" is on the
-     prose list. Three identical paths, two in mono and one not.
-     For a leaf this is exactly the element's text; for a wrapper it is the
-     first child, which is where the figure lives anyway. */
-  const close = s.indexOf('</');
-  if (close > 0) s = s.slice(0, close);
-  s = s.replace(/className=(?:"[^"]*"|\{[^}]*\})/g, ' ');
-  s = s.replace(/style=\{\{[^}]*\}\}/g, ' ');
-  s = s.replace(/<[^>]*>/g, ' ');
-  return s.trim().replace(/\s+/g, ' ').slice(0, 260);
-}
 
 const sites = [];
 for (const file of files) {
@@ -116,8 +79,15 @@ for (const [file, list] of byFile) {
     if (s.keep) {
       kept++;
       /* §3.1's numeric-cell clause: figures in tables line up or they are not
-         a column. Only for figures, never for an id or a path. */
-      const isFigure = /\b(?:count|total|totals|subtotal|sum|amount|price|cost|rate|budget|qty|quantity|size|bytes|pct|percent)\b/i.test(s.body)
+         a column. Only for figures, never for an id or a path.
+         🚨 BOTH SPELLINGS, and a right alignment is sufficient on its own.
+         Testing the raw body only meant `bidTotal` and `actualTotal` did not
+         contain `\btotal\b`, so ONE of the five currency columns in
+         R.A.B.B.I.T.'s bid row got `tabular-nums` and four did not — which is
+         worse than none of them having it, because a column that half lines up
+         looks broken rather than unstyled. */
+      const figureWord = /\b(?:count|total|totals|subtotal|sum|amount|price|cost|rate|budget|qty|quantity|size|bytes|pct|percent|fee|variance|logged|bid)\b/i;
+      const isFigure = (figureWord.test(s.body) || figureWord.test(splitIdentifiers(s.body)) || NUMERIC_ALIGN.test(s.run))
         && !IS_PATHLIKE.some((re) => re.test(s.body))   // a path is data, not a column of digits
         && !/\btabular-nums\b/.test(s.run);
       if (isFigure) { edits.push({ start: s.end, end: s.end, to: ' tabular-nums' }); numerics++; }

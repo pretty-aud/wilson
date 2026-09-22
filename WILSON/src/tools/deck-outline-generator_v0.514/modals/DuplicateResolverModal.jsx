@@ -88,7 +88,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
         className="bg-stone-800 border border-stone-600 rounded-control flex flex-col shadow-xl relative"
         style={{ width: '894px', height: '349px' }}
       >
-        <div className="bg-stone-700 px-3 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
+        <div className="bg-stone-700 px-3 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
           <div>
             <h3 className="font-semibold text-orange-400 uppercase tracking-wide" style={{ fontSize: '16px' }}>Resolve Duplicate</h3>
             <p style={{ fontSize: '14px' }} className="text-stone-400">
@@ -107,7 +107,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
               onClick={() => setSelectedId(item.id)}
               onMouseEnter={() => handleMouseEnter(item)}
               onMouseLeave={handleMouseLeave}
-              className={`flex-1 text-left p-3 rounded-control transition-shadow flex flex-col overflow-hidden ${
+              className={`flex-1 text-left p-3 rounded-control transition-colors flex flex-col overflow-hidden ${
                 selectedId === item.id 
                   ? 'bg-orange-500/20 border border-orange-500 ring-1 ring-orange-500/30' 
                   : 'bg-stone-900 border border-stone-600 hover:border-stone-500'
@@ -156,7 +156,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
           ))}
         </div>
         
-        <div className="px-3 py-2 border-t-2 border-stone-600 flex items-center justify-end gap-2 flex-shrink-0">
+        <div className="px-3 py-2 border-t border-stone-600 flex items-center justify-end gap-2 flex-shrink-0">
           <button
             onClick={onExportAll}
             className="px-4 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-control text-stone-300 transition-colors"

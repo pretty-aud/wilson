@@ -186,12 +186,12 @@ export default function TaskTemplateManager({ onClose }) {
         <div className="flex-1 overflow-auto">
           {tt.loading ? (
             <div className="flex items-center justify-center py-12">
-              <span className="text-dense" style={{ color: '#78716c' }}>Loading...</span>
+              <span className="text-caption" style={{ color: '#78716c' }}>Loading...</span>
             </div>
           ) : tt.templates.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-2">
               <span className="text-dense" style={{ color: '#78716c' }}>No templates yet</span>
-              <span className="text-dense" style={{ color: '#57534e' }}>
+              <span className="text-caption" style={{ color: '#57534e' }}>
                 Create a template to define reusable task sets for assets
               </span>
             </div>
@@ -232,12 +232,12 @@ export default function TaskTemplateManager({ onClose }) {
                         />
                       </Td>
                       <Td style={{ textAlign: 'center' }}>
-                        <span className="text-dense font-mono" style={{ color: '#d6d3d1' }}>
+                        <span className="text-dense font-mono tabular-nums" style={{ color: '#d6d3d1' }}>
                           {stats.taskCount}
                         </span>
                       </Td>
                       <Td style={{ textAlign: 'center' }}>
-                        <span className="text-dense font-mono font-semibold" style={{ color: '#f4a261' }}>
+                        <span className="text-dense font-mono tabular-nums font-semibold" style={{ color: '#f4a261' }}>
                           {stats.totalDays}d
                         </span>
                       </Td>
@@ -590,7 +590,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
   const [open, setOpen] = useState(false)
 
   if (availableDeps.length === 0) {
-    return <span className="text-dense font-mono italic" style={{ color: '#57534e' }}>--</span>
+    return <span className="text-caption font-mono italic" style={{ color: '#57534e' }}>--</span>
   }
 
   return (
@@ -634,7 +634,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
                     {dep.name || 'Untitled'}
                   </span>
                   {dep.bid_days > 0 && (
-                    <span className="text-dense font-mono ml-auto flex-shrink-0" style={{ color: '#78716c' }}>
+                    <span className="text-caption font-mono tabular-nums ml-auto flex-shrink-0" style={{ color: '#78716c' }}>
                       {dep.bid_days}d
                     </span>
                   )}

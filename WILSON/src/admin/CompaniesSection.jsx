@@ -105,7 +105,7 @@ const lightInputStyle = {
   border: 'none',
 }
 const inputClass =
-  'px-3 py-2 text-dense rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500'
+  'px-3 py-2 text-caption rounded-control focus:outline-none focus:ring-2 focus:ring-orange-500'
 
 function ThLight({ children }) {
   return (
@@ -269,7 +269,7 @@ export default function CompaniesSection({ isActive }) {
     <div className="pb-8" style={{ maxWidth: '900px' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-label font-semibold uppercase text-stone-900">Companies</h2>
+          <h2 className="text-h3 font-semibold text-stone-900">Companies</h2>
           <p className="text-dense text-stone-950 leading-relaxed">
             Every workspace on the platform. Counts are live.
           </p>
@@ -348,9 +348,9 @@ export default function CompaniesSection({ isActive }) {
                 <TdLight><code className="text-dense font-mono" style={{ color: '#57534e' }}>{r.slug}</code></TdLight>
                 <TdLight>
                   <span className="text-dense" style={{ color: '#1c1917' }}>{r.active_members}</span>
-                  <span className="text-dense" style={{ color: '#78716c' }}>/{r.member_count}</span>
+                  <span className="text-caption" style={{ color: '#78716c' }}>/{r.member_count}</span>
                 </TdLight>
-                <TdLight><span className="text-dense" style={{ color: '#1c1917' }}>{r.project_count}</span></TdLight>
+                <TdLight><span className="text-caption" style={{ color: '#1c1917' }}>{r.project_count}</span></TdLight>
                 <TdLight><span className="text-dense" style={{ color: '#1c1917' }}>{r.file_count}</span></TdLight>
                 <TdLight><StorageCell plan={planFor(r.workspace_id)} /></TdLight>
                 <TdLight>
@@ -520,7 +520,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
 
   return (
     <div className="p-4 rounded-control" style={cardStyle}>
-      <h3 className="text-label font-semibold uppercase text-stone-900 mb-1">{row.name}</h3>
+      <h3 className="text-h3 font-semibold text-stone-900 mb-1">{row.name}</h3>
       <p className="text-dense text-stone-950 mb-4 leading-relaxed">
         <code className="font-mono">{row.slug}</code> · created{' '}
         {new Date(row.created_at).toLocaleDateString()} ·{' '}
@@ -672,7 +672,7 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
             ? 'Working…'
             : row.deleted_at ? 'Restore company' : 'Suspend company'}
         </button>
-        <span className="text-dense" style={{ color: '#78716c' }}>
+        <span className="text-caption" style={{ color: '#78716c' }}>
           {row.deleted_at
             ? 'Members regain access immediately.'
             : 'Members lose access immediately. Nothing is deleted, and it can be undone.'}
@@ -1025,7 +1025,7 @@ function CreateCompanyDialog({ onCancel, onCreated }) {
         className="w-full"
         style={{ maxWidth: '440px', backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '20px 22px' }}
       >
-        <h3 className="text-label font-semibold uppercase mb-1" style={{ color: '#f4a261' }}>
+        <h3 className="text-h3 font-semibold mb-1" style={{ color: '#f4a261' }}>
           New company
         </h3>
         <p className="text-dense mb-4 leading-relaxed" style={{ color: '#a8a29e' }}>
@@ -1123,7 +1123,7 @@ function CredentialsDialog({ payload, onClose }) {
         className="w-full"
         style={{ maxWidth: '440px', backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px', padding: '20px 22px' }}
       >
-        <h3 className="text-label font-semibold uppercase mb-1" style={{ color: '#f4a261' }}>
+        <h3 className="text-h3 font-semibold mb-1" style={{ color: '#f4a261' }}>
           Company created
         </h3>
         {/* Zeigarnik: this is the only time the password exists anywhere. The

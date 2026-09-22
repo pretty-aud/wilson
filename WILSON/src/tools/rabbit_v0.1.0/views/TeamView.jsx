@@ -363,7 +363,7 @@ export default function TeamView() {
           </select>
         </Td>
         <Td>
-          <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
+          <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
             {r.taskCount}
           </span>
         </Td>
@@ -519,7 +519,7 @@ export default function TeamView() {
         {teamAssignments.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3">
             <Users className="w-8 h-8" style={{ color: '#57534e' }} />
-            <span className="text-dense italic" style={{ color: '#78716c' }}>
+            <span className="text-caption italic" style={{ color: '#78716c' }}>
               No team members assigned to this project yet.
             </span>
           </div>
@@ -550,7 +550,7 @@ export default function TeamView() {
                           style={{ borderBottom: '1px solid #292524' }}>
                           {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} /> : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
                           <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
-                          <span className="text-dense font-mono" style={{ color: '#57534e' }}>{g.members.length}</span>
+                          <span className="text-caption font-mono" style={{ color: '#57534e' }}>{g.members.length}</span>
                         </div>
                       </td>
                     </tr>
@@ -788,7 +788,7 @@ function ProjectMembersPanel({ ctx }) {
           {seated.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
               <Users className="w-6 h-6" style={{ color: '#57534e' }} />
-              <span className="text-dense italic" style={{ color: '#78716c' }}>
+              <span className="text-caption italic" style={{ color: '#78716c' }}>
                 No roster yet — everyone in the workspace can edit this project. Add members to restrict it.
               </span>
             </div>
@@ -847,7 +847,7 @@ function ProjectMembersPanel({ ctx }) {
         </div>
 
         {dir.error && (
-          <div className="mt-2 text-dense" style={{ color: '#fca5a5' }}>
+          <div className="mt-2 text-caption" style={{ color: '#fca5a5' }}>
             Directory unavailable: {dir.error}
           </div>
         )}
@@ -961,7 +961,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2">
               <Users className="w-6 h-6" style={{ color: '#57534e' }} />
-              <span className="text-dense font-mono italic" style={{ color: '#78716c' }}>
+              <span className="text-caption font-mono italic" style={{ color: '#78716c' }}>
                 {members.length === 0 ? 'All members are already assigned, or none exist in the database.' : 'No matches.'}
               </span>
             </div>
@@ -1004,7 +1004,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
           className="flex items-center justify-between px-4 py-3"
           style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
         >
-          <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
+          <span className="text-caption font-mono tabular-nums" style={{ color: '#a8a29e' }}>
             {selected.size} selected
           </span>
           <div className="flex items-center gap-2">

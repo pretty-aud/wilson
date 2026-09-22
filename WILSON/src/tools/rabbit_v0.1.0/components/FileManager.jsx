@@ -882,7 +882,7 @@ export default function FileManager({
           for the whole batch, listing every refusal — not one per file. */}
       {refusedFiles?.length > 0 && (
         <div
-          className="mb-2 px-2 py-1.5 rounded-control text-dense"
+          className="mb-2 px-2 py-1.5 rounded-control text-dense font-mono"
           style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
         >
           <div className="flex items-start justify-between gap-2">
@@ -1044,7 +1044,7 @@ export default function FileManager({
                   </span>
                 </Td>
                 <Td>
-                  <span className="text-dense font-mono" style={{ color: '#a8a29e' }}>
+                  <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
                     {formatBytes(f.size_bytes)}
                   </span>
                 </Td>
@@ -1130,7 +1130,7 @@ export default function FileManager({
                   <span className="text-dense px-1 rounded-control" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
                     {f.version_label || (managed ? 'v001' : '--')}
                   </span>
-                  <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
                     {formatBytes(f.size_bytes)}
                   </span>
                 </div>

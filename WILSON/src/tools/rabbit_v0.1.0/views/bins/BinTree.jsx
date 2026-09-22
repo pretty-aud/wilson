@@ -131,7 +131,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
       onClick={onSelect} onContextMenu={onContextMenu}
       onDoubleClick={e => { e.stopPropagation(); if (canWrite) onRenameStart?.() }}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense transition-colors group"
+      className="flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense font-mono tabular-nums transition-colors group"
       style={{
         paddingLeft: 10 + depth * 14,
         color: active ? C.bright : C.text,

@@ -158,7 +158,7 @@ export default function OperatorLogin({ onSignedIn }) {
       <div className="w-full" style={{ maxWidth: '380px' }}>
         <div className="mb-6">
           <h1
-            className="text-label font-semibold uppercase"
+            className="text-h3 font-semibold"
             style={{ color: '#f4a261' }}
           >
             WILSON Operator Console

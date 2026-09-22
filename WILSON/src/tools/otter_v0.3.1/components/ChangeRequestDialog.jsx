@@ -186,9 +186,9 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
         className="bg-stone-800 border border-stone-600 rounded-control w-[560px] max-h-[80vh] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]"
         onClick={e => e.stopPropagation()}
       >
-        <div className="bg-stone-700 px-4 py-2.5 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
+        <div className="bg-stone-700 px-4 py-2.5 flex items-center justify-between border-b border-stone-600 shrink-0">
           <div className="min-w-0">
-            <h3 className="text-orange-400 font-semibold text-label uppercase">Suggest a change</h3>
+            <h3 className="text-orange-400 font-semibold text-h3">Suggest a change</h3>
             <p className="text-stone-400 text-dense truncate">
               to the company standard{standardName ? `: ${standardName}` : ''}
             </p>
@@ -212,7 +212,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
           {targetId && (
             <>
               {loading ? (
-                <p className="text-stone-500 text-caption flex items-center gap-1.5">
+                <p className="text-stone-500 text-dense flex items-center gap-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" /> Loading…
                 </p>
               ) : (
@@ -220,7 +220,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   {/* The admin answered: their note, then two ways forward. */}
                   {isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/60 rounded-control p-3">
-                      <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
+                      <p className="text-orange-400 text-dense font-semibold mb-1 flex items-center gap-1.5">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
                         {existing.reviewer_label ?? 'An admin'} asked for changes
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
@@ -228,7 +228,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                       <p className="text-stone-200 text-dense whitespace-pre-wrap mb-2">
                         “{existing.review_note}”
                       </p>
-                      <p className="text-stone-500 text-caption">
+                      <p className="text-stone-500 text-dense">
                         Edit your course to address the note, update the summary below, and
                         resubmit — or accept the decision to close the request.
                       </p>
@@ -237,11 +237,11 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
                   {existing && !isDeclined && (
                     <div className="bg-stone-900 border border-orange-700/50 rounded-control p-2.5">
-                      <p className="text-orange-400 text-label font-semibold uppercase mb-0.5">
+                      <p className="text-orange-400 text-dense font-semibold mb-0.5">
                         You already have a request open
                         {(existing.revision ?? 1) > 1 ? ` (round ${existing.revision})` : ''}
                       </p>
-                      <p className="text-stone-500 text-caption">
+                      <p className="text-stone-500 text-dense">
                         Edit it below and save, or withdraw it. An admin decides from here.
                       </p>
                     </div>
@@ -262,7 +262,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                       <span className="text-stone-600 text-caption">
                         This is what the reviewer reads first.
                       </span>
-                      <span className={`text-caption ${tooLong ? 'text-red-400' : 'text-stone-600'}`}>
+                      <span className={`text-dense ${tooLong ? 'text-red-400' : 'text-stone-600'}`}>
                         {summary.length} / {SUMMARY_MAX}
                       </span>
                     </div>
@@ -299,7 +299,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
         </div>
 
         {targetId && !loading && (
-          <div className="border-t-2 border-stone-600 p-3 flex gap-2 shrink-0">
+          <div className="border-t border-stone-600 p-3 flex gap-2 shrink-0">
             {existing && !isDeclined && (
               <button
                 onClick={withdraw}

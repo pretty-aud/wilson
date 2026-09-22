@@ -32,7 +32,7 @@ export default function LessonOutlinePopup({
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
       <div className="bg-stone-900 border border-orange-500 rounded-control shadow-2xl flex flex-col" style={{ width: '500px', maxHeight: '70vh' }}>
         {/* Header */}
-        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0 rounded-t-sm">
+        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0 rounded-t-float">
           <div className="flex items-center gap-2">
             <HeaderIcon className="w-4 h-4 text-orange-400" />
             <span className="text-label font-semibold text-orange-400 uppercase">{headerText}</span>
@@ -69,7 +69,7 @@ export default function LessonOutlinePopup({
         </div>
 
         {/* Actions */}
-        <div className="px-4 py-3 border-t-2 border-stone-600 flex items-center gap-2 shrink-0">
+        <div className="px-4 py-3 border-t border-stone-600 flex items-center gap-2 shrink-0">
           <button
             onClick={onGenerate}
             disabled={loading}

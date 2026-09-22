@@ -111,7 +111,7 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         </div>
         <div className="absolute bottom-1 left-1"><MediaTag type={row.media_type} small /></div>
         {row.is_sequence && row.frame_count ? (
-          <div className="absolute bottom-1 right-1 px-1 rounded-control text-dense font-mono" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.muted }}>{row.frame_count} fr</div>
+          <div className="absolute bottom-1 right-1 px-1 rounded-control text-dense font-mono tabular-nums" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.muted }}>{row.frame_count} fr</div>
         ) : null}
       </div>
       <div className="px-2 py-1.5 min-w-0">

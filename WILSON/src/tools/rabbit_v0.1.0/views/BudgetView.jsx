@@ -588,7 +588,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <span className="text-label font-semibold uppercase" style={{ color: '#d6d3d1' }}>
               Base cost
             </span>
-            <div className="text-h2 font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+            <div className="text-h2 font-mono tabular-nums font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay value={baseCost} currency={currency} style={{ color: '#d6d3d1' }} />
             </div>
           </div>
@@ -641,7 +641,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                   disabled={isActive} />
               )}
             </div>
-            <div className="text-dense font-mono text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
+            <div className="text-dense font-mono tabular-nums text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
               {agencyEnabled ? `+` : ''}{' '}
               {agencyEnabled
                 ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} style={{ color: '#a8a29e' }} />
@@ -655,10 +655,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           {/* Grand total */}
           <div className="flex items-center justify-between py-4 px-4 rounded-control"
             style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="text-h2 font-semibold" style={{ color: '#fb923c' }}>
+            <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
               Grand Total
             </span>
-            <div className="text-h1 font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+            <div className="text-h1 font-mono tabular-nums font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay
                 value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
                 currency={currency}
@@ -770,7 +770,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               .map(v => (
                 <div
                   key={v.id}
-                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-control text-dense items-center"
+                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-control text-dense font-mono items-center"
                   style={{
                     backgroundColor: isActive && v.id === lockedVersionId ? '#1a2e1a'
                       : v.is_active ? '#292524' : '#1c1917',
@@ -850,15 +850,15 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               Variance vs active bid ({activeVersion?.name})
             </span>
             <div className="flex items-baseline gap-4">
-              <span className="text-h1 font-mono font-semibold" style={{
+              <span className="text-h1 font-mono tabular-nums font-semibold" style={{
                 color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
               }}>
                 {versionVariance.diff > 0 ? '+' : ''}<CurrencyDisplay value={versionVariance.diff} currency={currency} />
               </span>
-              <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+              <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
                 ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
               </span>
-              <span className="text-dense" style={{ color: '#57534e' }}>
+              <span className="text-dense font-mono tabular-nums" style={{ color: '#57534e' }}>
                 Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
                 {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
               </span>
@@ -1079,10 +1079,10 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
       <div className="flex gap-2 px-2 py-1.5 rounded-control" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
         <span className={`flex-1 text-dense truncate ${bold ? 'font-semibold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
         <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
-        {agencyEnabled && <span className="text-dense font-mono text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
-        <span className={`text-dense font-mono text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
-        <span className="text-dense font-mono text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
-        <span className="text-dense font-mono text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
+        {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
+        <span className={`text-dense font-mono tabular-nums text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
+        <span className="text-dense font-mono tabular-nums text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
+        <span className="text-dense font-mono tabular-nums text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
           {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
         </span>
       </div>
@@ -1138,10 +1138,10 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
           <div className="flex gap-2 px-2 py-2.5 rounded-control mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
             <span className="flex-1 text-label font-semibold uppercase" style={{ color: '#fb923c' }}>Grand Total</span>
             <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
-            {agencyEnabled && <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
-            <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
-            <span className="text-dense font-mono text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
-            <span className="text-dense font-mono text-right font-semibold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
+            {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
               {grand.bidTotal > 0 || grand.actualTotal > 0 ? `${grand.variance > 0 ? '+' : ''}${fmtC(grand.variance)}` : '\u2014'}
             </span>
           </div>
@@ -1225,7 +1225,7 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
   return (
     <div className="flex items-baseline justify-between">
       <span
-        className={`text-label ${bold ? 'font-semibold uppercase' : ''}`}
+        className={`text-dense ${bold ? 'font-semibold' : ''}`}
         style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
       >
         {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
@@ -1292,7 +1292,7 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
           </button>
         )}
       </div>
-      <div className="text-dense text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
+      <div className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
         <CurrencyDisplay value={amount} currency={currency} style={{ color: '#a8a29e' }} />
       </div>
     </div>
@@ -1664,7 +1664,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
           <>
             <BreakdownTable rows={rows} currency={budget.currency} labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'} countHeader="Tasks" />
             <div
-              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-control text-dense items-center"
+              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-control text-dense font-mono tabular-nums items-center"
               style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
             >
               <span className="font-semibold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
@@ -2044,7 +2044,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           </div>
           {exp.description && <div className="text-dense truncate mt-0.5" style={{ color: '#78716c' }}>{exp.description}</div>}
         </div>
-        <div style={{ flex: 1 }} className="text-dense">
+        <div style={{ flex: 1 }} className="text-dense font-mono">
           <CurrencyDisplay value={est} currency={currency} style={{ color: est ? '#a8a29e' : '#57534e' }} />
         </div>
         {(() => {
@@ -2069,10 +2069,10 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
             </div>
           </>)
         })()}
-        <div style={{ flex: 1 }} className="text-dense">
+        <div style={{ flex: 1 }} className="text-dense font-mono">
           <CurrencyDisplay value={act} currency={currency} style={{ color: act ? '#d6d3d1' : '#57534e' }} />
         </div>
-        <div style={{ flex: 0.8 }} className="text-dense">
+        <div style={{ flex: 0.8 }} className="text-dense font-mono">
           {est > 0 ? (
             <span style={{ color: statusColor }}>
               {v > 0 ? '+' : ''}{<CurrencyDisplay value={v} currency={currency} style={{ color: statusColor }} />}
@@ -2082,7 +2082,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div style={{ flex: 1 }} className="text-dense font-mono">
           <span style={{ color: exp.purchase_date ? '#a8a29e' : '#57534e' }}>{exp.purchase_date || '\u2014'}</span>
         </div>
-        <div style={{ flex: 1.2 }} className="flex items-center gap-1 text-dense font-mono flex-wrap">
+        <div style={{ flex: 1.2 }} className="flex items-center gap-1 text-dense font-mono tabular-nums flex-wrap">
           {relCount > 0 ? (
             <>
               {(exp.asset_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-control" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.asset_ids.length} asset{exp.asset_ids.length !== 1 ? 's' : ''}</span>}
@@ -2091,7 +2091,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
             </>
           ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
         </div>
-        <div style={{ flex: 0.5 }} className="text-dense font-mono">
+        <div style={{ flex: 0.5 }} className="text-dense font-mono tabular-nums">
           {fileCount > 0
             ? <span className="flex items-center gap-1" style={{ color: '#a8a29e' }}><Paperclip className="w-3 h-3" /> {fileCount}</span>
             : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
@@ -2263,7 +2263,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         </div>
         {COL_HEADER.map((col, i) => (
           <div key={i}
-            className={`text-label uppercase ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
+            className={`text-dense ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
             style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
             onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
           >
@@ -2283,7 +2283,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
               <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-control" style={{ backgroundColor: '#292524', borderLeft: '3px solid #fb923c' }}>
                 <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
-                <span className="ml-auto text-dense font-mono" style={{ color: '#a8a29e' }}>
+                <span className="ml-auto text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
                   Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#a8a29e' }} />
                   {' / '}
                   Act: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#d6d3d1' }} />
@@ -2638,7 +2638,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative flex flex-col rounded-control shadow-2xl" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 620, maxHeight: '85vh' }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b-2 border-stone-600 flex-shrink-0" style={{ backgroundColor: '#1c1917' }}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-600 flex-shrink-0" style={{ backgroundColor: '#1c1917' }}>
           <div className="flex items-center gap-2">
             <Receipt className="w-5 h-5 text-orange-400" />
             <span className="text-label font-semibold text-orange-400 uppercase">{isEdit ? 'Edit Expense' : 'New Expense'}</span>
@@ -2672,7 +2672,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
             </div>
             <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
               <label className="text-label uppercase" style={{ color: '#fb923c' }}>Variance</label>
-              <div className="px-3 py-2 text-dense rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              <div className="px-3 py-2 text-dense font-mono tabular-nums rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 {est > 0 ? (
                   <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
                     {variance > 0 ? '+' : ''}<CurrencyDisplay value={variance} currency={currency} className="inline" style={{ color: 'inherit' }} />
@@ -2737,7 +2737,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t-2 border-stone-600 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-stone-600 flex-shrink-0">
           <p className="text-dense" style={{ color: '#78716c' }}>{isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}</p>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="px-3 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
@@ -2814,7 +2814,7 @@ function Card({ title, children }) {
   return (
     <div className="rounded-control p-5 mb-4" style={{ border: '1px solid #44403c' }}>
       {title && (
-        <h3 className="text-label uppercase font-semibold mb-4 px-1" style={{ color: '#fb923c' }}>
+        <h3 className="text-h3 font-semibold mb-4 px-1" style={{ color: '#fb923c' }}>
           {title}
         </h3>
       )}

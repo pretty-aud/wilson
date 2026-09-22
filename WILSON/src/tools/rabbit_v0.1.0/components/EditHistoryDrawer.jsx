@@ -116,7 +116,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
               current adapter ({adapterMode}) does not capture changes.
             </div>
           ) : error ? (
-            <div className="text-dense px-3 py-4 rounded-control"
+            <div className="text-caption px-3 py-4 rounded-control"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               Could not load history: {error}
             </div>
@@ -125,13 +125,13 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
               Loading…
             </div>
           ) : entries.length === 0 ? (
-            <div className="text-dense px-3 py-4" style={{ color: '#78716c' }}>
+            <div className="text-caption px-3 py-4" style={{ color: '#78716c' }}>
               No recorded changes in the last 90 days.
             </div>
           ) : (
             <>
               {revertError && (
-                <div className="text-dense px-3 py-2 rounded-control"
+                <div className="text-caption px-3 py-2 rounded-control"
                   style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
                   Revert failed: {revertError}
                 </div>
@@ -146,7 +146,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
                 />
               ))}
               {entries.length >= 100 && (
-                <div className="text-dense px-3 py-2 text-center" style={{ color: '#78716c' }}>
+                <div className="text-caption px-3 py-2 text-center" style={{ color: '#78716c' }}>
                   Showing the latest 100 changes — older entries exist within
                   the retention window.
                 </div>
@@ -156,7 +156,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 flex-shrink-0 text-dense"
+        <div className="px-4 py-2 flex-shrink-0 text-caption"
           style={{ color: '#57534e', borderTop: '1px solid #44403c' }}>
           History is kept for 90 days. Reverts are ordinary edits — they
           appear here too, and Ctrl+Z undoes them.

@@ -105,7 +105,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
               File activity is not recorded by the current adapter ({adapterMode}).
             </div>
           ) : error ? (
-            <div className="text-dense px-3 py-4 rounded-control"
+            <div className="text-caption px-3 py-4 rounded-control"
               style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
               Could not load file activity: {error}
             </div>
@@ -114,7 +114,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
               Loading…
             </div>
           ) : events.length === 0 ? (
-            <div className="text-dense px-3 py-4" style={{ color: '#78716c' }}>
+            <div className="text-caption px-3 py-4" style={{ color: '#78716c' }}>
               No recorded activity for this file.
             </div>
           ) : (
@@ -123,7 +123,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 flex-shrink-0 text-dense"
+        <div className="px-4 py-2 flex-shrink-0 text-caption"
           style={{ color: '#57534e', borderTop: '1px solid #44403c' }}>
           {adapterMode === 'supabase'
             ? 'Recorded server-side for every upload, move, relink, trash, restore and purge.'
@@ -152,7 +152,7 @@ function FileEventCard({ evt }) {
         </span>
       </div>
       {(evt.old_path || evt.new_path) && (
-        <div className="flex flex-col gap-0.5 text-dense font-mono" style={{ color: '#78716c' }}>
+        <div className="flex flex-col gap-0.5 text-dense" style={{ color: '#78716c' }}>
           {evt.old_path && (
             <span className="truncate" title={evt.old_path}>
               {evt.new_path ? <s style={{ opacity: 0.7 }}>{evt.old_path}</s> : evt.old_path}

@@ -703,11 +703,11 @@ export default function StorageSection({ isActive, workspaceId }) {
           {usagePhase === 'ready' && usage && (
             <>
               <p className="text-dense mb-2" style={{ color: INK_2 }}>
-                <span className="font-mono" style={{ color: INK }}>
+                <span className="font-mono tabular-nums" style={{ color: INK }}>
                   {formatBytes(usage.usedBytes)}
                 </span>
                 {' '}of{' '}
-                <span className="font-mono" style={{ color: INK }}>
+                <span className="font-mono tabular-nums" style={{ color: INK }}>
                   {quotaKnown ? formatBytes(usage.quotaBytes) : '—'}
                 </span>
                 {' '}used

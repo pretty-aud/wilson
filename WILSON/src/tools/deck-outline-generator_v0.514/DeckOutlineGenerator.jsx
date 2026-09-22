@@ -3706,7 +3706,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
       <div className="flex-1 flex min-h-0">
         {/* Left Sidebar - Deck Outline */}
-        <aside className="w-56 flex-shrink-0 bg-stone-800 border-r-2 border-stone-700 flex flex-col min-h-0">
+        <aside className="w-56 flex-shrink-0 bg-stone-800 border-r border-stone-700 flex flex-col min-h-0">
           <div className="bg-stone-700 text-orange-400 px-2 py-2 flex items-center justify-between">
             <div className="flex items-center gap-1">
               <Layers className="w-3 h-3 text-orange-400" />
@@ -3782,7 +3782,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <p className="text-dense text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
                         {item.title}
                       </p>
-                      <p className="text-caption text-stone-500 mt-0.5">{item.layout}</p>
+                      <p className="text-dense text-stone-500 mt-0.5">{item.layout}</p>
                     </button>
                     {/* Delete button - appears on hover */}
                     <button
@@ -3826,10 +3826,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           {/* Section 1: Document & Context Input */}
           <section className="bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
             <div 
-              className="bg-stone-700 text-orange-400 px-3 py-2 border-b-2 border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
+              className="bg-stone-700 text-orange-400 px-3 py-2 border-b border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
               onClick={() => setSection1Collapsed(!section1Collapsed)}
             >
-              <h2 className="font-semibold uppercase flex items-center justify-between text-label">
+              <h2 className="font-semibold flex items-center justify-between text-h3">
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-dense">1</span>
                   Project Documentation & Deck Context
@@ -3849,7 +3849,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <label className="block text-label font-semibold text-orange-400 mb-0.5 uppercase">
                   Project
                 </label>
-                <p className="text-caption text-stone-500 mb-1.5">Link a project to include its documents and assets in generation</p>
+                <p className="text-dense text-stone-500 mb-1.5">Link a project to include its documents and assets in generation</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
@@ -3879,13 +3879,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <p className="text-dense text-stone-400 mb-0.5">{selectedProject.description}</p>
                     )}
                     {cloudProjects ? (
-                      <p className="text-caption text-stone-500 mb-1.5">
+                      <p className="text-dense text-stone-500 mb-1.5">
                         Cloud project — the title and description above feed generation.
                         File attachments on cloud projects arrive with the storage work;
                         until then, upload files below to include them.
                       </p>
                     ) : (
-                    <p className="text-caption text-stone-500 mb-1.5">
+                    <p className="text-dense text-stone-500 mb-1.5">
                       {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
                       {' · '}
                       {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
@@ -3959,7 +3959,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <label className="block text-label font-semibold text-orange-400 mb-0.5 uppercase">
                     Upload Documents
                   </label>
-                  <p className="text-caption text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
+                  <p className="text-dense text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
                   
                   {uploadedFiles.length === 0 ? (
                     <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-stone-700 border border-stone-600 rounded-control cursor-pointer hover:border-orange-500 hover:bg-stone-600 transition-colors">
@@ -4086,7 +4086,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <span className="text-label font-semibold text-orange-400 uppercase">Full Deck</span>
                   </div>
                 </div>
-                <p className="text-caption text-stone-500 mb-1.5">
+                <p className="text-dense text-stone-500 mb-1.5">
                   Set the overall tone, style, and objectives for the deck
                   {fullDeckMode && <span className="text-orange-400"> • Include desired page count</span>}
                 </p>
@@ -4135,10 +4135,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           {/* Section 2: Page Generation */}
           <section className={`bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] ${fullDeckMode ? 'opacity-50' : ''}`}>
             <div 
-              className={`bg-stone-700 px-3 py-2 border-b-2 border-stone-600 ${fullDeckMode ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-stone-600'} transition-colors`}
+              className={`bg-stone-700 px-3 py-2 border-b border-stone-600 ${fullDeckMode ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-stone-600'} transition-colors`}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
             >
-              <h2 className="font-semibold uppercase flex items-center justify-between text-label">
+              <h2 className="font-semibold flex items-center justify-between text-h3">
                 <div className={`flex items-center gap-2 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-dense ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
                   Generate Page Outline
@@ -4160,7 +4160,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <label className={`block text-label font-semibold mb-0.5 uppercase ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                     Slide Layout Type
                   </label>
-                  <p className="text-caption text-stone-500 mb-1.5">Choose how content will be arranged on the slide</p>
+                  <p className="text-dense text-stone-500 mb-1.5">Choose how content will be arranged on the slide</p>
                   <div className="relative w-56">
                     <select
                       value={selectedLayout}
@@ -4178,7 +4178,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
                   </div>
                   {selectedLayout && !fullDeckMode && (
-                    <p className="mt-1 text-caption text-stone-500 italic">
+                    <p className="mt-1 text-dense text-stone-500 italic">
                       {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
                     </p>
                   )}
@@ -4189,7 +4189,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <label className={`block text-label font-semibold mb-0.5 uppercase ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                     Page #
                   </label>
-                  <p className="text-caption text-stone-500 mb-1.5">Single number or range (e.g. 3-7)</p>
+                  <p className="text-dense text-stone-500 mb-1.5">Single number or range (e.g. 3-7)</p>
                   <input
                     type="text"
                     value={pageNumber}
@@ -4206,7 +4206,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <label className={`block text-label font-semibold mb-0.5 uppercase ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
                   Page Request
                 </label>
-                <p className="text-caption text-stone-500 mb-1.5">
+                <p className="text-dense text-stone-500 mb-1.5">
                   Describe the specific content you want on this slide
                 </p>
                 <textarea
@@ -4252,7 +4252,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
           {/* Output Section - Below Input */}
           <section className="bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b-2 border-stone-600">
+            <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b border-stone-600">
               <span className="font-semibold uppercase text-label">Generated Output</span>
               {activeTab && (
                 <div className="flex items-center gap-2">
@@ -4285,7 +4285,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             
             {/* Tabs Bar + View Toggle */}
             {openTabs.length > 0 && (
-              <div className="bg-stone-800 px-2 pt-1 flex items-end justify-between border-b-2 border-stone-600">
+              <div className="bg-stone-800 px-2 pt-1 flex items-end justify-between border-b border-stone-600">
                 {/* Page Tabs */}
                 <div className="flex items-end gap-1 flex-1 overflow-x-auto overflow-y-hidden">
                   {[...openTabs].sort((a, b) => {
@@ -4298,8 +4298,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       onClick={() => setActiveTabId(tab.id)}
                       className={`flex items-center gap-1 px-3 py-1.5 text-dense transition-colors whitespace-nowrap ${
                         activeTabId === tab.id 
-                          ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-1 relative z-10' 
-                          : 'bg-stone-700 text-stone-400 hover:text-stone-300 border border-stone-600 border-b-0 rounded-t-sm mb-0'
+                          ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-control -mb-1 relative z-10' 
+                          : 'bg-stone-700 text-stone-400 hover:text-stone-300 border border-stone-600 border-b-0 rounded-t-control mb-0'
                       }`}
                     >
                       <span className="font-mono">#{tab.pageNum}</span>
@@ -4336,7 +4336,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             
             {/* Regenerate Bar */}
             {activeTab && (
-              <div className="bg-stone-900 px-3 py-2 border-b-2 border-stone-600">
+              <div className="bg-stone-900 px-3 py-2 border-b border-stone-600">
                 <div className="flex items-center gap-2">
                   {/* Title */}
                   <span className="text-label text-orange-400 uppercase font-semibold flex-shrink-0">Edit Output:</span>
@@ -4427,7 +4427,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {/* Formatting Toolbar */}
             {activeTab && (
-              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 border-l-2 border-r-2 border-l-stone-600 border-r-stone-600 flex items-center gap-1">
+              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 border-l border-r border-l-stone-600 border-r-stone-600 flex items-center gap-1">
                 {/* Undo / Redo */}
                 <button
                   onClick={handleTextUndo}
@@ -4484,12 +4484,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {/* Descriptor - shown in text edit mode between edit bar and content */}
             {activeTab && viewMode === 'text' && (
-              <div className="bg-stone-800 border-l-2 border-r-2 border-stone-600 px-4 py-1.5">
-                <p className="text-caption text-stone-500 italic">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
+              <div className="bg-stone-800 border-l border-r border-stone-600 px-4 py-1.5">
+                <p className="text-dense text-stone-500 italic">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
               </div>
             )}
             
-            <div ref={textareaContainerRef} className={`bg-stone-950 border-l-2 border-r-2 border-b-2 border-stone-600 relative ${openTabs.length === 0 ? 'border-t-2' : ''}`}>
+            <div ref={textareaContainerRef} className={`bg-stone-950 border-l border-r border-b border-stone-600 relative ${openTabs.length === 0 ? 'border-t-2' : ''}`}>
               {activeTab ? (
                 viewMode === 'text' ? (
                   <>
@@ -4519,7 +4519,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}
                     />
-                    <p className="text-caption text-stone-500 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
+                    <p className="text-dense text-stone-500 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
                   </div>
                 )
               ) : (
@@ -4528,7 +4528,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <FileText className="w-7 h-7 text-stone-600" />
                   </div>
                   <p className="text-body text-stone-500">No output yet</p>
-                  <p className="text-caption mt-1 text-stone-600">Generated page outlines will appear here</p>
+                  <p className="text-dense mt-1 text-stone-600">Generated page outlines will appear here</p>
                 </div>
               )}
               {/* Rewrite Preview — floats above both text and visualizer views */}
@@ -4635,7 +4635,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           />
           {/* Slide-out Panel */}
           <div
-            className="absolute top-0 right-0 h-full bg-stone-800 border-l-2 border-stone-600 shadow-2xl flex flex-col animate-slide-in-right"
+            className="absolute top-0 right-0 h-full bg-stone-800 border-l border-stone-600 shadow-2xl flex flex-col animate-slide-in-right"
             style={{
               width: '40%',
               minWidth: '400px',
@@ -4644,7 +4644,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             }}
           >
             {/* Panel Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
+            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-orange-400" />
                 <span className="font-semibold text-orange-400 uppercase tracking-wide">Settings</span>
@@ -4658,7 +4658,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </div>
             
             {/* Tabs */}
-            <div className="flex border-b-2 border-stone-600 flex-shrink-0">
+            <div className="flex border-b border-stone-600 flex-shrink-0">
               <button
                 onClick={() => setSettingsTab('prompts')}
                 className={`flex-1 py-2 px-4 text-body transition-colors ${
@@ -4683,7 +4683,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {/* Lock Switch Bar */}
             {(
-            <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
+            <div className="bg-stone-900 px-4 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
                 {settingsTab === 'prompts' ? (
                   promptsTabLocked ? (
@@ -4755,8 +4755,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
-                        <p className="text-caption text-stone-500">Core instruction sent as system message for single page generation</p>
+                        <span className={`text-dense font-semibold ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
+                        <p className="text-dense text-stone-500">Core instruction sent as system message for single page generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_sys ? '' : 'rotate-90'}`} />
                     </button>
@@ -4774,7 +4774,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - Generation Rules</span>
-                        <p className="text-caption text-stone-500">Formatting rules and constraints for single page output</p>
+                        <p className="text-dense text-stone-500">Formatting rules and constraints for single page output</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_rules ? '' : 'rotate-90'}`} />
                     </button>
@@ -4791,7 +4791,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - API System Message</span>
-                        <p className="text-caption text-stone-500">Core instruction sent as system message for full deck generation</p>
+                        <p className="text-dense text-stone-500">Core instruction sent as system message for full deck generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_sys ? '' : 'rotate-90'}`} />
                     </button>
@@ -4809,7 +4809,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - Generation Rules</span>
-                        <p className="text-caption text-stone-500">Formatting rules and constraints for full deck output</p>
+                        <p className="text-dense text-stone-500">Formatting rules and constraints for full deck output</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_rules ? '' : 'rotate-90'}`} />
                     </button>
@@ -4831,7 +4831,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Theme Color Generation</span>
-                        <p className="text-caption text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
+                        <p className="text-dense text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.theme_prompt ? '' : 'rotate-90'}`} />
                     </button>
@@ -4849,7 +4849,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Shared Rules (All Models)</span>
-                        <p className="text-caption text-stone-500">Common formatting and structure rules applied to all image generation models</p>
+                        <p className="text-dense text-stone-500">Common formatting and structure rules applied to all image generation models</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_shared ? '' : 'rotate-90'}`} />
                     </button>
@@ -4866,7 +4866,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Midjourney Prompt</span>
-                        <p className="text-caption text-stone-500">Model-specific rules for Midjourney v6</p>
+                        <p className="text-dense text-stone-500">Model-specific rules for Midjourney v6</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_midjourney ? '' : 'rotate-90'}`} />
                     </button>
@@ -4883,7 +4883,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Flux Prompt</span>
-                        <p className="text-caption text-stone-500">Model-specific rules for Flux</p>
+                        <p className="text-dense text-stone-500">Model-specific rules for Flux</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_flux ? '' : 'rotate-90'}`} />
                     </button>
@@ -4900,7 +4900,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Nano Banana Prompt</span>
-                        <p className="text-caption text-stone-500">Model-specific rules for Nano Banana</p>
+                        <p className="text-dense text-stone-500">Model-specific rules for Nano Banana</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_nanobanana ? '' : 'rotate-90'}`} />
                     </button>
@@ -4917,7 +4917,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Chat GPT / DALL-E Prompt</span>
-                        <p className="text-caption text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
+                        <p className="text-dense text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_chatgpt ? '' : 'rotate-90'}`} />
                     </button>
@@ -4933,8 +4933,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="border-b border-stone-700 overflow-hidden">
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
-                        <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
-                        <p className="text-caption text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
+                        <span className={`text-dense font-semibold ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
+                        <p className="text-dense text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_api_sys ? '' : 'rotate-90'}`} />
                     </button>
@@ -4959,7 +4959,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                         <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                           <div className="text-left">
                             <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{label}</span>
-                            <p className="text-caption text-stone-500">Rewrite prompt for "{label}" mode</p>
+                            <p className="text-dense text-stone-500">Rewrite prompt for "{label}" mode</p>
                           </div>
                           <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed[collapseKey] ? '' : 'rotate-90'}`} />
                         </button>
@@ -4991,7 +4991,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page Export Schema</span>
-                        <p className="text-caption text-stone-500">Markdown structure for individual slide exports</p>
+                        <p className="text-dense text-stone-500">Markdown structure for individual slide exports</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_fmt ? '' : 'rotate-90'}`} />
                     </button>
@@ -5008,7 +5008,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck Export Schema</span>
-                        <p className="text-caption text-stone-500">Markdown structure for complete deck exports</p>
+                        <p className="text-dense text-stone-500">Markdown structure for complete deck exports</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_fmt ? '' : 'rotate-90'}`} />
                     </button>
@@ -5025,7 +5025,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Visual Deck Export Schema</span>
-                        <p className="text-caption text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
+                        <p className="text-dense text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.vis_fmt ? '' : 'rotate-90'}`} />
                     </button>
@@ -5041,7 +5041,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
                       <div className="text-left">
                         <span className={`text-label font-semibold uppercase ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt Export Schema</span>
-                        <p className="text-caption text-stone-500">Markdown structure for generated image prompts file</p>
+                        <p className="text-dense text-stone-500">Markdown structure for generated image prompts file</p>
                       </div>
                       <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_fmt ? '' : 'rotate-90'}`} />
                     </button>
@@ -5057,8 +5057,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </div>
             
             {/* Panel Footer */}
-            <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between">
-              <p className="text-caption text-stone-500 flex-1">
+            <div className="px-4 py-3 border-t border-stone-600 flex-shrink-0 flex items-center justify-between">
+              <p className="text-dense text-stone-500 flex-1">
                 Changes are applied immediately. Use "Reset to default" to restore original settings.
               </p>
               <button
@@ -5096,7 +5096,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           {/* Modal */}
           <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
             {/* Modal Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
+            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-orange-400" />
                 <span className="font-semibold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
@@ -5224,7 +5224,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             className="bg-stone-800 border border-stone-600 rounded-control shadow-xl"
             style={{ width: '520px', maxHeight: '85vh', padding: '24px', overflowY: 'auto' }}
           >
-            <h3 className="text-label font-semibold uppercase text-orange-400 mb-4">Create New Project</h3>
+            <h3 className="text-h3 font-semibold text-orange-400 mb-4">Create New Project</h3>
             <div className="space-y-4">
               {/* Title */}
               <div>
@@ -5281,7 +5281,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   yet (locked #17 / S14 storage work), so the pickers degrade
                   to an explanation rather than losing files silently. */}
               {cloudProjects ? (
-                <p className="text-caption text-stone-500 border border-stone-700 rounded-control px-2 py-2 bg-stone-900/50">
+                <p className="text-dense text-stone-500 border border-stone-700 rounded-control px-2 py-2 bg-stone-900/50">
                   File attachments on cloud projects arrive with the storage
                   work. Create the project here, then upload files in the
                   generator panel to include them in generation.
@@ -5294,7 +5294,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   className="border border-dashed border-stone-600 rounded-control px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
                   style={{ backgroundColor: '#1c1917' }}
                 >
-                  <p className="text-caption text-stone-500">Click to upload documents (.pdf, .doc, .txt, .md, .csv)</p>
+                  <p className="text-dense text-stone-500">Click to upload documents (.pdf, .doc, .txt, .md, .csv)</p>
                   <input
                     id="new-proj-docs-input"
                     type="file"
@@ -5327,7 +5327,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   className="border border-dashed border-stone-600 rounded-control px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
                   style={{ backgroundColor: '#1c1917' }}
                 >
-                  <p className="text-caption text-stone-500">Click to upload images or videos</p>
+                  <p className="text-dense text-stone-500">Click to upload images or videos</p>
                   <input
                     id="new-proj-assets-input"
                     type="file"

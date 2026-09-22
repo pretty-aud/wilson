@@ -45,9 +45,9 @@ export default function DiffView({
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
       <div className="bg-stone-900 border border-orange-500 rounded-control shadow-2xl flex flex-col" style={{ width: '85%', maxWidth: '1000px', maxHeight: '80vh' }}>
         {/* Header */}
-        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0 rounded-t-sm">
+        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0 rounded-t-control">
           <div className="flex items-center gap-3">
-            <span className="text-label font-semibold text-orange-400 uppercase">
+            <span className="text-dense font-semibold text-orange-400">
               {isBulk ? `Change ${bulkIndex + 1} of ${bulkTotal}` : 'Proposed Changes'}
             </span>
             {lessonTitle && (
@@ -128,7 +128,7 @@ export default function DiffView({
         )}
 
         {/* Action buttons */}
-        <div className="px-4 py-3 border-t-2 border-stone-600 flex items-center gap-2 shrink-0">
+        <div className="px-4 py-3 border-t border-stone-600 flex items-center gap-2 shrink-0">
           <button
             onClick={onApply}
             className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-semibold rounded-control hover:bg-green-600 transition-colors"

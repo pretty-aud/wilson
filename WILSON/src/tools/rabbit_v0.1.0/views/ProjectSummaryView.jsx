@@ -365,15 +365,15 @@ export default function ProjectSummaryView() {
               <div className="flex items-center gap-3 mt-2.5">
                 <StatusDropdown status={project.status} onChange={v => ctx?.updateProject?.(project.id, { status: v })} />
                 {project.start_date && (
-                  <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-caption font-mono" style={{ color: '#78716c' }}>
                     {new Date(project.start_date + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 )}
                 {project.start_date && project.end_date && (
-                  <span className="text-dense" style={{ color: '#57534e' }}>—</span>
+                  <span className="text-caption" style={{ color: '#57534e' }}>—</span>
                 )}
                 {project.end_date && (
-                  <span className="text-dense font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-caption font-mono" style={{ color: '#78716c' }}>
                     {new Date(project.end_date + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 )}
@@ -598,7 +598,7 @@ export default function ProjectSummaryView() {
                 .map(row => (
                   <div
                     key={row.role}
-                    className="flex items-center justify-between text-dense px-2.5 py-1.5 rounded-control"
+                    className="flex items-center justify-between text-dense font-mono tabular-nums px-2.5 py-1.5 rounded-control"
                     style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
                   >
                     <span style={{ color: '#d6d3d1' }}>{row.role}</span>
@@ -1142,7 +1142,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         <div className="flex items-center gap-2 px-3 py-2 rounded-control"
           style={{ backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
-          <span className="flex-1 text-dense font-mono" style={{ color: '#fbbf24' }}>
+          <span className="flex-1 text-dense font-mono tabular-nums" style={{ color: '#fbbf24' }}>
             {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
           </span>
           <button type="button" onClick={() => setRelinkOpen(true)}
@@ -1198,7 +1198,7 @@ function SettingsSection({ title, icon: Icon, accent, children }) {
     <div className="rounded-control overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: '1px solid #44403c', borderLeft: `3px solid ${color}` }}>
         {Icon && <Icon className="w-4 h-4" style={{ color }} />}
-        <h3 className="text-label uppercase font-semibold" style={{ color }}>
+        <h3 className="text-h3 font-semibold" style={{ color }}>
           {title}
         </h3>
       </div>
@@ -1212,7 +1212,7 @@ function SettingsField({ label, hint, children }) {
     <div className="flex flex-col gap-1.5">
       <span className="text-label uppercase font-semibold" style={{ color: '#78716c' }}>{label}</span>
       {children}
-      {hint && <span className="text-dense" style={{ color: '#57534e' }}>{hint}</span>}
+      {hint && <span className="text-caption" style={{ color: '#57534e' }}>{hint}</span>}
     </div>
   )
 }
@@ -1361,7 +1361,7 @@ function Card({ title, icon: Icon, children }) {
       {title && (
         <div className="flex items-center gap-2 mb-3">
           {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
-          <h3 className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
+          <h3 className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
             {title}
           </h3>
         </div>
