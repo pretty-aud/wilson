@@ -5192,7 +5192,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 const totalNodes = (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0);
                 return (
                   <button key={sys.system} onClick={() => setActiveNodeSystem(sys.system)}
-                    className={`px-4 py-2 text-body transition-colors border-b-2 -mb-[2px] ${
+                    className={`px-4 py-2 text-body transition-colors border-b-2 -mb-1 ${
                       isActive
                         ? 'text-orange-400 border-orange-500 bg-stone-900'
                         : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-800'

@@ -130,7 +130,7 @@ export function FlagMark({ flag, circled, size = 12, muted = false }) {
 export function Chip({ active = false, onClick, children, title, color = null, count = null }) {
   return (
     <button type="button" onClick={onClick} title={title}
-      className="inline-flex items-center gap-1 px-2 py-[3px] text-dense rounded-control transition-colors hover:bg-stone-700 whitespace-nowrap"
+      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-700 whitespace-nowrap"
       style={{
         color: active ? C.bright : C.muted,
         backgroundColor: active ? (color || C.accent) : 'transparent',

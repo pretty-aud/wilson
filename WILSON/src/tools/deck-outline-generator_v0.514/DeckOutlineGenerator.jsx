@@ -4298,7 +4298,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       onClick={() => setActiveTabId(tab.id)}
                       className={`flex items-center gap-1 px-3 py-1.5 text-dense transition-colors whitespace-nowrap ${
                         activeTabId === tab.id 
-                          ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-[2px] relative z-10' 
+                          ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-1 relative z-10' 
                           : 'bg-stone-700 text-stone-400 hover:text-stone-300 border border-stone-600 border-b-0 rounded-t-sm mb-0'
                       }`}
                     >
@@ -4663,7 +4663,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 onClick={() => setSettingsTab('prompts')}
                 className={`flex-1 py-2 px-4 text-body transition-colors ${
                   settingsTab === 'prompts' 
-                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
+                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-1' 
                     : 'bg-stone-700 text-stone-400 hover:text-stone-300'
                 }`}
               >
@@ -4673,7 +4673,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 onClick={() => setSettingsTab('format')}
                 className={`flex-1 py-2 px-4 text-body transition-colors ${
                   settingsTab === 'format' 
-                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
+                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-1' 
                     : 'bg-stone-700 text-stone-400 hover:text-stone-300'
                 }`}
               >

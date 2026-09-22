@@ -102,7 +102,7 @@ function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick
   return (
     <div role="treeitem" aria-selected={active}
       onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-[5px] cursor-pointer text-dense transition-colors"
+      className="flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense transition-colors"
       style={{
         paddingLeft: 10 + depth * 14,
         color: active ? C.bright : C.text,
@@ -131,7 +131,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
       onClick={onSelect} onContextMenu={onContextMenu}
       onDoubleClick={e => { e.stopPropagation(); if (canWrite) onRenameStart?.() }}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-[5px] cursor-pointer text-dense transition-colors group"
+      className="flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense transition-colors group"
       style={{
         paddingLeft: 10 + depth * 14,
         color: active ? C.bright : C.text,

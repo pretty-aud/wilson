@@ -238,7 +238,25 @@ describe('surface tokens (§3.3, §3.4, C9)', () => {
     expect(hits, `white grounds:\n${hits.join('\n')}`).toEqual([]);
   });
 
+  it('has no arbitrary spacing off the 4px scale (§3.3)', () => {
+    // The scale is 4, 8, 12, 16, 24, 32, 48. `vh` is NOT swept here: the 72
+    // remaining uses are `max-h-[85vh]` on dialogs and overlays, and capping a
+    // floating surface against the viewport is what vh is for. §3.3's "nothing
+    // in vh" is about the spacing rhythm and names App.jsx's `3vh 0` padding
+    // as its example — which F2 already converted to `--spacing-gutter`.
+    const hits = sweep(/\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y)-\[\d+(?:\.\d+)?px\]/g);
+    expect(hits, `arbitrary spacing:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('App.jsx takes the one 24px gutter, not a viewport fraction', () => {
+    const app = readFileSync('src/App.jsx', 'utf8');
+    expect(app).toContain("'var(--spacing-gutter) 0'");
+    expect(app).not.toMatch(/padding:\s*(?:\([^)]*\)\s*\?[^:]*:\s*)?['"]\d+vh/);
+  });
+
   it('CONTROL: every surface detector fires on a real string', () => {
+    expect('a py-[5px] b'.match(/\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y)-\[\d+(?:\.\d+)?px\]/g)).toEqual(['py-[5px]']);
+    expect('a py-1 b'.match(/\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y)-\[\d+(?:\.\d+)?px\]/g)).toBeNull();
     expect('a border-2 b'.match(/\bborder-[2-9]\b/g)).toEqual(['border-2']);
     expect('a rounded-sm b'.match(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g)).toEqual(['rounded-sm']);
     expect('a rounded b'.match(/\brounded(?![-\w])|\brounded-(?:sm|md|lg|xl|2xl)\b/g)).toEqual(['rounded']);

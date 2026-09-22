@@ -115,15 +115,15 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
                     <span className="truncate">{r.display_name || r.original_name}</span>
                     <span className="truncate" style={{ color: C.dimmer }}>· {r.original_name}</span>
                   </div>
-                  <div className="truncate pl-[18px]" style={{ color: C.dimmer }} title={r.source_path}>was {r.source_path}</div>
-                  {prop && <div className="truncate pl-[18px]" style={{ color: C.green }} title={absFor(prop.newPath)}>→ {absFor(prop.newPath)}</div>}
+                  <div className="truncate pl-4" style={{ color: C.dimmer }} title={r.source_path}>was {r.source_path}</div>
+                  {prop && <div className="truncate pl-4" style={{ color: C.green }} title={absFor(prop.newPath)}>→ {absFor(prop.newPath)}</div>}
                   {amb && (
-                    <div className="pl-[18px] mt-1 flex items-center gap-2">
+                    <div className="pl-4 mt-1 flex items-center gap-2">
                       <span style={{ color: C.amber }}>{amb.candidates.length} files with this name:</span>
                       <Select value={choices[r.id] || ''} placeholder="— leave offline —" options={amb.candidates.map(c => ({ value: c.relPath, label: c.relPath }))} onChange={v => setChoices(ch => ({ ...ch, [r.id]: v }))} />
                     </div>
                   )}
-                  {match && !prop && !amb && <div className="pl-[18px]" style={{ color: C.dimmer }}>not found in that folder</div>}
+                  {match && !prop && !amb && <div className="pl-4" style={{ color: C.dimmer }}>not found in that folder</div>}
                 </div>
               )
             })}
