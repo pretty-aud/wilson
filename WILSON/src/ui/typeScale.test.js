@@ -37,7 +37,11 @@ import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
 import { classifyMono } from '../../scripts/ui-mono-map.mjs';
 import { isIndicatorBorder } from '../../scripts/ui-pass4-surface.mjs';
 import { enclosingRunRaw, enclosingTag } from '../../scripts/ui-type-inventory.mjs';
-import { coverage, inlineClassEvidence } from '../../scripts/ui-inline-type.mjs';
+import {
+  coverage, inlineClassEvidence, valueArms, declsNearMarker, openTagOf,
+  openingTagEndFromAttr, classNameRun, ownTextFrom,
+  SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE,
+} from '../../scripts/ui-inline-type.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
    on a string from the site: the reason names ONE site, and a bare path
@@ -1189,6 +1193,18 @@ const INLINE_CASE = /textTransform\s*:/g;
                  90 percent of whatever it inherits — 11.7px inside Dense. */
 const BELOW_FLOOR = /fontSize\s*:\s*['"]?(?:10|\d)(?:\.\d+)?(?![\d.])(?:px)?['"]?(?![a-z%])/g;
 
+/* 🚨 THE SAME CLAIM, ASKED OF ONE ARM. `BELOW_FLOOR` above is a regex over raw
+   source, so a ternary hides from it: `fontSize: wide ? TYPE.dense : 9` has
+   `wide` after the colon and the digit test never runs. `isOnSystem` already
+   refuses to let one arm vouch for the other on the TOKEN assertion; the FLOOR
+   assertion needs the same reach, and gets it by asking each arm in units. A
+   px value under 11 is a violation; an em, a rem, a percent and a token are
+   not — `0.9em` is 90 percent of whatever it inherits. */
+const belowFloorArm = (v) => {
+  const m = /^['"]?(\d+(?:\.\d+)?)(?:px)?['"]?$/.exec(String(v).trim());
+  return !!m && Number(m[1]) < 11;
+};
+
 /* 🚨 A WIDER WINDOW THAN `sweep`'s ±140, AND THE WIDTH IS MEASURED. The frozen
    transition title is five consecutive declarations, and from its `fontSize`
    the nearest string that identifies the element — the `title-hold` test —
@@ -1349,7 +1365,13 @@ describe('the inline half: every type value reads a token (T3)', () => {
      assertion above it and this one would still go red, which is the whole
      point of writing it down. */
   it('no inline size sits below the 11px floor', () => {
-    const hits = sweep(BELOW_FLOOR);
+    // Two detectors for one claim, because one of them cannot see a ternary:
+    // the regex reads raw source, the arm test reads the VALUE. A reviewer's
+    // `fontSize: wide ? TYPE.dense : 9` was caught by the token assertion and
+    // walked straight past this one.
+    const inArms = sweep(INLINE_SIZE, ({ src, index }) =>
+      valueArms(inlineValueAt(src, index)).some(belowFloorArm));
+    const hits = [...new Set([...sweep(BELOW_FLOOR), ...inArms])].sort();
     expect(hits, `inline sizes below the 11px floor:\n${hits.join('\n')}`).toEqual([]);
   });
 
@@ -1370,6 +1392,155 @@ describe('the inline half: every type value reads a token (T3)', () => {
     const bad = coverage().filter((c) => !c.ok)
       .map((c) => `${c.file}: grep ${c.raw}, inventory ${c.seen} (+${c.exempt} exempt)`);
     expect(bad, `files the inline inventory cannot fully see:\n${bad.join('\n')}`).toEqual([]);
+  });
+
+  /* 🚨 THE FIFTH SPELLING WAS ASSERTED OVER ONE LANE WHILE THE BLOCK CLAIMED
+     THE APP. `textTransform` appeared only in T2's lane assertion, so a
+     reviewer added `textTransform: 'capitalize'` to `CurrencyPicker.jsx` and
+     the suite stayed green — four-fifths of the app unguarded on the property
+     that decides whether text SHOUTS.
+     The app-wide claim is about the VALUE, because §3.1 has exactly two cases,
+     sentence and UPPER, and `uppercase` on a Label-step element is the system
+     working. What it forbids is a third case. */
+  it('no inline textTransform invents a case the scale does not have', () => {
+    const hits = sweep(INLINE_CASE, ({ src, index }) =>
+      valueArms(inlineValueAt(src, index)).some((a) =>
+        !/^['"]?(?:uppercase|none|inherit|initial|unset|revert)['"]?$/.test(a.trim())));
+    expect(hits, `case values off the two the scale has:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('CONTROL: the below-floor detector covers its whole range, arms included', () => {
+    // 🚨 1 THROUGH 10, not just the three the other control happens to name:
+    // narrowing the detector from 1-10 to 8-10 left every one of those passing.
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 9.5, 10.5]) {
+      expect(belowFloorArm(String(n)), `${n} is below the floor`).toBe(true);
+      expect(belowFloorArm(`'${n}px'`), `'${n}px' is below the floor`).toBe(true);
+    }
+    for (const v of ['11', "'13px'", '100', '110', '20', "'0.9em'", "'95%'",
+      '1.2rem', 'TYPE.dense', "'var(--text-label)'", 'wide']) {
+      expect(belowFloorArm(v), `${v} is not a below-floor px value`).toBe(false);
+    }
+    // …and through the arm splitter, which is how the assertion reaches it.
+    expect(valueArms('wide ? TYPE.dense : 9').some(belowFloorArm)).toBe(true);
+    expect(valueArms('wide ? TYPE.dense : TYPE.label').some(belowFloorArm)).toBe(false);
+  });
+
+  it('CONTROL: every inline detector fires, and only on its own spelling', () => {
+    /* 🚨 THE FILE'S OWN RULE 1, APPLIED TO THE CONSTS THAT WERE MISSING IT.
+       `INLINE_CASE` appeared in an assertion and in no control, so a reviewer
+       replaced it with a never-matching pattern, planted a real
+       `textTransform: 'uppercase'`, and the suite stayed green. The others
+       were pinned only INCIDENTALLY, by the allowlist's `sites:` counts, which
+       is not a pin anybody wrote down. */
+    expect(fires(INLINE_SIZE, 'fontSize: 15')).toBe(true);
+    expect(fires(INLINE_SIZE, 'text-dense')).toBe(false);
+    expect(fires(INLINE_FAMILY, "fontFamily: 'monospace'")).toBe(true);
+    expect(fires(INLINE_FAMILY, 'font-mono')).toBe(false);
+    expect(fires(INLINE_TRACKING, "letterSpacing: '0.06em'")).toBe(true);
+    expect(fires(INLINE_TRACKING, 'tracking-wide')).toBe(false);
+    expect(fires(INLINE_CASE, "textTransform: 'uppercase'")).toBe(true);
+    expect(fires(INLINE_CASE, 'uppercase')).toBe(false);
+    expect(fires(INLINE_LEADING, 'lineHeight: 1.6')).toBe(true);
+    expect(fires(INLINE_LEADING, 'leading-relaxed')).toBe(false);
+  });
+
+  it("CONTROL: the inventory's own property list cannot be pruned in silence", () => {
+    // 🚨 `coverage()` IS ONLY A CONTROL IF ITS TWO SIDES ARE INDEPENDENT.
+    // `rawDeclCount` used to loop the same `INLINE_TYPE_PROPS` that `typeDecls`
+    // loops, so deleting the single word 'fontSize' — the central property of
+    // T2's whole bundle — dropped the inventory from 21 sites to 14 while every
+    // coverage row still read ` ok `. The denominator is five literal regexes
+    // now, and this keeps the two lists describing the same five properties.
+    expect(SPELLINGS_MATCH_PROPS(), 'RAW_SPELLINGS and INLINE_TYPE_PROPS disagree').toBe(true);
+    expect(INLINE_TYPE_PROPS).toEqual(
+      ['fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'textTransform']);
+  });
+
+  it('CONTROL: every allowlist marker is specific enough to name its site', () => {
+    /* 🚨 COUNTING IS NOT ENOUGH IN A FILE WITH ONE DECLARATION. `NOT_A_STYLE`
+       keyed its exemption on `src.includes(marker)` — file-keying under
+       another name — and a reviewer widened the marker to the single letter
+       `e`. The count stayed at 1, because Otter has exactly one declaration to
+       count, and the exemption held. So the marker itself is pinned: long
+       enough to name something, and rare enough in its own file that it could
+       not be pointing anywhere else. Both allowlists go through it. */
+    const entries = [
+      ...NOT_A_STYLE.map((e) => ({ ...e, sites: e.n, from: 'NOT_A_STYLE' })),
+      ...INLINE_TYPE_EXCEPTIONS.map((e) => ({ ...e, from: 'INLINE_TYPE_EXCEPTIONS' })),
+    ];
+    expect(entries.length, 'both allowlists must be non-empty or this proves nothing')
+      .toBeGreaterThan(2);
+    for (const e of entries) {
+      expect(e.marker.length, `${e.from} ${e.file}: "${e.marker}" is too short to name a site`)
+        .toBeGreaterThanOrEqual(6);
+      const entry = tree().find((t) => t.file === e.file);
+      expect(entry, `${e.from}: ${e.file} is exempted but not in scope`).toBeTruthy();
+      const occurrences = entry.src.split(e.marker).length - 1;
+      expect(occurrences,
+        `${e.from} ${e.file}: "${e.marker}" appears ${occurrences} times but claims ${e.sites}`)
+        .toBeLessThanOrEqual(e.sites);
+    }
+    // And the inventory's own exemption covers exactly the site it claims…
+    const na = NOT_A_STYLE[0];
+    expect(declsNearMarker(tree().find((t) => t.file === na.file).src, na.marker)).toBe(na.n);
+    expect(declsNearMarker('const x = 1', na.marker), 'no declaration, no exemption').toBe(0);
+    // …while a loose marker covers more than one, on a synthetic source (the
+    // live file holds a single declaration, so the tree cannot show this).
+    const synthetic = `const a = { fontSize: 14, marker_ALPHA: true }\n${'\n'.repeat(500)}`
+      + 'const b = { fontSize: 12, marker_BETA: true }\n';
+    expect(declsNearMarker(synthetic, 'marker_ALPHA')).toBe(1);
+    expect(declsNearMarker(synthetic, 'e')).toBe(2);
+  });
+
+  /* ── The inventory's own three silent failures, each pinned on a synthetic
+        source. All three failed in the safe-LOOKING direction and none is
+        visible to `coverage()`: the declaration is still counted, merely
+        judged on bad evidence. ── */
+  it('CONTROL: a less-than operator does not eat the element it precedes', () => {
+    // 🚨 `src.lastIndexOf('<', attrStart)` cannot tell an opening tag from a
+    // comparison. Measured over the tree, it disagreed with the quote-aware
+    // walk at two live sites, both in R.A.B.B.I.T. (`BudgetView.jsx:699`,
+    // `BinFileGrid.jsx:86`). Both escape damage today only because their
+    // className sits after the stray `<`; move it and the run comes back
+    // EMPTY, which is the map blind — T0's defect #8.
+    const clean = `<span className="text-label uppercase" style={{ fontSize: 11 }}>A</span>`;
+    const dirty = `<span className="text-label uppercase" onClick={() => n < 3 && go()} style={{ fontSize: 11 }}>B</span>`;
+    for (const [what, src] of [['clean', clean], ['with a < operator', dirty]]) {
+      const at = src.indexOf('style=');
+      const { index, tag } = openTagOf(src, at);
+      expect(tag, `${what}: tag`).toBe('span');
+      expect(classNameRun(src, index, openingTagEndFromAttr(src, at)), `${what}: class run`)
+        .toBe('text-label uppercase');
+    }
+    // …and the naive version really does differ, so this is not a no-op test.
+    const at = dirty.indexOf('style=');
+    expect(dirty.lastIndexOf('<', at)).not.toBe(openTagOf(dirty, at).index);
+  });
+
+  it('CONTROL: a self-closing element has no text of its own', () => {
+    // Without the `/` check, `<Icon style={{…}} />` read the NEXT SIBLING's
+    // copy as its own literal text — and that text is what the
+    // shouting-sentence rule judges, so a long enough sibling demotes a label.
+    const src = `<Icon className="text-caption" style={{ fontSize: 11 }} />\n`
+      + 'Total project budget for the quarter';
+    const at = src.indexOf('style=');
+    expect(ownTextFrom(src, openingTagEndFromAttr(src, at))).toBe('');
+    const paired = `<span style={{ fontSize: 11 }}>Real own text</span>`;
+    const pAt = paired.indexOf('style=');
+    expect(ownTextFrom(paired, openingTagEndFromAttr(paired, pAt))).toBe('Real own text');
+  });
+
+  it("CONTROL: the inventory recognises the repo's own mono token", () => {
+    // The family test was written against `'ui-monospace,monospace'` and
+    // `DATA`, case-sensitively — and the overhaul converted those sites to
+    // `FONT_MONO`, which SHOUTS. Every site it actually converted printed no
+    // family verdict at all.
+    for (const v of ["'ui-monospace,monospace'", 'FONT_MONO', 'DATA', "'monospace'"]) {
+      expect(/mono|\bDATA\b/i.test(v), `${v} is a mono value`).toBe(true);
+    }
+    for (const v of ['SANS', 'FONT_SANS', "'var(--font-sans)'"]) {
+      expect(/mono|\bDATA\b/i.test(v), `${v} is not`).toBe(false);
+    }
   });
 
   it('CONTROL: the below-floor detector has both its boundaries', () => {
