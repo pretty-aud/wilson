@@ -1050,14 +1050,35 @@ function MemberAvatar({ member, size = 24 }) {
        both BELOW §3.1's 11px floor and neither of them on the scale. A
        computed size cannot be on a seven-step scale by accident, and this one
        was not.
-       Dense, sans, 600. The map has no arm for a computed size, so the site
-       goes through it as what it is: a plain <div> under 12.5px on a surface
-       the Dense-file list does not name, which is Dense. Sans because
-       `classifyMono` finds no data evidence — initials are a NAME compressed,
-       not an identifier. And the two call sizes now agree, which is the point:
-       one step, not a size per avatar. */
+
+       🚨 CAPTION, NOT DENSE, AND THE CIRCLE IS WHY. The map's answer for a
+       plain <div> under 12.5px on a surface its Dense-file list does not name
+       is Dense — but the map reasons about a role, not about a 24px box with
+       no `overflow`. Measured in the browser, two capitals at each step,
+       against a 24px circle:
+
+         text-dense  (13/600)   WW 25.64   MW 24.31   MM 23.25   ← two overflow
+         text-caption(12/600)   WW 23.67   MW 22.44   MM 21.47   ← all fit
+         text-label  (11/600)   WW 23.02   MW 21.89   MM 21.00
+
+       At Dense the glyphs render OUTSIDE the circle, and nothing in the repo
+       would have caught it: `scrollWidth === clientWidth` on a fixed-width
+       flex box with visible overflow, so neither the page check's
+       document-level overflow test nor a per-cell `scrollWidth` test can go
+       red. A reviewer measured it with `Range.getBoundingClientRect`.
+
+       Caption is one step down and still 2.9px up from where this started.
+       Sans because `classifyMono` finds no data evidence — initials are a NAME
+       compressed, not an identifier — and 600 because a two-letter chip has no
+       other way to hold its own.
+
+       📌 FOR B1, which owns Team (plan §5): no step on the scale clears the
+       circle's INSCRIBED width at 24px. 12px caps are ~8.6px tall, so at the
+       cap line a 24px circle offers about 22.4px, and WW is 23.67 at Caption
+       and 23.02 even at Label. The chip wants to be 28px, not the type to be
+       smaller; both call sites at `:324` and `:770` pass 24. */
     <div
-      className="flex items-center justify-center rounded-full flex-shrink-0 text-dense font-semibold"
+      className="flex items-center justify-center rounded-full flex-shrink-0 text-caption font-semibold"
       style={{
         width: size,
         height: size,

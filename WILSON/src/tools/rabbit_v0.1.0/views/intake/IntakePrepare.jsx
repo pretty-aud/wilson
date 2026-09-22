@@ -201,7 +201,18 @@ export default function IntakePrepare({
               <span className="text-body" style={{ color: '#a8a29e' }}>
                 {dragging ? 'Drop to add' : 'Drop files or click to browse'}
               </span>
-              <span className="text-dense" style={{ color: '#44403c' }}>
+              {/* 🚨 CAPTION, AND THE MAP ONLY SAID DENSE BY ACCIDENT. Below
+                  12.5px the map promotes to Caption on a muted ink, and
+                  `META_INK` lists the three the F1 ladder replaces —
+                  `#78716c`, `#8d8986`, `#57534e`. This hint is `#44403c`,
+                  which is not an INK at all: it is the old border grey, and
+                  the ladder has not reached it. So the promotion failed on a
+                  colour rather than on a role, and the CTA above and its hint
+                  came out 14px over 13px — one step apart, with nothing but a
+                  very dim pair of greys between them. Caption restores the
+                  two-step gap the pair had before. §3.2's ink is B1's; the
+                  step is Wave 1's, and this is the step. */}
+              <span className="text-caption" style={{ color: '#44403c' }}>
                 {[...ACCEPTED_EXTS].join('  ·  ')}
               </span>
             </button>
@@ -244,12 +255,22 @@ export default function IntakePrepare({
                   <span className="text-label uppercase" style={{ color: '#fb923c' }}>
                     {files.length} file{files.length !== 1 ? 's' : ''}
                   </span>
-                  {/* The one site on this screen the mono map KEEPS: two counts
-                      with three words between them, and `classifyMono` reads
-                      `coreCount` and `.length` as figures. §3.1 puts numeric
-                      cells in the mono; the ink here is `#57534e`, which is
-                      what promotes it from Dense to Caption. */}
-                  <span className="text-caption font-mono" style={{ color: '#57534e' }}>
+                  {/* 🚨 SANS, AGAINST `classifyMono`, AND THE REASON IS ITS
+                      OWN TWIN. The map returns KEEP here — `coreCount` and
+                      `.length` are figures — and it returns KEEP for the
+                      sticky footer's `{coreCount} core file(s) · {n}
+                      persona(s)` too, which is the same kind of string at the
+                      same Caption step, visible on the same screen at the same
+                      time. That one was never asked, because the inventory
+                      asks `classifyMono` only of sites that ALREADY carry
+                      mono, and it was written in the sans.
+                      So the mechanical answer was one of two identical
+                      sentences in Geist Mono and the other in Geist. §3.1's
+                      mono list says "numeric table cells"; neither of these is
+                      a cell — both are a count set in a sentence — and T0's
+                      own default is DROP, with keeping to be earned. Neither
+                      earns it, so neither gets it. */}
+                  <span className="text-caption" style={{ color: '#57534e' }}>
                     {coreCount} core · {files.length - coreCount} reference
                   </span>
                 </div>

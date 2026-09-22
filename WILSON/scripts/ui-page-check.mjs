@@ -9,9 +9,11 @@
  * that is not a scale step." A computed `font-size` of 10.5px cannot hide from
  * this the way a class inside a template literal can hide from a regex.
  *
- * For every page it reports console errors, horizontal overflow, and the count
- * of visible text nodes rendering at a size that is NOT one of the seven steps
- * (11, 12, 13, 14, 16, 20 — and h3/body share 14).
+ * For every page it reports console errors, horizontal overflow, the count of
+ * visible text nodes rendering at a size that is NOT one of the seven steps
+ * (11, 12, 13, 14, 16, 20 — and h3/body share 14), and `clipped`, the number of
+ * elements whose own text no longer fits their box (see below — it is a number
+ * to COMPARE between runs, not a pass/fail).
  *
  * Plan §7 says "never claim 'looks right' from getComputedStyle (an
  * undisplayed pane freezes style recalc)" — which is why this drives a real
@@ -58,19 +60,35 @@ async function measure(label) {
   const info = await page.evaluate(() => {
     const seen = {};
     let offScale = 0;
+    let clipped = 0;
     for (const el of document.querySelectorAll('*')) {
       if (el.offsetParent === null && el.tagName !== 'BODY') continue;
       if (!el.textContent || !el.textContent.trim()) continue;
       if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
-      const px = Math.round(parseFloat(getComputedStyle(el).fontSize) * 10) / 10;
+      const cs = getComputedStyle(el);
+      const px = Math.round(parseFloat(cs.fontSize) * 10) / 10;
       seen[px] = (seen[px] || 0) + 1;
       if (![11, 12, 13, 14, 16, 20].includes(px)) offScale++;
+      /* 🚨 A CELL THAT CANNOT SHOW ITS OWN CONTENT (T2, 2026-09-22).
+         This script measured two things and neither of them was per-element,
+         so the one regression the type pass actually caused — 13px dates in
+         an 80px column, every row reading "Aug 19,…" — was invisible to it
+         and had to be found with a throwaway script. `clipped` counts visible
+         elements whose own text is wider than their box AND whose overflow is
+         hidden, which is exactly the ellipsis case.
+         ⚠️ IT IS NOT A PASS/FAIL NUMBER. A long file name in a Name column is
+         SUPPOSED to ellipsise. It is a number to compare between runs: if a
+         type change makes it jump, something stopped fitting. */
+      if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible') clipped++;
     }
-    return { sizes: seen, offScale, overflow: document.documentElement.scrollWidth > window.innerWidth + 2 };
+    return {
+      sizes: seen, offScale, clipped,
+      overflow: document.documentElement.scrollWidth > window.innerWidth + 2,
+    };
   });
   const sizes = Object.entries(info.sizes).sort((a, b) => b[1] - a[1]).slice(0, 6)
     .map(([px, n]) => `${px}px:${n}`).join('  ');
-  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}   ${sizes}`);
+  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}  clipped=${String(info.clipped).padEnd(3)} ${sizes}`);
   for (const e of errors.slice(0, 2)) console.log(`      ! ${e}`);
   return info;
 }

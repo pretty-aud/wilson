@@ -35,7 +35,11 @@ import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
 import { classifyMono } from '../../scripts/ui-mono-map.mjs';
 import { isIndicatorBorder } from '../../scripts/ui-pass4-surface.mjs';
 import { enclosingRunRaw, enclosingTag } from '../../scripts/ui-type-inventory.mjs';
-import { coverage, inlineClassEvidence } from '../../scripts/ui-inline-type.mjs';
+import {
+  coverage, inlineClassEvidence, valueArms, declsNearMarker, openTagOf,
+  openingTagEndFromAttr, classNameRun, ownTextFrom,
+  SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE,
+} from '../../scripts/ui-inline-type.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
    on a string from the site: the reason names ONE site, and a bare path
@@ -77,7 +81,23 @@ const NAMED_TRACKING = /\btracking-(?:wide|wider|widest|tight|tighter)\b/g;
                         asks for 700 and clamps to 600, because the faces are
                         declared `font-weight: 400 600`. The pixels are right;
                         the source is not; the rule says leave it.) */
-const INLINE_WEIGHT = /fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/g;
+/* 🚨 TWO CONSTS, BECAUSE THEY ANSWER TWO QUESTIONS, AND ONE REGEX ANSWERED
+   BOTH WRONGLY. The single `/fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/` was
+   a VALUE filter doing duty as a SPELLING filter: `fontWeight: 900` in
+   R.A.B.B.I.T. satisfied "this lane declares no inline weight", and
+   `fontWeight: 800` app-wide satisfied "no inline weight off the 400/600
+   axis" — by the assertion's own name. A reviewer planted all three and the
+   suite stayed green; `bolder` was caught only by accident, as a substring of
+   `bold`. The class-side twin `OFF_WEIGHT` covers `font-black` and
+   `font-extrabold`; the inline side covered neither's numeral. */
+const INLINE_WEIGHT_ANY = /fontWeight\s*:/g;
+const INLINE_WEIGHT_VAL = /fontWeight\s*:\s*([^,;\n}]+)/g;
+
+/** Is ONE rendered value off §3.1's two-weight axis? Every numeral except
+ *  400 and 600, and every keyword the CSS spec allows. */
+const offAxisWeight = (v) =>
+  /^['"]?(?:100|200|300|500|700|800|900)['"]?$/.test(String(v).trim())
+  || /^['"]?(?:bold|bolder|lighter|thin|black|extrabold|semibold|medium|light)['"]?$/.test(String(v).trim());
 
 /* ── T1 and T3 MET IN THIS FILE, and T3's design won on the merge.
 
@@ -336,8 +356,17 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
     expect(fires(OFF_WEIGHT, 'a font-semibold b')).toBe(false);
     expect(fires(NAMED_TRACKING, 'a tracking-widest b')).toBe(true);
     expect(fires(NAMED_TRACKING, 'a tracking-[0.06em] b')).toBe(false);
-    expect(fires(INLINE_WEIGHT, "fontWeight: 'bold'")).toBe(true);
-    expect(fires(INLINE_WEIGHT, 'fontWeight: 600')).toBe(false);
+    expect(fires(INLINE_WEIGHT_ANY, "fontWeight: 'bold'")).toBe(true);
+    expect(fires(INLINE_WEIGHT_ANY, 'fontWeight: 600')).toBe(true);   // a SPELLING test
+    expect(fires(INLINE_WEIGHT_ANY, 'font-semibold')).toBe(false);
+    // …and the VALUE test, which is the one that knows about the axis.
+    for (const v of ['100', '200', '300', '500', '700', '800', '900', "'bold'",
+      'bolder', 'lighter', 'black']) {
+      expect(offAxisWeight(v), `${v} is off the axis`).toBe(true);
+    }
+    for (const v of ['400', '600', "'400'", 'WEIGHT.h2', 'undefined', 'inherit']) {
+      expect(offAxisWeight(v), `${v} is on the axis or not a weight`).toBe(false);
+    }
   });
 });
 
@@ -548,8 +577,6 @@ describe('surface tokens (§3.3, §3.4, C9)', () => {
 // `IN_T3_SCOPE` widens to everything and the ratchet goes.
 // ═════════════════════════════════════════════════════════════════════════════
 
-/** T3's surfaces: the light pages, the shell and auth — i.e. not a tool. */
-const IN_T3_SCOPE = (file) => !/(^|\/)tools\//.test(file);
 
 /* 🚨 ALL THREE LANES HAVE LANDED, so this is `() => true` and the widening is
    complete — exactly as T3's block said it would be ("when T1 and T2 land,
@@ -568,7 +595,9 @@ const IN_ASSERTED_SCOPE = () => true;
    that RESETS rather than sets. A bare `0` is on the list because §3.1 gives
    five of the seven steps zero tracking, so `letterSpacing: 0` states the
    system's own default rather than inventing a number. */
-const ON_SYSTEM_VALUE = /(?:TYPE|LEADING|TRACKING|WEIGHT)\s*\.\s*[a-z0-9]+|\bTYPE_FLOOR\b|\bFONT_(?:MONO|SANS)\b|var\(--(?:text|font)-|\bAUTH_[A-Z_]+\b|\b(?:inherit|initial|unset|revert|normal|none)\b|^\s*0\s*$/;
+/* The leading `\b` on the token alternation is load-bearing: without it
+   `MYTYPE.junk` and `legacyTYPE.x` both read as on-system (measured). */
+const ON_SYSTEM_VALUE = /\b(?:TYPE|LEADING|TRACKING|WEIGHT)\s*\.\s*[a-z0-9]+|\bTYPE_FLOOR\b|\bFONT_(?:MONO|SANS)\b|var\(--(?:text|font)-|\bAUTH_[A-Z_]+\b|\b(?:inherit|initial|unset|revert|normal|none|undefined)\b|^\s*0\s*$/;
 
 /* The three declarations that can carry a hard-coded type value. `fontWeight`
    is NOT among them: it has its own ratchet above, and 400/600 written as
@@ -580,18 +609,29 @@ const INLINE_TRACKING = /letterSpacing\s*:\s*([^,;\n}]+)/g;
    and one of them — `uppercase` — is the Label step's own, so what matters is
    whether the declaration exists at all in a lane that has landed. */
 const INLINE_CASE = /textTransform\s*:/g;
+const INLINE_CASE_VAL = /textTransform\s*:\s*([^,;\n}]+)/g;
 
-/* 🚨 `fontSize: 10` AND `fontSize: '10px'` AND `fontSize: 9.5`, and NOT
-   `fontSize: 100`, and NOT `fontSize: '0.9em'`. Two lookaheads, both earned:
-     (?![\d.])   without it `fontSize: 110` matches as an "11" and a real
-                 below-floor site hides behind a lookalike. The boundary trap
-                 once more — the shape that made T0's first inventory report
-                 706 sites instead of 2,584 — except `\b` cannot help, since
-                 `10` and `100` share one.
-     (?![a-z%])  a RELATIVE size is not a px value. The first draft flagged
-                 Otter's `fontSize: '0.9em'` on a `<code>` element, which is
-                 90 percent of whatever it inherits — 11.7px inside Dense. */
-const BELOW_FLOOR = /fontSize\s*:\s*['"]?(?:10|\d)(?:\.\d+)?(?![\d.])(?:px)?['"]?(?![a-z%])/g;
+/**
+ * 🚨 THE FLOOR IS A PROPERTY OF A VALUE, SO IT IS TESTED ON A VALUE.
+ *
+ * The first draft was a regex over raw source —
+ * `/fontSize\s*:\s*['"]?(?:10|\d)…/` — and it had two failures a reviewer
+ * proved with one mutant each:
+ *   · a ternary hid from it. `fontSize: wide ? TYPE.dense : 9` has `wide`
+ *     after the colon, so the digit test never ran and a 9px arm shipped.
+ *   · its control checked 8, 9, 10 and the em/percent edge but never 1–7, so
+ *     narrowing the detector's range to `(?:10|[89])` left every case passing.
+ *
+ * Both go away if the question is asked of each ARM, in units:
+ *   a px value under 11 is a violation; an em, a rem, a percent and a token
+ *   are not — `0.9em` is 90 percent of whatever it inherits (11.7px inside
+ *   Dense) and an assertion about the FLOOR that fires on it is one nobody can
+ *   act on.
+ */
+const belowFloorArm = (v) => {
+  const m = /^['"]?(\d+(?:\.\d+)?)(?:px)?['"]?$/.exec(String(v).trim());
+  return !!m && Number(m[1]) < 11;
+};
 
 /* 🚨 A WIDER WINDOW THAN `sweep`'s ±140, AND THE WIDTH IS MEASURED. The frozen
    transition title is five consecutive declarations, and from its `fontSize`
@@ -635,11 +675,19 @@ const INLINE_TYPE_EXCEPTIONS = [
 /** Inline type declarations whose VALUE is hard-coded. `applyExceptions` is a
  *  parameter so a control can run the same sweep with them off — proving the
  *  allowlist does work, rather than sitting beside an already-clean scan. */
-function hardCodedInline(re, applyExceptions = true, inScope = IN_ASSERTED_SCOPE) {
+function hardCodedInline(re, applyExceptions = true) {
   return sweep(re, ({ file, src, index, token }) => {
-    if (!inScope(file)) return false;
-    const value = token.slice(token.indexOf(':') + 1).trim();
-    if (ON_SYSTEM_VALUE.test(value)) return false;
+    if (!IN_ASSERTED_SCOPE(file)) return false;
+    /* 🚨 EVERY ARM ANSWERS FOR ITSELF, AND A SUBSTRING TEST LET ONE ARM SPEAK
+       FOR BOTH. `fontSize: wide ? TYPE.dense : 9` contains `TYPE.dense`, so an
+       unanchored `test` over the whole value called the declaration on-system
+       and the 9px arm shipped — past this assertion AND past the 11px floor,
+       which looked for a digit straight after the colon and found `wide`. A
+       reviewer proved it with one mutant. `valueArms` also strips comments,
+       because `fontSize: '15px' /* was var(--text-dense) *\/` satisfied the
+       token test on the strength of its own apology. */
+    const arms = valueArms(token.slice(token.indexOf(':') + 1));
+    if (arms.length && arms.every((a) => ON_SYSTEM_VALUE.test(a))) return false;
     if (!applyExceptions) return true;
     const window = src.slice(Math.max(0, index - EXEMPT_WINDOW), index + EXEMPT_WINDOW);
     return !INLINE_TYPE_EXCEPTIONS.some((x) => x.file === file && window.includes(x.marker));
@@ -671,10 +719,38 @@ describe('the inline half: every type value reads a token (T3)', () => {
      DECLARATION at all, of any spelling, token-valued or not. 105 of them
      went; a table that styled itself from two consts is why it is worth
      saying out loud. */
-  it('R.A.B.B.I.T. declares no type in a style object at all', () => {
-    const hits = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT, INLINE_CASE]
-      .flatMap((re) => sweep(re, ({ file }) => T2_LANE.test(file)));
-    expect(hits, `inline type in T2's lane:\n${hits.join('\n')}`).toEqual([]);
+  it('neither tool lane declares any type in a style object', () => {
+    // 🚨 `INLINE_WEIGHT_ANY`, not the value regex. The first draft used a
+    // filter that only matches 500/700/bold, so `fontWeight: 900` — and
+    // `fontWeight: 400` — satisfied "declares none". A reviewer planted both
+    // and the suite stayed green.
+    // T1's lane is here too: it landed with none, and a lane that is finished
+    // is asserted rather than described.
+    const hits = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT_ANY, INLINE_CASE]
+      .flatMap((re) => sweep(re, ({ file, src, index }) => {
+        if (!T2_LANE.test(file) && !T1_LANE.test(file)) return false;
+        /* The allowlist applies here too, and it has exactly one entry in a
+           tool lane: Monaco's `options={{ minimap: …, fontSize: 14 }}`, which
+           is a third-party editor's API and not a style attribute at all. */
+        const window = src.slice(Math.max(0, index - EXEMPT_WINDOW), index + EXEMPT_WINDOW);
+        return !INLINE_TYPE_EXCEPTIONS.some((x) => x.file === file && window.includes(x.marker));
+      }));
+    expect(hits, `inline type in a tool lane:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  /* 🚨 THE FIFTH SPELLING WAS ASSERTED OVER ONE LANE WHILE THE BLOCK CLAIMED
+     THE APP. `textTransform` appeared only in the lane test above, so a
+     reviewer added `textTransform: 'uppercase'` to `CurrencyPicker.jsx` and
+     the suite stayed green — four-fifths of the app unguarded on the property
+     that decides whether text SHOUTS.
+     The app-wide claim is about the VALUE, because §3.1 has exactly two cases,
+     sentence and UPPER, and `uppercase` on a Label-step element is the system
+     working. What it forbids is a third case. */
+  it('no inline textTransform invents a case the scale does not have', () => {
+    const hits = sweep(INLINE_CASE_VAL, ({ token }) =>
+      valueArms(token.slice(token.indexOf(':') + 1))
+        .some((a) => !/^['"]?(?:uppercase|none|inherit|initial|unset|revert)['"]?$/.test(a.trim())));
+    expect(hits, `case values off the two the scale has:\n${hits.join('\n')}`).toEqual([]);
   });
 
   /* 🚨 STATED IN ITS OWN RIGHT, THOUGH THE VALUE TEST ABOVE IMPLIES IT TODAY.
@@ -685,7 +761,8 @@ describe('the inline half: every type value reads a token (T3)', () => {
      assertion above it and this one would still go red, which is the whole
      point of writing it down. */
   it('no inline size sits below the 11px floor', () => {
-    const hits = sweep(BELOW_FLOOR);
+    const hits = sweep(INLINE_SIZE, ({ token }) =>
+      valueArms(token.slice(token.indexOf(':') + 1)).some(belowFloorArm));
     expect(hits, `inline sizes below the 11px floor:\n${hits.join('\n')}`).toEqual([]);
   });
 
@@ -708,16 +785,171 @@ describe('the inline half: every type value reads a token (T3)', () => {
     expect(bad, `files the inline inventory cannot fully see:\n${bad.join('\n')}`).toEqual([]);
   });
 
-  it('CONTROL: the below-floor detector has both its boundaries', () => {
-    for (const s of ['fontSize: 9', "fontSize: '10px'", 'fontSize: 10.5', 'fontSize: 8']) {
-      expect(fires(BELOW_FLOOR, s), s).toBe(true);
+  it('CONTROL: every inline detector fires, and only on its own spelling', () => {
+    /* 🚨 THE FILE'S OWN RULE 1, APPLIED TO THE CONSTS THAT WERE MISSING IT.
+       Four of the six inline regexes appeared in an assertion and in no
+       control, so a reviewer replaced `INLINE_FAMILY` with
+       `/fontFamilyNEVER…/`, planted a real hand-written `'ui-monospace, Menlo,
+       monospace'`, and the suite stayed green — the assertion was live, but
+       nothing pinned the regex it ran. The same held for `INLINE_CASE`.
+       `INLINE_SIZE` and `INLINE_TRACKING` were pinned only INCIDENTALLY, by
+       the allowlist's `sites:` counts, which is not a pin anybody wrote. */
+    expect(fires(INLINE_SIZE, 'fontSize: 15')).toBe(true);
+    expect(fires(INLINE_SIZE, "fontSize: 'var(--text-dense)'")).toBe(true);
+    expect(fires(INLINE_SIZE, 'text-dense')).toBe(false);
+    expect(fires(INLINE_FAMILY, "fontFamily: 'monospace'")).toBe(true);
+    expect(fires(INLINE_FAMILY, 'fontFamily: FONT_MONO')).toBe(true);
+    expect(fires(INLINE_FAMILY, 'font-mono')).toBe(false);
+    expect(fires(INLINE_TRACKING, "letterSpacing: '0.06em'")).toBe(true);
+    expect(fires(INLINE_TRACKING, 'tracking-wide')).toBe(false);
+    expect(fires(INLINE_CASE, "textTransform: 'uppercase'")).toBe(true);
+    expect(fires(INLINE_CASE_VAL, "textTransform: 'none'")).toBe(true);
+    expect(fires(INLINE_CASE, 'uppercase')).toBe(false);
+  });
+
+  it('CONTROL: the below-floor detector covers its whole range', () => {
+    // 🚨 1 THROUGH 10, not just the three the first control happened to name.
+    // A reviewer narrowed the detector from 1–10 to 8–10 and every case in
+    // that control still passed.
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10.5, 9.5]) {
+      expect(belowFloorArm(String(n)), `${n} is below the floor`).toBe(true);
+      expect(belowFloorArm(`'${n}px'`), `'${n}px' is below the floor`).toBe(true);
     }
-    // `110` is not an `11`, and `0.9em` is not a px value below the floor —
-    // it is 90 percent of whatever it inherits. An assertion about the FLOOR
-    // that fires on an em is one nobody can act on.
-    for (const s of ['fontSize: 11', "fontSize: '13px'", 'fontSize: 100', 'fontSize: 20',
-      "fontSize: '0.9em'", "fontSize: '95%'", 'fontSize: 1.2rem']) {
-      expect(fires(BELOW_FLOOR, s), s).toBe(false);
+    // `110` is not an `11`, and a RELATIVE size is not a px value below the
+    // floor — `0.9em` is 90 percent of whatever it inherits, 11.7px inside
+    // Dense. An assertion about the FLOOR that fires on it is one nobody can
+    // act on.
+    for (const v of ['11', "'13px'", '100', '110', '20', "'0.9em'", "'95%'",
+      '1.2rem', 'TYPE.dense', "'var(--text-label)'", 'wide']) {
+      expect(belowFloorArm(v), `${v} is not a below-floor px value`).toBe(false);
+    }
+    // …and through the arm splitter, which is how the assertion reaches it.
+    expect(valueArms('wide ? TYPE.dense : 9').some(belowFloorArm)).toBe(true);
+    expect(valueArms('wide ? TYPE.dense : TYPE.label').some(belowFloorArm)).toBe(false);
+  });
+
+  it('CONTROL: a value test that one arm can launder is not a value test', () => {
+    // Every one of these was green before `valueArms` was wired in.
+    expect(valueArms('wide ? TYPE.dense : 9').every((a) => ON_SYSTEM_VALUE.test(a))).toBe(false);
+    expect(valueArms("'15px' /* was var(--text-dense) */")
+      .every((a) => ON_SYSTEM_VALUE.test(a))).toBe(false);
+    // …while a fully tokenised conditional stays on-system, conditions and all.
+    expect(valueArms('size >= 40 ? TYPE.h2 : TYPE.label')
+      .every((a) => ON_SYSTEM_VALUE.test(a))).toBe(true);
+    // The leading boundary on the token alternation, which was missing.
+    expect(ON_SYSTEM_VALUE.test('MYTYPE.junk')).toBe(false);
+    expect(ON_SYSTEM_VALUE.test('TYPE.dense')).toBe(true);
+  });
+
+  it("CONTROL: the inventory's own property list cannot be pruned in silence", () => {
+    // 🚨 `coverage()` IS ONLY A CONTROL IF ITS TWO SIDES ARE INDEPENDENT.
+    // `rawDeclCount` used to loop the same `INLINE_TYPE_PROPS` that `typeDecls`
+    // loops, so deleting the single word 'fontSize' — the central property of
+    // the whole bundle — dropped the inventory from 21 sites to 14 while every
+    // coverage row still read ` ok `. The denominator is five literal regexes
+    // now, and this is what keeps the two lists describing the same thing.
+    expect(SPELLINGS_MATCH_PROPS(), 'RAW_SPELLINGS and INLINE_TYPE_PROPS disagree').toBe(true);
+    expect(INLINE_TYPE_PROPS).toEqual(
+      ['fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'textTransform']);
+  });
+
+  it("CONTROL: the inventory's own exemption covers exactly what it claims", () => {
+    // `src.includes(marker)` is file-keying under another name, and a WINDOW
+    // alone does not fix it — every declaration has an `e` within 400
+    // characters. Counting does: a widened marker covers more sites than its
+    // `n`, the coverage arithmetic stops balancing, and the row reads MISS.
+    const entry = NOT_A_STYLE[0];
+    const otter = tree().find((t) => t.file === entry.file);
+    expect(otter, `${entry.file} is exempted but not in scope`).toBeTruthy();
+    expect(declsNearMarker(otter.src, entry.marker), 'the exemption must cover its own site')
+      .toBe(entry.n);
+    expect(declsNearMarker('const x = 1', entry.marker), 'no declaration, no exemption').toBe(0);
+
+    /* The over-covering half, on a synthetic source: the one live exemption
+       sits in a file that holds exactly ONE declaration, so counting alone
+       cannot tell a tight marker from a loose one THERE. Two declarations, far
+       enough apart that a 400-character window reaches only its own. */
+    const synthetic = `const a = { fontSize: 14, marker_ALPHA: true }\n${'\n'.repeat(500)}`
+      + 'const b = { fontSize: 12, marker_BETA: true }\n';
+    expect(declsNearMarker(synthetic, 'marker_ALPHA'), 'a specific marker covers one site').toBe(1);
+    expect(declsNearMarker(synthetic, 'e'), 'a one-letter marker covers both').toBe(2);
+  });
+
+  it('CONTROL: every allowlist marker is specific enough to name its site', () => {
+    /* 🚨 COUNTING IS NOT ENOUGH IN A FILE WITH ONE DECLARATION. A reviewer
+       widened `NOT_A_STYLE`'s marker to the single letter `e`; the count
+       stayed at 1, because Otter has exactly one declaration to count, and the
+       exemption held. So the marker itself is pinned: it has to be long enough
+       to name something, and it has to be rare enough in its own file that it
+       could not be pointing anywhere else. Both allowlists in this file go
+       through it — T3's `INLINE_TYPE_EXCEPTIONS` as well as T2's
+       `NOT_A_STYLE`, because the same widening works on either. */
+    const entries = [
+      ...NOT_A_STYLE.map((e) => ({ ...e, sites: e.n, from: 'NOT_A_STYLE' })),
+      ...INLINE_TYPE_EXCEPTIONS.map((e) => ({ ...e, from: 'INLINE_TYPE_EXCEPTIONS' })),
+    ];
+    expect(entries.length, 'both allowlists must be non-empty or this proves nothing')
+      .toBeGreaterThan(3);
+    for (const e of entries) {
+      expect(e.marker.length, `${e.from} ${e.file}: "${e.marker}" is too short to name a site`)
+        .toBeGreaterThanOrEqual(6);
+      const src = tree().find((t) => t.file === e.file)?.src;
+      expect(src, `${e.from}: ${e.file} is exempted but not in scope`).toBeTruthy();
+      const occurrences = src.split(e.marker).length - 1;
+      expect(occurrences, `${e.from} ${e.file}: "${e.marker}" appears ${occurrences} times but claims ${e.sites} site(s)`)
+        .toBeLessThanOrEqual(e.sites);
+    }
+  });
+
+  /* ── The inventory's own three silent failures, each pinned on a synthetic
+        source. All three were found by a reviewer, all three failed in the
+        safe-LOOKING direction, and none of them is visible to `coverage()`:
+        the declaration is still counted, merely judged on bad evidence. ── */
+  it('CONTROL: a less-than operator does not eat the element it precedes', () => {
+    // 🚨 `src.lastIndexOf('<', attrStart)` cannot tell an opening tag from a
+    // comparison. Measured over the tree, it disagreed with the quote-aware
+    // walk at two live sites, both in T2's own lane (`BudgetView.jsx:699`,
+    // `BinFileGrid.jsx:86`). Both escape damage today only because their
+    // className sits after the stray `<`; move it and the run comes back
+    // EMPTY, which is the map blind — T0's defect #8.
+    const clean = `<span className="text-label uppercase" style={{ fontSize: 11 }}>A</span>`;
+    const dirty = `<span className="text-label uppercase" onClick={() => n < 3 && go()} style={{ fontSize: 11 }}>B</span>`;
+    for (const [what, src] of [['clean', clean], ['with a < operator', dirty]]) {
+      const at = src.indexOf('style=');
+      const { index, tag } = openTagOf(src, at);
+      const end = openingTagEndFromAttr(src, at);
+      expect(tag, `${what}: tag`).toBe('span');
+      expect(classNameRun(src, index, end), `${what}: the class run survives`)
+        .toBe('text-label uppercase');
+    }
+    // …and the naive version really does differ, so this is not a no-op test.
+    const at = dirty.indexOf('style=');
+    expect(dirty.lastIndexOf('<', at)).not.toBe(openTagOf(dirty, at).index);
+  });
+
+  it('CONTROL: a self-closing element has no text of its own', () => {
+    // Without the `/` check, `<Icon style={{…}} />` read the NEXT SIBLING's
+    // copy as its own literal text — and that text is what the
+    // shouting-sentence rule judges, so a long enough sibling demotes a label.
+    const src = `<Icon className="text-caption" style={{ fontSize: 11 }} />\n`
+      + 'Total project budget for the quarter';
+    const at = src.indexOf('style=');
+    expect(ownTextFrom(src, openingTagEndFromAttr(src, at))).toBe('');
+    const paired = `<span style={{ fontSize: 11 }}>Real own text</span>`;
+    const pAt = paired.indexOf('style=');
+    expect(ownTextFrom(paired, openingTagEndFromAttr(paired, pAt))).toBe('Real own text');
+  });
+
+  it("CONTROL: the inventory recognises the repo's own mono token", () => {
+    // The family test was written against `'ui-monospace,monospace'` and
+    // `DATA`, case-sensitively — and T3 converted those sites to `FONT_MONO`,
+    // which SHOUTS. Every site the overhaul actually converted printed no
+    // family verdict at all.
+    for (const v of ["'ui-monospace,monospace'", 'FONT_MONO', 'DATA', "'monospace'"]) {
+      expect(/mono|\bDATA\b/i.test(v), `${v} is a mono value`).toBe(true);
+    }
+    for (const v of ['SANS', 'FONT_SANS', "'var(--font-sans)'"]) {
+      expect(/mono|\bDATA\b/i.test(v), `${v} is not`).toBe(false);
     }
   });
 
@@ -779,7 +1011,13 @@ describe('the inline half: every type value reads a token (T3)', () => {
      it is the one the plan freezes. A number that may not rise is a much
      weaker claim than a list that must be empty. */
   it('no inline weight off the 400/600 axis, except the frozen title', () => {
-    const hits = sweep(INLINE_WEIGHT, ({ file, src, index }) => {
+    // 🚨 EVERY NUMERAL AND EVERY KEYWORD, AND THROUGH THE ARMS. The value
+    // filter this used to be matched 500, 700 and `bold` only, so 800, 900,
+    // 300 and `lighter` all passed an assertion whose own title names the
+    // axis; `bolder` was caught by accident, as a substring of `bold`. And a
+    // conditional hid its arms: `w ? 700 : undefined` has `w` after the colon.
+    const hits = sweep(INLINE_WEIGHT_VAL, ({ file, src, index, token }) => {
+      if (!valueArms(token.slice(token.indexOf(':') + 1)).some(offAxisWeight)) return false;
       const window = src.slice(Math.max(0, index - EXEMPT_WINDOW), index + EXEMPT_WINDOW);
       return !INLINE_TYPE_EXCEPTIONS.some((x) => x.file === file && window.includes(x.marker));
     });
@@ -789,8 +1027,9 @@ describe('the inline half: every type value reads a token (T3)', () => {
   it('CONTROL: the frozen title is still there, and is still the only one', () => {
     // If C2's block were ever edited away this assertion would go quiet and
     // read as success, so the site is pinned positively as well as negatively.
-    const inScope = sweep(INLINE_WEIGHT);
-    expect(inScope.length, `inline weights, app-wide:\n${inScope.join('\n')}`).toBe(1);
+    const inScope = sweep(INLINE_WEIGHT_VAL, ({ token }) =>
+      valueArms(token.slice(token.indexOf(':') + 1)).some(offAxisWeight));
+    expect(inScope.length, `off-axis inline weights, app-wide:\n${inScope.join('\n')}`).toBe(1);
     expect(inScope[0]).toMatch(/^src[/\\]App\.jsx:/);
     const app = tree().find((t) => t.file === 'src/App.jsx').src;
     expect(app).toContain("fontSize: '16.8px'");
@@ -798,15 +1037,21 @@ describe('the inline half: every type value reads a token (T3)', () => {
     expect(app).toContain("transitionState === 'title-hold'");
   });
 
-  it('CONTROL: the scope predicate separates the three lanes', () => {
-    expect(IN_T3_SCOPE('src/App.jsx')).toBe(true);
-    expect(IN_T3_SCOPE('src/cloud/auth/AuthShell.jsx')).toBe(true);
-    expect(IN_T3_SCOPE('src/components/AdminTerminal/UsersSection.jsx')).toBe(true);
-    expect(IN_T3_SCOPE('src/tools/rabbit_v0.1.0/views/intake/IntakePrepare.jsx')).toBe(false);
-    expect(IN_T3_SCOPE('src/tools/otter_v0.3.1/Otter.jsx')).toBe(false);
-    // And the sweep really reaches T3's files, so "no hits" is not "no scan".
-    expect(tree().filter((t) => IN_T3_SCOPE(t.file)).length).toBeGreaterThan(100);
+  it('CONTROL: the scope really is every lane, and the sweep really scans', () => {
+    /* 🚨 THIS CONTROL USED TO PROVE A PREDICATE NO ASSERTION RAN. It exercised
+       `IN_T3_SCOPE`, which stopped being reachable the moment
+       `IN_ASSERTED_SCOPE` became `() => true` — a control for a code path with
+       no caller is the file's own rule 1 inside out, and a reviewer said so.
+       It now measures what the assertions above actually cover. */
+    const scanned = tree().filter((t) => IN_ASSERTED_SCOPE(t.file));
+    expect(scanned.length, 'the scope must be the whole tree').toBe(tree().length);
+    for (const lane of [T1_LANE, T2_LANE]) {
+      expect(scanned.some((t) => lane.test(t.file)), `${lane} is inside the scope`).toBe(true);
+    }
+    expect(scanned.some((t) => !/(^|\/)tools\//.test(t.file)), 'and so is everything else').toBe(true);
+    // And "no hits" is not "no scan": the sweeps find plenty, they just pass.
     expect(sweep(INLINE_SIZE).length).toBeGreaterThan(20);
+    expect(sweep(INLINE_WEIGHT_ANY).length).toBeGreaterThan(10);
   });
 });
 

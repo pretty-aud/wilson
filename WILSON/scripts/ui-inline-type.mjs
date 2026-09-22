@@ -108,6 +108,41 @@ export const NOT_A_STYLE = [
   },
 ];
 
+/** How far from a declaration an exemption's marker may sit. Matched to the
+ *  window T3 measured for the frozen transition title, which is the widest
+ *  real case in the tree: five consecutive declarations, and the string that
+ *  identifies the element is ~155 characters from the first of them. */
+export const EXEMPT_WINDOW = 400;
+
+/**
+ * 🚨 HOW MANY DECLARATIONS THIS MARKER SITS NEXT TO — not "is it in the file".
+ *
+ * The first draft tested `src.includes(marker)`, which is keyed on the FILE in
+ * everything but name, though its own comment claimed otherwise. A reviewer
+ * changed the marker from `'minimap'` to the single letter `'e'` and the guard
+ * stayed green.
+ *
+ * A window alone does not fix that — every declaration has an `e` within 400
+ * characters. What fixes it is COUNTING: `coverage()` requires the count to
+ * equal the `n` the entry claims, so a marker that starts covering its
+ * neighbours makes the arithmetic fail instead of widening in silence. That is
+ * the same shape as `INLINE_TYPE_EXCEPTIONS`' `sites:` pin, which is the one
+ * allowlist mechanism in this codebase that has survived a reviewer.
+ */
+export function declsNearMarker(src, marker) {
+  const code = blankComments(src);
+  const seen = new Set();
+  for (const re of RAW_SPELLINGS) {
+    const r = new RegExp(re.source, 'g');
+    let m;
+    while ((m = r.exec(code))) {
+      const w = code.slice(Math.max(0, m.index - EXEMPT_WINDOW), m.index + EXEMPT_WINDOW);
+      if (w.includes(marker)) seen.add(m.index);
+    }
+  }
+  return seen.size;
+}
+
 /** The five inline spellings of a type decision, and nothing else. */
 export const INLINE_TYPE_PROPS = [
   'fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'textTransform',
@@ -162,6 +197,62 @@ export function inlineClassEvidence(decls) {
 export function isConditional(valueText = '') {
   const bare = valueText.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, '');
   return /\?/.test(bare) && /:/.test(bare);
+}
+
+/**
+ * The value(s) a declaration can actually render, as separate strings.
+ *
+ * 🚨 A VALUE TEST THAT LOOKS FOR A TOKEN ANYWHERE IN THE TEXT IS LAUNDERED BY
+ * ONE ARM. `fontSize: wide ? TYPE.dense : 9` contains `TYPE.dense`, so a
+ * substring test calls the whole declaration on-system and the 9px arm ships
+ * — past the token assertion AND past the 11px-floor assertion, which looks
+ * for a digit straight after the colon and finds `wide`. A reviewer proved
+ * both with one mutant. The arms are two sites and each has to answer for
+ * itself.
+ *
+ * Comments are stripped first, for the same reason: `fontSize: '15px' /* was
+ * var(--text-dense) *\/` satisfied the token test on the strength of its own
+ * apology.
+ */
+export function valueArms(valueText = '') {
+  const noComments = String(valueText)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ')
+    .trim();
+  if (!isConditional(noComments)) return [noComments];
+
+  /* Split on the `?` and `:` that are OUTSIDE strings, brackets and calls,
+     keeping the separator that PRECEDED each piece. */
+  const pieces = [];
+  let depth = 0, quote = null, start = 0, sep = null;
+  for (let i = 0; i < noComments.length; i++) {
+    const c = noComments[i];
+    if (quote) { if (c === quote && noComments[i - 1] !== BS) quote = null; continue; }
+    if (c === '"' || c === "'" || c === BT) { quote = c; continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; continue; }
+    if (c === ')' || c === ']' || c === '}') { depth--; continue; }
+    if (depth === 0 && (c === '?' || c === ':')) {
+      pieces.push({ text: noComments.slice(start, i), sep });
+      sep = c; start = i + 1;
+    }
+  }
+  pieces.push({ text: noComments.slice(start), sep });
+
+  /* 🚨 A CONDITION IS NOT A VALUE. `size >= 40 ? TYPE.h2 : TYPE.label` splits
+     into three pieces and only two of them render; treating `size >= 40` as a
+     value would report a legitimate, fully tokenised site as hard-coded.
+     Piece 0 is always the condition. A piece introduced by `?` is always an
+     arm. A piece introduced by `:` is an arm UNLESS the next separator is `?`
+     — that is the condition of a nested ternary, as in
+     `a ? b : c ? d : e`, whose arms are b, d and e. */
+  const arms = [];
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i];
+    if (p.sep === null) continue;                       // the outer condition
+    if (p.sep === ':' && pieces[i + 1]?.sep === '?') continue;  // a nested one
+    arms.push(p.text);
+  }
+  return arms.map((s) => s.trim()).filter(Boolean);
 }
 
 /**
@@ -242,8 +333,24 @@ export function openingTagEndFromAttr(src, from, limit = 4000) {
   return -1;
 }
 
-/** The opening `<Tag` this attribute belongs to, lowercased. */
-export function tagOfAttr(src, from) {
+/**
+ * The opening `<Tag` this attribute belongs to: its INDEX and its lowercased
+ * name, from one walk.
+ *
+ * 🚨 THE INDEX AND THE NAME MUST COME FROM THE SAME WALK, and the first draft
+ * of this file had them come from two. `tagOfAttr` was quote- and brace-aware;
+ * the caller then took `src.lastIndexOf('<', attrStart)` for the position, and
+ * a bare `lastIndexOf` cannot tell an opening tag from a LESS-THAN OPERATOR.
+ * A reviewer measured the disagreement over all 271 in-scope files and found
+ * two live sites — `BudgetView.jsx:699` (`n <= 100`) and
+ * `BinFileGrid.jsx:86` (`r.width <= 0`) — where the two answers differ. Both
+ * escape damage today only because their `className` happens to sit after the
+ * stray `<`; move the operator and the class run comes back EMPTY, which is
+ * T0's defect #8 exactly: the map blind because its evidence vanished, and
+ * `coverage()` cannot see it because the declaration is still counted, merely
+ * classified wrong.
+ */
+export function openTagOf(src, from) {
   let quote = null, brace = 0;
   for (let i = from; i >= 0 && from - i < 4000; i--) {
     const c = src[i];
@@ -253,10 +360,15 @@ export function tagOfAttr(src, from) {
     if (c === '{') { brace--; continue; }
     if (c === '<' && brace <= 0 && /[A-Za-z]/.test(src[i + 1] || '')) {
       const m = /^<([A-Za-z][\w.-]*)/.exec(src.slice(i, i + 40));
-      return m ? m[1].toLowerCase() : '';
+      return { index: i, tag: m ? m[1].toLowerCase() : '' };
     }
   }
-  return '';
+  return { index: -1, tag: '' };
+}
+
+/** Just the name, for callers that do not need the position. */
+export function tagOfAttr(src, from) {
+  return openTagOf(src, from).tag;
 }
 
 /**
@@ -292,9 +404,20 @@ export function classNameRun(src, openStart, openEnd) {
   return (m[1] ?? m[2] ?? m[3] ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** The element's own literal text — T0's `elementOwnText` rule, from an
- *  absolute opening-tag end rather than from a class token. */
+/**
+ * The element's own literal text — T0's `elementOwnText` rule, from an
+ * absolute opening-tag end rather than from a class token.
+ *
+ * 🚨 A SELF-CLOSING ELEMENT HAS NO OWN TEXT, AND WITHOUT THIS LINE IT BORROWS
+ * ITS NEXT SIBLING'S. `bodyFrom` below checks for the `/`; this did not, so
+ * for `<Icon style={{…}} />` the slice began after `/>` — inside the PARENT —
+ * and handed `classifySite` the following copy as the icon's own literal text.
+ * That text is what the shouting-sentence rule reads, so a long enough sibling
+ * demotes a real label. Silent, and `coverage()` cannot see it: the
+ * declaration is counted, merely judged on someone else's words.
+ */
 export function ownTextFrom(src, openEnd, limit = 1600) {
+  if (src[openEnd - 1] === '/') return '';
   const rest = src.slice(openEnd + 1, openEnd + 1 + limit);
   const lt = rest.indexOf('<');
   const text = lt < 0 ? rest.slice(0, 200) : rest.slice(0, lt);
@@ -416,10 +539,40 @@ export function tokenObjects(rawSrc) {
  * `inlineSites` + `tokenObjects`: if these two numbers disagree, a site is
  * invisible to the inventory and therefore to every decision built on it.
  */
+/**
+ * 🚨 THE DENOMINATOR MUST NOT SHARE A LIST WITH THE NUMERATOR, AND THE FIRST
+ * DRAFT DID.
+ *
+ * `coverage()` exists to be an INDEPENDENT check on the inventory — its
+ * comment in the guard says so. But `rawDeclCount` looped
+ * `INLINE_TYPE_PROPS`, and so does `typeDecls`, so both sides of the equality
+ * were driven by one array and any blinding cancelled exactly. A reviewer
+ * deleted the single word `'fontSize'` from that array — the central property
+ * of this whole bundle — and the inventory fell from 21 sites in 12 files to
+ * 14 in 9 while `coverage()` printed ` ok ` on every remaining row and the
+ * guard stayed green at 61/61.
+ *
+ * So these five regexes are written out here, LITERALLY and once, and are not
+ * derived from `INLINE_TYPE_PROPS`. `SPELLINGS_MATCH_PROPS` below is the
+ * control that keeps the two honest without coupling them.
+ */
+const RAW_SPELLINGS = [
+  /fontFamily\s*:/g,
+  /fontSize\s*:/g,
+  /fontWeight\s*:/g,
+  /letterSpacing\s*:/g,
+  /textTransform\s*:/g,
+];
+
+/** The two lists describe the same five properties. A control asserts it. */
+export const SPELLINGS_MATCH_PROPS = () =>
+  RAW_SPELLINGS.length === INLINE_TYPE_PROPS.length
+  && INLINE_TYPE_PROPS.every((p, i) => RAW_SPELLINGS[i].source.startsWith(p));
+
 export function rawDeclCount(src) {
   const code = blankComments(src);
   let n = 0;
-  for (const p of INLINE_TYPE_PROPS) n += (code.match(new RegExp(`${p}\\s*:`, 'g')) || []).length;
+  for (const re of RAW_SPELLINGS) n += (code.match(new RegExp(re.source, 'g')) || []).length;
   return n;
 }
 
@@ -444,9 +597,10 @@ export function inlineSites(files = sourceFiles()) {
 
       const openEnd = openingTagEndFromAttr(src, attrStart);
       if (openEnd < 0) continue;
-      let openStart = src.lastIndexOf('<', attrStart);
-      const tag = tagOfAttr(src, attrStart);
-      if (openStart < 0) openStart = attrStart;
+      /* ONE walk for both — see `openTagOf`. A `lastIndexOf('<')` here reads a
+         `<=` operator as an opening tag and empties the class run. */
+      const { index: found, tag } = openTagOf(src, attrStart);
+      const openStart = found < 0 ? attrStart : found;
 
       const classRun = classNameRun(src, openStart, openEnd);
       /* The run the MAP sees: the element's real classes plus the class
@@ -464,8 +618,13 @@ export function inlineSites(files = sourceFiles()) {
       /* 🚨 `classifyMono` answers "does this site KEEP its mono", so it is
          asked ONLY of sites that have mono today. A site already in the sans
          has nothing to decide: T0 never PROMOTED anything to the mono, and a
-         `keep: true` verdict on a sans site would read as an instruction to. */
-      const hasMono = (decls.fontFamily || []).some((v) => /mono|Mono|DATA\b/.test(v));
+         `keep: true` verdict on a sans site would read as an instruction to.
+         🚨 CASE-INSENSITIVE, and the first draft was not. It was written
+         against `'ui-monospace,monospace'` and `DATA`, and T3 converted those
+         sites to the `FONT_MONO` token — which `/mono|Mono/` does not match,
+         because the token SHOUTS. The result was that every site the overhaul
+         had actually converted printed no family verdict at all. */
+      const hasMono = (decls.fontFamily || []).some((v) => /mono|\bDATA\b/i.test(v));
       const step = px == null ? null : classifySite(rel, px, run, judgedTag, body, objText, ownText);
 
       rows.push({
@@ -501,14 +660,21 @@ export function coverage(files = sourceFiles()) {
     const src = readFileSync(f, 'utf8');
     const rel = f.split(BS).join('/').replace(/^.*?WILSON\//, '');
     const raw = rawDeclCount(src);
-    if (!raw) continue;
     const inElements = inlineSites([f]).reduce(
       (n, r) => n + Object.values(r.decls).reduce((a, v) => a + v.length, 0), 0);
     const inTokens = tokenObjects(src).reduce(
       (n, o) => n + Object.values(o.decls).reduce((a, v) => a + v.length, 0), 0);
+    /* 🚨 `if (!raw) continue` USED TO BE HERE and it hid the failure it was
+       supposed to report: when the inventory went blind, a file's count fell
+       to zero and the file left the table altogether rather than showing a
+       MISS. A row is skipped only when BOTH sides are zero. */
+    if (!raw && !inElements && !inTokens) continue;
+    /* The exemption contributes what its marker ACTUALLY sits next to, not
+       what it claims. If the two differ the arithmetic below stops balancing
+       and the row reads MISS, which is how a widened marker gets caught. */
     const exempt = NOT_A_STYLE
-      .filter((e) => e.file === rel && src.includes(e.marker))
-      .reduce((n, e) => n + e.n, 0);
+      .filter((e) => e.file === rel)
+      .reduce((n, e) => n + declsNearMarker(src, e.marker), 0);
     out.push({
       file: rel, raw, exempt,
       seen: inElements + inTokens, inElements, inTokens,

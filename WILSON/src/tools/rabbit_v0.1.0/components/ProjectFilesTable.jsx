@@ -94,10 +94,14 @@ export default function ProjectFilesTable({
 
   /* ── variant-driven tokens ── */
   /* 🚨 UI overhaul, Wave 1 bundle T2 (2026-09-22). THIS FILE IS B4's (plan
-     §6.5) — it is rendered by Intake, Summary, ProjectFilesSection AND the
-     Files page, and B4 converges it with the other three file tables onto
-     `Table`. Wave 1's job here is the TYPE and nothing else: not a column
-     width, not a radius, not an ink. Nothing below is structural.
+     §6.5) — it is drawn by Intake (`IntakePrepare.jsx:262`), by Summary twice
+     (`ProjectSummaryView.jsx:482` read-only and `:1163` through
+     `ProjectFilesSection`) and by the Projects page's detail panel
+     (`ProjectDetailPanel.jsx:335`) — and B4 converges it with the other file
+     tables onto `Table`. Wave 1's job here is the TYPE. Three column widths
+     below are NOT type and are marked where they are; each is here because
+     the type change made the column unable to render its own content, and a
+     conversion that leaves a column truncating is not finished.
 
      The whole table's type came out of these two objects — eight column
      headers and every cell of every row, on both variants — which is why the
@@ -115,15 +119,17 @@ export default function ProjectFilesTable({
      the floor. The two variants agreeing is the point — a table that changes
      type size depending on which page draws it is two tables.
 
-     The family splits, and T0's mono map is what splits it. The headers
-     render seven literal words and keep no data evidence, so they are sans.
-     The cells are the row, and a row is mostly figures: of the seven columns,
-     Name (`f.name || f.file_name || f.original_name`), Type (`getExt`), Size
-     (`fmtBytes`) and Created (`fmtDate`) are data and only Kind and
-     Description are prose — the count is 4 to 2, which is exactly the rule
-     round one wrote after the Breakdown table went sans on its name column.
-     So the cells keep the mono, and it is now `--font-mono` from `@theme`
-     rather than a fourth private stack. */
+     🚨 THE FAMILY IS PER COLUMN, NOT PER TABLE, AND THE FIRST DRAFT MADE IT
+     PER TABLE. `cellClass` carried `font-mono` for all nine cells on the
+     argument that "a row is mostly figures, 4 columns to 2" — which is a hand
+     aggregate the map does not compute. `classifyMono` judges ONE element's
+     body, and asked about each of the nine sites it returns KEEP for eight and
+     **DROP for the Description cell**: "renders a name or a message". That is
+     the widest column in the table and it holds user-typed prose, so the
+     mechanical reading shipped free text at 13px in Geist Mono — the exact
+     complaint §3.1 exists to fix. The Breakdown-row precedent round one wrote
+     was about ONE className governing six sibling columns; here each column
+     has its own, so each answers for itself. */
   const hdrClass = 'text-label uppercase'
   const hdr = {
     color: w ? '#3a1e08' : '#fb923c',
@@ -131,29 +137,55 @@ export default function ProjectFilesTable({
     whiteSpace: 'nowrap',
   }
   const cellClass = 'text-dense font-mono'
+  /* The one cell the mono map sends the other way. */
+  const proseCellClass = 'text-dense'
+  /* 🚨 AND A FORM CONTROL INHERITS ITS PARENT'S FAMILY. Tailwind's preflight
+     gives `select`/`input` `font: inherit`, so the two editable cells were
+     rendering in the mono BECAUSE their wrapper says so — `text-dense` carries
+     a size and no family, so adding it changed nothing and the comment beside
+     them claimed a drop that had not happened. §3.1 and the kit give every
+     control the sans, so the control says so itself. */
+  const controlClass = 'text-dense font-sans'
   const cell = {
     color: w ? '#3c2010' : '#d6d3d1',
     padding: w ? '10px 14px' : '6px 8px',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   }
-  /* 🚨 ONE NUMBER HERE IS T2's AND IT IS THE ONLY NON-TYPE BYTE IN THIS FILE:
-     the DARK variant's Created column, 80px -> 112px.
+  /* 🚨 THREE NUMBERS HERE ARE T2's AND THEY ARE THE ONLY NON-TYPE BYTES IN
+     THIS FILE. Taking the cells from 10px to the Dense step is what made each
+     necessary, and a type conversion that leaves a column unable to render its
+     own content is not finished.
 
-     Taking the cells from 10px to the Dense step is what made it necessary,
-     and a type conversion that leaves a column unable to render its own
-     content is not finished. MEASURED in the browser rather than eyeballed:
-     of the 230 cells the Summary tab draws, exactly 32 overflowed and every
-     one of them was a date — `clientWidth` 80 against `scrollWidth` 110, so
-     every row read "Aug 19,…". No other column overflowed and no header did.
+       Created (dark)   80  -> 120     Kind (dark)   90 -> 104
+       Created (warm)   96  -> 120
 
-     ⚠️ The WARM variant's 96px is left alone and it also truncates: its cells
-     were ALREADY 13px before this session, so 96 against 110 is pre-existing
-     and it is B4's, along with the rest of this file's structure. Recorded in
-     the hand-off rather than fixed here, because fixing what I did not break
-     in a file I do not own is how a lane's diff stops being reviewable. */
+     MEASURED in the browser, not eyeballed. Of the 230 cells the Summary tab
+     draws, exactly 32 overflowed at 80px and every one was a date —
+     `clientWidth` 80 against `scrollWidth` 110, so every row read "Aug 19,…".
+     Then a reviewer found two the first pass had not measured:
+
+       · `fmtDate` passes `undefined` as its locale, which means the BROWSER's.
+         "Aug 19, 2026" is 93.6px, but en-GB, en-AU and en-CA abbreviate
+         September as "Sept" and "Sept 19, 2026" is 101.4px — over a 112px
+         column's 96px content box. 120 clears it with room.
+       · `DOCUMENT_KINDS` contains `pitch_bible`, which renders as "pitch
+         bible": 85.8px against a 90px column's 74px content box. The fixture
+         has no such row, so nothing in the repo would have drawn it. 104.
+
+     ⚠️ The WARM column moves too, and the earlier note here — "pre-existing,
+     untouched" — was wrong twice over: the warm cells kept 13px but changed
+     FAMILY in this same edit, `'ui-monospace,monospace'` -> `var(--font-mono)`,
+     which took "Aug 19, 2026" from 85.8px to 93.6px against a 68px content
+     box. The truncation got worse inside this diff, so it is this session's.
+
+     📌 FOR B4: `variant="warm"` has no caller. `ProjectDetailPanel` passes
+     `variant="dark"` since lane C1 put that page on `paper`, and the other
+     three call sites take the `'dark'` default — so the whole warm arm is
+     unreachable in the shipped tree. Kept and corrected rather than deleted,
+     because deleting a variant is structure and structure is B4's. */
   const cols = w
-    ? `48px minmax(180px,1fr) 100px 60px 76px minmax(140px,1fr) 96px${onAudit ? ' 40px' : ''}${onDelete ? ' 40px' : ''}`
-    : `44px minmax(140px,1fr) 90px 52px 64px minmax(100px,1fr) 112px${onAudit ? ' 32px' : ''}${onDelete ? ' 32px' : ''}`
+    ? `48px minmax(180px,1fr) 100px 60px 76px minmax(140px,1fr) 120px${onAudit ? ' 40px' : ''}${onDelete ? ' 40px' : ''}`
+    : `44px minmax(140px,1fr) 104px 52px 64px minmax(100px,1fr) 120px${onAudit ? ' 32px' : ''}${onDelete ? ' 32px' : ''}`
 
   const mutedColor = w ? '#6b4423' : '#78716c'
   const iconSz = w ? 15 : 13
@@ -220,7 +252,7 @@ export default function ProjectFilesTable({
             {canEdit ? (
               <select value={f.document_kind || ''}
                 onChange={e => onUpdate(f.id, { document_kind: e.target.value || null })}
-                className="text-dense"
+                className={controlClass}
                 style={{
                   width: '100%', padding: w ? '3px 6px' : '2px 4px',
                   backgroundColor: w ? 'rgba(120, 70, 30, 0.5)' : '#292524',
@@ -247,7 +279,8 @@ export default function ProjectFilesTable({
           <div className={cellClass} style={{ ...cell, color: mutedColor }}>{fmtBytes(f.size)}</div>
 
           {/* Description */}
-          <div className={cellClass} style={cell}>
+          {/* The one column the mono map sends the other way: user prose. */}
+          <div className={proseCellClass} style={cell}>
             {canEdit ? (
               <DescCell value={f.description || ''} onChange={v => onUpdate(f.id, { description: v })} warm={w} />
             ) : (
@@ -307,7 +340,7 @@ function DescCell({ value, onChange, warm }) {
       onChange={e => setLocal(e.target.value)}
       onBlur={() => { if (local !== value) onChange(local) }}
       placeholder={warm ? 'Add description...' : '—'}
-      className="text-dense"
+      className="text-dense font-sans"
       style={{
         width: '100%',
         padding: warm ? '3px 6px' : '2px 4px',
