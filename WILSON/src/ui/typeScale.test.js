@@ -70,6 +70,42 @@ const NAMED_TRACKING = /\btracking-(?:wide|wider|widest|tight|tighter)\b/g;
 const INLINE_WEIGHT = /fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/g;
 const INLINE_WEIGHT_RESIDUE = 11;
 
+/* ── T1 (2026-09-22): THE INLINE HALF GETS REAL ASSERTIONS AS IT IS CLEARED.
+   A ratchet says "no worse than yesterday". It cannot say "this lane is
+   finished", and it goes green on a lane nobody has started. So each inline
+   property now carries BOTH: a ratchet over the whole scope, which T2 and T3
+   lower as they go, and an outright `toEqual([])` over the lane that is
+   actually done. T1's lane is D.O.G. + O.T.T.E.R.
+
+   🚨 THE VALUE IS NOT IN THE PATTERN, AND THAT IS DELIBERATE. The first
+   draft matched the DECLARATION — `fontSize\s*:\s*['"]?[\w.%-]+` — and
+   counted 41 where `ui-audit.mjs` counts 68. The 16 it missed were the ones
+   whose value is a template literal or an expression (`fontSize:
+   `${n}px``, `fontSize: big ? 'a' : 'b'`), because a backtick is in no
+   character class anyone writes. Matching the KEY and stopping there agrees
+   with the audit exactly — 57 after this bundle, 68 before it — and the two
+   columns in a hand-off have to be the same measurement or they are not a
+   before and an after. */
+const INLINE_SIZE = /fontSize\s*:(?!\s*['"]?var\(--text-)\s*/g;
+const INLINE_SIZE_RESIDUE = 57;   // 68 before T1. T2 owns 34, T3 owns 22.
+
+/** T1's lane, plan §5 Wave 1: D.O.G. and O.T.T.E.R. */
+const T1_LANE = /^src\/tools\/(?:deck-outline-generator_v0\.514|otter_v0\.3\.1)\//;
+
+/* The one inline `fontSize` left in T1's lane, and it is not a style at all:
+   `Otter.jsx` hands Monaco its size as a NUMBER on an options object, so a
+   token string would break the editor, and 14 is the Body step already.
+   Keyed on a marker NEAR the hit rather than on the file — T0's round two
+   proved a file-keyed exemption lets an unrelated NEW defect through in the
+   same file, and that is exactly how a lane assertion would rot. */
+const INLINE_SIZE_EXCEPTIONS = [
+  {
+    file: 'src/tools/otter_v0.3.1/Otter.jsx',
+    marker: 'scrollBeyondLastLine',
+    why: "Monaco's editor option — a number on an API object, not CSS (T1)",
+  },
+];
+
 /** Any side, any width above the hairline, and arbitrary values too. */
 const OFF_BORDER = /\bborder(?:-[tblrxyse]{1,2})?-(?:[2-9]\b|\[[^\]]*\])/g;
 /* Any corner, every deleted step, and arbitrary values. `rounded-full` is NOT
@@ -78,6 +114,41 @@ const OFF_BORDER = /\bborder(?:-[tblrxyse]{1,2})?-(?:[2-9]\b|\[[^\]]*\])/g;
    avatar is a view change (C1), not a token swap. */
 const OFF_RADIUS = /\brounded(?:-(?:[tblr]|tl|tr|bl|br|[se]{1,2}))?(?![-\w])|\brounded(?:-(?:[tblr]|tl|tr|bl|br|[se]{1,2}))?-(?:(?:sm|md|lg|xl|[2-9]xl)\b|\[[^\]]*\])/g;
 const TRANSITION_ALL = /\btransition-all\b/g;
+
+/* ── T1: O.T.T.E.R.'S READING SURFACE, WHICH LIVES IN CSS AND WHICH NOTHING
+   IN THIS REPO COULD SEE.
+
+   Every assertion above sweeps the JS and JSX under `src`.
+   `.lesson-content` is a block of plain CSS in `src/index.css`, so all of
+   them were silent over it
+   — and so was `ui-page-check.mjs`, which walks `/otter` but never clicks
+   into a lesson, so the element it would have to measure is not in the DOM
+   when it looks. The result was a surface carrying h1 at 24px, h3 at 17.6px
+   and inline code at 14.4px while twelve pages reported "0 off-scale".
+
+   These read the stylesheet directly. The one spelling that is NOT a defect
+   — a read of the step's own token — is excluded inside each pattern rather
+   than in a judge, because a judge would have to re-find the value and
+   re-deciding the same thing twice is the drift this file exists to stop. */
+/* 🚨 THE LOOKAHEAD SITS IMMEDIATELY AFTER THE COLON, BEFORE ANY `\s*`, AND
+   THAT IS THE WHOLE TRICK. Written the natural way —
+   `font-size:\s*(?!var\(--text-)` — the `\s*` BACKTRACKS to zero width, the
+   lookahead is then evaluated against the SPACE rather than the value, a
+   space is not `var(`, and the exemption silently inverts: every token read
+   in the file was reported as a defect. It cost this file's own control one
+   red run to find. Consume nothing before deciding. */
+const CSS_OFF_SIZE = /font-size:(?!\s*var\(--text-)\s*[^;}]+/g;
+const CSS_OFF_LEADING = /line-height:(?!\s*var\(--text-)\s*[^;}]+/g;
+const CSS_OFF_WEIGHT = /font-weight:(?!\s*(?:400|600)\s*[;}]|\s*var\(--text-)\s*[^;}]+/g;
+/** §3.1: "Measure 60 to 66ch, set in `ch`." */
+const CSS_MEASURE = /max-width:\s*(?:6[0-6])ch\b/;
+
+/** Every `.lesson-content` rule in `index.css`, comments removed first so a
+ *  brace inside prose cannot invent or swallow one. */
+function lessonRules() {
+  const css = readFileSync('src/index.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ');
+  return css.match(/\.lesson-content[^{}]*\{[^{}]*\}/g) || [];
+}
 const WHITE_GROUND = /\bbg-white(?:\/\d+)?\b/g;
 const OFF_SPACING = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y)-\[[\d.]+(?:px|rem|em)\]/g;
 /* The INVARIANT ("no vh in any padding"), not the shape of today's ternary:
@@ -263,6 +334,111 @@ describe('weight and tracking (§3.1: the scale has 400 and 600)', () => {
     expect(fires(NAMED_TRACKING, 'a tracking-[0.06em] b')).toBe(false);
     expect(fires(INLINE_WEIGHT, "fontWeight: 'bold'")).toBe(true);
     expect(fires(INLINE_WEIGHT, 'fontWeight: 600')).toBe(false);
+  });
+});
+
+describe('inline type sizes — T1 cleared its lane, T2/T3 ratchet theirs', () => {
+  const inlineSizes = (judge) => sweep(INLINE_SIZE, judge);
+
+  it('🚨 T1s lane carries no inline fontSize at all (D.O.G. + O.T.T.E.R.)', () => {
+    // Outright, not a ratchet. A ratchet is green on a lane nobody started.
+    const hits = inlineSizes(({ file, near }) =>
+      T1_LANE.test(file) && !INLINE_SIZE_EXCEPTIONS.some((x) => near.includes(x.marker)));
+    expect(hits, `inline fontSize left in T1's lane:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('the inline-size residue outside T1s lane does not grow', () => {
+    const hits = inlineSizes();
+    expect(hits.length, `inline fontSize:\n${hits.join('\n')}`)
+      .toBeLessThanOrEqual(INLINE_SIZE_RESIDUE);
+  });
+
+  it('CONTROL: the inline-size detector fires on every spelling, token aside', () => {
+    // 🚨 The four the FIRST draft missed are the first four here. A pattern
+    // that tries to match the VALUE cannot see a backtick or an expression,
+    // and it under-counted the tree by sixteen while looking precise.
+    for (const s of ["fontSize: `${n}px`", "fontSize: big ? '16px' : '13px'",
+                     'fontSize: SIZES.body', 'fontSize: props.size',
+                     "fontSize: '16px'", 'fontSize: 14', "fontSize:'0.9em'"]) {
+      expect(fires(INLINE_SIZE, s), s).toBe(true);
+    }
+    for (const s of ['fontSize: var(--text-dense)', "fontSize: 'var(--text-h2)'"]) {
+      expect(fires(INLINE_SIZE, s), s).toBe(false);
+    }
+  });
+
+  it('CONTROL: the lane exemption exists, and it exempts ONE site', () => {
+    // Split in two on purpose (T0 round two): the exemption must be real AND
+    // must not be a blanket over its file.
+    const unexempted = inlineSizes(({ file }) => T1_LANE.test(file));
+    expect(unexempted.length, `the exempted Monaco site should still be found:\n${unexempted.join('\n')}`)
+      .toBe(INLINE_SIZE_EXCEPTIONS.length);
+    const marker = INLINE_SIZE_EXCEPTIONS[0].marker;
+    expect(readFileSync(INLINE_SIZE_EXCEPTIONS[0].file, 'utf8')).toContain(marker);
+    // ...and a hit elsewhere in the SAME file is not exempted by it.
+    expect(`style={{ fontSize: '12px' }}`.includes(marker)).toBe(false);
+  });
+});
+
+describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () => {
+  it('CONTROL: the stylesheet is actually being read', () => {
+    // If this block is ever renamed or deleted, every assertion below goes
+    // green over nothing. That is the `(0 test)` failure mode one level down.
+    expect(lessonRules().length).toBeGreaterThanOrEqual(15);
+    expect(lessonRules().join(' ')).toContain('.lesson-content h1');
+  });
+
+  it('every font-size in .lesson-content is a step token', () => {
+    const css = lessonRules().join('\n');
+    const hits = css.match(CSS_OFF_SIZE) || [];
+    expect(hits, `off-token sizes in the lesson surface:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('every line-height in .lesson-content is the step own (§3.1: one leading)', () => {
+    const css = lessonRules().join('\n');
+    const hits = css.match(CSS_OFF_LEADING) || [];
+    expect(hits, `hand-set leadings:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('every font-weight in .lesson-content is on the 400/600 axis', () => {
+    const css = lessonRules().join('\n');
+    const hits = css.match(CSS_OFF_WEIGHT) || [];
+    expect(hits, `weights off the axis:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('the reading surface has a measure, and it is 60-66ch', () => {
+    expect(lessonRules().join('\n')).toMatch(CSS_MEASURE);
+  });
+
+  it('CONTROL: each stylesheet detector fires on the defect it replaced', () => {
+    // These are the REAL values this surface carried before T1, measured in a
+    // browser with a lesson open: h1 1.5rem/700, h3 1.1rem, code 0.9em,
+    // p line-height 1.7, li 1.6.
+    for (const s of ['font-size: 1.5rem;', 'font-size: 1.1rem;', 'font-size: 0.9em;',
+                     'font-size: 16px;', 'font-size: 0.85rem;']) {
+      expect(fires(CSS_OFF_SIZE, s), s).toBe(true);
+    }
+    expect(fires(CSS_OFF_SIZE, 'font-size: var(--text-body);')).toBe(false);
+
+    for (const s of ['line-height: 1.7;', 'line-height: 1.6;', 'line-height: 1.5;']) {
+      expect(fires(CSS_OFF_LEADING, s), s).toBe(true);
+    }
+    expect(fires(CSS_OFF_LEADING, 'line-height: var(--text-body--line-height);')).toBe(false);
+
+    for (const s of ['font-weight: 700;', 'font-weight: bold;', 'font-weight: 500;']) {
+      expect(fires(CSS_OFF_WEIGHT, s), s).toBe(true);
+    }
+    for (const s of ['font-weight: 600;', 'font-weight: 400;',
+                     'font-weight: var(--text-h2--font-weight);']) {
+      expect(fires(CSS_OFF_WEIGHT, s), s).toBe(false);
+    }
+
+    // The measure has a BAND, so both edges have to be checked: 74ch was the
+    // real before-value and it must not satisfy the assertion.
+    expect(CSS_MEASURE.test('max-width: 66ch;')).toBe(true);
+    expect(CSS_MEASURE.test('max-width: 60ch;')).toBe(true);
+    expect(CSS_MEASURE.test('max-width: 74ch;')).toBe(false);
+    expect(CSS_MEASURE.test('max-width: 59ch;')).toBe(false);
   });
 });
 
