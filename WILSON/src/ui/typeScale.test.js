@@ -114,14 +114,24 @@ const BELOW_FLOOR = /fontSize\s*:\s*['"]?(?:10|\d)(?:\.\d+)?(?![\d.])(?:px)?['"]
    of the app ratchets until T1 lands. */
 const RABBIT_SCOPE = /^src\/tools\/rabbit_v0\.1\.0\//;
 
-/* Today's counts, app-wide, measured at this commit. They may FALL and never
-   rise. Every one of the survivors is T1's `DuplicateResolverModal` or a
-   token-reference spelling T3 chose (`fontSize: TYPE.dense`,
-   `fontSize: 'var(--text-dense)'`), which reads FROM the scale rather than
-   around it — the audit's grep cannot tell those apart, so the number is what
-   is pinned and the reading is in the hand-off. */
+/* Today's counts, app-wide. They may FALL and never rise. Every survivor is
+   T1's `DuplicateResolverModal` or a token-reference spelling T3 chose
+   (`fontSize: TYPE.dense`, `fontSize: 'var(--text-dense)'`), which reads FROM
+   the scale rather than around it — a grep cannot tell those apart, so the
+   number is what is pinned and the reading is in the hand-off.
+
+   🚨 THESE NUMBERS COME FROM `sweep`, NOT FROM `node scripts/ui-audit.mjs`,
+   AND THE FIRST DRAFT TOOK THEM FROM THE AUDIT.
+   The audit greps raw source; `sweep` skips protected regions. Two of the six
+   `fontFamily` hits the audit counts are inside COMMENTS —
+   `SettingsPage.jsx:1203` and `DevFixturesBadge.jsx:41` — so the assertion
+   measures 4 where the audit says 6, and a ratchet set at 6 carried two units
+   of slack. Proved, not reasoned: the mutant that plants one more real inline
+   `fontFamily` left the suite GREEN. A threshold taken from a different
+   measurement than the assertion makes is the same defect as a control that
+   re-types its assertion's regex — it looks like evidence and is not. */
 const INLINE_RESIDUE = {
-  fontFamily: 6,
+  fontFamily: 4,
   fontSize: 37,
   letterSpacing: 8,
   textTransform: 5,
@@ -362,17 +372,33 @@ describe('the inline half — a style object is a type decision too', () => {
     expect(hits, `R.A.B.B.I.T. inline type:\n${hits.join('\n')}`).toEqual([]);
   });
 
+  const INLINE_PROPS = [
+    ['fontFamily', INLINE_FAMILY], ['fontSize', INLINE_SIZE],
+    ['letterSpacing', INLINE_TRACKING], ['textTransform', INLINE_CASE],
+  ];
+
   it('the app-wide inline residue only falls', () => {
     // T1's bundle is still out, so the rest of the app ratchets. Each number
     // is today's measurement; a lane that clears its share lowers it.
-    for (const [prop, re] of [
-      ['fontFamily', INLINE_FAMILY], ['fontSize', INLINE_SIZE],
-      ['letterSpacing', INLINE_TRACKING], ['textTransform', INLINE_CASE],
-    ]) {
+    for (const [prop, re] of INLINE_PROPS) {
       const hits = sweep(re);
       expect(hits.length, `inline ${prop}:\n${hits.join('\n')}`)
         .toBeLessThanOrEqual(INLINE_RESIDUE[prop]);
     }
+  });
+
+  it('CONTROL: no ratchet carries slack — each is exactly today', () => {
+    // 🚨 A RATCHET WITH SLACK IS NOT A RATCHET. Set from the audit's grep
+    // instead of from `sweep`, the fontFamily number was two too high (the
+    // audit counts two mentions inside comments), and a mutant planting a real
+    // inline `fontFamily` left the suite green. `<=` alone cannot notice that;
+    // this can. A lane that clears sites lowers the number in the same commit.
+    for (const [prop, re] of INLINE_PROPS) {
+      expect(sweep(re).length, `${prop}: lower INLINE_RESIDUE.${prop} to this number`)
+        .toBe(INLINE_RESIDUE[prop]);
+    }
+    expect(sweep(BELOW_FLOOR).length, 'lower BELOW_FLOOR_RESIDUE to this number')
+      .toBe(BELOW_FLOOR_RESIDUE);
   });
 
   it('no inline size sits below the 11px floor', () => {
