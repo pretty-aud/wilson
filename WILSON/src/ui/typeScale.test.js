@@ -29,7 +29,9 @@
 // =============================================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { sourceFiles, cssCounts, CSS_FILES } from '../../scripts/ui-audit.mjs';
+import {
+  sourceFiles, cssCounts, CSS_FILES, themeRange, blankCssComments, enclosingBlock,
+} from '../../scripts/ui-audit.mjs';
 import { protectedRanges, isProtected } from '../../scripts/ui-source-regions.mjs';
 import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
 import { classifyMono } from '../../scripts/ui-mono-map.mjs';
@@ -94,14 +96,28 @@ const NAMED_TRACKING = /\btracking-(?:wide|wider|widest|tight|tighter)\b/g;
    value test above, on the grounds that "400 and 600 are the system's own
    vocabulary", and that rule was being enforced for no value at all.
 
-   It captures the value now, strips comments the way the size test does, and
-   rejects any off-axis weight ANYWHERE in it. */
+   It reads the value with the scanner now, and 🚨 ROUND TWO INVERTED IT.
+   Round one's own commit message says, of the CSS weight row: "it listed the
+   three spellings it expected rather than asking what the system allows… It
+   ACCEPTS now instead of rejecting." That lesson was applied to the CSS row
+   and NOT to this one — it was only re-enumerated. Variable fonts take any
+   integer from 1 to 1000, and every one of these passed:
+
+       fontWeight: 450   550   350   250   1000   '650'   TYPE.h1
+
+   §3.1 has two weights. Anything that is not one of them, or a keyword that
+   inherits rather than sets, is reported — including spellings nobody has
+   thought of yet. Judged per OPERAND, so a ternary cannot hide an arm. */
 const INLINE_WEIGHT = /['"]?fontWeight['"]?\s*:/g;
-const OFF_AXIS_WEIGHT = /\b(?:100|200|300|500|700|800|900|bold|bolder|lighter)\b/;
-/* Reads the value with the same scanner the size test uses, so a weight
-   inside parentheses or spread over two lines is judged the same way. */
-const isOffAxisWeight = (src, index) =>
-  OFF_AXIS_WEIGHT.test(stripInlineComments(inlineValueAt(src, index)));
+const ON_AXIS_WEIGHT = /^['"`]?(?:400|600|var\(--text-(?:h1|h2|h3|body|dense|caption|label)--font-weight\)|inherit|initial|unset|revert|normal|undefined|null)['"`]?$/;
+const isOffAxisWeight = (src, index) => {
+  const value = inlineValueAt(src, index);
+  if (!value) return true;                 // unreadable is not clean
+  const arms = ternaryArms(value).map((s) => s.trim()).filter(Boolean);
+  if (!arms.length) return true;
+  return !arms.every((a) => ON_AXIS_WEIGHT.test(a)
+    || /^WEIGHT\s*\.\s*(?:h1|h2|h3|body|dense|caption|label)$/.test(a));
+};
 /** The control's spelling: judge a standalone `fontWeight: …` fragment. */
 const offAxisWeightIn = (fragment) => isOffAxisWeight(fragment, 0);
 /* 8, not 7: `ProjectFilesTable.jsx:101` became visible when the regex above
@@ -804,15 +820,69 @@ const ON_SYSTEM_OPERAND = new RegExp(
    the system. A ternary's CONDITION is not a value, so it is dropped — `size
    >= 40` is a threshold, exactly as `adminTerminalCss.test.js` reasons about
    the same expression. */
-function stripInlineComments(v) {
-  return v.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/g, ' ').trim();
-}
-function isOnSystem(rawValue) {
-  const v = stripInlineComments(rawValue);
+/* `stripInlineComments` is GONE. Round two showed why a regex cannot do
+   this job: `.replace(/\/\/.*$/g,' ')` has no idea what a string is, so
+   `'a//b'` became `'a` and `'https://x'` became `'https:` — and a live
+   `fontWeight: isUrl('//cdn') ? 700 : 400` lost its 700 entirely. Comments
+   are skipped inside `inlineValueAt` instead, where the quote state is
+   already tracked. */
+/* 🚨 ROUND TWO: THE NAMESPACE BELONGS TO THE PROPERTY. The first version
+   accepted any of the four token maps for any declaration, so
+
+       fontSize: LEADING.h2      -> 1.3px,  and it PASSED
+       fontSize: WEIGHT.h2       -> 600px,  and it PASSED
+       fontSize: FONT_MONO       -> a font stack used as a size
+
+   all read as on-system, and the 11px-floor assertion could not catch them
+   either because `BELOW_FLOOR` only matches a literal digit. A 1.3px size
+   was invisible to both of the things that exist to stop it. A token is
+   only on-system for the property whose scale it belongs to. */
+const NAMESPACE = {
+  fontSize: /^(?:TYPE|TYPE_FLOOR)$/,
+  lineHeight: /^LEADING$/,
+  letterSpacing: /^TRACKING$/,
+  fontWeight: /^WEIGHT$/,
+  fontFamily: /^FONT_(?:MONO|SANS)$/,
+};
+
+function isOnSystem(rawValue, prop = null) {
+  /* Normalised through the SAME scanner the sweep uses, so comments, quotes
+     and templates are handled in exactly ONE place. Round two's finding was
+     that a second, regex-based comment stripper could not see strings; the
+     answer is not a better regex, it is not having a second implementation.
+     The `x:` prefix is what gives the scanner a colon to start from. */
+  const v = inlineValueAt(`x:${String(rawValue)}`, 0);
   if (!v) return false;
-  const operands = ternaryArms(v).map((s) => s.trim()).filter(Boolean);
+  /* `?.` is a member access, not a branch — normalise it away before the
+     splitter can mistake its `?` for a ternary. `??` IS a branch, and both
+     of ITS sides are values (unlike a ternary, whose first part is a test),
+     so it splits and every side is checked.
+     ⚠️ Round two expected `size ?? TYPE.body` to pass. It does not, and that
+     is deliberate: `size` is an unknown, and a fallback's LEFT side is the
+     value that normally wins. Accepting it would accept `magic ?? TYPE.body`
+     where `magic` is 9. The reviewer's real finding — that the splitter
+     MANGLED it into the nonsense operand `? TYPE.body` — is fixed; it now
+     fails for the right reason, and reporting an unknown is the direction
+     this guard fails in everywhere else. */
+  const flat = v.replace(/\?\./g, '.');
+  const operands = ternaryArms(flat)
+    .flatMap((arm) => arm.split(/\?\?/))
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (!operands.length) return false;
-  return operands.every(operandOnSystem);
+  return operands.every((o) => operandOnSystem(o, prop));
+}
+
+/** The token map an operand reads, or null if it reads none.
+ *  🚨 The STEP is enumerated here too. The first draft matched
+ *  `\.\s*[a-z0-9]+$`, so `TYPE.huge` — the very thing round one enumerated
+ *  `ON_SYSTEM_OPERAND` to stop — walked back in through this function, and
+ *  with no `prop` to check against it returned true. A second reader of the
+ *  same syntax is a second place for the same hole. */
+function tokenNamespace(o) {
+  const m = o.match(new RegExp(`^(TYPE|LEADING|TRACKING|WEIGHT)\\s*\\.\\s*(?:${STEP})$`))
+    || o.match(/^(TYPE_FLOOR|FONT_MONO|FONT_SANS)$/);
+  return m ? m[1] : null;
 }
 
 /* The VALUES a ternary can produce, with the CONDITIONS dropped — a condition
@@ -833,7 +903,20 @@ function topLevelIndex(s, chars, from = 0) {
     }
     if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
     if ('([{'.includes(c)) { depth++; continue; }
-    if (')]}'.includes(c)) { depth--; continue; }
+    /* 🚨 ROUND TWO: a FLOOR. Unbounded, one stray closer sent depth negative
+       and it never recovered, so `topLevelIndex('a) ? x : y', '?')` returned
+       -1 and the whole string was judged as a single operand. Reachable
+       whenever an earlier truncation ends a value mid-expression. */
+    if (')]}'.includes(c)) { depth = Math.max(0, depth - 1); continue; }
+    /* 🚨 ROUND TWO: `??` AND `?.` ARE NOT TERNARIES, and splitting on them
+       mangled legitimate values into nonsense — `size ?? TYPE.body` became
+       the single operand `? TYPE.body` and FAILED. A false positive sends
+       the next session to fix correct code, which is the same harm round
+       one named for `border: 1.5px`. */
+    if (c === '?' && (s[i + 1] === '?' || s[i + 1] === '.')) {
+      if (s[i + 1] === '?') i++;
+      continue;
+    }
     if (depth === 0 && chars.includes(c)) return i;
   }
   return -1;
@@ -870,21 +953,37 @@ function resolveAuthScalar(name) {
   return m ? m[1].replace(/[,;]\s*$/, '').trim() : null;
 }
 
-function operandOnSystem(o) {
+function operandOnSystem(o, prop = null) {
   const scalar = o.match(/^(AUTH_[A-Z_]+)$/);
   if (scalar && !/STYLE$/.test(scalar[1])) {
     const value = resolveAuthScalar(scalar[1]);
     // Unresolvable is NOT a pass: an operand nobody can read is a defect this
     // scan cannot clear, which is the direction T0's trap 4 says to fail in.
-    return value !== null && isOnSystem(value);
+    return value !== null && isOnSystem(value, prop);
   }
-  if (!/^`[\s\S]*`$/.test(o)) return ON_SYSTEM_OPERAND.test(o);
+  /* A CALL or an INDEX over tokens — `clamp(TYPE.dense, 2, 4)`,
+     `String(TYPE.h1)`, `TYPE['h1']`. Round two found these reported as
+     defects, which is a false positive: they compose tokens, they do not
+     invent values. Accepted when every identifier-looking argument is
+     itself on the system and no bare number is used as a SIZE. */
+  const call = o.match(/^(?:[A-Za-z_$][\w$.]*)\(([\s\S]*)\)$/);
+  if (call) {
+    const args = call[1].split(',').map((s) => s.trim()).filter(Boolean);
+    return args.length > 0 && args.some((a) => tokenNamespace(a))
+      && args.every((a) => tokenNamespace(a) || /^\d+(?:\.\d+)?$/.test(a));
+  }
+  if (!/^`[\s\S]*`$/.test(o)) {
+    // The namespace has to match the property (see NAMESPACE above).
+    const ns = tokenNamespace(o);
+    if (ns) return !prop || !NAMESPACE[prop] || NAMESPACE[prop].test(ns);
+    return ON_SYSTEM_OPERAND.test(o);
+  }
   const inner = o.slice(1, -1);
   const exprs = [...inner.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1].trim());
   if (!exprs.length) return false;
   const literal = inner.replace(/\$\{[^}]*\}/g, '').trim();
   if (literal && !/^(?:px|em|rem|%|\s)*$/.test(literal)) return false;
-  return exprs.every((e) => isOnSystem(e));
+  return exprs.every((e) => isOnSystem(e, prop));
 }
 
 /* The three declarations that can carry a hard-coded type value. These find
@@ -914,11 +1013,31 @@ const INLINE_WEIGHT_KEY = /['"]?fontWeight['"]?\s*:/g;
    quotes, template interpolations and bracket depth, stopping at a `,` `;`
    `}` or newline that is genuinely at the top level. An evidence window is a
    parser you did not write (T0 §5 trap 7) — so this one is written. */
+/* 🚨 ROUND TWO. The first version of this scanner was COMMENT-BLIND, which is
+   the same defect, in the same shape, that `ui-inline-type.mjs` had already
+   been fixed for and that T0's §5 trap 5 names outright: "an apostrophe in
+   JSX prose desynchronises a naive string scanner". A trailing `// don't`
+   opened a string that never closed, and the value ran past the newline —
+   on a fully unterminated quote it returned the REST OF THE FILE, which is
+   T0's trap 4 all over again. Two live sites in this repo reproduced it
+   (`SettingsPage.jsx:1203` → 5,696 characters; `DevFixturesBadge.jsx:41` →
+   2,737), and they were invisible only because `isProtected` happened to
+   skip them.
+
+   A `}` inside a `/* } *\/` comment also truncated the value, which for the
+   SIZE test only over-reports but for the WEIGHT judge UNDER-reports: a real
+   `700` hid behind it.
+
+   So comments are skipped here, in the scanner, rather than stripped
+   afterwards by a regex that cannot see strings — and an unterminated quote
+   or template at end of input returns NOTHING, so the caller reports rather
+   than silently clearing a value it never really read. */
 function inlineValueAt(src, index) {
   let i = src.indexOf(':', index);
   if (i < 0) return '';
   i += 1;
   const start = i;
+  let out = '';
   let depth = 0;                 // ( ) [ ] { } at the current nesting level
   const stack = [];              // 'sq' | 'dq' | 'tpl' | 'expr'
   const top = () => stack[stack.length - 1];
@@ -926,30 +1045,51 @@ function inlineValueAt(src, index) {
     const c = src[i];
     const t = top();
     if (t === 'sq' || t === 'dq') {
-      if (c === '\\') { i++; continue; }
+      out += c;
+      if (c === '\\') { out += src[i + 1] ?? ''; i++; continue; }
       if ((t === 'sq' && c === "'") || (t === 'dq' && c === '"')) stack.pop();
       continue;                  // a comma or brace inside a string is text
     }
     if (t === 'tpl') {
-      if (c === '\\') { i++; continue; }
+      out += c;
+      if (c === '\\') { out += src[i + 1] ?? ''; i++; continue; }
       if (c === '`') { stack.pop(); continue; }
       // `${` opens a real expression — quotes and braces count again inside it.
-      if (c === '$' && src[i + 1] === '{') { stack.push('expr'); i++; }
+      if (c === '$' && src[i + 1] === '{') { stack.push('expr'); out += '{'; i++; }
       continue;
     }
-    if (c === "'") { stack.push('sq'); continue; }
-    if (c === '"') { stack.push('dq'); continue; }
-    if (c === '`') { stack.push('tpl'); continue; }
-    if (c === '(' || c === '[' || c === '{') { depth++; continue; }
-    if (c === '}') {
-      if (t === 'expr' && depth === 0) { stack.pop(); continue; }
-      if (depth === 0) break;    // the brace closing the style object
-      depth--; continue;
+    // ── Comments, OUTSIDE any string. Skipped entirely, never captured.
+    if (c === '/' && src[i + 1] === '/') {
+      const nl = src.indexOf('\n', i);
+      if (nl < 0) { i = src.length; break; }
+      i = nl - 1;                // the loop's i++ lands on the newline itself
+      continue;
     }
-    if (c === ')' || c === ']') { if (depth === 0) break; depth--; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      const end = src.indexOf('*/', i + 2);
+      if (end < 0) return '';    // unterminated: report, do not guess
+      i = end + 1;
+      out += ' ';
+      continue;
+    }
+    if (c === "'") { stack.push('sq'); out += c; continue; }
+    if (c === '"') { stack.push('dq'); out += c; continue; }
+    if (c === '`') { stack.push('tpl'); out += c; continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; out += c; continue; }
+    if (c === '}') {
+      if (t === 'expr' && depth === 0) { stack.pop(); out += c; continue; }
+      if (depth === 0) break;    // the brace closing the style object
+      depth--; out += c; continue;
+    }
+    if (c === ')' || c === ']') { if (depth === 0) break; depth--; out += c; continue; }
     if (!stack.length && depth === 0 && (c === ',' || c === ';' || c === '\n')) break;
+    out += c;
   }
-  return src.slice(start, i).trim();
+  // An unclosed string or template means the scan lost its place. Returning
+  // '' makes the caller REPORT the site, which is the direction to fail in.
+  if (stack.length) return '';
+  void start;
+  return out.trim();
 }
 
 /* The fifth spelling. It has no value test because there are only two answers
@@ -1022,16 +1162,25 @@ const INLINE_TYPE_EXCEPTIONS = [
       + 'alignment, proved at 0.00px by scripts/ui-caret-check.mjs, and not a '
       + 'scale value (§3.1 tracks two steps and this is neither of them)',
   },
-  /* 🚨 T1's `Otter.jsx` entry was REMOVED here, and removing it is the
-     finding. It exempted Monaco's editor options, where `fontSize` is a
-     NUMBER on a third-party API — a real exception when it was written. T1
-     then converted the site to `fontSize: TYPE.body` in the same bundle and
-     left the exemption behind, so it had nothing to exempt: a name on an
-     allowlist that no longer describes anything, which is how an allowlist
-     rots into a list of files nobody re-checks. The control below is what
-     caught it — it asserts every entry still has a site to cover, not just
-     that the file exists. If Monaco ever needs a raw number again, add the
-     entry back WITH the number. */
+  /* 🚨 AN `Otter.jsx` ENTRY WAS REMOVED HERE, AND THE MERGE COMMIT BLAMED THE
+     WRONG SESSION FOR IT. Round two checked both parents and the record is:
+     T1's side had already converted the site to `fontSize: TYPE.body` AND
+     removed its own exemption — it was internally consistent. T3's side had
+     `fontSize: 14` AND the exemption — also internally consistent. NEITHER
+     parent held a stale entry. The staleness was created by combining them,
+     which is precisely the class of defect a three-way merge produces and
+     neither side can see alone.
+
+     So the finding is not "T1 left a rotten allowlist". It is that an
+     exemption and the site it describes can be separated by a MERGE, with
+     both sides green, and the only thing that catches it is a control that
+     asserts every entry still has a real site to cover rather than merely
+     naming a file that exists. That control is below, and it did its job.
+
+     If Monaco ever needs a raw number again, add the entry back WITH the
+     number — `fontSize` there is a NUMBER on a third-party API, and
+     `TYPE.body` satisfies it because `TYPE` is numbers (tokens.js casts the
+     `px` off), not strings. */
 ];
 
 /** Inline type declarations whose VALUE is hard-coded. `applyExceptions` is a
@@ -1044,9 +1193,11 @@ const INLINE_TYPE_EXCEPTIONS = [
    the same number and both failed, blaming the wrong marker. Passing one
    entry at a time makes the count mean what its comment says. */
 function hardCodedInline(re, exceptions = INLINE_TYPE_EXCEPTIONS, inScope = IN_ASSERTED_SCOPE) {
-  return sweep(re, ({ file, src, index }) => {
+  return sweep(re, ({ file, src, index, token }) => {
     if (!inScope(file)) return false;
-    if (isOnSystem(inlineValueAt(src, index))) return false;
+    // The PROPERTY decides which token map is legal (NAMESPACE, above).
+    const prop = (token.match(/['"]?(\w+)['"]?\s*:/) || [])[1] || null;
+    if (isOnSystem(inlineValueAt(src, index), prop)) return false;
     if (!exceptions.length) return true;
     const window = src.slice(Math.max(0, index - EXEMPT_WINDOW), index + EXEMPT_WINDOW);
     return !exceptions.some((x) => x.file === file && window.includes(x.marker));
@@ -1078,10 +1229,36 @@ describe('the inline half: every type value reads a token (T3)', () => {
      DECLARATION at all, of any spelling, token-valued or not. 105 of them
      went; a table that styled itself from two consts is why it is worth
      saying out loud. */
-  it('R.A.B.B.I.T. declares no type in a style object at all', () => {
-    const hits = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT, INLINE_CASE]
-      .flatMap((re) => sweep(re, ({ file }) => T2_LANE.test(file)));
+  /* 🚨 SEVEN `lineHeight` DECLARATIONS, AND THE TEST'S OWN TITLE WAS WRONG.
+     T2 asserted "no type in a style object at all, of any spelling" while
+     sweeping five of the six spellings — `lineHeight` was not among them,
+     because the assertion that swept it was written by T3 in the same hour
+     and was lost in the three-way merge. Round two caught the omission and
+     the merge together.
+
+     The seven are real and they are R.A.B.B.I.T.'s. NOT converted here, and
+     that is a deliberate refusal rather than an oversight: three of them
+     (1.5, 1.5, 1.4) are exact scale values and would be a free swap, but
+     four are NOT on the scale at all —
+
+       TimelineView.jsx:2493        lineHeight: 1     a tick label
+       IntakePrepare.jsx:176, 262   lineHeight: 1.6   prose
+       IntakePrepare.jsx:382        lineHeight: 1.7   prose
+
+     — so converting them would MOVE TEXT on a surface this bundle does not
+     own, and §3.1's leadings run 1.2 to 1.5. Choosing 1.6 → Body is a design
+     call for whoever holds R.A.B.B.I.T., not a token swap. Pinned so the
+     number can only fall, with every site named in T3's hand-off. */
+  const T2_LEADING_RESIDUE = 7;
+  it('R.A.B.B.I.T. declares no type in a style object, except seven leadings', () => {
+    const spellings = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT, INLINE_CASE];
+    const hits = spellings.flatMap((re) => sweep(re, ({ file }) => T2_LANE.test(file)));
     expect(hits, `inline type in T2's lane:\n${hits.join('\n')}`).toEqual([]);
+
+    const leadings = hardCodedInline(INLINE_LEADING, INLINE_TYPE_EXCEPTIONS,
+      (f) => T2_LANE.test(f));
+    expect(leadings.length, `hard-coded leading in T2's lane:\n${leadings.join('\n')}`)
+      .toBeLessThanOrEqual(T2_LEADING_RESIDUE);
   });
 
   /* 🚨 STATED IN ITS OWN RIGHT, THOUGH THE VALUE TEST ABOVE IMPLIES IT TODAY.
@@ -1198,6 +1375,120 @@ describe('the inline half: every type value reads a token (T3)', () => {
     for (const step of ['h1', 'h2', 'h3', 'body', 'dense', 'caption', 'label']) {
       expect(isOnSystem(`TYPE.${step}`), step).toBe(true);
     }
+  });
+
+
+  it('no inline lineHeight carries a hard-coded leading', () => {
+    /* Everywhere but R.A.B.B.I.T., whose seven are pinned by the ratchet in
+       the T2 assertion below, with the reason they are not converted here.
+       The exclusion goes when they do — it is the last thing between this
+       assertion and being app-wide like the other five. */
+    const hits = hardCodedInline(INLINE_LEADING, INLINE_TYPE_EXCEPTIONS,
+      (f) => IN_ASSERTED_SCOPE(f) && !T2_LANE.test(f));
+    expect(hits, `inline leading off the token system:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     ROUND TWO'S DEFEATS, PINNED. Each of these passed against round one's
+     corrections and each one hid a real hard-coded value or reported a
+     correct one. They are controls rather than prose because round two's
+     other finding was that three of round one's corrections had been
+     silently REVERTED by a merge — an assertion is the only form of a fix
+     that a merge cannot quietly undo.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  it('CONTROL: a token is only on-system for its own property', () => {
+    // `fontSize: LEADING.h2` is 1.3px and used to pass BOTH this test and the
+    // 11px floor, because the floor only matches a literal digit. A sub-2px
+    // size was invisible to both of the things that exist to stop it.
+    expect(isOnSystem('LEADING.h2', 'fontSize')).toBe(false);
+    expect(isOnSystem('WEIGHT.h2', 'fontSize')).toBe(false);
+    expect(isOnSystem('FONT_MONO', 'fontSize')).toBe(false);
+    expect(isOnSystem('`${LEADING.h2}px`', 'fontSize')).toBe(false);
+    expect(isOnSystem('TYPE.h2', 'letterSpacing')).toBe(false);
+    // …and each map is still accepted for the property it belongs to.
+    expect(isOnSystem('TYPE.h2', 'fontSize')).toBe(true);
+    expect(isOnSystem('LEADING.h2', 'lineHeight')).toBe(true);
+    expect(isOnSystem('TRACKING.label', 'letterSpacing')).toBe(true);
+    expect(isOnSystem('FONT_MONO', 'fontFamily')).toBe(true);
+  });
+
+  it('CONTROL: a comment cannot hide a value, and a string is not a comment', () => {
+    // The old stripper was `.replace(/\/\/.*$/g, ' ')`, which has no idea
+    // what a string is: `'a//b'` became `'a` and a live
+    // `fontWeight: isUrl('//cdn') ? 700 : 400` lost its 700 entirely.
+    expect(offAxisWeightIn("fontWeight: isUrl('//cdn') ? 700 : 400")).toBe(true);
+    expect(offAxisWeightIn('fontWeight: cond /* } */ ? 700 : 400')).toBe(true);
+    expect(isOnSystem("'Geist, sans-serif' // not a token", 'fontFamily')).toBe(false);
+    // A `//` inside a string is text, not the start of a comment.
+    expect(inlineValueAt("x: 'a//b',", 0)).toBe("'a//b'");
+    expect(inlineValueAt("x: 'https://wilson.example',", 0)).toBe("'https://wilson.example'");
+  });
+
+  it('CONTROL: the scanner never runs away, and says so when it is lost', () => {
+    // An apostrophe in a trailing comment used to open a string that never
+    // closed, and the value ran to the end of the FILE — T0's trap 4 in a
+    // scanner this bundle wrote. Comments are skipped inside the scan now.
+    const runaway = "x: TYPE.h1 // don't\n  color: 'red',\n  fontWeight: 700,\n";
+    expect(inlineValueAt(runaway, 0)).toBe('TYPE.h1');
+    // A genuinely unterminated quote returns NOTHING, so the caller reports.
+    expect(inlineValueAt("x: 'unterminated", 0)).toBe('');
+    expect(inlineValueAt('x: `unterminated', 0)).toBe('');
+    expect(inlineValueAt('x: /* unterminated', 0)).toBe('');
+    // …and an unreadable weight is NOT treated as clean.
+    expect(offAxisWeightIn("fontWeight: 'unterminated")).toBe(true);
+    // The shapes it must still get right.
+    expect(inlineValueAt('x: `${TYPE.h2}px`,', 0)).toBe('`${TYPE.h2}px`');
+    expect(inlineValueAt("x: 'Geist, sans-serif',", 0)).toBe("'Geist, sans-serif'");
+    expect(inlineValueAt('x: `a${`b${TYPE.h1}c`}d`,', 0)).toBe('`a${`b${TYPE.h1}c`}d`');
+  });
+
+  it('CONTROL: ?? and ?. are not ternaries', () => {
+    // Splitting on a bare `?` mangled legitimate values into nonsense:
+    // `size ?? TYPE.body` became the single operand `? TYPE.body` and FAILED.
+    // A false positive sends the next session to fix correct code.
+    // `?.` is a member access and is normalised away, so it is not a branch.
+    expect(isOnSystem('AUTH_INPUT_STYLE?.fontSize', 'fontSize')).toBe(true);
+    // `??` IS a branch and BOTH its sides are values, so both are checked.
+    // Round two expected `size ?? TYPE.body` to pass; it does not, on purpose
+    // — `size` is an unknown and a fallback's left side is the one that
+    // normally wins, so accepting it would accept `magic ?? TYPE.body` with
+    // `magic` at 9. What the reviewer actually found — the splitter MANGLING
+    // this into the nonsense operand `? TYPE.body` — is gone.
+    expect(isOnSystem('size ?? TYPE.body', 'fontSize')).toBe(false);
+    expect(isOnSystem('TYPE.dense ?? TYPE.body', 'fontSize')).toBe(true);
+    // …and a real ternary still splits.
+    expect(isOnSystem("big ? TYPE.h1 : '9px'", 'fontSize')).toBe(false);
+    expect(isOnSystem('big ? TYPE.h1 : TYPE.h2', 'fontSize')).toBe(true);
+    // A stray closer must not send the depth counter negative and stay there.
+    expect(topLevelIndex('a) ? x : y', '?')).toBeGreaterThan(0);
+  });
+
+  it('CONTROL: composing tokens is not inventing a value', () => {
+    // Reported as defects by the first draft, which is the other direction of
+    // wrong: these compose tokens, they do not invent numbers.
+    expect(isOnSystem('clamp(TYPE.dense, 2, 4)', 'fontSize')).toBe(true);
+    expect(isOnSystem('String(TYPE.h1)', 'fontSize')).toBe(true);
+    expect(isOnSystem('Math.max(TYPE.body, TYPE.dense)', 'fontSize')).toBe(true);
+    // …but a call over nothing but numbers is still a number.
+    expect(isOnSystem('clamp(9, 2, 4)', 'fontSize')).toBe(false);
+  });
+
+  it('CONTROL: the weight judge ACCEPTS the axis rather than listing offenders', () => {
+    // Round one converted the CSS weight row from a reject-list to an
+    // accept-list and left this one a reject-list. Variable fonts take any
+    // integer 1–1000, and every one of these passed.
+    for (const w of ['450', '550', '350', '250', '1000', "'650'", 'TYPE.h1']) {
+      expect(offAxisWeightIn(`fontWeight: ${w}`), w).toBe(true);
+    }
+    for (const w of ['400', '600', 'WEIGHT.h2', "'var(--text-label--font-weight)'",
+      'inherit', 'undefined']) {
+      expect(offAxisWeightIn(`fontWeight: ${w}`), w).toBe(false);
+    }
+    // A ternary is judged arm by arm, so one good arm cannot carry a bad one.
+    expect(offAxisWeightIn('fontWeight: cond ? 600 : 450')).toBe(true);
+    expect(offAxisWeightIn('fontWeight: cond ? 600 : 400')).toBe(false);
   });
 
   it('CONTROL: each exception is the site it names, and swallows only it', () => {
@@ -1366,11 +1657,56 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
      All eighteen were judged by hand and the list is in `ui-audit.mjs`'s
      comment for that row. This RATCHETS so the population cannot grow
      unnoticed while the judgment stands. */
-  const BORDER_RESIDUE = 18;
-  it('the 2px border population does not grow past the judged list', () => {
+  /* 🚨 A SET, NOT A COUNT. Round one: `toBeLessThanOrEqual(18)` lets anyone
+     delete the Tabs underline and add a fresh 2px defect elsewhere while the
+     suite stays green and the hand-judged list in `ui-audit.mjs` is silently
+     wrong. The count was also a claim nothing checked against the
+     enumeration — which is how the comment came to list SEVENTEEN sites
+     while the row reported eighteen (`settings.css:802`, `.s-feedback`'s
+     base edge, was the one missing).
+
+     Keyed on file + selector rather than file + LINE, because a line number
+     moves when someone edits the comment above it and that is not a
+     regression. Selectors are what a reader recognises anyway. */
+  const JUDGED_BORDERS = [
+    ['src/index.css', '.ui-spinner'],                 // a 2px ring is a spinner
+    ['src/index.css', '.ui-tab'],                     // the kit's "one 2px signal underline"
+    ['src/index.css', '.ui-toast'],                   // the tone edge
+    ['src/components/settings/settings.css', '.s-tab'],
+    ['src/components/settings/settings.css', '.s-danger-btn'],
+    ['src/components/settings/settings.css', '.s-status'],
+    ['src/components/settings/settings.css', '.s-profile-empty'],
+    ['src/components/settings/settings.css', '.s-feedback'],
+    ['src/components/Dashboard/dashboard.css', '.dash-note-row'],
+    ['src/components/AdminTerminal/adminTerminal.css', '.at-decide-panel'],
+    // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
+    ['src/index.css', '.lesson-content'],
+    ['src/index.css', '.companion-chat-md'],
+  ];
+  it('every 2px border is one of the rules that were judged by hand', () => {
     const row = cssRow('border >= 2px');
-    const where = row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`));
-    expect(where.length, `2px borders:\n${where.join('\n')}`).toBeLessThanOrEqual(BORDER_RESIDUE);
+    const unjudged = [];
+    for (const [f, hits] of row.inFiles) {
+      const src = blankCssComments(readFileSync(f, 'utf8'));
+      for (const [line, text] of hits) {
+        /* 🚨 The offset of the DECLARATION, not of the line. A single-line
+           rule (`.lesson-content th { … border: 2px … }`) starts before its
+           own `{`, so walking back from the line's first character finds the
+           WRONG block — or none, which reported an empty selector and read
+           as "nobody judged this". */
+        const lines = src.split('\n');
+        const lineStart = lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
+        const within = lines[line - 1].indexOf(text.split(/\s+/)[0]);
+        const block = enclosingBlock(src, lineStart + Math.max(0, within));
+        // The selector sits immediately before the block's opening brace.
+        const before = src.slice(0, src.indexOf(block));
+        const selector = (before.match(/([^{};]+)$/) || [''])[0].trim().replace(/\s+/g, ' ');
+        if (!JUDGED_BORDERS.some(([jf, sel]) => jf === f && selector.includes(sel))) {
+          unjudged.push(`${f}:${line}  ${text}   selector: ${selector.slice(0, 70)}`);
+        }
+      }
+    }
+    expect(unjudged, `2px borders on rules nobody judged:\n${unjudged.join('\n')}`).toEqual([]);
   });
 
   it('the one border that was NOT an indicator is still a hairline', () => {
@@ -1405,18 +1741,43 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // To its closing brace — the next line that is exactly six spaces + `)}`.
     const close = app.indexOf('\n      )}', open);
     expect(close).toBeGreaterThan(open);
+    /* 🚨 ROUND TWO: AND NOTHING AFTER IT. The stray `)}` this bundle left in
+       the dialog — a literal `")}"` TEXT NODE compiled into the app root —
+       sat one line PAST `close`, so this very test's window excluded it
+       while its title claimed the dialog was taken whole. */
+    expect(app.slice(close + 9, close + 40), 'a stray closer after the dialog')
+      .not.toMatch(/^\s*\)\}/);
+
     // Comments are where this file explains itself, and they quote the hexes
     // they replaced; the CODE is what is under test.
     const code = app.slice(open, close)
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
       .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
-    expect(code.match(/#[0-9a-fA-F]{3,8}\b/g), 'a hex is back in the quit dialog').toBeNull();
+    /* 🚨 ROUND TWO: `rgb()` IS A COLOUR TOO, and this surface has written one
+       before. A reviewer restored the 4.07:1 / 3.03:1 Cancel button using
+       `backgroundColor: 'rgb(68,64,60)'` and every assertion here stayed
+       green — a test named "no hex" that let the exact defect it was written
+       for walk back in. */
+    expect(code.match(/#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/g),
+      'a raw colour is back in the quit dialog').toBeNull();
     expect(code).not.toMatch(/onMouse(?:Enter|Leave)/);
     expect(code).not.toMatch(/currentTarget\.style/);
     // …and the two controls are the kit's, which is what puts the hover in CSS.
     expect(code).toMatch(/<Button\s+variant="secondary"/);
     expect(code).toMatch(/<Button\s+variant="primary"/);
     expect(code).not.toMatch(/<button/);
+    /* 🚨 AND THE CONTROLS CARRY NO INLINE STYLE BUT `flex`. The title says "no
+       inline control style" and nothing asserted it: the same reviewer
+       re-added the whole failing colour pair through `<Button style={{…}}>`.
+       An inline style beats a `:hover` rule, so this is the property the
+       state extraction actually bought. */
+    for (const m of code.matchAll(/<Button\b[\s\S]*?>/g)) {
+      const style = m[0].match(/style=\{\{([^}]*)\}\}/);
+      if (!style) continue;
+      const props = style[1].split(',').map((x) => x.split(':')[0].trim()).filter(Boolean);
+      expect(props, `a Button in the quit dialog styles more than its width: ${style[1].trim()}`)
+        .toEqual(['flex']);
+    }
   });
 
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
@@ -1427,7 +1788,19 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
     // anywhere fails here instead of passing everywhere.
     expect(cssRow('border >= 2px').hits).toBeGreaterThan(0);
-    expect(cssRow('hex colour outside @theme').hits).toBeGreaterThan(0);
+    /* 🚨 NOT the hex row, which the first draft used here. Round one caught
+       that it ties this control to work T3 says belongs to someone else:
+       every one of those 28 hexes is inside `.lesson-content` or
+       `.companion-chat-md`, so the control would go RED on the day lane A3
+       finishes its own surface. A denominator must not be an unfinished
+       defect count. `@theme` is the stable positive instead — it is excluded
+       POSITIONALLY rather than by value, so counting its hexes proves the
+       scan opened `index.css` and found the block, and stays true forever. */
+    const theme = themeRange(blankCssComments(readFileSync('src/index.css', 'utf8')));
+    expect(theme, '@theme not found — index.css was not parsed').toBeTruthy();
+    const themeSrc = readFileSync('src/index.css', 'utf8').slice(theme[0], theme[1]);
+    expect((themeSrc.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length,
+      '@theme carries no hexes, so the range is wrong').toBeGreaterThan(20);
     // And the uppercase row's judgment is a real filter, not a dead branch:
     // the sheets DO carry uppercase, it is simply all on the Label step.
     const rawUppercase = CSS_FILES.reduce(

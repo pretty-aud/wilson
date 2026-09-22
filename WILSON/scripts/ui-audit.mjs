@@ -276,8 +276,16 @@ export const CSS_PATTERNS = [
      axis nowhere". It ACCEPTS now instead of rejecting: 400, 600, the step's
      own sub-property, and the keywords that inherit rather than set.
      Everything else is reported, including spellings nobody has thought of. */
+  /* 🚨 ROUND TWO, two ways. `!important` is COMPLIANT and was reported —
+     this repo already writes out that lesson at length in typeScale.test.js
+     and applies it there, and this row did not inherit it. And `400 600` was
+     accepted ANYWHERE: it is the variable-font AXIS RANGE, legal only in an
+     `@font-face`, and a browser drops it on an ordinary rule so the element
+     silently inherits — a defect reading as compliance. It is gated on the
+     block now. */
   ['font-weight off the 400/600 axis', /\bfont-weight\s*:\s*([^;{}]+)/gi,
-    (m) => /^\s*(?:400|600|400\s+600|var\(--text-(?:h1|h2|h3|body|dense|caption|label)--font-weight\)|inherit|initial|unset|revert|normal)\s*$/i.test(m[1])],
+    (m, block) => /^\s*(?:400|600|var\(--text-(?:h1|h2|h3|body|dense|caption|label)--font-weight\)|inherit|initial|unset|revert|normal)(?:\s*!important)?\s*$/i.test(m[1])
+      || (/^\s*400\s+600(?:\s*!important)?\s*$/.test(m[1]) && /\bsrc\s*:/i.test(block))],
   /* `400 600` above is the variable-font AXIS RANGE, which is only legal in
      an `@font-face`. It is accepted because it is the declaration that MAKES
      the two-weight system true — and it is the reason a `700` anywhere else

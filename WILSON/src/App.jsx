@@ -2376,7 +2376,6 @@ export default function App() {
           </div>
         </div>
       )}
-      )}
     </div>
     {/* ── Undo toast (soft-delete forgiveness window) ──
         Mounted at app level, not inside the RABBIT shell, because
