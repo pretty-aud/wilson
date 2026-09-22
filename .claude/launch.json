@@ -52,6 +52,18 @@
         "--strictPort"
       ],
       "port": 5242
+    },
+    {
+      "name": "t3-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/frosty-sanderson-de90d2/WILSON",
+        "--port",
+        "5244",
+        "--strictPort"
+      ],
+      "port": 5244
     }
   ]
 }
