@@ -102,14 +102,42 @@ export const PATTERNS = [
   ['vh units (inline or class)',     /\d+vh\b/g],
 ];
 
+/* Blank JS/JSX comments to spaces, keeping every byte offset. The `[^:]`
+   before `//` is what stops `https://…` inside a string from blanking the
+   rest of the line — a crude test, and it is crude on purpose: this feeds a
+   REPORTING column, never an assertion, so erring toward leaving code
+   visible is the safe direction. */
+export function blankJsComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + ' '.repeat(m.length - p.length));
+}
+
+/* 🚨 A SECOND COLUMN, BECAUSE THE FIRST ONE COUNTS PROSE (T3, round one).
+   `countIn` greps source text, so a comment that NAMES a class or a property
+   is counted as a live site. That is not hypothetical and it is not T3's
+   doing: measured across the 271 in-scope files, 26 `uppercase` hits, 22
+   `vh` hits and 6 `text-xs…9xl` hits are inside comments written by D2, F2
+   and the lanes — sessions explaining what they had just removed.
+
+   T0's own remainder notes already hand-annotate this ("2 are comments",
+   "four are comments quoting old class names"). The `in code` column does
+   the annotation arithmetically.
+
+   The `hits` column is left EXACTLY as it was rather than replaced, because
+   T0's before/after table and T1's and T2's running comparisons are all
+   against that number and "change the scope and the columns stop comparing"
+   is this script's own first rule. */
 function countIn(files, re) {
-  let hits = 0; const inFiles = [];
+  let hits = 0; let code = 0; const inFiles = [];
   for (const f of files) {
     const src = readFileSync(f, 'utf8');
     const m = src.match(new RegExp(re.source, re.flags));
+    const c = blankJsComments(src).match(new RegExp(re.source, re.flags));
+    code += c ? c.length : 0;
     if (m && m.length) { hits += m.length; inFiles.push([f, m.length]); }
   }
-  return { hits, files: inFiles.length, inFiles };
+  return { hits, code, files: inFiles.length, inFiles };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -170,7 +198,18 @@ export function enclosingBlock(src, index) {
     if (src[i] === '{') depth++;
     else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); }
   }
-  return src.slice(start);
+  /* 🚨 THE WALK DID NOT CLOSE, SO RETURN NOTHING RATHER THAN EVERYTHING.
+     The first draft fell through to `src.slice(start)` — the rest of the
+     file — and a reviewer showed what that costs: a stray `{` inside a
+     string (`content: "{"`) makes the forward walk overrun, and the
+     rest-of-file "block" then contains SOMEBODY ELSE'S `var(--text-label)`,
+     so an uppercase rule at the wrong step is ACCEPTED. That is T0's §5 trap
+     4 exactly — an unmatched delimiter swallowing the file and failing in
+     the safe-LOOKING direction. An empty block matches no accept rule, so a
+     hit is now REPORTED when the parse is uncertain. Not live today (no
+     string or `url()` in the five sheets contains a brace) and it is not
+     going to become live silently. */
+  return '';
 }
 
 /* Each row: [label, regex, accept?]. `accept(match, block)` returning true
@@ -215,7 +254,13 @@ export const CSS_PATTERNS = [
      blockquote, a neutral colour with no conditional and no state — is the
      hairline now. That is the whole yield of this row, and it is the right
      yield. */
-  ['border >= 2px', /\bborder(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-width)?\s*:\s*[^;{}]*?\b(?:[2-9]|[1-9]\d+)px/g],
+  /* 🚨 `(?<![\d.])` is load-bearing, and a reviewer found why: `\b` sits
+     between the `.` and the `5` of `1.5px`, so a hairline-and-a-half matched
+     as "5px" and was counted as a 2px-or-more border. A correct rule reported
+     as a defect is the same class of error as a defect reported as clean — it
+     sends the next session to a site that is already right. Case-insensitive
+     because CSS is. */
+  ['border >= 2px', /\bborder(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-width)?\s*:\s*[^;{}]*?(?<![\d.])(?:[2-9]|[1-9]\d+)(?:\.\d+)?px/gi],
   /* §3.3: two radii, 3px and 6px, both behind tokens. `0` is not a radius and
      `9999px` / `50%` are §6's `rounded-full`, which the plan's deletion list
      ("2, 4, 5, 8, 10px") does not name. */
@@ -224,7 +269,37 @@ export const CSS_PATTERNS = [
   /* §3.1: two weights, 400 and 600. The faces are declared `font-weight:
      400 600`, so a 700 CLAMPS to 600 — it renders identically and the source
      claims a weight the system does not have. */
-  ['font-weight 500/700/bold', /\bfont-weight\s*:\s*(?:500|700|bold)\b/g],
+  /* 🚨 §3.1 HAS TWO WEIGHTS, AND THIS ROW USED TO LIST THE THREE SPELLINGS IT
+     EXPECTED TO FIND rather than asking what the system allows. So
+     `font-weight: 800` and `font-weight: 300` were guarded by nothing at all,
+     while a test built on this row asserted the page sheets were "off the
+     axis nowhere". It ACCEPTS now instead of rejecting: 400, 600, the step's
+     own sub-property, and the keywords that inherit rather than set.
+     Everything else is reported, including spellings nobody has thought of. */
+  /* 🚨 ROUND TWO, two ways. `!important` is COMPLIANT and was reported —
+     this repo already writes out that lesson at length in typeScale.test.js
+     and applies it there, and this row did not inherit it. And `400 600` was
+     accepted ANYWHERE: it is the variable-font AXIS RANGE, legal only in an
+     `@font-face`, and a browser drops it on an ordinary rule so the element
+     silently inherits — a defect reading as compliance. It is gated on the
+     block now. */
+  ['font-weight off the 400/600 axis', /\bfont-weight\s*:\s*([^;{}]+)/gi,
+    (m, block) => /^\s*(?:400|600|var\(--text-(?:h1|h2|h3|body|dense|caption|label)--font-weight\)|inherit|initial|unset|revert|normal)(?:\s*!important)?\s*$/i.test(m[1])
+      || (/^\s*400\s+600(?:\s*!important)?\s*$/.test(m[1]) && /\bsrc\s*:/i.test(block))],
+  /* `400 600` above is the variable-font AXIS RANGE, which is only legal in
+     an `@font-face`. It is accepted because it is the declaration that MAKES
+     the two-weight system true — and it is the reason a `700` anywhere else
+     clamps to 600 rather than rendering heavier. */
+
+  /* 🚨 THE `font:` SHORTHAND SETS A WEIGHT *AND* A SIZE AND MATCHES NEITHER
+     ROW. `font: 600 9px/1.2 var(--font-sans)` walks past the weight row, the
+     size row, and both T3 assertions built on them.
+     `adminTerminalCss.test.js` already bans the shorthand on its own sheet —
+     and its comment records a reviewer doing exactly this to defeat it — but
+     the five-file scan did not inherit the lesson. `font: inherit` is the one
+     legitimate use here and is accepted; the sheets carry seven of them. */
+  ['font: shorthand', /(?<![-\w])font\s*:\s*([^;{}]+)/gi,
+    (m) => /^\s*(?:inherit|initial|unset|revert)\s*$/i.test(m[1])],
   /* §3.1: seven steps, all behind `--text-*`, and "every step a whole pixel".
      An `em`- or `rem`-relative size is therefore OFF the scale and counted —
      it inherits whatever its parent happens to be, which is the opposite of
@@ -288,7 +363,7 @@ const wantFiles = process.argv.includes('--files')
 
 const rows = PATTERNS.map(([label, re]) => {
   const r = countIn(files, re);
-  return { label, hits: r.hits, files: r.files, inFiles: r.inFiles };
+  return { label, hits: r.hits, code: r.code, files: r.files, inFiles: r.inFiles };
 });
 
 if (wantFiles) {
@@ -317,7 +392,7 @@ if (process.argv.includes('--css')) {
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify({
     scanned: files.length,
-    rows: rows.map(({ label, hits, files }) => ({ label, hits, files })),
+    rows: rows.map(({ label, hits, code, files }) => ({ label, hits, code, files })),
     cssScanned: CSS_FILES.length,
     cssRows: css.map(({ label, hits, files }) => ({ label, hits, files })),
   }, null, 2));
@@ -325,9 +400,15 @@ if (process.argv.includes('--json')) {
 }
 
 console.log(`# plan §7 grep audit — ${files.length} source files in scope\n`);
-console.log('| pattern | hits | files |');
-console.log('|---|---|---|');
-for (const r of rows) console.log(`| \`${r.label}\` | ${r.hits} | ${r.files} |`);
+console.log('| pattern | hits | files | in code |');
+console.log('|---|---|---|---|');
+for (const r of rows) {
+  const note = r.code === r.hits ? `${r.code}` : `**${r.code}**`;
+  console.log(`| \`${r.label}\` | ${r.hits} | ${r.files} | ${note} |`);
+}
+console.log('\n`hits` greps the source text, so it counts a class named in a');
+console.log('COMMENT as a live site; `in code` blanks comments first. A bold');
+console.log('figure is a row where the two disagree.');
 
 /* The second table. Separate scope, separate denominator, never summed with
    the first — see the header note on why it did not exist until T3. */

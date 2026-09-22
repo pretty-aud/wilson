@@ -139,7 +139,7 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
                 {/* Copy content preview */}
                 <div className="mt-1 pt-1 border-t border-stone-800">
                   {extractCopyContent(item.output).split('\n').slice(0, 2).map((line, i) => (
-                    <p key={i} className="text-dense truncate leading-tight" style={{ color: selectedId === item.id ? '#a8a29e' : '#57534e' }}>
+                    <p key={i} className="text-dense truncate" style={{ color: selectedId === item.id ? '#a8a29e' : '#57534e' }}>
                       • {line.replace(/:/g, '')}
                     </p>
                   ))}

@@ -754,7 +754,7 @@ export const AUTH_BUTTON_QUIET_STYLE = {
 export const AUTH_LINK_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.caption}px`,
-  lineHeight: 1.4,
+  lineHeight: LEADING.caption,
   background: 'transparent',
   border: 'none',
   color: AUTH_INK,
@@ -767,7 +767,7 @@ export const AUTH_LINK_STYLE = {
 export const AUTH_HINT_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.caption}px`,
-  lineHeight: 1.4,
+  lineHeight: LEADING.caption,
 }
 
 // A sentence, not a label (AUTH-12). This role was inline-declared four times
@@ -796,7 +796,7 @@ export const AUTH_PROSE_STYLE = {
 export const AUTH_ERROR_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: `${TYPE.dense}px`,
-  lineHeight: 1.45,
+  lineHeight: LEADING.dense,
   fontWeight: 600,
   color: AUTH_ERROR_INK,
 }

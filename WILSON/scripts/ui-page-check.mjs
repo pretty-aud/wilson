@@ -49,6 +49,10 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: Number(process.argv[3] || 1280), height: Number(process.argv[4] || 700) } });
 const page = await ctx.newPage();
 const errors = [];
+/** Every page that reported an error, an overflow, an off-scale size or too
+ *  few text nodes to have rendered. The process exits non-zero if it is not
+ *  empty, so CI and a reader get the same answer. */
+const FAILED = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 110)); });
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + String(e).slice(0, 110)));
 
@@ -83,13 +87,22 @@ async function measure(label) {
     }
     return {
       sizes: seen, offScale, clipped,
+      measured: Object.values(seen).reduce((a, b) => a + b, 0),
       overflow: document.documentElement.scrollWidth > window.innerWidth + 2,
     };
   });
   const sizes = Object.entries(info.sizes).sort((a, b) => b[1] - a[1]).slice(0, 6)
     .map(([px, n]) => `${px}px:${n}`).join('  ');
-  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}  clipped=${String(info.clipped).padEnd(3)} ${sizes}`);
+  /* 🚨 A FLOOR, AND AN EXIT CODE (round two). This script only PRINTED, so
+     "0 errors / 0 overflow / 0 off-scale on twelve pages" was a human
+     reading a table — and a page that loaded but rendered nothing printed
+     exactly the same three zeros as a page that is perfect. An empty result
+     is not a pass. 10 is well under the 60-plus every real page measures and
+     well over anything a blank shell produces. */
+  const thin = info.measured < 10;
+  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}  clipped=${String(info.clipped).padEnd(3)} ${sizes}${thin ? '   ! ONLY ' + info.measured + ' TEXT NODES — did this page render?' : ''}`);
   for (const e of errors.slice(0, 2)) console.log(`      ! ${e}`);
+  if (errors.length || info.overflow || info.offScale || thin) FAILED.push(label.trim());
   return info;
 }
 
@@ -133,3 +146,9 @@ if (WITH_TABS) {
 }
 
 await browser.close();
+
+if (FAILED.length) {
+  console.log(`\n🚨 ${FAILED.length} page(s) did not come back clean: ${FAILED.join(', ')}`);
+  process.exit(1);
+}
+console.log('\n✓ every page: 0 errors, 0 horizontal overflow, 0 off-scale text');
