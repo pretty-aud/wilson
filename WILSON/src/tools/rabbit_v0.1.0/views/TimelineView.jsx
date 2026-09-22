@@ -3841,7 +3841,7 @@ function DetailBar({
            MEASURED: that the change left phase and TASK bars looking "the
            same". Live on Salt Hours they differ on five channels — weight 600
            against 400 (this very ternary), border 2px against 1px, the dark
-           ring, height 28 against 24, and a different palette. Walkthrough 33
+           ring, height 28 against 24, and a different palette. Walkthrough 34
            corrects it for her.
 
            What this expression does still say — and it is the part worth
@@ -3849,7 +3849,7 @@ function DetailBar({
            bar is 400. That distinction is live, it is the one §3.1 can
            express with two weights, and collapsing the ternary to
            `(phaseStyle || subgroupStyle) ? 'font-semibold' : ''` would say it
-           more plainly at the cost of the marker. Audrey rules; walkthrough 33
+           more plainly at the cost of the marker. Audrey rules; walkthrough 34
            asks her. Until then, nothing here is silently tidied away. */
         <span
           className={`text-dense truncate pointer-events-none overflow-hidden ${

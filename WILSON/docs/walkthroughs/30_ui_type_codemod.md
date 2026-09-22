@@ -50,6 +50,16 @@ left it for the session that rebuilds the Timeline, where making the minimap
 readable is already on the list. If it bothers you before then, say so and it
 can be pulled forward.
 
+> **Correction, added by bundle T2 (walkthrough 34).** This paragraph is wrong
+> and you can stop worrying about it. I measured the two kinds of bar on your
+> Salt Hours timeline: a phase bar and a task bar differ on **five** things —
+> weight, a 2px border against 1px, a dark ring, 28px tall against 24, and a
+> different palette. A phase bar and a *subgroup* bar, which is the comparison
+> the code was really making, differ on four, the loudest being that a
+> subgroup's border is dashed and a phase's is solid. The capitals were one
+> signal among several, not the only one. Walkthrough 34 has the table and asks
+> you one small tidying question about the line of code involved.
+
 **Files** (`t0-*-files-*.png`) — **not one line changed**, and that is the good
 news rather than a gap. You called this page out by name as the worst of them;
 an earlier session rebuilt it, and the sweep re-derived every one of its type
