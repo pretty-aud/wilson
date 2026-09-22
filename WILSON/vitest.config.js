@@ -29,5 +29,30 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.{js,jsx}'],
+
+    // UI overhaul T1 (2026-09-22): `scripts/*.mjs` load as NODE modules, not
+    // through Vite's SSR transform.
+    //
+    // 🚨 WITHOUT THIS THE CODEMOD'S GUARD DOES NOT LOAD AT ALL ON WINDOWS.
+    // `src/ui/typeScale.test.js` imports six helpers from `scripts/`. Every
+    // one of those files opens with `#!/usr/bin/env node` and has top-level
+    // imports, and Vite's SSR transform HOISTS the `__vite_ssr_import__`
+    // calls above the shebang — putting `#!` in the middle of a line, where
+    // it is not a shebang but an illegal token. The whole suite file then
+    // dies at collection with a bare `SyntaxError: Invalid or unexpected
+    // token` and NO file or line, and vitest reports it as
+    // `typeScale.test.js (0 test)` — the guard silently stops guarding.
+    //
+    // It reproduced here on Node 24 / Windows and NOT on CI (Node 22 /
+    // ubuntu), so T0 measured 140 files / 2858 tests green and CI agreed,
+    // while the same commit measures 139 + 1 failed / 2823 on Audrey's
+    // machine. A guard that is green on CI and dead locally is the worst of
+    // both: the sessions that must PROVE their assertions by breaking them
+    // are exactly the ones that cannot run it.
+    //
+    // Externalising is also the more faithful of the two: these files are
+    // run as `node scripts/ui-audit.mjs` everywhere else, they import only
+    // node builtins and each other, and nothing in them needs Vite.
+    server: { deps: { external: [/[\\/]scripts[\\/].*\.mjs$/] } },
   },
 })
