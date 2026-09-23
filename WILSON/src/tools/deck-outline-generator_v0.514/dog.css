@@ -673,7 +673,17 @@
      left three quarters of it dead — A2 review round 1). */
   .ui-tabs.dog-history-modes > .ui-tab,
   .ui-tabs.dog-settings-tabs > .ui-tab { flex: 1 1 0; justify-content: center; }
+  /* Settings' strip runs edge to edge inside a body that clips, so the
+     focus ring (2px, 1px out) lost its outer sides and read as a bracket
+     (A2 review round 2). It is drawn inside the tab here, the same 2px. */
+  .ui-tabs.dog-settings-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
   .dog-history-panel > * + * { margin-top: 16px; }
+  /* The Import mode is shorter and has no footer until there is text, so
+     the centred dialog shrank and re-centred when the mode changed, moving
+     the mode strip 43.5px from under the pointer (the old modal moved
+     10.5px — A2 review round 2). It keeps Export's resting height (472px,
+     measured at both sizes) as a floor; its body takes the slack. */
+  .ui-dialog.dog-history-dialog { min-height: 472px; }
   .dog-history-lede {
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
@@ -1067,7 +1077,7 @@
   /* …and so do the model picker's own label and note (Settings' ModelPicker,
      `settings.css`; the old opacity dimmed them with everything else — A2
      review round 1). Scoped to this panel; the picker's own sheet is D1's. */
-  .dog-settings-body[data-locked='true'] :is(.s-mp-label, .s-mp-note) { color: var(--color-ink-3); }
+  .dog-settings-body[data-locked='true'] :is(.s-mp-label, .s-mp-note, .s-mp-note em) { color: var(--color-ink-3); }
   @media (prefers-reduced-motion: reduce) {
     .dog-acc-head,
     .dog-acc-chevron { transition: none; }

@@ -13,7 +13,7 @@
 // (Q5), the one shadow. Items are 28px, Dense.
 // =============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { menuOpened } from './overlay'
 
 export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...rest }) {
@@ -36,12 +36,24 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1400
   const vh = typeof window !== 'undefined' ? window.innerHeight : 900
   const left = Math.max(0, Math.min(x, vw - minWidth - 12))
-  const maxHeight = Math.max(160, vh - y - 12)
-  // 🚨 The top follows the height. Below ~172px from the bottom edge the
-  // menu keeps its 160px floor, so it has to start higher to end inside the
-  // window; it used to keep the pointer's y and run off the bottom with its
-  // last items out of reach (A2 review round 1, measured at 1440x900).
-  const top = Math.max(0, Math.min(y, vh - maxHeight - 12))
+  // It may be as tall as the window allows; it scrolls only past that.
+  const maxHeight = Math.max(160, vh - 24)
+
+  // 🚨 PLACED FROM ITS RENDERED HEIGHT, before paint (A2 review rounds 1 and
+  // 2). It opens at the pointer's y; only if it would then run past the
+  // bottom edge does it start higher, by exactly its own height. The first
+  // fix placed it as if every menu were 160px: a short menu that fitted
+  // (Bins' "Move to" with two bins) jumped 40px up, and a 174px menu near
+  // the bottom scrolled with 700px free above it. The one before that kept
+  // the pointer's y and ran off the window, its last items unreachable.
+  // Written to the node, not to state: this runs after every commit, and
+  // React leaves `top` alone while `y` is unchanged.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const h = el.offsetHeight
+    el.style.top = `${y + h > vh - 12 ? Math.max(12, vh - h - 12) : y}px`
+  })
 
   // No `role="menu"` / `menuitem` yet: those roles promise arrow-key roving
   // focus and a suppressed Tab, which this menu does not implement (the Bins
@@ -52,7 +64,7 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
       ref={ref}
       className={`ui-menu ${className}`.trim()}
       data-surface="dark"
-      style={{ left, top, minWidth, maxHeight }}
+      style={{ left, top: y, minWidth, maxHeight }}
       onContextMenu={(e) => e.preventDefault()}
       {...rest}
     >
