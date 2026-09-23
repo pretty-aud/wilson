@@ -38,7 +38,11 @@ export function useTaskTemplates() {
   const [error, setError] = useState(null)
 
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  // Set on EVERY mount, not only at creation: React.StrictMode (main.jsx) runs
+  // mount → cleanup → mount in dev, and a flag the cleanup cleared was never
+  // set back, so every load finished into a "not mounted" hook and the manager
+  // sat on "Loading…" forever in `npm run dev` (production mounts once).
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
   // ── Load templates on mount + on adapter mode change ──
   const loadTemplates = useCallback(async () => {

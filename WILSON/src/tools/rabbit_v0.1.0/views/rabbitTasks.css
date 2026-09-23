@@ -1,0 +1,243 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. Tasks — the extracted state of lane B2's four files
+   UI overhaul B2, 2026-09-23
+
+   Owns: views/ProjectTasksView.jsx, components/TaskDetailPopup.jsx,
+   components/NewTaskPopup.jsx and components/TaskTemplates/
+   TaskTemplateManager.jsx (a RABBIT feature rendered from Settings and from
+   the Timeline's settings panel). Every class here is `rb-task-` or `rb-tpl-`:
+   the `rb-` prefix is what B1's scanners (rabbitCssGuards.js) key on, and the
+   second word keeps these clear of B1's `rabbitShell.css` and B6's `bn-`.
+
+   STAGE 1 ("no visual change"): every hover / selected / active / disabled /
+   drag-over / empty branch these files wrote as an inline `style` ternary, a
+   className template literal or a `hovered` useState moves onto a `data-*`
+   attribute or a real `:hover` resolved here, with the shipped values
+   TRANSCRIBED UNCHANGED. An inline style beats a class, so a restyle written
+   next to a surviving inline style drops the state silently (plan §1; review
+   R40, whose first three sites are in ProjectTasksView).
+
+   Proven, ProjectTasksView: the walk's five screens and five hover states
+   (a row, a key date, the status groups, the board, a card) before and after,
+   pixel for pixel. Four were identical; the fifth was a defect the
+   extraction removed, listed below with the others it found.
+
+   Dead or broken branches found on the way:
+   - A hovered board card LOST its 3px status edge: the hover changed the
+     inline `border` shorthand, React re-applied it, and it overwrote
+     `borderLeft`, so the edge went grey and 1px and the card's content
+     jumped 2px left under the pointer. The edge now survives the hover.
+   - A task row's `hover:bg-stone-800` was applied only while the row was
+     NOT hovered, and lost to an inline fill in any case: never painted.
+   - The sort-direction button's grey branch could not be reached (it renders
+     only while a sort is set).
+   - The cell selects' `hover:bg-stone-700/40` lost to an inline transparent
+     fill; moving the fill here revived it.
+
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST RULE OF THIS FILE, and it has
+   to be (rabbitShell.css's header; D1 hand-off §5 trap 1): this sheet is
+   imported from a component, so the bundler can emit it before index.css, and
+   a layer's position is fixed where it is FIRST named.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ Status and priority, as one custom property each ════════════════════
+     Transcribed from `statusColor()` / `priorityColor()`. An element that
+     carries a status wears `.rb-task-status` and `data-status`; whatever
+     paints the status reads `var(--rb-status)`. An absent status is the
+     functions' `default:` branch. */
+  .rb-task-status { --rb-status: #a8a29e; }
+  .rb-task-status[data-status="in_progress"]     { --rb-status: #fb923c; }
+  .rb-task-status[data-status="pending_review"]  { --rb-status: #fbbf24; }
+  .rb-task-status[data-status="needs_revisions"] { --rb-status: #e879f9; }
+  .rb-task-status[data-status="approved"]        { --rb-status: #4ade80; }
+  .rb-task-status[data-status="final"]           { --rb-status: #22c55e; }
+  .rb-task-status[data-status="blocked"]         { --rb-status: #ef4444; }
+  .rb-task-status[data-status="on_hold"]         { --rb-status: #fcd34d; }
+  .rb-task-status[data-status="omitted"]         { --rb-status: #57534e; }
+
+  .rb-task-priority { --rb-priority: #a8a29e; }
+  .rb-task-priority[data-priority="urgent"] { --rb-priority: #ef4444; }
+  .rb-task-priority[data-priority="high"]   { --rb-priority: #fb923c; }
+  .rb-task-priority[data-priority="medium"] { --rb-priority: #fbbf24; }
+  .rb-task-priority[data-priority="low"]    { --rb-priority: #78716c; }
+
+  .rb-task-status-ink   { color: var(--rb-status); }
+  .rb-task-priority-ink { color: var(--rb-priority); }
+
+  /* ═══ The toolbar ═════════════════════════════════════════════════════════
+     Filter, Sort and Group read orange while they are doing something. */
+  .rb-task-tool { color: #78716c; }
+  .rb-task-tool[data-active="true"] { color: #fb923c; }
+
+  /* The Table / Board segmented control. */
+  .rb-task-mode { background-color: transparent; color: #78716c; }
+  .rb-task-mode[data-active="true"] { background-color: #ea580c; color: #fff7ed; }
+
+  /* ═══ The table ═══════════════════════════════════════════════════════════ */
+
+  /* A group is a drop target. */
+  .rb-task-group {
+    box-shadow: none;
+    background-color: transparent;
+    transition: box-shadow 200ms ease, background-color 200ms ease;
+  }
+  .rb-task-group[data-drag-over="true"] {
+    box-shadow: inset 3px 0 0 #ea580c;
+    background-color: rgba(234, 88, 12, 0.04);
+  }
+  /* A group's accent: the status's colour when grouped by status, orange
+     otherwise. The header's rule, its label and the phase name read it. */
+  .rb-task-accent[data-accent="signal"] { --rb-accent: #fb923c; }
+  .rb-task-accent[data-accent="status"] { --rb-accent: var(--rb-status); }
+  .rb-task-group-head { border-left: 3px solid var(--rb-accent); }
+  .rb-task-accent-ink { color: var(--rb-accent); }
+
+  /* The phase header's two date inputs: grey until they hold a date. */
+  .rb-task-phase-date { color: #d6d3d1; }
+  .rb-task-phase-date[data-empty="true"] { color: #57534e; }
+
+  /* A task row. The `hover:bg-stone-800` it declared was applied only while
+     the row was NOT hovered (`!hovered` in its template literal) and lost to
+     an inline background in any case: it never painted, so it is not carried. */
+  .rb-task-row {
+    border: 1px solid #44403c;
+    border-radius: 4px;
+    background-color: #1c1917;
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .rb-task-row[data-selected="true"] {
+    border-color: #ea580c;
+    background-color: rgba(234, 88, 12, 0.1);
+  }
+  .rb-task-row[data-draggable="true"],
+  .rb-task-card[data-draggable="true"] { cursor: grab; }
+  .rb-task-row[data-draggable="true"]:active,
+  .rb-task-card[data-draggable="true"]:active { cursor: grabbing; }
+
+  /* The row's detail button and its actions cell: shown while the pointer is
+     on the row (they were `opacity` + `pointer-events` from `hovered`). */
+  .rb-task-reveal { opacity: 0; pointer-events: none; transition: opacity 150ms ease; }
+  .rb-task-row:hover .rb-task-reveal,
+  .rb-task-card:hover .rb-task-reveal { opacity: 1; pointer-events: auto; }
+
+  /* The row's checkbox: shown on hover and while the row is selected. */
+  .rb-task-check { opacity: 0; transition: opacity 150ms ease; }
+  .rb-task-row:hover .rb-task-check,
+  .rb-task-row[data-selected="true"] .rb-task-check { opacity: 1; }
+
+  /* The cell selects. `cursor` was set inline from `canWrite`, which is what
+     beat the `disabled:cursor-not-allowed` beside it (the file's own comment);
+     every one of these selects is `disabled={!canWrite}`, so `:disabled` is
+     the same condition. Their `hover:bg-stone-700/40` lost to the inline
+     transparent fill and never painted; from here it does (a revived hover,
+     like B1's settings and help buttons). */
+  .rb-task-cell-select {
+    background-color: transparent;
+    border: 1px solid transparent;
+    outline: none;
+    cursor: pointer;
+  }
+  .rb-task-cell-select:disabled { cursor: not-allowed; }
+
+  /* A cell's value: full ink when set, grey when empty. */
+  .rb-task-cell-value { color: #d6d3d1; }
+  .rb-task-cell-value[data-empty="true"] { color: #57534e; }
+
+  /* ═══ Milestones ══════════════════════════════════════════════════════════
+     The milestone's own colour is data (`milestone.color`, or the project
+     bounds' green and red), passed as `--rb-ms`; amber when it has none. */
+  .rb-task-ms {
+    border: 1px solid #44403c;
+    border-radius: 4px;
+    background-color: rgba(245, 158, 11, 0.04);
+    border-left: 3px solid var(--rb-ms, #f59e0b);
+  }
+  .rb-task-ms:hover { background-color: rgba(245, 158, 11, 0.08); }
+  .rb-task-ms-icon { color: var(--rb-ms, #f59e0b); }
+  .rb-task-ms-icon[data-filled="true"] { fill: var(--rb-ms, #f59e0b); }
+  /* The delete button rendered only while `hovered`: `visibility` keeps that
+     exact behaviour, out of the tab order until the pointer is on the row. */
+  .rb-task-ms-del { visibility: hidden; }
+  .rb-task-ms:hover .rb-task-ms-del { visibility: visible; }
+
+  /* ═══ The board ═══════════════════════════════════════════════════════════ */
+  .rb-task-col {
+    width: 280px;
+    background-color: #292524;
+    border: 1px solid #44403c;
+    border-radius: 6px;
+    box-shadow: none;
+    transition: background-color 200ms ease, box-shadow 200ms ease;
+  }
+  .rb-task-col[data-drag-over="true"] {
+    background-color: rgba(234, 88, 12, 0.06);
+    box-shadow: inset 0 0 0 2px #ea580c, 0 0 20px rgba(234, 88, 12, 0.15);
+  }
+  .rb-task-col-head { border-bottom: 3px solid var(--rb-accent); }
+
+  .rb-task-card {
+    background-color: #1c1917;
+    border: 1px solid #44403c;
+    border-left: 3px solid var(--rb-status);
+    border-radius: 6px;
+    padding: 10px 12px;
+    box-shadow: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .rb-task-card:hover {
+    border-top-color: #57534e;
+    border-right-color: #57534e;
+    border-bottom-color: #57534e;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  /* ═══ TaskDetailPopup ═════════════════════════════════════════════════════
+     Rendered by Tasks, the Dashboard's task table, Timeline, and nested in
+     the Scenes, Levels and Experiences detail dialogs. */
+  /* Wider when the files column is shown (Tailwind's max-w-4xl / max-w-2xl). */
+  .rb-task-popup { max-width: 42rem; }
+  .rb-task-popup[data-wide="true"] { max-width: 56rem; }
+  /* The status edge under the header. */
+  .rb-task-popup-head { border-bottom: 3px solid var(--rb-status); }
+  /* A property's value: the light-orange ink when set, grey when empty. */
+  .rb-task-field-value { color: #f4a261; }
+  .rb-task-field-value[data-empty="true"] { color: #57534e; }
+  .rb-task-bid-total { color: #4ade80; }
+  .rb-task-bid-total[data-empty="true"] { color: #57534e; }
+  .rb-task-title-value { color: #fb923c; }
+  .rb-task-title-value[data-empty="true"] { color: #57534e; }
+  /* A files section's accent (a per-section constant, passed as --rb-section). */
+  .rb-task-section-ink { color: var(--rb-section, #fb923c); }
+
+  /* ═══ TaskTemplateManager ═════════════════════════════════════════════════
+     (components/TaskTemplates/; opened from Settings > Storage and from the
+     Timeline's settings panel.) Its task cells reuse `.rb-task-cell-value`:
+     the same two inks as the Tasks table's cells. */
+  /* The template being edited is tinted. The row's `hover:bg-stone-800/40`
+     lost to its inline fill in both states and never painted. */
+  .rb-tpl-row[data-editing="true"] { background-color: rgba(234, 88, 12, 0.08); }
+  .rb-tpl-edit { color: #fb923c; background-color: transparent; }
+  .rb-tpl-edit[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
+  /* Read-only buttons were `disabled={readOnly}` with an inline cursor from
+     the same flag: `:disabled` is that condition. */
+  .rb-tpl-desc { color: #d6d3d1; cursor: pointer; }
+  .rb-tpl-desc[data-empty="true"] { color: #78716c; }
+  .rb-tpl-desc:disabled { cursor: default; }
+  .rb-tpl-editable { color: #e7e5e4; cursor: pointer; }
+  .rb-tpl-editable[data-empty="true"] { color: #57534e; }
+  .rb-tpl-editable:disabled { cursor: default; }
+  /* A template's task row, and its delete button's reveal. */
+  .rb-tpl-task-row { background-color: transparent; transition: background-color 150ms ease; }
+  .rb-tpl-task-row:hover { background-color: rgba(41, 37, 36, 0.5); }
+  .rb-tpl-reveal { opacity: 0; pointer-events: none; transition: opacity 150ms ease; }
+  .rb-tpl-task-row:hover .rb-tpl-reveal { opacity: 1; pointer-events: auto; }
+  /* The dependency picker's options and the two hand-drawn checkboxes. */
+  .rb-tpl-dep { color: #d6d3d1; }
+  .rb-tpl-dep[data-checked="true"] { color: #fb923c; }
+  .rb-tpl-check { background-color: transparent; border: 1px solid #44403c; }
+  .rb-tpl-check[data-checked="true"] { background-color: #ea580c; border-color: #ea580c; }
+}
