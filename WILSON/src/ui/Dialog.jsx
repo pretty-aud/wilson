@@ -31,7 +31,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
-import { pushModal, isTopModal, focusableWithin } from './overlay'
+import { pushModal, isTopModal, focusableWithin, menuOpen } from './overlay'
 
 export const DIALOG_WIDTHS = Object.freeze({ confirm: 400, form: 560, reading: 720, workbench: 960 })
 
@@ -121,7 +121,13 @@ export function Dialog({
 
     const key = (e) => {
       if (!isTopModal(id)) return
-      if (e.key === 'Escape') { tryCloseRef.current(); return }
+      // K4 (lane B2): a kit Menu open INSIDE this dialog closes on the same
+      // Escape in its capture-phase listener, and this bubble-phase one used
+      // to close the dialog behind it as well — one key, two layers gone (the
+      // template editor's dependency picker). The menu has not unmounted yet
+      // when this runs, so its count is still up: the dialog stands down and
+      // the NEXT Escape is its own.
+      if (e.key === 'Escape') { if (menuOpen()) return; tryCloseRef.current(); return }
       if (e.key !== 'Tab' || !node) return
 
       // ── The trap ──

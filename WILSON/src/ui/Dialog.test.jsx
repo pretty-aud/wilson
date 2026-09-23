@@ -4,6 +4,7 @@ import { StrictMode, useState } from 'react'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Dialog, DIALOG_WIDTHS } from './Dialog'
 import { Input } from './Input'
+import { Menu } from './Menu'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -407,6 +408,27 @@ describe('Dialog', () => {
     document.body.removeChild(trigger)          // the row went with the delete
     expect(() => unmount()).not.toThrow()
     expect(document.activeElement).toBe(document.body)
+  })
+
+  // K4 (lane B2): Escape in a Menu inside a Dialog closes the menu only.
+  it('stands down its Escape while a kit Menu inside it is open (K4)', () => {
+    const onClose = vi.fn()
+    function Picker() {
+      const [open, setOpen] = useState(true)
+      return (
+        <Dialog title="Edit template" onClose={onClose}>
+          {open && <Menu x={10} y={10} onClose={() => setOpen(false)} items={[{ label: 'Rig' }]} />}
+          <span>{open ? 'menu open' : 'menu closed'}</span>
+        </Dialog>
+      )
+    }
+    render(<Picker />)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByText('menu closed')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+    // …and the next Escape is the dialog's own.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

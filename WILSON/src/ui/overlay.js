@@ -42,6 +42,12 @@ export function modalDepth() {
   return modalStack.length
 }
 
+/** Is a kit Menu open right now? (B2 kit request K4: a Dialog stands down its
+    Escape while one is, so the key closes the menu and not the dialog.) */
+export function menuOpen() {
+  return openMenus > 0
+}
+
 export function menuOpened() {
   openMenus += 1
   return () => menuClosed()
