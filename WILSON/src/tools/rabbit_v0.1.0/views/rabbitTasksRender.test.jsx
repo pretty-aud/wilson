@@ -11,7 +11,7 @@
 //     second Escape closes it;
 //   · K5 — a press on the backdrop keeps a save-on-blur edit (it discarded it);
 //   · the files column's layers (FileManager's, lane B4's) own their Escape:
-//     a fixed overlay (its VideoPreview) and a textarea (its notes);
+//     a fixed overlay (its VideoPreview) and a text field (its notes);
 //   · the template editor's dependency picker: Escape closes the picker, then
 //     the editor, then the manager, one layer per press; its scrim takes the
 //     click that dismisses it.
@@ -31,7 +31,7 @@ const files = vi.hoisted(() => ({ overlay: false, noteEscape: vi.fn() }))
 vi.mock('../components/FileManager', () => ({
   default: () => (
     <div>
-      <textarea aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') files.noteEscape() }} />
+      <input type="text" aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') files.noteEscape() }} />
       {files.overlay && <div data-testid="preview" style={{ position: 'fixed', inset: 0 }}>preview</div>}
     </div>
   ),
@@ -86,7 +86,7 @@ describe('TaskDetailPopup, rendered', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it("the files column's textarea (FileManager's notes) has its own Escape: the popup stays", () => {
+  it("the files column's text field (FileManager's notes, an <input>) has its own Escape: the popup stays", () => {
     const { onClose } = popup({ withFiles: true })
     const note = screen.getByLabelText('File note')
     note.focus()
@@ -129,11 +129,15 @@ describe('the task template manager, rendered', () => {
     const { onClose } = manager()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(screen.getAllByRole('dialog')).toHaveLength(2)
-    fireEvent.click(screen.getAllByRole('button', { expanded: false }).find((b) => b.classList.contains('rb-tpl-deps')))
+    const trigger = screen.getAllByRole('button', { expanded: false }).find((b) => b.classList.contains('rb-tpl-deps'))
+    trigger.focus()
+    fireEvent.click(trigger)
     expect(screen.getByRole('group', { name: 'Depends on' })).toBeTruthy()
     escape()
     expect(screen.queryByRole('group', { name: 'Depends on' })).toBeNull()
     expect(screen.getAllByRole('dialog')).toHaveLength(2)
+    // Closing it hands focus back to its trigger (round two).
+    expect(document.activeElement).toBe(trigger)
     escape()
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
     expect(onClose).not.toHaveBeenCalled()
@@ -145,6 +149,7 @@ describe('the task template manager, rendered', () => {
     const { updateTemplate } = manager()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     const trigger = document.querySelectorAll('.rb-tpl-deps')[0]
+    trigger.focus()
     fireEvent.click(trigger)
     const list = screen.getByRole('group', { name: 'Depends on' })
     fireEvent.click(within(list).getByRole('button', { name: /Texture/ }))
@@ -155,6 +160,19 @@ describe('the task template manager, rendered', () => {
     fireEvent.click(scrim)
     expect(screen.queryByRole('group', { name: 'Depends on' })).toBeNull()
     expect(screen.getAllByRole('dialog')).toHaveLength(2)
+  })
+
+  it('keyboard focus leaving the list and its trigger closes it (round two)', () => {
+    manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const trigger = document.querySelectorAll('.rb-tpl-deps')[0]
+    trigger.focus()
+    fireEvent.click(trigger)
+    const option = within(screen.getByRole('group', { name: 'Depends on' })).getAllByRole('button')[0]
+    fireEvent.blur(trigger, { relatedTarget: option })
+    expect(screen.getByRole('group', { name: 'Depends on' })).toBeTruthy()
+    fireEvent.blur(option, { relatedTarget: screen.getByRole('button', { name: 'Add task' }) })
+    expect(screen.queryByRole('group', { name: 'Depends on' })).toBeNull()
   })
 
   it("W2 in the editor: Escape in the description reverts it and the editor stays; the next closes the editor only", () => {

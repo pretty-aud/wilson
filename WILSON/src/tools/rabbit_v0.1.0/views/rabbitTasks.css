@@ -171,10 +171,10 @@
   /* The scroller insets the table so the checkbox sits on the gutter line
      the toolbar's first button starts on. */
   .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; }
-  /* 1080px of fixed columns + a 160px title: below this the table scrolls
+  /* 1054px of fixed columns + a 200px title: below this the table scrolls
      sideways instead of wrapping a date mid-token (V1-06). It fits a 1280
-     window; only Electron's 1024px floor scrolls. */
-  .rb-task-table { min-width: 1240px; }
+     window (1256px of scroller); only Electron's 1024px floor scrolls. */
+  .rb-task-table { min-width: 1254px; }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
   .rb-task-bulk {
@@ -215,7 +215,8 @@
      (it is a control; C1). Keyed by position — Bid is second from last,
      before the actions column — because the kit's `numeric` prop sets the
      attribute out of the scanner's sight. */
-  .rb-task-table-wrap .ui-table.rb-task-table .ui-th:nth-last-child(2) { padding-right: 27px; }
+  .rb-task-table-wrap .ui-table.rb-task-table .ui-th:nth-last-child(2),
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms > .ui-td:nth-last-child(2) { padding-right: 27px; }
 
   /* Hover. (0,3,0): the kit's selected row is (0,4,0) and wins. */
   .rb-task-row:hover > .ui-td,
@@ -269,9 +270,26 @@
   .rb-task-group-row > .ui-td { background-color: var(--color-paper-raised); }
   .rb-task-group-row:hover > .ui-td { background-color: var(--color-hover); }
   .rb-task-group-row[data-drag-over="true"] > .ui-td {
-    background-color: var(--color-signal-tint);
+    /* The tint laid over the page's own paper: the same colour at rest, and
+       OPAQUE when it sticks, so the rows it covers do not read through it
+       (the kit's sticky head rule, review R06; round two measured the
+       translucent tint letting a task row's text collide with the phase's). */
+    background-color: var(--color-paper);
+    background-image: linear-gradient(var(--color-signal-tint), var(--color-signal-tint));
     box-shadow: inset 0 0 0 1px var(--color-signal);
+    /* The mark stays in view while the group's header is scrolled away:
+       the header holds under the table's head for the drag (round two,
+       measured: a 16-row group dragged over near its end showed no mark). */
+    position: sticky;
+    top: var(--table-head);
+    z-index: 1;
   }
+  .rb-task-group-row:hover .rb-task-group-count,
+  .rb-task-group-row:hover .rb-task-phase-date,
+  .rb-task-group-row[data-drag-over="true"] .rb-task-group-count,
+  .rb-task-group-row[data-drag-over="true"] .rb-task-phase-date { color: var(--color-ink-2); }
+  .rb-task-group-row:hover .ui-input.rb-task-date-input[data-empty="true"],
+  .rb-task-group-row[data-drag-over="true"] .ui-input.rb-task-date-input[data-empty="true"] { color: var(--color-ink-2); }
   /* The chevron sits in the checkbox column; what follows it starts on the
      title line (12 + 36 + 12 = 60px), as the Dashboard's group rows do. */
   .rb-task-group-head { display: flex; align-items: center; gap: 16px; min-width: 0; }
@@ -290,9 +308,10 @@
     cursor: pointer;
   }
   .rb-task-group-body { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
-  /* The phase name keeps its own width and pushes its dates and count to the
-     row's right end, so they sit on the same x in every group. */
-  .rb-task-group-body > :first-child { margin-right: auto; }
+  /* The phase name is a fixed 240px slot, so its dates and count follow it
+     at one x in every group and stay on screen at 1024 (at the row's right
+     end they sat past the window's edge there; round two). */
+  .rb-task-group-body > :first-child { flex: 0 0 240px; }
   /* The editable name's text on the title line (the button pads itself 6px). */
   .rb-task-group-body > .rb-task-cell-text { margin-left: -6px; }
   .rb-task-group-label {
@@ -315,7 +334,7 @@
   .rb-task-phase-date { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; color: var(--color-ink-3); }
   .ui-input.rb-task-date-input { width: 132px; color-scheme: dark; font-variant-numeric: tabular-nums; }
   .ui-input.rb-task-date-input[data-empty="true"] { color: var(--color-ink-3); }
-  .ui-input.rb-task-phase-input { width: 200px; font-weight: 600; }
+  .ui-input.rb-task-phase-input { width: 240px; font-weight: 600; }
 
   /* A cell's text, at rest and as the button that opens its editor. */
   .rb-task-cell-text {
@@ -378,7 +397,8 @@
      the same rows. Five native carets on every row were most of the table's
      ink. A read-only row (every select disabled) shows none. */
   .rb-task-cell-editor { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; color: var(--color-ink-2); }
-  .rb-task-cell-editor > .rb-task-cell-select { appearance: none; padding-right: 20px; }
+  /* 16px holds the 5px caret drawn 8px in; 20 cost every select 4px of text. */
+  .rb-task-cell-editor > .rb-task-cell-select { appearance: none; padding-right: 16px; }
   .rb-task-cell-editor::after {
     content: "";
     position: absolute;
@@ -445,21 +465,32 @@
   .rb-task-ms-title { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 6px; }
   .rb-task-ms-name {
     min-width: 0;
+    padding: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
+    font-family: inherit;
+    font-size: inherit;
     font-weight: 600;
     color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
     cursor: pointer;
   }
   .rb-task-ms-date {
     padding: 0 6px;
+    font-family: inherit;
+    font-size: inherit;
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
     cursor: pointer;
   }
-  .rb-task-ms-name[data-bound="true"],
-  .rb-task-ms-date[data-bound="true"] { cursor: default; }
+  /* A project bound is not editable: a span, not a button. */
+  span.rb-task-ms-name,
+  span.rb-task-ms-date { cursor: default; }
   .rb-task-ms-name[data-empty="true"] { font-weight: 400; color: var(--color-ink-3); }
 
   /* ── The board ─────────────────────────────────────────────────────────── */
@@ -550,8 +581,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-family: var(--font-mono);
-    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-size: var(--text-caption);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
   }
@@ -764,11 +794,12 @@
   .rb-tpl-deps-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   .rb-tpl-deps-none { padding: 0 6px; }
   .rb-tpl-scrim { position: fixed; inset: 0; z-index: 79; }
+  /* Placed and capped by the picker itself (inside the window, above its
+     trigger when there is no room below). */
   .rb-task-menu.rb-tpl-deps-menu {
     position: fixed;
     right: auto;
     z-index: 80;
-    max-height: 180px;
     overflow-y: auto;
   }
   .rb-tpl-deps-days {

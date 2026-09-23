@@ -136,7 +136,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // its VideoPreview, a fixed overlay (one Escape closed the preview AND
   // this popup; before B2 Escape did nothing there), and its notes editor,
   // whose Escape cancels the note without stopping the key (W2: revert
-  // first, close on the second press). Round-one review, both.
+  // first, close on the second press). Round-one review, both. The notes
+  // editor is an <input type="text">: round one keyed on TEXTAREA from a
+  // mock, and in the desktop app the mark never fired (round two).
   const filesRef = useRef(null)
   function filesLayerOpen() {
     const col = filesRef.current
@@ -146,10 +148,14 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
     }
     return false
   }
+  const NOT_TYPING = ['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color', 'image']
   function markFilesEscape(e) {
-    // A textarea in the files column (FileManager's notes) has had its
+    // A text field in the files column (FileManager's notes) has had its
     // Escape: mark it handled so the Dialog stands down (K4's mark).
-    if (e.key === 'Escape' && e.target?.tagName === 'TEXTAREA') e.preventDefault()
+    const t = e.target
+    const typing = !!t && (t.tagName === 'TEXTAREA' || t.isContentEditable
+      || (t.tagName === 'INPUT' && !NOT_TYPING.includes(t.type)))
+    if (e.key === 'Escape' && typing) e.preventDefault()
   }
   function toggleCollapse(key) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
@@ -480,7 +486,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 onChange={e => { const n = parseFloat(e.target.value); handleUpdate({ bid_days: isNaN(n) ? null : n }) }}
                 className="ui-input rb-task-prop rb-task-prop-number"
                 data-empty={task.bid_days != null ? 'false' : 'true'}
-                placeholder="--" />
+                placeholder="—" />
             </Field>
             <Field
               label="Bid total"
@@ -492,8 +498,8 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <DollarSign className="rb-task-readout-icon" aria-hidden="true" />
                 {bidTotal != null
                   ? `${bidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : dayRate != null ? `${Number(dayRate).toLocaleString()}/day × --`
-                  : '--'}
+                  : dayRate != null ? `${Number(dayRate).toLocaleString()}/day × —`
+                  : '—'}
               </div>
             </Field>
             <Field label="Start date">

@@ -641,7 +641,7 @@ export default function ProjectTasksView() {
           aria-label="Group"
           className="ui-input rb-task-tool"
           data-size="sm"
-          data-active={(viewMode === 'kanban' ? kanbanGroup : groupBy) ? 'true' : 'false'}>
+          data-active={(viewMode === 'kanban' ? kanbanGroup !== 'status' : !!groupBy) ? 'true' : 'false'}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
@@ -858,7 +858,7 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
                   aria-label="Value" className="ui-input rb-task-tool" data-size="sm">
-                  <option value="">-- select --</option>
+                  <option value="">— select —</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
@@ -938,8 +938,8 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // The header and the cells share one grid, so the header labels sit over
 // their columns again: the flex version put rows 12px (24px when grouped)
 // right of their own headers (review R05). Widths are px for the columns
-// whose content has a known width (1080px with the checkbox) and the title
-// takes the rest, never less than 160px: below 1240px of table the view
+// whose content has a known width (1054px with the checkbox) and the title
+// takes the rest, never less than 200px: below 1254px of table the view
 // scrolls sideways (only at Electron's 1024px floor) rather than wrapping a
 // date mid-token (V1-06) or starving the title.
 function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
@@ -947,11 +947,11 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
     { key: 'title',       label: 'Title' },
     { key: 'status',      label: 'Status',   width: 148 },
     { key: 'priority',    label: 'Priority', width: 88 },
-    { key: 'asset_id',    label: 'Asset',    width: 148 },
-    { key: 'phase_id',    label: 'Phase',    width: 136 },
-    { key: 'assignee_id', label: 'Assignee', width: 132 },
-    { key: 'start_date',  label: 'Start',    width: 128 },
-    { key: 'end_date',    label: 'End',      width: 128 },
+    { key: 'asset_id',    label: 'Asset',    width: 150 },
+    { key: 'phase_id',    label: 'Phase',    width: 124 },
+    { key: 'assignee_id', label: 'Assignee', width: 124 },
+    { key: 'start_date',  label: 'Start',    width: 124 },
+    { key: 'end_date',    label: 'End',      width: 124 },
     { key: 'bid_days',    label: 'Bid',      width: 64, numeric: true },
     { key: '_actions',    label: '',         width: onHistoryClick ? 72 : 44 },
   ]
@@ -1406,15 +1406,21 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
                     data-size="sm"
                   />
                 ) : (
-                  <span
-                    className="rb-task-ms-name"
-                    data-bound={isProjectBound ? 'true' : 'false'}
-                    data-empty={milestone.title ? 'false' : 'true'}
-                    onClick={() => !isProjectBound && setEditTitle(true)}
-                    title={milestone.description || milestone.title}
-                  >
-                    {milestone.title || 'Untitled key date'}
-                  </span>
+                  isProjectBound ? (
+                    <span className="rb-task-ms-name" data-empty="false"
+                      title={milestone.description || milestone.title}>
+                      {milestone.title}
+                    </span>
+                  ) : (
+                    <button type="button"
+                      className="rb-task-ms-name"
+                      data-empty={milestone.title ? 'false' : 'true'}
+                      onClick={() => setEditTitle(true)}
+                      title={milestone.description || milestone.title}
+                    >
+                      {milestone.title || 'Untitled key date'}
+                    </button>
+                  )
                 )}
                 {isProjectBound && <Badge>Bound</Badge>}
               </span>
@@ -1435,13 +1441,13 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
                     data-size="sm"
                   />
                 ) : (
-                  <span
-                    className="rb-task-ms-date"
-                    data-bound={isProjectBound ? 'true' : 'false'}
-                    onClick={() => !isProjectBound && setEditDate(true)}
-                  >
-                    {showDate(milestone.date)}
-                  </span>
+                  isProjectBound ? (
+                    <span className="rb-task-ms-date">{showDate(milestone.date)}</span>
+                  ) : (
+                    <button type="button" className="rb-task-ms-date" onClick={() => setEditDate(true)}>
+                      {showDate(milestone.date)}
+                    </button>
+                  )
                 )
               ) : (
                 <span className="rb-task-none">—</span>
@@ -1594,7 +1600,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
           </HoverActions>
         )
       default:
-        return <span className="rb-task-none">{task[col.key] ?? '--'}</span>
+        return <span className="rb-task-none">{task[col.key] ?? '—'}</span>
     }
   }
 
@@ -1816,7 +1822,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
       {/* Date + bid */}
       {(task.start_date || task.bid_days != null) && (
         <div className="rb-task-card-figures">
-          {task.start_date && <span>{task.start_date}</span>}
+          {task.start_date && <span>{showDate(task.start_date)}</span>}
           {task.bid_days != null && <span>{task.bid_days}d</span>}
         </div>
       )}

@@ -307,13 +307,13 @@ describe('rabbitTasks.css writes no colour of its own, and paints no orange grou
 
 /* ── the state extraction holds ──────────────────────────────────────────── */
 /** Every `style={…}` these files may write: the key date's colour (data), the
-    GatedAction's gap, and the dependency list's position. Nothing else — a
+    GatedAction's gap, and the dependency list's measured place. Nothing else — a
     style that is not here is a state in some spelling B1's scanner does not
     know (arithmetic, a template literal, a custom property; round one, 5). */
 const STYLES_ALLOWED = [
   "{{ '--rb-ms': milestone.color }}",
   "{{ gap: 12, alignItems: 'center' }}",
-  '{{ left: at.x, top: at.y }}',
+  '{{ left: pos.left, top: pos.top, maxHeight: pos.maxHeight }}',
 ]
 export function stateLeaks(src) {
   const code = normal(jsCode(src))

@@ -15,7 +15,7 @@
 // - Law of Proximity — tight internal spacing
 // - Doherty Threshold — smooth 200ms transitions
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { menuOpened } from '../../ui/overlay'
 import { v4 as uuidv4 } from 'uuid'
 import {
@@ -458,7 +458,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
             onChange={e => onUpdate({ role_slug: e.target.value || '' })}
             className="rb-task-cell-select"
             data-empty={task.role_slug ? 'false' : 'true'}>
-            <option value="">--</option>
+            <option value="">—</option>
             {DEFAULT_ROLES.map(r => <option key={r} value={r}>{fmt(r)}</option>)}
           </select>
         </span>
@@ -512,28 +512,77 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
 // open for the next tick, as before. Escape closes the list and only the
 // list: it is marked handled, which is what the kit Dialog stands down on
 // (K4). Registered with overlay.js while open, as the kit Menu is.
+// Round two: it stays inside the window (above its trigger when there is no
+// room below, as the kit Menu clamps), it closes when keyboard focus leaves
+// it and its trigger, and closing it hands focus back to the trigger. Its
+// Escape acts only while focus is on the list or the trigger, so an Escape
+// meant for a field elsewhere is that field's.
 function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, readOnly = false }) {
+  // { left, top, bottom }: the trigger's box when the list opened.
   const [at, setAt] = useState(null)
+  const [place, setPlace] = useState(null)
+  const triggerRef = useRef(null)
+  const listRef = useRef(null)
+
+  function close(refocus) {
+    setAt(null)
+    setPlace(null)
+    if (refocus) triggerRef.current?.focus()
+  }
 
   useEffect(() => {
     if (!at) return undefined
     const unregister = menuOpened()
-    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); setAt(null) } }
+    const key = (e) => {
+      if (e.key !== 'Escape') return
+      const a = document.activeElement
+      const ours = a === triggerRef.current || listRef.current?.contains(a) || a === document.body
+      if (!ours) return
+      e.preventDefault()
+      close(true)
+    }
     document.addEventListener('keydown', key, true)
     return () => { document.removeEventListener('keydown', key, true); unregister() }
   }, [at])
 
+  // Below the trigger when it fits, above it when it does not, and never
+  // taller than the room there is.
+  useLayoutEffect(() => {
+    if (!at || !listRef.current) return
+    const h = listRef.current.offsetHeight
+    const room = window.innerHeight - 12
+    if (at.bottom + 4 + h <= room || at.top - 4 - h < 12) {
+      setPlace({ left: at.left, top: at.bottom + 4, maxHeight: Math.min(180, Math.max(96, room - at.bottom - 4)) })
+    } else {
+      setPlace({ left: at.left, top: at.top - 4 - h, maxHeight: Math.min(180, at.top - 16) })
+    }
+  }, [at])
+  // Where the list draws: placed once measured (before paint), provisionally
+  // under the trigger for that one measuring render.
+  const pos = place || (at ? { left: at.left, top: at.bottom + 4, maxHeight: 180 } : null)
+
+  function onBlurWithin(e) {
+    if (!at) return
+    const next = e.relatedTarget
+    if (!next) return
+    if (next === triggerRef.current || listRef.current?.contains(next)) return
+    close(false)
+  }
+
   if (availableDeps.length === 0) {
-    return <span className="rb-task-none rb-tpl-deps-none">--</span>
+    return <span className="rb-task-none rb-tpl-deps-none">—</span>
   }
 
   return (
     <>
       <button type="button" disabled={readOnly}
+        ref={triggerRef}
         aria-expanded={!!at}
+        onBlur={onBlurWithin}
         onClick={e => {
+          if (at) { close(false); return }
           const r = e.currentTarget.getBoundingClientRect()
-          setAt(at ? null : { x: r.left, y: r.bottom + 4 })
+          setAt({ left: r.left, top: r.top, bottom: r.bottom })
         }}
         className="rb-task-cell-text rb-tpl-deps"
         data-empty={currentDeps.length ? 'false' : 'true'}>
@@ -552,9 +601,10 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
 
       {at && (
         <>
-          <div className="rb-tpl-scrim" aria-hidden="true" onClick={() => setAt(null)} />
-          <div className="rb-task-menu rb-tpl-deps-menu" role="group" aria-label="Depends on"
-            style={{ left: at.x, top: at.y }}>
+          <div className="rb-tpl-scrim" aria-hidden="true" onClick={() => close(false)} />
+          <div ref={listRef} className="rb-task-menu rb-tpl-deps-menu" role="group" aria-label="Depends on"
+            onBlur={onBlurWithin}
+            style={{ left: pos.left, top: pos.top, maxHeight: pos.maxHeight }}>
             {availableDeps.map(dep => {
               const checked = currentDeps.includes(dep.id)
               return (
@@ -602,7 +652,7 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
             aria-label="Project"
             onChange={e => onUpdate({ project_id: e.target.value || null })}
             className="rb-task-cell-select">
-            <option value="">--</option>
+            <option value="">—</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
           </select>
         </span>
