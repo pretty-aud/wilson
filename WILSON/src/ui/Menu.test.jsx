@@ -56,24 +56,38 @@ describe('Menu', () => {
     expect(overlayOpen()).toBe(false)
   })
 
-  /* A2 review round 1, measured at 1440x900: a menu opened within ~172px of
-     the bottom edge kept its 160px minimum height but not its top, so it
-     ran off the window and its last items could never be reached. */
-  it('a menu opened near the bottom edge still ends inside the window', () => {
+  /* A2 review rounds 1 and 2, measured at 1440x900: the menu has to be
+     placed from its RENDERED height. jsdom lays nothing out, so the height
+     is stubbed per test. */
+  const withHeight = (h, fn) => {
+    const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return h } })
+    try { fn() } finally { Object.defineProperty(HTMLElement.prototype, 'offsetHeight', d) }
+  }
+  const topOf = () => parseInt(document.querySelector('.ui-menu').style.top, 10)
+
+  it('a menu that would run past the bottom edge starts higher, by its own height', () => {
     const vh = window.innerHeight
-    render(<Menu x={10} y={vh - 20} items={[{ label: 'A' }, { label: 'B' }]} onClose={() => {}} />)
-    const menu = document.querySelector('.ui-menu')
-    const top = parseInt(menu.style.top, 10)
-    const maxHeight = parseInt(menu.style.maxHeight, 10)
-    expect(top + maxHeight, 'the menu can reach below the window').toBeLessThanOrEqual(vh - 12)
-    expect(top).toBeGreaterThanOrEqual(0)
+    withHeight(200, () => {
+      render(<Menu x={10} y={vh - 20} items={[{ label: 'A' }, { label: 'B' }]} onClose={() => {}} />)
+      expect(topOf()).toBe(vh - 200 - 12)
+    })
   })
 
-  it('the control: a menu opened high keeps its pointer position and takes the room below it', () => {
+  it('a short menu that fits below the pointer stays at the pointer (the two-bin "Move to" in Bins)', () => {
     const vh = window.innerHeight
-    render(<Menu x={10} y={40} items={[{ label: 'A' }]} onClose={() => {}} />)
-    const menu = document.querySelector('.ui-menu')
-    expect(parseInt(menu.style.top, 10)).toBe(40)
-    expect(parseInt(menu.style.maxHeight, 10)).toBe(vh - 40 - 12)
+    withHeight(60, () => {
+      render(<Menu x={10} y={vh - 80} items={[{ label: 'A' }]} onClose={() => {}} />)
+      expect(topOf()).toBe(vh - 80)
+    })
+  })
+
+  it('a menu taller than the window takes the window and scrolls, from the top margin', () => {
+    const vh = window.innerHeight
+    withHeight(vh - 24, () => {
+      render(<Menu x={10} y={300} items={[{ label: 'A' }]} onClose={() => {}} />)
+      expect(topOf()).toBe(12)
+      expect(parseInt(document.querySelector('.ui-menu').style.maxHeight, 10)).toBe(vh - 24)
+    })
   })
 })
