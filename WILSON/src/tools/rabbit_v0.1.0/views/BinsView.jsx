@@ -819,7 +819,7 @@ export default function BinsView() {
                   <Btn small onClick={() => patchSelection({ review_flag: 'unflagged' })} title="Unflag (U)">Unflag</Btn>
                   <Btn small onClick={() => patchSelection({ circled: !selectedRows.every(r => r.circled) })} title="Circle (C)"><Circle className="w-3 h-3" style={{ color: C.accentText }} /> Circle</Btn>
                   <Btn small onClick={() => openAssign([...selection])} title={shots.length ? 'Assign the selection to a shot (A)' : 'Add shots on the Scenes tab first'} disabled={!shots.length}><Clapperboard className="w-3 h-3" style={{ color: C.accentText }} /> Assign to shot</Btn>
-                  <span className="inline-flex items-center gap-1 px-1">{COLORS.map(c => <ColorDot key={c} color={c} size={10} onClick={() => patchSelection({ color: c })} title={`Colour ${c}`} />)}<ColorDot color={null} size={10} onClick={() => patchSelection({ color: null })} title="No colour" /></span>
+                  <span className="inline-flex items-center gap-1 px-1">{COLORS.map((c, i) => <ColorDot key={c} color={c} size={10} onClick={() => patchSelection({ color: c })} title={`Colour ${c} (${i + 1})`} />)}<ColorDot color={null} size={10} onClick={() => patchSelection({ color: null })} title="No colour (0)" /></span>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Move to' }, ...binTargets().map(t => ({ label: t.label, Icon: FolderInput, ColorDot: t.color || undefined, onClick: () => moveIds([...selection], t.id) }))] })} disabled={bins.length < 2}><FolderInput className="w-3 h-3" /> Move to</Btn>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Copy to (as an instance)' }, ...binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds([...selection], t.id) }))] })}><Copy className="w-3 h-3" /> Copy to</Btn>
                   <Btn small danger onClick={() => removeIds([...selection])} title="Remove from bin (Delete)"><Trash2 className="w-3 h-3" /> Remove</Btn>
@@ -836,16 +836,11 @@ export default function BinsView() {
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} />
       </div>
 
-      {/* ── Footer hints ── */}
-      {/* Rabbit.jsx draws the adapter status dot at left 10 / bottom 18 (10px)
-          and the presence pill at left 26 / bottom 13, over whatever view is
-          open. The bar is tall enough to hold the dot and the keys start to
-          its right, so the light reads as part of the bar (Audrey, 2026-09-10). */}
-      <div className="flex items-center gap-3 pr-3 text-dense font-mono flex-shrink-0 flex-wrap"
-        style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep, minHeight: 34, paddingLeft: 30 }}>
-        <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>A</Kbd> assign to shot</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
-        <span className="ml-auto">{files.length} file{files.length === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{offlineAll.length ? ` · ${offlineAll.length} offline` : ''}</span>
-      </div>
+      {/* No footer bar (UI overhaul Q10, "no shortcut bar anywhere"). Its keys
+          are in Help → Shortcuts & Tips (rabbitHelpContent's BINS_SHORTCUTS)
+          and in the titles of the controls that act on a selection; its
+          project count is the bin tree's footer; the adapter dot and the
+          presence pill it made room for live in ProjectContextBar (B1). */}
 
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {addDlg && <AddFilesDialog bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }} />}

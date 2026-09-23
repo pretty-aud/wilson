@@ -88,8 +88,14 @@ export default function BinTree({
           />
         ))}
       </div>
-      <div className="px-3 py-2 text-caption flex-shrink-0" style={{ color: C.dimmer, borderTop: `1px solid ${C.line}` }}>
-        Drop files or folders on a bin. Drag a bin onto another to nest it.
+      <div className="px-3 py-2 flex-shrink-0 flex flex-col gap-1" style={{ borderTop: `1px solid ${C.line}` }}>
+        {/* The project count the footer bar used to carry (Q10 removed the bar, C1 keeps the readout). */}
+        <div className="text-caption tabular-nums" style={{ color: C.muted }} data-testid="bins-project-count">
+          {allCount} file{allCount === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{allOffline ? ` · ${allOffline} offline` : ''}
+        </div>
+        <div className="text-caption" style={{ color: C.dimmer }}>
+          Drop files or folders on a bin. Drag a bin onto another to nest it.
+        </div>
       </div>
     </div>
   )
