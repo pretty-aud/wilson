@@ -55,4 +55,25 @@ describe('Menu', () => {
     unmount()
     expect(overlayOpen()).toBe(false)
   })
+
+  /* A2 review round 1, measured at 1440x900: a menu opened within ~172px of
+     the bottom edge kept its 160px minimum height but not its top, so it
+     ran off the window and its last items could never be reached. */
+  it('a menu opened near the bottom edge still ends inside the window', () => {
+    const vh = window.innerHeight
+    render(<Menu x={10} y={vh - 20} items={[{ label: 'A' }, { label: 'B' }]} onClose={() => {}} />)
+    const menu = document.querySelector('.ui-menu')
+    const top = parseInt(menu.style.top, 10)
+    const maxHeight = parseInt(menu.style.maxHeight, 10)
+    expect(top + maxHeight, 'the menu can reach below the window').toBeLessThanOrEqual(vh - 12)
+    expect(top).toBeGreaterThanOrEqual(0)
+  })
+
+  it('the control: a menu opened high keeps its pointer position and takes the room below it', () => {
+    const vh = window.innerHeight
+    render(<Menu x={10} y={40} items={[{ label: 'A' }]} onClose={() => {}} />)
+    const menu = document.querySelector('.ui-menu')
+    expect(parseInt(menu.style.top, 10)).toBe(40)
+    expect(parseInt(menu.style.maxHeight, 10)).toBe(vh - 40 - 12)
+  })
 })
