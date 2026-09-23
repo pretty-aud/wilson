@@ -36,6 +36,7 @@
  *   node scripts/ui-page-check.mjs 5243 1280 700 --tabs
  */
 import { chromium } from '@playwright/test';
+import { pageCensus, selectedControl } from './ui-measure.mjs';
 
 const PORT = process.argv[2] || '5241';
 const BASE = `http://localhost:${PORT}`;
@@ -61,61 +62,7 @@ await sleep(12000);
 
 /** One measurement of whatever is on screen right now. */
 async function measure(label) {
-  const info = await page.evaluate(() => {
-    const seen = {};
-    let offScale = 0;
-    let clipped = 0;
-    /* 🚨 A CELL THAT CANNOT SHOW ITS OWN CONTENT (T2, 2026-09-22).
-       This script measured two things and neither was per-element, so the one
-       regression the type pass actually caused — 13px dates in an 80px column,
-       every row reading "Aug 19,…" — was invisible to it and had to be found
-       with a throwaway script. `clipped` counts elements whose text is wider
-       than their box and whose overflow is hidden: the ellipsis case.
-
-       🚨 AND THE FIRST DRAFT WAS BLIND TO HALF THE TABLE IT WAS ADDED FOR.
-       It reused the size census's filter, which skips any element with no
-       DIRECT text-node child — and a cell that wraps its text in a `<span>`
-       has none. Worse, the span itself is INLINE, so `clientWidth` and
-       `scrollWidth` are both 0 and it cannot report clipping either. Narrowing
-       `ProjectFilesTable`'s Kind column to 18px made all 32 rows truncate and
-       the number stayed at **0**: the instrument could not see the very column
-       it had been added to watch. So the clip test walks its own list, with no
-       text-node filter, and falls back to a `Range` when the box is inline.
-
-       ⚠️ IT IS NOT A PASS/FAIL NUMBER. A long file name in a Name column is
-       SUPPOSED to ellipsise. It is a number to COMPARE between runs: if a type
-       change makes it jump, something stopped fitting. */
-    const clips = (el, cs) => {
-      if (cs.overflowX === 'visible') return false;
-      if (el.clientWidth > 0) return el.scrollWidth > el.clientWidth + 1;
-      /* An inline box reports 0/0, so measure the text itself against the
-         nearest ancestor that actually has a width. */
-      const host = el.parentElement;
-      if (!host || host.clientWidth <= 0) return false;
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      return r.getBoundingClientRect().width > host.clientWidth + 1;
-    };
-
-    for (const el of document.querySelectorAll('*')) {
-      if (el.offsetParent === null && el.tagName !== 'BODY') continue;
-      if (!el.textContent || !el.textContent.trim()) continue;
-      const cs = getComputedStyle(el);
-      /* The clip test runs over EVERY visible element with text. The size
-         census below keeps its own filter, because a wrapper's computed
-         font-size is not a text node's. */
-      if (clips(el, cs)) clipped++;
-      if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
-      const px = Math.round(parseFloat(cs.fontSize) * 10) / 10;
-      seen[px] = (seen[px] || 0) + 1;
-      if (![11, 12, 13, 14, 16, 20].includes(px)) offScale++;
-    }
-    return {
-      sizes: seen, offScale, clipped,
-      measured: Object.values(seen).reduce((a, b) => a + b, 0),
-      overflow: document.documentElement.scrollWidth > window.innerWidth + 2,
-    };
-  });
+  const info = await page.evaluate(pageCensus);
   const sizes = Object.entries(info.sizes).sort((a, b) => b[1] - a[1]).slice(0, 6)
     .map(([px, n]) => `${px}px:${n}`).join('  ');
   /* 🚨 A FLOOR, AND AN EXIT CODE (round two). This script only PRINTED, so
@@ -166,7 +113,12 @@ if (WITH_TABS) {
     errors.length = 0;
     const ok = await clickButton(t);
     await sleep(3500);
-    await measure(`  ${t}${ok ? '' : ' (NOT OPENED)'}`);
+    /* V1: a click that lands is not a tab that opened — see
+       `selectedControl`. A tab that is not SELECTED after the wait is
+       measured and named as not opened, and fails the run. */
+    const shown = ok && await page.evaluate(selectedControl, t);
+    await measure(`  ${t}${shown ? '' : ' (NOT OPENED)'}`);
+    if (!shown) FAILED.push(`${t} (not opened)`);
   }
 }
 

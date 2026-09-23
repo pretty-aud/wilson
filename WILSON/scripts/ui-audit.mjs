@@ -87,6 +87,13 @@ export const PATTERNS = [
   ['font-medium',                    /\bfont-medium\b/g],
   ['fontWeight 500/700 (inline)',    /fontWeight\s*:\s*['"]?(?:500|700|bold)['"]?/g],
   ['border-2',                       /\bborder-2\b/g],
+  /* V1 (2026-09-23): the row above cannot see a border spelled one side at a
+     time, and D.O.G.'s output panel draws its whole frame that way — top,
+     left, right and bottom at 2px, while this table read `border-2: 0`. 37
+     in 4 files when added. Some are right: an active tab's 2px underline
+     (§4 Tabs) and a selected row's 2px edge (§3.2). So it is a census to
+     read, not a row that must reach zero. */
+  ['border-[side]-2 (one side)',     /\bborder-[tblrxy]-2\b/g],
   ['rounded-sm/md/lg/xl/2xl',        /\brounded-(?:sm|md|lg|xl|2xl)\b/g],
   /* Added by T0 after pass 3: the bare `rounded` is Tailwind's 4px, which
      §3.3 deletes along with 2, 5, 8 and 10. It was missing from the first
