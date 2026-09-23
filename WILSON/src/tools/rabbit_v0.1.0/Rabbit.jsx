@@ -57,6 +57,7 @@ import ExperiencesView from './views/ExperiencesView'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 import { subscribeNavigate } from './state/rabbitNavigate'
+import './rabbitShell.css'
 
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
@@ -180,8 +181,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
               type="button"
               onClick={() => setSettingsOpen(true)}
               title="RABBIT settings"
-              className="p-1.5 rounded-control transition-colors hover:bg-stone-700"
-              style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
+              className="rb-shell-iconbtn p-1.5 rounded-control transition-colors"
             >
               <SettingsIcon className="w-3.5 h-3.5" />
             </button>
@@ -189,8 +189,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
               type="button"
               onClick={() => setShowHelpModal(true)}
               title="Help & Documentation"
-              className="p-1.5 rounded-control transition-colors hover:bg-stone-700"
-              style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
+              className="rb-shell-iconbtn p-1.5 rounded-control transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />
             </button>
@@ -281,23 +280,21 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
 function AdapterStatusDot({ mode, status }) {
   const configured = !!mode
   const online = !!status?.online
-  const color = !configured ? '#57534e' : (online ? '#22c55e' : '#ef4444')
-  const glow  = !configured ? 'none'     : (online ? '0 0 6px rgba(34,197,94,0.7)' : '0 0 6px rgba(239,68,68,0.7)')
+  const state = !configured ? 'unconfigured' : (online ? 'online' : 'offline')
   const label = configured
     ? `${(mode || '').replace('_', ' ')} — ${online ? 'online' : 'offline'}`
     : 'adapter not configured'
   return (
     <div
       title={label}
-      className="absolute rounded-full pointer-events-auto"
+      className="rb-adapter-dot absolute rounded-full pointer-events-auto"
+      data-state={state}
       style={{
         left: 10,
         bottom: 18,
         width: 10,
         height: 10,
-        backgroundColor: color,
         border: '1px solid rgba(0,0,0,0.5)',
-        boxShadow: glow,
         zIndex: 50,
       }}
     />
@@ -322,10 +319,10 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
   }, [rosterMembers])
   if (!realtimeStatus || realtimeStatus === 'off') return null
   const pill = {
-    live:       { label: 'LIVE', color: '#fb923c' },
-    connecting: { label: 'SYNC', color: '#78716c' },
-    error:      { label: 'SYNC ERR', color: '#ef4444' },
-  }[realtimeStatus] || { label: realtimeStatus.toUpperCase(), color: '#78716c' }
+    live:       { label: 'LIVE' },
+    connecting: { label: 'SYNC' },
+    error:      { label: 'SYNC ERR' },
+  }[realtimeStatus] || { label: realtimeStatus.toUpperCase() }
   const list = Array.isArray(users) ? users : []
   const shown = list.slice(0, 5)
   const overflow = list.length - shown.length
@@ -337,13 +334,13 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
       style={{ left: 26, bottom: 13, zIndex: 50 }}
     >
       <span
-        className="text-label uppercase font-semibold px-1 py-px rounded-control"
+        className="rb-presence-pill text-label uppercase font-semibold px-1 py-px rounded-control"
+        data-status={realtimeStatus}
         title={realtimeStatus === 'live'
           ? 'Live sync connected — edits from teammates appear instantly'
           : realtimeStatus === 'error'
             ? 'Live sync error — changes still save; the view refreshes on reconnect'
             : 'Connecting live sync…'}
-        style={{ color: pill.color, border: `1px solid ${pill.color}`, opacity: 0.85 }}
       >
         {pill.label}
       </span>
