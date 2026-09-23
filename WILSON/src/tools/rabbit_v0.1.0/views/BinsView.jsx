@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, EmptyState, Kbd, Spinner, MediaTag, ColorDot } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -646,16 +646,13 @@ export default function BinsView() {
     <div className="h-full w-full flex flex-col" style={{ backgroundColor: C.bg }}>
       {/* ── Notice ── */}
       {(notice || loadError) && (
-        <div className="flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0"
-          style={{
-            borderBottom: `1px solid ${C.line}`,
-            color: (notice?.kind === 'error' || loadError) ? '#fca5a5' : notice?.kind === 'warn' ? C.amber : notice?.kind === 'ok' ? C.green : C.text,
-            backgroundColor: C.deep,
-          }}>
+        <div className="bn-notice flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0"
+          data-tone={(notice?.kind === 'error' || loadError) ? 'error' : notice?.kind === 'warn' ? 'warn' : notice?.kind === 'ok' ? 'ok' : undefined}
+          style={{ borderBottom: `1px solid ${C.line}`, backgroundColor: C.deep }}>
           {(notice?.kind === 'error' || loadError) ? <AlertTriangle className="w-3 h-3" /> : notice?.kind === 'ok' ? <Check className="w-3 h-3" /> : null}
           <span className="flex-1 truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
           {loadError && <Btn small onClick={load}>Retry</Btn>}
-          <button type="button" onClick={() => { setNotice(null); setLoadError(null) }} className="p-0.5" style={{ color: C.dim }}><X className="w-3 h-3" /></button>
+          <IconBtn Icon={X} title="Dismiss" onClick={() => { setNotice(null); setLoadError(null) }} />
         </div>
       )}
 
@@ -703,7 +700,7 @@ export default function BinsView() {
                 <Chip active={includeNested} onClick={() => setIncludeNested(v => !v)} title="Show files of nested bins too">nested</Chip>
               )}
               <div className="relative">
-                <Btn primary disabled={!canWrite} title={canWrite ? 'Add files or a folder' : writeReason || 'Read-only'}
+                <Btn primary small disabled={!canWrite} title={canWrite ? 'Add files or a folder' : writeReason || 'Read-only'}
                   onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom + 4, items: [
                     { label: 'Files…', Icon: FilePlus, onClick: () => pickFiles(currentBinId) },
                     { label: 'Folder… (subfolders become nested bins)', Icon: FolderPlus, onClick: () => pickFolder(currentBinId) },
@@ -714,8 +711,8 @@ export default function BinsView() {
                 </Btn>
               </div>
               <div className="flex items-center rounded-control" style={{ border: `1px solid ${C.line}` }}>
-                <IconBtn Icon={LayoutGrid} title="Frame view" active={view === 'grid'} onClick={() => setView('grid')} style={{ border: 'none' }} />
-                <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} style={{ border: 'none' }} />
+                <IconBtn Icon={LayoutGrid} title="Frame view" active={view === 'grid'} onClick={() => setView('grid')} />
+                <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} />
               </div>
               {view === 'grid' && (
                 <input type="range" min={120} max={360} step={20} value={tileWidth} onChange={e => setTileWidth(Number(e.target.value))} title="Tile size" className="w-20 accent-orange-600" />
@@ -723,16 +720,16 @@ export default function BinsView() {
               <IconBtn Icon={Filter} title="Filters" active={showFilters || filterCount > 0} onClick={() => setShowFilters(v => !v)} />
               <div className="relative">
                 <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
+                {/* A native field in the kit's input class, not the kit Input:
+                    Escape here CLEARS the search, where the kit Input's Escape
+                    reverts to the value at focus (C1: the key keeps its job). */}
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
-                  className="pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500 w-56"
-                  style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
+                  className="ui-input pl-6 pr-6 w-56" data-size="sm" aria-label="Search files"
                   onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() } e.stopPropagation() }} />
-                {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
+                {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
               </div>
-              <select value={sort.field} onChange={e => setSort(s => ({ ...s, field: e.target.value }))} title="Sort by"
-                className="py-1.5 px-2 text-dense rounded-control" style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}>
-                {SORT_FIELDS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-              </select>
+              <Select value={sort.field} onChange={v => v && setSort(s => ({ ...s, field: v }))} title="Sort by" aria-label="Sort by" className="!w-auto"
+                options={SORT_FIELDS.map(f => ({ value: f.id, label: f.label }))} />
               <IconBtn Icon={sort.dir === 'desc' ? ArrowDown : ArrowUp} title={sort.dir === 'desc' ? 'Descending' : 'Ascending'} onClick={() => setSort(s => ({ ...s, dir: s.dir === 'desc' ? 'asc' : 'desc' }))} />
             </div>
           </div>
@@ -753,7 +750,7 @@ export default function BinsView() {
               {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)} count={countWhere(f => f.shoot_day === d)}>{d}</Chip>)}
               {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)} count={countWhere(f => f.scene_id === s)}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
               {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)} count={countWhere(f => (f.tags || []).includes(t))}>#{t}</Chip>)}
-              {filterCount > 0 && <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-dense ml-2 hover:underline" style={{ color: C.accentText }}>clear {filterCount}</button>}
+              {filterCount > 0 && <Btn variant="ghost" small className="ml-2" onClick={() => setFilters(EMPTY_FILTERS)}>Clear {filterCount}</Btn>}
               {filterValues.types.length === 0 && <span className="text-dense" style={{ color: C.dimmer }}>Nothing to filter yet.</span>}
             </div>
           )}
@@ -824,7 +821,7 @@ export default function BinsView() {
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Copy to (as an instance)' }, ...binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds([...selection], t.id) }))] })}><Copy className="w-3 h-3" /> Copy to</Btn>
                   <Btn small danger onClick={() => removeIds([...selection])} title="Remove from bin (Delete)"><Trash2 className="w-3 h-3" /> Remove</Btn>
                 </>}
-                <button type="button" onClick={clearSelection} className="ml-auto text-dense hover:underline" style={{ color: C.dim }}>clear <Kbd>Esc</Kbd></button>
+                <Btn variant="ghost" small className="ml-auto" onClick={clearSelection}>Clear <Kbd>Esc</Kbd></Btn>
               </div>
             )}
           </div>
@@ -873,10 +870,9 @@ function RenameBar({ row, onCommit, onCancel }) {
     <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-control shadow-2xl" style={{ backgroundColor: C.panel, border: `1px solid ${C.accentBorder}` }}>
       <Edit3 className="w-3 h-3" style={{ color: C.accentText }} />
       <span className="text-label uppercase" style={{ color: C.dim }}>Rename</span>
-      <input autoFocus value={v} onChange={e => setV(e.target.value)}
+      <input autoFocus value={v} onChange={e => setV(e.target.value)} aria-label="New name"
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { const t = v.trim(); if (t) onCommit(t); else onCancel() } if (e.key === 'Escape') onCancel() }}
-        className="flex-1 px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-        style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.line}` }} />
+        className="ui-input flex-1" data-size="sm" />
       <span className="text-dense font-mono truncate" style={{ color: C.dimmer, maxWidth: 240 }}>{row.original_name}</span>
       <Btn small primary onClick={() => { const t = v.trim(); if (t) onCommit(t); else onCancel() }}>Save</Btn>
       <Btn small onClick={onCancel}>Cancel</Btn>

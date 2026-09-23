@@ -90,8 +90,9 @@ export default function ShotTakesPanel({
             const meta = TAKE_ROLE_META[take.role] || TAKE_ROLE_META.alt
             const isPrimary = take.role === 'primary'
             return (
-              <div key={take.id} className="flex items-start gap-2.5 px-2.5 py-2"
-                style={{ backgroundColor: isPrimary ? 'rgba(234,88,12,0.06)' : C.bg, borderBottom: i < list.length - 1 ? `1px solid ${C.faint}` : 'none', borderLeft: `3px solid ${meta.color}` }}>
+              <div key={take.id} className="bn-take-row flex items-start gap-2.5 px-2.5 py-2"
+                data-primary={isPrimary ? 'true' : undefined}
+                style={{ borderLeft: `3px solid ${meta.color}` }}>
                 <span className="text-dense font-mono tabular-nums pt-2 w-4 text-right flex-shrink-0" style={{ color: C.dimmer }}>{i + 1}</span>
                 <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={72} height={41} />
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
@@ -135,7 +136,7 @@ export default function ShotTakesPanel({
 export function ShotTakesDialog({ shot, scene, onClose, children, ...panelProps }) {
   const title = `Takes — ${shot?.name || 'Untitled shot'}`
   return (
-    <Modal title={title} subtitle={scene ? `${scene.name || 'Untitled scene'} · shot #${shot?.shot_number ?? '—'}` : `shot #${shot?.shot_number ?? '—'}`} onClose={onClose} width={720}
+    <Modal title={title} subtitle={scene ? `${scene.name || 'Untitled scene'} · shot #${shot?.shot_number ?? '—'}` : `shot #${shot?.shot_number ?? '—'}`} onClose={onClose} width="reading"
       footer={<Btn onClick={onClose}>Close</Btn>}>
       <ShotTakesPanel shot={shot} {...panelProps} />
       {children}

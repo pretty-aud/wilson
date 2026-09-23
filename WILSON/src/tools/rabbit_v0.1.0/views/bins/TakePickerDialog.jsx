@@ -41,7 +41,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
 
   let lastTier = -1
   return (
-    <Modal title={`Add takes to "${shot?.name || 'Untitled shot'}"`} onClose={onCancel} width={820} busy={busy}
+    <Modal title={`Add takes to "${shot?.name || 'Untitled shot'}"`} onClose={onCancel} width="workbench" busy={busy}
       subtitle={`${scene ? `${scene.name || 'Untitled scene'} · ` : ''}${(files || []).length} file${(files || []).length === 1 ? '' : 's'} in the bins · ${rows.length} shown · ${assigned.size} already assigned`}
       footer={<>
         <Select value={role} className="!w-auto" options={[{ value: 'auto', label: autoLabel }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
@@ -53,16 +53,15 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
         <div className="relative">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
           <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
-            className="pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500 w-64"
-            style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
+            className="ui-input pl-6 pr-6 w-64" data-size="sm" aria-label="Search files"
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
-          {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
+          {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
         </div>
         {sceneHasFiles && <Chip active={sameSceneOnly} onClick={() => setSameSceneOnly(v => !v)} title={sameSceneOnly ? `Only files logged to this shot or its scene — switch off to see the ${hiddenByScene} other${hiddenByScene === 1 ? '' : 's'} too` : 'Only files logged to this shot or its scene'} count={hiddenByScene || null}><Film className="w-3 h-3" /> same scene only{hiddenByScene ? ' · hiding' : ''}</Chip>}
         {typesPresent.map(t => <Chip key={t} active={types.has(t)} color={MEDIA_TYPE_META[t].color + 'cc'} onClick={() => setTypes(s => { const x = new Set(s); if (x.has(t)) x.delete(t); else x.add(t); return x })}>{MEDIA_TYPE_META[t].label}</Chip>)}
         <span className="ml-auto flex items-center gap-2">
-          <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }} onClick={pickAllShown}>Tick all shown</button>
-          <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }} onClick={() => setPicked(new Set())}>Untick all</button>
+          <Btn variant="ghost" small onClick={pickAllShown}>Tick all shown</Btn>
+          <Btn variant="ghost" small onClick={() => setPicked(new Set())}>Untick all</Btn>
         </span>
       </div>
 
@@ -80,8 +79,8 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
             const on = locked || picked.has(file.id)
             return (
               <div key={file.id}>
-                {header && <div className="px-3 py-1 text-label uppercase" style={{ color: tier === 0 ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
-                <label className="flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" style={{ borderBottom: `1px solid ${C.faint}`, backgroundColor: on && !locked ? 'rgba(234,88,12,0.12)' : 'transparent', opacity: locked ? 0.6 : file.online === false ? 0.75 : 1 }}>
+                {header && <div className="bn-group-head px-3 py-1 text-label uppercase" data-preferred={tier === 0 ? 'true' : undefined} style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
+                <label className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !locked ? 'true' : undefined} data-locked={locked ? 'true' : undefined} data-offline={file.online === false ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <input type="checkbox" className="accent-orange-600" checked={on} disabled={locked || busy} onChange={() => toggle(file.id)} />
                   <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={64} height={36} />
                   <div className="flex-1 min-w-0">

@@ -56,7 +56,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
   const totalShots = groups.reduce((n, g) => n + g.shots.length, 0)
 
   return (
-    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width={720} busy={busy} error={error}
+    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width="reading" busy={busy} error={error}
       subtitle={`${totalShots} shot${totalShots === 1 ? '' : 's'} across ${groups.filter(g => g.scene).length} scene${groups.filter(g => g.scene).length === 1 ? '' : 's'}${hiddenOmitted ? ` · ${hiddenOmitted} omitted shot${hiddenOmitted === 1 ? '' : 's'} hidden` : ''}`}
       footer={<>
         <Select value={role} className="!w-auto" options={[{ value: 'auto', label: 'Automatic — primary if the shot has none, else alt' }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
@@ -80,10 +80,9 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
         <div className="relative flex-1">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
           <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shots by name, number, scene or framing…"
-            className="w-full pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
+            className="ui-input pl-6 pr-6" data-size="sm" aria-label="Search shots"
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
-          {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
+          {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
         </div>
         <span className="text-dense" style={{ color: C.dimmer }}>tick several to use these takes in more than one shot · a shot's first take is always its primary</span>
       </div>
@@ -97,7 +96,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
           )}
           {shown.map(g => (
             <div key={g.key}>
-              <div className="flex items-center gap-2 px-3 py-1 text-label font-mono tabular-nums uppercase" style={{ color: g.key === preferSceneId ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+              <div className="bn-group-head flex items-center gap-2 px-3 py-1 text-label font-mono tabular-nums uppercase" data-preferred={g.key === preferSceneId ? 'true' : undefined} style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
                 <Film className="w-3 h-3" /> {g.scene ? `${g.scene.scene_number != null ? `Sc ${g.scene.scene_number} · ` : ''}${g.scene.name || 'Untitled scene'}` : 'Shots without a scene'}
                 {g.key === preferSceneId && <span className="normal-case tracking-normal" style={{ color: C.dim }}>· where these files are logged</span>}
               </div>
@@ -106,14 +105,14 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
                 const t = takesPerShot.get(shot.id)
                 const allIn = t && t.ofThese === nFiles
                 return (
-                  <label key={shot.id} className="flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" style={{ borderBottom: `1px solid ${C.faint}`, backgroundColor: on ? 'rgba(234,88,12,0.12)' : 'transparent', opacity: allIn ? 0.6 : 1 }}>
+                  <label key={shot.id} className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on ? 'true' : undefined} data-locked={allIn ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
                     <input type="checkbox" className="accent-orange-600" checked={on} disabled={busy || allIn} onChange={() => toggle(shot.id)} />
                     <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: C.dimmer }} />
                     <span className="w-8 text-dense font-mono tabular-nums text-right flex-shrink-0" style={{ color: C.dim }}>#{shot.shot_number ?? '—'}</span>
                     <span className="flex-1 min-w-0 truncate text-dense" style={{ color: C.bright }}>{shot.name || 'Untitled shot'}</span>
                     {shot.framing && <span className="text-label uppercase flex-shrink-0" style={{ color: C.dim }}>{shot.framing}</span>}
                     <span className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0" style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>{String(shot.status || 'not_started').replace(/_/g, ' ')}</span>
-                    <span className="w-36 text-right text-dense font-mono tabular-nums flex-shrink-0" style={{ color: t?.ofThese ? C.accentText : C.dimmer }}>
+                    <span className="bn-take-count w-36 text-right text-dense font-mono tabular-nums flex-shrink-0" data-assigned={t?.ofThese ? 'true' : undefined}>
                       {t ? `${t.total} take${t.total === 1 ? '' : 's'}${t.ofThese ? ` · ${allIn ? (nFiles === 1 ? 'already assigned' : 'all of these already') : `${t.ofThese} of these already`}` : ''}` : 'no takes yet'}
                     </span>
                   </label>

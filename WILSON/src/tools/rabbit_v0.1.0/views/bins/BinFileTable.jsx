@@ -50,8 +50,8 @@ export default function BinFileTable({
       <div className="sticky top-0 z-10 grid items-center px-2" style={{ gridTemplateColumns: template, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}`, minWidth: 'max-content' }}>
         {cols.map(c => (
           <button key={c.id} type="button" disabled={!c.sortable} onClick={() => c.sortable && onSort?.(c.id)}
-            className={`flex items-center gap-1 px-2 py-1.5 text-dense ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? 'hover:text-stone-200' : 'cursor-default'}`}
-            style={{ color: sort?.field === c.id ? C.accentText : C.dim }}>
+            data-sorted={sort?.field === c.id ? 'true' : undefined}
+            className={`bn-th flex items-center gap-1 px-2 py-1.5 text-dense ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? '' : 'cursor-default'}`}>
             {c.label}
             {sort?.field === c.id && (sort.dir === 'desc' ? <ArrowDown className="w-2.5 h-2.5" /> : <ArrowUp className="w-2.5 h-2.5" />)}
           </button>
@@ -106,10 +106,9 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
                   onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } if (e.key === 'Escape') { e.preventDefault(); onRenameEnd?.() } e.stopPropagation() }}
                   onBlur={commit}
-                  className="w-full px-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
+                  className="ui-input" data-size="sm" aria-label="File name" />
               ) : (
-                <div className="truncate text-dense" style={{ color: row.online === false ? C.dim : C.bright }} title={row.display_name}>{row.display_name || row.original_name}</div>
+                <div className="bn-trow-name truncate text-dense" title={row.display_name}>{row.display_name || row.original_name}</div>
               )}
               <div className="truncate text-dense" style={{ color: C.dimmer }} title={row.source_path}>{row.original_name}{row.is_sequence && row.frame_count ? ` · ${row.frame_count} frames` : ''}</div>
             </div>
@@ -145,14 +144,11 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
   return (
     <div ref={innerRef} role="row" aria-selected={selected} draggable={canWrite && !renaming} onDragStart={onDragStart}
       onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}
-      className="grid items-center px-2 cursor-default"
-      style={{
-        gridTemplateColumns: template, minWidth: 'max-content', minHeight: 34,
-        backgroundColor: selected ? 'rgba(234,88,12,0.16)' : 'transparent',
-        borderBottom: `1px solid ${C.faint}`,
-        boxShadow: current ? `inset 2px 0 0 ${C.accent}` : 'none',
-        opacity: row.online === false ? 0.75 : 1,
-      }}>
+      className="bn-trow grid items-center px-2 cursor-default"
+      data-selected={selected ? 'true' : undefined}
+      data-current={current ? 'true' : undefined}
+      data-offline={row.online === false ? 'true' : undefined}
+      style={{ gridTemplateColumns: template, minWidth: 'max-content', minHeight: 34 }}>
       {cols.map(c => (
         <div key={c.id} className={`px-2 py-1 text-dense font-mono min-w-0 ${c.align === 'right' ? 'text-right' : ''}`}>{cell(c.id)}</div>
       ))}

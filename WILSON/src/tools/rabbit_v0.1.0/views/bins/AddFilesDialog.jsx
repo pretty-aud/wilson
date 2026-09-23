@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Layers, FolderTree, Check } from 'lucide-react'
-import { C, Btn, Modal, Select, TextInput, MediaTag, Toggle, Spinner } from './binUi'
+import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Spinner } from './binUi'
 import { MEDIA_TYPES, MEDIA_TYPE_META, formatBytes } from '../../bins/binMedia'
 
 function suggestionText(s) {
@@ -72,7 +72,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   }
 
   return (
-    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width={860} busy={busy} error={error}
+    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width="workbench" busy={busy} error={error}
       subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
         {busy && progress && <span className="flex items-center gap-2 text-dense mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
@@ -86,25 +86,25 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
       )}
 
       <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Scene (all)</span>
-          <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Shoot day (all)</span>
-          <TextInput type="date" value={batch.shoot_day} onChange={v => setBatch(b => ({ ...b, shoot_day: v }))} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Camera (all)</span>
-          <TextInput value={batch.camera} onChange={v => setBatch(b => ({ ...b, camera: v.toUpperCase() }))} placeholder="A" maxLength={4} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Roll (all)</span>
-          <TextInput value={batch.roll} onChange={v => setBatch(b => ({ ...b, roll: v.toUpperCase() }))} placeholder="A001" /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Tags (all)</span>
-          <TextInput value={batch.tags} onChange={v => setBatch(b => ({ ...b, tags: v }))} placeholder="hero, b-roll" /></label>
+        <Field label="Scene (all)">
+          <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></Field>
+        <Field label="Shoot day (all)">
+          <TextInput type="date" value={batch.shoot_day} onChange={v => setBatch(b => ({ ...b, shoot_day: v }))} /></Field>
+        <Field label="Camera (all)">
+          <TextInput value={batch.camera} onChange={v => setBatch(b => ({ ...b, camera: v.toUpperCase() }))} placeholder="A" maxLength={4} /></Field>
+        <Field label="Roll (all)">
+          <TextInput value={batch.roll} onChange={v => setBatch(b => ({ ...b, roll: v.toUpperCase() }))} placeholder="A001" /></Field>
+        <Field label="Tags (all)">
+          <TextInput value={batch.tags} onChange={v => setBatch(b => ({ ...b, tags: v }))} placeholder="hero, b-roll" /></Field>
       </div>
       <div className="flex items-center gap-4 mb-2 flex-wrap">
         {anySub && <Toggle checked={createSubBins} onChange={setCreateSubBins} label="Folders become nested bins" />}
-        <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }}
-          onClick={() => setItems(list => list.map(it => ({ ...it, include: it.status === 'ok' })))}>Tick all</button>
-        <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }}
-          onClick={() => setItems(list => list.map(it => ({ ...it, include: false })))}>Untick all</button>
-        <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }}
-          onClick={() => setItems(list => list.map(it => ({ ...it, apply: !!it.suggestions && it.apply === false })))}>Toggle suggestions</button>
+        <Btn variant="ghost" small
+          onClick={() => setItems(list => list.map(it => ({ ...it, include: it.status === 'ok' })))}>Tick all</Btn>
+        <Btn variant="ghost" small
+          onClick={() => setItems(list => list.map(it => ({ ...it, include: false })))}>Untick all</Btn>
+        <Btn variant="ghost" small
+          onClick={() => setItems(list => list.map(it => ({ ...it, apply: !!it.suggestions && it.apply === false })))}>Toggle suggestions</Btn>
       </div>
 
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
@@ -121,11 +121,11 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
             const disabled = it.status !== 'ok'
             const sug = suggestionText(it.suggestions)
             return (
-              <div key={it.source_path} className="grid items-center px-2" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', borderBottom: `1px solid ${C.faint}`, opacity: disabled ? 0.5 : it.include ? 1 : 0.7, minHeight: 34 }}>
+              <div key={it.source_path} className="bn-add-row grid items-center px-2" data-disabled={disabled ? 'true' : undefined} data-included={it.include ? 'true' : undefined} style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', borderBottom: `1px solid ${C.faint}`, minHeight: 34 }}>
                 <input type="checkbox" checked={!!it.include} disabled={disabled} onChange={e => set(idx, { include: e.target.checked })} className="accent-orange-600" />
                 <div className="px-1 py-1 min-w-0">
                   <TextInput value={it.display_name} onChange={v => set(idx, { display_name: v })} disabled={disabled} className="!py-0.5" />
-                  <div className="truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" style={{ color: it.duplicate ? C.amber : C.dimmer }} title={it.source_path}>
+                  <div className="bn-add-meta truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" data-duplicate={it.duplicate ? 'true' : undefined} title={it.source_path}>
                     {it.kind === 'sequence' && <Layers className="w-2.5 h-2.5" />}
                     {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
                     {disabled && ' · missing on disk'}
@@ -140,7 +140,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                   {sug ? (
                     <label className="flex items-center gap-1.5 cursor-pointer min-w-0">
                       <input type="checkbox" checked={!!it.apply} disabled={disabled} onChange={e => set(idx, { apply: e.target.checked })} className="accent-orange-600" />
-                      <span className="truncate text-dense" style={{ color: it.apply ? C.accentText : C.dim }} title={sug}>{sug}</span>
+                      <span className="bn-add-sug truncate text-dense" data-apply={it.apply ? 'true' : undefined} title={sug}>{sug}</span>
                     </label>
                   ) : <span className="text-dense" style={{ color: C.dimmer }}>—</span>}
                 </div>

@@ -99,10 +99,9 @@ describe('every exported component has a caller, or is on the list', () => {
     Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
     Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
     Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
-    // Switch HAD a caller through binUi until Audrey ruled Bins back onto its
-    // own primitives until B6 (764f8f5). It is not a regression in the
-    // component; it is the six hand-rolled toggles still waiting for it.
-    Switch:       'D1 (Settings toggles) or B6 (binUi re-points at the kit)',
+    // Switch came off when B6 re-pointed binUi at the kit (2026-09-23): Bins'
+    // Toggle is the kit's Switch again, and AddFilesDialog's "Folders become
+    // nested bins" is its caller.
   }
 
   const root = resolve(here, '..')

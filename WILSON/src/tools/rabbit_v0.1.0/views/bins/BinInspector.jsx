@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
-import { C, Btn, IconBtn, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
+import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
@@ -251,13 +251,13 @@ export default function BinInspector({
   )
 }
 
+// A mark is a toggle carrying its own data colour: the kit's Chip, through
+// binUi's adapter (the colour as a tint and an edge, the ink unchanged).
 function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={`${label} (${hint})`}
-      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40"
-      style={{ color: active ? C.bright : C.muted, backgroundColor: active ? color : 'transparent', border: `1px solid ${active ? color : C.line}` }}>
+    <Chip active={active} onClick={onClick} disabled={disabled} color={color} title={`${label} (${hint})`}>
       <Icon className="w-3 h-3" /> {label}
-    </button>
+    </Chip>
   )
 }
 
