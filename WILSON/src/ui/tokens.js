@@ -290,10 +290,14 @@ export const EASE_RESPONSE = THEME['ease-response']
 // The values are the tokens above; the table objects are one definition so
 // Team Members, Users and Logs cannot drift apart again.
 //
-// ⚠️ LIGHT_TABLE_HEAD_CELL keeps `fontWeight: 700` for now. The type system
-// has two weights (400, 600) and Wave 1's codemod (T0) takes every 700 to
-// 600 app-wide in one reviewable diff; flipping this one alone would change
-// five table headers ahead of the rest. Recorded in the F1 hand-off.
+// LIGHT_TABLE_HEAD_CELL was left at `fontWeight: 700` by F1 so Wave 1's
+// codemod could move it with every other 700 in one diff. The codemod never
+// saw it — `src/ui/` is outside the audit's scope — so V1 (2026-09-23) moved
+// it to 600, the only emphasis weight §3.1 has. It was a no-op either way:
+// both faces are declared 400-600, so a 700 has always rendered as 600, and
+// V1 found NONE of the four LIGHT_TABLE_* objects below has a caller left
+// (Team Members, Users and Logs are on the kit's Table now). Their deletion
+// is filed for P1's §7 caller audit rather than done here.
 // =============================================================================
 export const LIGHT_INK = INK_LIGHT
 export const LIGHT_RULE = RULE_LIGHT
@@ -302,5 +306,5 @@ export const LIGHT_ACCENT = SIGNAL
 export const LIGHT_SURFACE_SOLID = SURFACE_LIGHT_SOLID
 export const LIGHT_TABLE_FRAME = Object.freeze({ border: `1px solid ${LIGHT_RULE}` })
 export const LIGHT_TABLE_HEAD_ROW = Object.freeze({ backgroundColor: LIGHT_WELL })
-export const LIGHT_TABLE_HEAD_CELL = Object.freeze({ color: LIGHT_INK, fontWeight: 700 })
+export const LIGHT_TABLE_HEAD_CELL = Object.freeze({ color: LIGHT_INK, fontWeight: 600 })
 export const LIGHT_TABLE_ROW_DIVIDER = Object.freeze({ borderBottom: `1px solid ${LIGHT_RULE}` })

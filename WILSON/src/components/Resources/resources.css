@@ -178,15 +178,19 @@
     white-space: nowrap;
   }
 
-  /* The sorted column carries weight, so the current sort is findable without
-     reading all seven headers (Files' Hick's hotspot #2). The kit already
-     reserves the sort slot at a fixed width, which is why the label no longer
-     shifts sideways at the one moment you are looking straight at it. */
-  /* T3: 700 → 600, and it is a no-op on screen. Both faces are declared
-     `@font-face { font-weight: 400 600 }`, so a 700 clamps to 600 and has
-     always RENDERED as 600 — the declaration asked for a weight this app
-     does not have. §3.1 has two weights; this is now one of them. */
-  .ui-table[data-files-table] .ui-th[aria-sort] .ui-th-label { font-weight: 600; color: var(--color-ink); }
+  /* The sorted column is findable without reading all seven headers (Files'
+     Hick's hotspot #2) because its label takes the FULL ink where the other
+     six sit at `ink-2`, beside the sort arrow in the kit's fixed-width slot —
+     which is also why the label no longer shifts sideways at the one moment
+     you are looking straight at it.
+
+     It is the INK, not the weight. This rule used to say "carries weight"
+     and set one, and it never could: `.ui-th` is the Label step, already 600,
+     and 600 is the heaviest face this app loads (T3 took the 700 down to 600
+     and noted it was a no-op). V1 (2026-09-23) measured the rendered Files
+     table — all seven labels at 600; the sorted one rgb(245,240,236), the
+     rest rgb(184,180,176) — and deleted the declaration that did nothing. */
+  .ui-table[data-files-table] .ui-th[aria-sort] .ui-th-label { color: var(--color-ink); }
 
   /* ── The Finder columns ────────────────────────────────────────────────
      Same tokens as the table: same row height, same cell inset, same hover

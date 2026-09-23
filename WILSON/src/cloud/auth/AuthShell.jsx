@@ -165,21 +165,30 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // the well to NewUserWelcome and missed the gate entirely (it was not in the
 // consumer list above); review round 2 caught it.
 //
-// Re-measured in the running app after the change, in the split phase, at five
-// viewport heights (Playwright, deviceScaleFactor 1):
+// Re-measured in the running app, in the split phase, at five viewport
+// heights (Playwright, deviceScaleFactor 1). V1 (2026-09-23) re-took this
+// table: the rows for 900, 700 and 500 had been measured against an earlier
+// draft's 480px constant and were never re-taken when it became 544 — the
+// prose above says 178px and 1046px, which is 544's arithmetic, while the
+// table said 210 and 110, which is 480's. The live numbers:
 //
 //   H=1300 → bar 312px, well 676px   the 24vh cap wins; nothing changed
-//   H=900  → bar 210px, well 480px   6px thinner than a flat 24vh
-//   H=700  → bar 110px, well 480px   the minimum window; 16.33px of headroom
-//   H=500  → bar  10px, well 480px   still the full content height
+//   H=900  → bar 178px, well 544px   38px thinner than a flat 24vh
+//   H=700  → bar  78px, well 544px   the minimum window; the tallest screen
+//                                    (529.19px) has 14.81px of headroom
+//   H=500  → bar   0px, well 500px   the bars are gone; a web window this
+//                                    short cannot hold the tallest screen
 //   H=420  → bar   0px, well 420px   clamped: the bars vanish rather than
-//                                    the declaration being dropped. 420px
-//                                    cannot hold a 463.67px screen and
-//                                    nothing can; this is the shell giving
-//                                    the content every pixel it has.
+//                                    the declaration being dropped — the
+//                                    shell giving the content every pixel
+//                                    it has.
 //
-// At 900 the bar is 6px thinner than a flat 24vh, which is imperceptible; at
-// 700 it is the difference between a screen that fits and one that clips.
+// At 900 the bar is 38px thinner than a flat 24vh — the visible proportion
+// change named above; at 700 it is the difference between a screen that fits
+// and one that clips. V1 also walked the three sign-in screens a browser can
+// reach (company, credentials, forgot password) at 1280x700: content 150,
+// 290 and 220px inside the 544px well, 127px clear of each bar at the
+// tallest, nothing over the orange (walkthrough 35, Audrey's W7).
 //
 // 🚨 Do NOT solve a future overflow by adding a second set of bars in a child
 // (Session 43 §A4). Change THIS expression, and re-measure the way the block

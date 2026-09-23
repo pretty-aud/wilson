@@ -392,7 +392,7 @@ export default function IntakePrepare({
                             {item.label}
                           </span>
                         </div>
-                        <span className="text-caption" style={{ color: '#57534e', marginTop: 3, display: 'block', lineHeight: 1.4 }}>
+                        <span className="text-caption" style={{ color: '#57534e', marginTop: 3, display: 'block' }}>
                           {disabled ? 'Enable scenes in project settings' : item.desc}
                         </span>
                       </div>

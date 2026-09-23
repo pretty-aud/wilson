@@ -1337,15 +1337,30 @@ describe('the inline half: every type value reads a token (T3)', () => {
      four are NOT on the scale at all —
 
        TimelineView.jsx:2493        lineHeight: 1     a tick label
-       IntakePrepare.jsx:176, 262   lineHeight: 1.6   prose
-       IntakePrepare.jsx:382        lineHeight: 1.7   prose
+       IntakePrepare.jsx:176, 293   lineHeight: 1.6   prose
+       IntakePrepare.jsx:413        lineHeight: 1.7   prose
 
      — so converting them would MOVE TEXT on a surface this bundle does not
      own, and §3.1's leadings run 1.2 to 1.5. Choosing 1.6 → Body is a design
      call for whoever holds R.A.B.B.I.T., not a token swap. Pinned so the
-     number can only fall, with every site named in T3's hand-off. */
-  const T2_LEADING_RESIDUE = 7;
-  it('R.A.B.B.I.T. declares no type in a style object, except seven leadings', () => {
+     number can only fall, with every site named in T3's hand-off.
+
+     V1 (2026-09-23): SIX, and the "three free swaps" were not alike. T3's
+     hand-off named :262 and :382; the lines had drifted to :293 and :413,
+     which is why the numbers above are corrected rather than trusted.
+
+       IntakePrepare.jsx:395 (was)  `text-caption` + 1.4 — Caption's OWN
+                                    leading, so the declaration restated the
+                                    step. Deleted; the four captions measured
+                                    16.8px leading and 16.80px boxes at the
+                                    same y before and after.
+       IntakePrepare.jsx:353, 364   `text-dense` + 1.5 — Body's leading on the
+                                    Dense step. A token read would only
+                                    SPELL the mismatch; the fix is either the
+                                    leading (1.45) or the step (Body, 14px),
+                                    and which one is lane B1's call. Filed. */
+  const T2_LEADING_RESIDUE = 6;
+  it('R.A.B.B.I.T. declares no type in a style object, except six leadings', () => {
     const spellings = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT, INLINE_CASE];
     const hits = spellings.flatMap((re) => sweep(re, ({ file }) => T2_LANE.test(file)));
     expect(hits, `inline type in T2's lane:\n${hits.join('\n')}`).toEqual([]);

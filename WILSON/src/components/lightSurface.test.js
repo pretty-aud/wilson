@@ -100,7 +100,9 @@ describe('the shared table treatment (§B3)', () => {
   it('carries emphasis with WEIGHT, not with a second colour', () => {
     // §B2: once everything is legible, the hierarchy that used to come from
     // "darker grey vs lighter grey" has to come from somewhere else.
-    expect(LIGHT_TABLE_HEAD_CELL.fontWeight).toBeGreaterThanOrEqual(600)
+    // 600 exactly (V1): §3.1 has two weights, and `>= 600` let a 700 sit
+    // here from F1 until V1, because 700 passed an assertion meant for 600.
+    expect(LIGHT_TABLE_HEAD_CELL.fontWeight).toBe(600)
   })
 
   it('the header is NOT a near-white card — that was the actual complaint', () => {
