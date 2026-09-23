@@ -288,8 +288,10 @@
   .rb-task-group-row:hover .rb-task-phase-date,
   .rb-task-group-row[data-drag-over="true"] .rb-task-group-count,
   .rb-task-group-row[data-drag-over="true"] .rb-task-phase-date { color: var(--color-ink-2); }
-  .rb-task-group-row:hover .ui-input.rb-task-date-input[data-empty="true"],
-  .rb-task-group-row[data-drag-over="true"] .ui-input.rb-task-date-input[data-empty="true"] { color: var(--color-ink-2); }
+  /* A disabled date (a read-only viewer's) is the kit's: it does not lift
+     as if it could be edited (round two's guard review). */
+  .rb-task-group-row:hover .ui-input.rb-task-date-input[data-empty="true"]:not(:disabled),
+  .rb-task-group-row[data-drag-over="true"] .ui-input.rb-task-date-input[data-empty="true"]:not(:disabled) { color: var(--color-ink-2); }
   /* The chevron sits in the checkbox column; what follows it starts on the
      title line (12 + 36 + 12 = 60px), as the Dashboard's group rows do. */
   .rb-task-group-head { display: flex; align-items: center; gap: 16px; min-width: 0; }
@@ -333,7 +335,7 @@
   }
   .rb-task-phase-date { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; color: var(--color-ink-3); }
   .ui-input.rb-task-date-input { width: 132px; color-scheme: dark; font-variant-numeric: tabular-nums; }
-  .ui-input.rb-task-date-input[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-task-date-input[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
   .ui-input.rb-task-phase-input { width: 240px; font-weight: 600; }
 
   /* A cell's text, at rest and as the button that opens its editor. */
@@ -455,13 +457,13 @@
 
   /* A key date: its diamond carries its own colour (data: the key date's
      colour, or success / danger for the project's bounds; warning without). */
-  .rb-task-ms-icon {
+  .rb-task-ms .rb-task-ms-icon {
     flex-shrink: 0;
     width: var(--icon-sm);
     height: var(--icon-sm);
     color: var(--rb-ms, var(--color-warning));
   }
-  .rb-task-ms-icon[data-filled="true"] { fill: var(--rb-ms, var(--color-warning)); }
+  .rb-task-ms .rb-task-ms-icon[data-filled="true"] { fill: var(--rb-ms, var(--color-warning)); }
   .rb-task-ms-title { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 6px; }
   .rb-task-ms-name {
     min-width: 0;
