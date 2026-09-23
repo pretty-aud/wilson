@@ -8,7 +8,29 @@
 //   • Project icon + title + status pill
 //   • A "switch project" dropdown listing every project in the
 //     workspace, with the active one marked
+//   • Two named slots, `presenceSlot` and `adapterSlot` (below)
 // Reads from RabbitProvider.
+//
+// ── The two named slots (Q10; B1, 2026-09-23) ───────────────────────────────
+// Audrey ruled "no shortcut bar anywhere" (Q10). The Bins footer bar goes in
+// B6, and the two things that sat on it — the storage adapter's status dot
+// and the realtime presence pill, both drawn by Rabbit.jsx as corner overlays
+// — dock HERE instead, so they sit on a surface on every view rather than
+// over content (V1-08).
+//
+//   presenceSlot  any node; rendered first. Rabbit.jsx passes the LIVE / SYNC
+//                 pill plus the avatars of who else has the project open. It
+//                 renders nothing while realtime is off (Local Server mode).
+//   adapterSlot   any node; rendered after presence, before Switch. Rabbit.jsx
+//                 passes the adapter dot (online / offline / unconfigured,
+//                 with its mode in the tooltip).
+//
+// Both render inside `[data-slot="status"]`, each in its own
+// `[data-slot="presence"]` / `[data-slot="adapter"]` wrapper. The wrappers
+// are `display: contents`, so an empty slot takes no room and adds no gap.
+// Omit both and the bar renders exactly as it did without them. The bar is
+// drawn on every view except Summary; on Summary Rabbit.jsx docks the same two
+// nodes at the tab bar's right end (see its comment).
 
 import { useState, useRef, useEffect } from 'react'
 import {
@@ -17,7 +39,7 @@ import {
 import { useRabbit } from '../state/RabbitProvider'
 import '../rabbitShell.css'
 
-export default function ProjectContextBar() {
+export default function ProjectContextBar({ presenceSlot = null, adapterSlot = null } = {}) {
   const ctx = useRabbit()
   const project = ctx?.project
   const projectsIndex = ctx?.projectsIndex || {}
@@ -68,6 +90,14 @@ export default function ProjectContextBar() {
           </span>
         )}
       </div>
+
+      {/* The two named slots (Q10): presence, then the adapter dot. */}
+      {(presenceSlot || adapterSlot) && (
+        <div className="flex items-center gap-2 flex-shrink-0" data-slot="status">
+          <span className="contents" data-slot="presence">{presenceSlot}</span>
+          <span className="contents" data-slot="adapter">{adapterSlot}</span>
+        </div>
+      )}
 
       {/* Switcher dropdown */}
       <div ref={wrapperRef} className="relative">
