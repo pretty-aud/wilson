@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { Panel, Card, Button, IconButton, Switch, EmptyState } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -3697,7 +3698,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
   }, [enableThemeGen, generatedThemes, deckVisualDesc, history, generateDeckVisualDesc]);
 
   return (
-    <div className="h-full bg-stone-900 text-stone-300 font-sans flex flex-col overflow-hidden" style={{ flex: 1 }}>
+    <div className="dog-root h-full flex flex-col overflow-hidden" style={{ flex: 1 }}>
       {/* The scrollbar stylesheet that used to be injected here (a global
           `::-webkit-scrollbar` plus a universal `* { scrollbar-color }`) now
           lives in src/index.css as `.wilson-dark-scroll`, applied by App.jsx
@@ -3706,102 +3707,61 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       {/* Header and nav strip are now managed by App.jsx container */}
 
       <div className="flex-1 flex min-h-0">
-        {/* Left Sidebar - Deck Outline */}
-        <aside className="w-56 flex-shrink-0 bg-stone-800 border-r border-stone-700 flex flex-col min-h-0">
-          <div className="bg-stone-700 text-orange-400 px-2 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <Layers className="w-3 h-3 text-orange-400" />
-              <span className="font-semibold uppercase text-label">Deck Outline</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={undoHistoryDelete}
-                disabled={historyUndoStack.length === 0}
-                className="dog-side-btn p-0.5 rounded-control transition-colors"
-                title="Undo delete"
-              >
-                <Undo2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={redoHistoryDelete}
-                disabled={historyRedoStack.length === 0}
-                className="dog-side-btn p-0.5 rounded-control transition-colors"
-                title="Redo delete"
-              >
-                <Redo2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setShowHistoryModal(true)}
-                className="p-0.5 hover:bg-stone-600 rounded-control transition-colors"
-                title="Import/Export History"
-              >
-                <FolderUp className="w-4 h-4 text-stone-400" />
-              </button>
-              {history.length > 0 ? (
-                <button
-                  onClick={clearHistory}
-                  className="p-0.5 hover:bg-stone-600 rounded-control transition-colors"
-                  title="Clear history"
+        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller).
+            md, not sm: the header has to hold a title and four 28px icon
+            buttons, and the main column gives back the 16px (C4 — see dog.css
+            `.dog-main`). */}
+        <Panel
+          width="md"
+          className="dog-sidebar"
+          title="Deck outline"
+          actions={
+            <>
+              <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
+              <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
+              <IconButton size="sm" icon={FolderUp} title="Import/Export History" onClick={() => setShowHistoryModal(true)} />
+              <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
+            </>
+          }
+        >
+          {sortedHistory.length === 0 ? (
+            <EmptyState icon={FileText} title="No pages yet" compact className="dog-sidebar-empty" />
+          ) : (
+            <div className="dog-history">
+              {sortedHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className="dog-history-row" data-open={openTabs.some(t => t.id === item.id)}
                 >
-                  <Trash2 className="w-4 h-4 text-stone-400" />
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="p-0.5 rounded-control transition-colors text-stone-600 cursor-not-allowed"
-                  title="Clear history"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto">
-            {sortedHistory.length === 0 ? (
-              <div className="p-2 text-center text-stone-500 text-caption">
-                <div className="w-10 h-10 mx-auto mb-2 bg-stone-700 rounded-full flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-stone-500" />
-                </div>
-                <p>No pages yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-stone-700">
-                {sortedHistory.map((item) => (
-                  <div
-                    key={item.id}
-                    className="dog-history-row relative group" data-open={openTabs.some(t => t.id === item.id)}
+                  <button
+                    type="button"
+                    onClick={() => openFromHistory(item)}
+                    className="dog-history-open"
                   >
-                    <button
-                      onClick={() => openFromHistory(item)}
-                      className="w-full p-2 text-left hover:bg-stone-700 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-dense font-mono text-orange-400 font-semibold">#{item.pageNum}</span>
-                        <span className="text-caption text-stone-500 group-hover:opacity-0 transition-opacity">{item.timestamp}</span>
-                      </div>
-                      <p className="text-dense text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
-                        {item.title}
-                      </p>
-                      <p className="text-dense text-stone-500 mt-0.5">{item.layout}</p>
-                    </button>
-                    {/* Delete button - appears on hover */}
-                    <button
-                      onClick={(e) => removeHistoryItem(item.id, e)}
-                      className="absolute top-2 right-2 p-1 bg-stone-600 hover:bg-red-600 rounded-control opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Remove from outline"
-                    >
-                      <X className="w-3 h-3 text-stone-300" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
+                    <span className="dog-history-meta">
+                      <span className="dog-history-num">#{item.pageNum}</span>
+                      <span className="dog-history-time">{item.timestamp}</span>
+                    </span>
+                    <span className="dog-history-title">{item.title}</span>
+                    <span className="dog-history-layout">{item.layout}</span>
+                  </button>
+                  {/* Delete — revealed on hover (and now on keyboard focus) */}
+                  <IconButton
+                    size="sm"
+                    icon={X}
+                    title="Remove from outline"
+                    danger
+                    className="dog-history-remove"
+                    onClick={(e) => removeHistoryItem(item.id, e)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
 
         {/* Main Content */}
-        <main className="flex-1 min-h-0 p-4 space-y-4 overflow-y-auto bg-stone-900">
+        <main className="dog-main flex-1 min-h-0 overflow-y-auto">
           {error && (
             <div className="p-3 bg-red-900/50 border border-red-600 rounded-control text-red-300 text-body">
               {error}
@@ -3825,68 +3785,67 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           )}
 
           {/* Section 1: Document & Context Input */}
-          <section className="bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div 
-              className="bg-stone-700 text-orange-400 px-3 py-2 border-b border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
+          <Card pad={false} className="dog-card">
+            <header
+              className="ui-panel-head dog-card-head"
+              data-collapsible="true"
+              data-collapsed={section1Collapsed}
               onClick={() => setSection1Collapsed(!section1Collapsed)}
             >
-              <h2 className="font-semibold flex items-center justify-between text-h3">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-dense">1</span>
-                  Project Documentation & Deck Context
-                </div>
-                {section1Collapsed ? (
-                  <ChevronRight className="w-5 h-5 text-orange-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-orange-400" />
-                )}
+              <h2 className="ui-panel-title dog-card-title">
+                <span className="dog-step">1</span>
+                Project documentation & deck context
               </h2>
-            </div>
+              <div className="ui-panel-actions">
+                {section1Collapsed ? (
+                  <ChevronRight className="dog-chevron" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="dog-chevron" aria-hidden="true" />
+                )}
+              </div>
+            </header>
 
             {!section1Collapsed && (
-            <div className="p-4 space-y-3">
+            <div className="dog-card-body">
               {/* Project Selection */}
               <div>
-                <label className="block text-label font-semibold text-orange-400 mb-0.5 uppercase">
+                <label className="ui-field-label dog-field-label">
                   Project
                 </label>
-                <p className="text-dense text-stone-500 mb-1.5">Link a project to include its documents and assets in generation</p>
+                <p className="ui-field-hint dog-field-hint">Link a project to include its documents and assets in generation</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
                       value={selectedProjectId}
                       onChange={(e) => { setSelectedProjectId(e.target.value); refreshProjects(); }}
                       onFocus={refreshProjects}
-                      className="dog-project-select w-full px-3 py-1.5 text-dense bg-stone-900 border border-stone-600 rounded-control focus:border-orange-500 transition-colors appearance-none cursor-pointer" data-empty={!selectedProjectId}
+                      className="ui-input dog-select dog-project-select" data-size="md" data-surface="dark" data-empty={!selectedProjectId}
                     >
-                      <option value="" className="text-orange-400">No project selected</option>
+                      <option value="">No project selected</option>
                       {projects.map(p => (
-                        <option key={p.id} value={p.id} className="text-stone-300">{p.title}</option>
+                        <option key={p.id} value={p.id}>{p.title}</option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
+                    <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
-                  <button
-                    onClick={() => setShowNewProjectModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border border-stone-600 rounded-control text-dense text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-colors"
-                  >
-                    <Plus className="w-3 h-3" />
-                    New Project
-                  </button>
+                  <Button variant="secondary" onClick={() => setShowNewProjectModal(true)}>
+                    <Plus aria-hidden="true" />
+                    New project
+                  </Button>
                 </div>
                 {selectedProject && (
-                  <div className="mt-1.5 px-2 py-1.5 bg-stone-900/50 rounded-control border border-stone-700">
+                  <div className="dog-project-details">
                     {selectedProject.description && (
-                      <p className="text-dense text-stone-400 mb-0.5">{selectedProject.description}</p>
+                      <p className="dog-details-desc">{selectedProject.description}</p>
                     )}
                     {cloudProjects ? (
-                      <p className="text-dense text-stone-500 mb-1.5">
+                      <p className="dog-details-note">
                         Cloud project — the title and description above feed generation.
                         File attachments on cloud projects arrive with the storage work;
                         until then, upload files below to include them.
                       </p>
                     ) : (
-                    <p className="text-dense text-stone-500 mb-1.5">
+                    <p className="dog-details-note">
                       {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
                       {' · '}
                       {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
@@ -3897,8 +3856,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                         actually define the project concept vs. which are just
                         supporting reference. Click a tag to flip it. */}
                     {((selectedProject.documents || []).length + (selectedProject.visualAssets || []).length) > 0 && (
-                      <div className="border-t border-stone-700 pt-1.5">
-                        <p className="text-label uppercase text-stone-500 mb-1">
+                      <div className="dog-roles">
+                        <p className="ui-field-label dog-roles-label">
                           File roles · click to toggle
                         </p>
                         <div className="space-y-0.5">
@@ -3915,7 +3874,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 >
                                   {isCore ? 'Core' : 'Ref'}
                                 </button>
-                                <span className="text-dense text-stone-400 truncate flex-1">{doc.name}</span>
+                                <span className="dog-role-name">{doc.name}</span>
                               </div>
                             );
                           })}
@@ -3932,7 +3891,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 >
                                   {isCore ? 'Core' : 'Ref'}
                                 </button>
-                                <span className="text-dense text-stone-400 truncate flex-1">{asset.name}</span>
+                                <span className="dog-role-name">{asset.name}</span>
                               </div>
                             );
                           })}
@@ -3947,20 +3906,20 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="flex items-start gap-8">
                 {/* File Upload - Multiple files support */}
                 <div className="flex-1">
-                  <label className="block text-label font-semibold text-orange-400 mb-0.5 uppercase">
+                  <label className="ui-field-label dog-field-label">
                     Upload Documents
                   </label>
-                  <p className="text-dense text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
+                  <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
                   
                   {uploadedFiles.length === 0 ? (
-                    <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-stone-700 border border-stone-600 rounded-control cursor-pointer hover:border-orange-500 hover:bg-stone-600 transition-colors">
+                    <label className="ui-btn dog-upload" data-variant="secondary" data-size="md" data-surface="dark">
                       {isFileLoading ? (
-                        <Loader2 className="w-4 h-4 text-orange-500 animate-spin" />
+                        <Loader2 className="animate-spin" aria-hidden="true" />
                       ) : (
-                        <Upload className="w-4 h-4 text-orange-400" />
+                        <Upload aria-hidden="true" />
                       )}
-                      <span className="text-dense text-orange-400">Choose file</span>
-                      <span className="text-caption text-stone-500">(PDF, MD, TXT, Images)</span>
+                      <span>Choose file</span>
+                      <span className="dog-upload-hint">(PDF, MD, TXT, images)</span>
                       <input
                         type="file"
                         className="hidden"
@@ -3977,27 +3936,22 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                             const globalIndex = colIdx * 5 + index;
                             const isLast = globalIndex === uploadedFiles.length - 1;
                             return (
-                              <div key={fileData.id} className="flex items-center gap-2 px-2 py-1.5 bg-stone-700 rounded-control border border-stone-600 w-72 h-8">
+                              <div key={fileData.id} className="dog-file-chip">
                                 {fileData.type === 'image' ? (
-                                  <Image className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                                  <Image className="dog-file-icon" aria-hidden="true" />
                                 ) : (
-                                  <FileText className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                                  <FileText className="dog-file-icon" aria-hidden="true" />
                                 )}
-                                <span className="text-dense text-stone-300 flex-1 truncate">{fileData.file.name}</span>
-                                <span className="text-caption text-stone-500 flex-shrink-0">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
-                                <button
-                                  onClick={() => removeFile(fileData.id)}
-                                  className="p-0.5 hover:bg-stone-600 rounded-control transition-colors flex-shrink-0"
-                                >
-                                  <X className="w-3 h-3 text-stone-400" />
-                                </button>
+                                <span className="dog-file-name">{fileData.file.name}</span>
+                                <span className="dog-file-size">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
+                                <IconButton size="sm" icon={X} title="Remove file" onClick={() => removeFile(fileData.id)} />
                                 {/* Add button on last file if under limit */}
                                 {isLast && uploadedFiles.length < 20 && (
-                                  <label className="p-0.5 hover:bg-stone-600 rounded-control transition-colors flex-shrink-0 cursor-pointer">
+                                  <label className="ui-iconbtn" data-size="sm" data-surface="dark" title="Add file">
                                     {isFileLoading ? (
-                                      <Loader2 className="w-3 h-3 text-orange-400 animate-spin" />
+                                      <Loader2 className="animate-spin" aria-hidden="true" />
                                     ) : (
-                                      <Plus className="w-3 h-3 text-orange-400" />
+                                      <Plus aria-hidden="true" />
                                     )}
                                     <input
                                       type="file"
@@ -4021,65 +3975,58 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div>
                 <div className="flex items-center justify-between mb-0.5">
                   <div className="flex items-center gap-3">
-                    <label className="block text-label font-semibold text-orange-400 uppercase">
+                    <label className="ui-field-label">
                       Deck Context & Guidelines
                     </label>
                     {/* Theme Generator Checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setEnableThemeGen(!enableThemeGen)}
-                        className="dog-check w-3.5 h-3.5 rounded-control border bg-stone-700 flex items-center justify-center transition-colors" data-checked={enableThemeGen}
+                        className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme Generator"
                       >
-                        {enableThemeGen && <Check className="w-2.5 h-2.5 text-orange-400" />}
+                        {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="text-label text-stone-400 uppercase">Theme Generator</span>
+                      <span className="dog-check-label">Theme Generator</span>
                     </div>
                     {/* Use Uploaded Assets Checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                        className="dog-check w-3.5 h-3.5 rounded-control border bg-stone-700 flex items-center justify-center transition-colors" data-checked={useUploadedAssets}
+                        className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use Uploaded Assets"
                       >
-                        {useUploadedAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
+                        {useUploadedAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="text-label text-stone-400 uppercase">Use Uploaded Assets</span>
+                      <span className="dog-check-label">Use Uploaded Assets</span>
                     </div>
                     {/* Use Project Assets Checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseProjectAssets(!useProjectAssets)}
-                        className="dog-check w-3.5 h-3.5 rounded-control border bg-stone-700 flex items-center justify-center transition-colors" data-checked={useProjectAssets}
+                        className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use Project Assets"
                       >
-                        {useProjectAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
+                        {useProjectAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="text-label text-stone-400 uppercase">Use Project Assets</span>
+                      <span className="dog-check-label">Use Project Assets</span>
                     </div>
                   </div>
                   {/* Full Deck Toggle */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        const newMode = !fullDeckMode;
-                        setFullDeckMode(newMode);
-                        // Auto-collapse section 2 when enabling full deck, expand when disabling
-                        if (newMode) {
-                          setSection2Collapsed(true);
-                        } else {
-                          setSection2Collapsed(false);
-                        }
-                      }}
-                      className="dog-switch relative w-11 h-6 rounded-full transition-colors" data-on={fullDeckMode}
-                    >
-                      <span 
-                        className="dog-switch-knob absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform"
-                      />
-                    </button>
-                    <span className="text-label font-semibold text-orange-400 uppercase">Full Deck</span>
-                  </div>
+                  <Switch
+                    checked={fullDeckMode}
+                    label="Full deck"
+                    onChange={(newMode) => {
+                      setFullDeckMode(newMode);
+                      // Auto-collapse section 2 when enabling full deck, expand when disabling
+                      if (newMode) {
+                        setSection2Collapsed(true);
+                      } else {
+                        setSection2Collapsed(false);
+                      }
+                    }}
+                  />
                 </div>
-                <p className="text-dense text-stone-500 mb-1.5">
+                <p className="ui-field-hint dog-field-hint">
                   Set the overall tone, style, and objectives for the deck
-                  {fullDeckMode && <span className="text-orange-400"> • Include desired page count</span>}
+                  {fullDeckMode && <span className="dog-hint-emph"> • Include desired page count</span>}
                 </p>
                 <textarea
                   value={systemPrompt}
@@ -4095,81 +4042,84 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     }
                   }}
                   placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
-                  className="dog-context-prompt w-full px-3 py-2 bg-stone-900 border border-stone-600 rounded-control text-stone-300 placeholder-stone-500 focus:border-orange-500 resize-none text-body transition-colors duration-200" data-focused={systemPromptFocused}
+                  className="ui-input dog-context-prompt" data-surface="dark" data-focused={systemPromptFocused}
                 />
               </div>
 
               {/* Generate Full Deck Button - Only visible in Full Deck Mode */}
               {fullDeckMode && (
-                <button
+                <Button
+                  variant="primary"
+                  className="dog-generate"
                   onClick={generateFullDeck}
                   disabled={isGenerating || !hasFileContent}
-                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
                 >
                   {isGenerating ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating Full Deck...
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                      Generating full deck...
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate Full Deck Outline
+                      <Sparkles aria-hidden="true" />
+                      Generate full deck outline
                     </>
                   )}
-                </button>
+                </Button>
               )}
             </div>
             )}
-          </section>
+          </Card>
 
           {/* Section 2: Page Generation */}
-          <section className="dog-s2 bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]" data-full-deck={fullDeckMode}>
-            <div 
-              className="dog-s2-head px-3 py-2 border-b border-stone-600 transition-colors"
+          <Card pad={false} className="dog-card dog-s2" data-full-deck={fullDeckMode}>
+            <header
+              className="ui-panel-head dog-card-head"
+              data-collapsible={!fullDeckMode}
+              data-collapsed={section2Collapsed || fullDeckMode}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
             >
-              <h2 className="font-semibold flex items-center justify-between text-h3">
-                <div className="dog-s2-accent flex items-center gap-2">
-                  <span className="dog-s2-step w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-dense">2</span>
-                  Generate Page Outline
-                  {fullDeckMode && <span className="text-dense font-normal normal-case ml-2">(Disabled in Full Deck mode)</span>}
-                </div>
-                {(section2Collapsed || fullDeckMode) ? (
-                  <ChevronRight className="dog-s2-accent w-5 h-5" />
-                ) : (
-                  <ChevronDown className="dog-s2-accent w-5 h-5" />
-                )}
+              <h2 className="ui-panel-title dog-card-title">
+                <span className="dog-step">2</span>
+                Generate page outline
+                {fullDeckMode && <span className="dog-card-note">(Disabled in full deck mode)</span>}
               </h2>
-            </div>
+              <div className="ui-panel-actions">
+                {(section2Collapsed || fullDeckMode) ? (
+                  <ChevronRight className="dog-chevron" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="dog-chevron" aria-hidden="true" />
+                )}
+              </div>
+            </header>
 
             {!section2Collapsed && !fullDeckMode && (
-            <div className="p-4 space-y-3">
-              <div className="flex gap-4">
+            <div className="dog-card-body">
+              <div className="dog-field-row">
                 {/* Layout Dropdown */}
                 <div>
-                  <label className="dog-s2-accent block text-label font-semibold mb-0.5 uppercase">
+                  <label className="ui-field-label dog-field-label">
                     Slide Layout Type
                   </label>
-                  <p className="text-dense text-stone-500 mb-1.5">Choose how content will be arranged on the slide</p>
-                  <div className="relative w-56">
+                  <p className="ui-field-hint dog-field-hint">Choose how content will be arranged on the slide</p>
+                  <div className="dog-layout-select">
                     <select
                       value={selectedLayout}
                       onChange={(e) => setSelectedLayout(e.target.value)}
                       disabled={fullDeckMode}
-                      className="dog-s2-select w-full px-3 py-2 border rounded-control appearance-none text-body"
+                      className="ui-input dog-select" data-size="md" data-surface="dark"
                     >
-                      <option value="" className="text-orange-400">Select layout...</option>
+                      <option value="">Select layout...</option>
                       {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id} className="text-stone-300">
+                        <option key={layout.id} value={layout.id}>
                           {layout.name}
                         </option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
+                    <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
                   {selectedLayout && !fullDeckMode && (
-                    <p className="mt-1 text-dense text-stone-500 italic">
+                    <p className="ui-field-hint dog-layout-desc">
                       {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
                     </p>
                   )}
@@ -4177,27 +4127,27 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                 {/* Page Number */}
                 <div>
-                  <label className="dog-s2-accent block text-label font-semibold mb-0.5 uppercase">
+                  <label className="ui-field-label dog-field-label">
                     Page #
                   </label>
-                  <p className="text-dense text-stone-500 mb-1.5">Single number or range (e.g. 3-7)</p>
+                  <p className="ui-field-hint dog-field-hint">Single number or range (e.g. 3-7)</p>
                   <input
                     type="text"
                     value={pageNumber}
                     onChange={(e) => setPageNumber(e.target.value)}
                     disabled={fullDeckMode}
                     placeholder="5 or 1-10"
-                    className="dog-s2-input w-24 px-3 py-2 border rounded-control placeholder-stone-500 text-body"
+                    className="ui-input dog-page-number" data-size="md" data-surface="dark"
                   />
                 </div>
               </div>
 
               {/* Page Request Prompt - Full Width */}
               <div>
-                <label className="dog-s2-accent block text-label font-semibold mb-0.5 uppercase">
+                <label className="ui-field-label dog-field-label">
                   Page Request
                 </label>
-                <p className="text-dense text-stone-500 mb-1.5">
+                <p className="ui-field-hint dog-field-hint">
                   Describe the specific content you want on this slide
                 </p>
                 <textarea
@@ -4215,112 +4165,108 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   }}
                   disabled={fullDeckMode}
                   placeholder="Example: I need a page listing all the main characters with summaries for each..."
-                  className="dog-s2-textarea w-full px-3 py-2 border rounded-control placeholder-stone-500 resize-none text-body transition-colors duration-200" data-focused={pagePromptFocused}
+                  className="ui-input dog-page-request" data-surface="dark" data-focused={pagePromptFocused}
                 />
               </div>
 
               {/* Generate Button */}
-              <button
+              <Button
+                variant="primary"
+                className="dog-generate"
                 onClick={generatePageOutline}
                 disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout || fullDeckMode}
-                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control font-semibold text-stone-900 flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-body"
               >
                 {isGenerating ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="animate-spin" aria-hidden="true" />
                     Generating...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4" />
-                    Generate Page Outline
+                    <Sparkles aria-hidden="true" />
+                    Generate page outline
                   </>
                 )}
-              </button>
+              </Button>
             </div>
             )}
-          </section>
+          </Card>
 
           {/* Output Section - Below Input */}
-          <section className="bg-stone-800 border border-stone-700 rounded-control shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b border-stone-600">
-              <span className="font-semibold uppercase text-label">Generated Output</span>
+          <Card pad={false} className="dog-card dog-output">
+            <header className="ui-panel-head dog-card-head">
+              <h2 className="ui-panel-title dog-card-title">Generated output</h2>
               {activeTab && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={downloadMarkdown}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-control transition-colors text-dense text-white"
-                  >
-                    <Download className="w-3 h-3" />
+                <div className="ui-panel-actions">
+                  <Button variant="secondary" size="sm" onClick={downloadMarkdown}>
+                    <Download aria-hidden="true" />
                     Export .md
-                  </button>
-                  <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-control transition-colors text-dense text-white"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={copyToClipboard}>
                     {copied ? (
                       <>
-                        <Check className="w-3 h-3" />
+                        <Check aria-hidden="true" />
                         Copied!
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3 h-3" />
+                        <Copy aria-hidden="true" />
                         Copy
                       </>
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
-            </div>
-            
-            {/* Tabs Bar + View Toggle */}
+            </header>
+
+            {/* Tabs Bar + View Toggle — the kit's tab contract (.ui-tabs /
+                .ui-tab) worn by D.O.G.'s own markup, because each page tab is
+                CLOSABLE and the kit's Tabs has no close control yet (A1 kit
+                request KR-1). The close button is now BESIDE the tab rather
+                than inside it (review D22: a button inside a button). */}
             {openTabs.length > 0 && (
-              <div className="bg-stone-800 px-2 pt-1 flex items-end justify-between border-b border-stone-600">
-                {/* Page Tabs */}
-                <div className="flex items-end gap-1 flex-1 overflow-x-auto overflow-y-hidden">
+              <div className="dog-tabbar">
+                <div role="tablist" aria-label="Open pages" className="ui-tabs dog-page-tabs" data-surface="dark">
                   {[...openTabs].sort((a, b) => {
                     const numA = parseInt(a.pageNum) || 999;
                     const numB = parseInt(b.pageNum) || 999;
                     return numA - numB;
                   }).map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTabId(tab.id)}
-                      className="dog-page-tab flex items-center gap-1 px-3 py-1.5 text-dense transition-colors whitespace-nowrap rounded-t-control" data-active={activeTabId === tab.id}
-                    >
-                      <span className="font-mono">#{tab.pageNum}</span>
-                      <span className="max-w-[100px] truncate">{tab.title}</span>
+                    <span key={tab.id} className="dog-page-tab" data-active={activeTabId === tab.id}>
                       <button
-                        onClick={(e) => closeTab(tab.id, e)}
-                        className="ml-1 p-0.5 hover:bg-stone-600 rounded-control"
+                        type="button"
+                        role="tab"
+                        aria-selected={activeTabId === tab.id}
+                        aria-controls="dog-output-panel"
+                        className="ui-tab"
+                        data-active={activeTabId === tab.id ? 'true' : undefined}
+                        data-surface="dark"
+                        onClick={() => setActiveTabId(tab.id)}
                       >
-                        <X className="w-3 h-3" />
+                        <span className="dog-tab-num">#{tab.pageNum}</span>
+                        <span className="dog-tab-title">{tab.title}</span>
                       </button>
-                    </button>
+                      <button
+                        type="button"
+                        className="dog-tab-close"
+                        aria-label={`Close page ${tab.pageNum}`}
+                        title={`Close page ${tab.pageNum}`}
+                        onClick={(e) => closeTab(tab.id, e)}
+                      >
+                        <X aria-hidden="true" />
+                      </button>
+                    </span>
                   ))}
                 </div>
-                
+
                 {/* View Toggle */}
-                <div className="flex items-center gap-1 ml-2 flex-shrink-0 pb-1">
-                  <button
-                    onClick={() => setViewMode('text')}
-                    className="dog-view-btn p-1.5 rounded-control transition-colors" data-active={viewMode === 'text'}
-                    title="Text View"
-                  >
-                    <Code className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('visualizer')}
-                    className="dog-view-btn p-1.5 rounded-control transition-colors" data-active={viewMode === 'visualizer'}
-                    title="Layout Visualizer"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
+                <div className="dog-view-toggle">
+                  <IconButton size="sm" icon={Code} title="Text view" active={viewMode === 'text'} onClick={() => setViewMode('text')} />
+                  <IconButton size="sm" icon={Eye} title="Layout visualizer" active={viewMode === 'visualizer'} onClick={() => setViewMode('visualizer')} />
                 </div>
               </div>
             )}
-            
+
             {/* Regenerate Bar */}
             {activeTab && (
               <div className="bg-stone-900 px-3 py-2 border-b border-stone-600">
@@ -4463,12 +4409,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {/* Descriptor - shown in text edit mode between edit bar and content */}
             {activeTab && viewMode === 'text' && (
-              <div className="bg-stone-800 border-l border-r border-stone-600 px-4 py-1.5">
-                <p className="text-dense text-stone-500 italic">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
+              <div className="dog-caption-row">
+                <p className="dog-caption">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
               </div>
             )}
             
-            <div ref={textareaContainerRef} className="dog-output-frame bg-stone-950 relative" data-no-tabs={openTabs.length === 0}>
+            <div ref={textareaContainerRef} id="dog-output-panel" role="tabpanel" className="dog-output-frame">
               {activeTab ? (
                 viewMode === 'text' ? (
                   <>
@@ -4498,17 +4444,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}
                     />
-                    <p className="text-dense text-stone-500 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
+                    <p className="text-dense text-ink-3 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
                   </div>
                 )
               ) : (
-                <div className="p-8 text-center text-stone-500 flex flex-col items-center justify-center bg-stone-950 min-h-[780px]">
-                  <div className="w-14 h-14 mb-3 bg-stone-900 rounded-full flex items-center justify-center border border-dashed border-stone-700">
-                    <FileText className="w-7 h-7 text-stone-600" />
-                  </div>
-                  <p className="text-body text-stone-500">No output yet</p>
-                  <p className="text-dense mt-1 text-stone-600">Generated page outlines will appear here</p>
-                </div>
+                <EmptyState
+                  icon={FileText}
+                  title="No output yet"
+                  body="Generated page outlines will appear here"
+                  className="dog-output-empty"
+                />
               )}
               {/* Rewrite Preview — floats above both text and visualizer views */}
               {rewritePreview.visible && (() => {
@@ -4564,7 +4509,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 );
               })()}
             </div>
-          </section>
+          </Card>
         </main>
       </div>
       
@@ -4623,18 +4568,15 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             }}
           >
             {/* Panel Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-orange-400" />
-                <span className="font-semibold text-orange-400">Settings</span>
+            <header className="ui-panel-head dog-card-head">
+              <h2 className="ui-panel-title dog-card-title">
+                <Settings className="dog-head-icon" aria-hidden="true" />
+                Settings
+              </h2>
+              <div className="ui-panel-actions">
+                <IconButton size="sm" icon={X} title="Close settings" onClick={() => setShowSettingsMenu(false)} />
               </div>
-              <button 
-                onClick={() => setShowSettingsMenu(false)}
-                className="p-1 hover:bg-stone-600 rounded-control transition-colors"
-              >
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
+            </header>
             
             {/* Tabs */}
             <div className="flex border-b border-stone-600 flex-shrink-0">
@@ -4706,7 +4648,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Single Page System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Single Page - API System Message</span>
                         <p className="text-dense text-stone-500">Core instruction sent as system message for single page generation</p>
@@ -4724,7 +4666,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Single Page Instructions */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Single Page - Generation Rules</span>
                         <p className="text-dense text-stone-500">Formatting rules and constraints for single page output</p>
@@ -4741,7 +4683,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Full Deck System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Full Deck - API System Message</span>
                         <p className="text-dense text-stone-500">Core instruction sent as system message for full deck generation</p>
@@ -4759,7 +4701,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Full Deck Instructions */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Full Deck - Generation Rules</span>
                         <p className="text-dense text-stone-500">Formatting rules and constraints for full deck output</p>
@@ -4781,7 +4723,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Theme Color Generation Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Theme Color Generation</span>
                         <p className="text-dense text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
@@ -4799,7 +4741,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Shared Image Prompt Rules (All Models) */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Shared Rules (All Models)</span>
                         <p className="text-dense text-stone-500">Common formatting and structure rules applied to all image generation models</p>
@@ -4816,7 +4758,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Midjourney System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Midjourney Prompt</span>
                         <p className="text-dense text-stone-500">Model-specific rules for Midjourney v6</p>
@@ -4833,7 +4775,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Flux System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Flux Prompt</span>
                         <p className="text-dense text-stone-500">Model-specific rules for Flux</p>
@@ -4850,7 +4792,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Nano Banana System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Nano Banana Prompt</span>
                         <p className="text-dense text-stone-500">Model-specific rules for Nano Banana</p>
@@ -4867,7 +4809,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Chat GPT / DALL-E System Prompt */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Chat GPT / DALL-E Prompt</span>
                         <p className="text-dense text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
@@ -4884,7 +4826,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Image Prompt - API System Message */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Image Prompt - API System Message</span>
                         <p className="text-dense text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
@@ -4909,7 +4851,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     const collapseKey = `rw_${mode}`;
                     return (
                       <div key={mode} className="border-b border-stone-700 overflow-hidden">
-                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                           <div className="text-left">
                             <span className="dog-acc-label text-label font-semibold uppercase">{label}</span>
                             <p className="text-dense text-stone-500">Rewrite prompt for "{label}" mode</p>
@@ -4941,7 +4883,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <>
                   {/* Single Page Output Format */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Single Page Export Schema</span>
                         <p className="text-dense text-stone-500">Markdown structure for individual slide exports</p>
@@ -4958,7 +4900,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Full Deck Output Format */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Full Deck Export Schema</span>
                         <p className="text-dense text-stone-500">Markdown structure for complete deck exports</p>
@@ -4975,7 +4917,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Visual Deck Export Schema */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Visual Deck Export Schema</span>
                         <p className="text-dense text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
@@ -4991,7 +4933,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Image Prompt Export Schema */}
                   <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
                       <div className="text-left">
                         <span className="dog-acc-label text-label font-semibold uppercase">Image Prompt Export Schema</span>
                         <p className="text-dense text-stone-500">Markdown structure for generated image prompts file</p>
@@ -5049,18 +4991,15 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           {/* Modal */}
           <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
             {/* Modal Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-semibold text-orange-400">Help & Documentation</span>
+            <header className="ui-panel-head dog-card-head">
+              <h2 className="ui-panel-title dog-card-title">
+                <HelpCircle className="dog-head-icon" aria-hidden="true" />
+                Help & documentation
+              </h2>
+              <div className="ui-panel-actions">
+                <IconButton size="sm" icon={X} title="Close help" onClick={() => setShowHelpModal(false)} />
               </div>
-              <button
-                onClick={() => setShowHelpModal(false)}
-                className="p-1 hover:bg-stone-600 rounded-control transition-colors"
-              >
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
+            </header>
 
             {/* Modal Body — Sidebar + Content */}
             <div className="flex-1 flex overflow-hidden">

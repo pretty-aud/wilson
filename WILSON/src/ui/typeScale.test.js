@@ -1982,6 +1982,10 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     ['src/components/settings/settings.css', '.s-feedback'],
     ['src/components/Dashboard/dashboard.css', '.dash-note-row'],
     ['src/components/AdminTerminal/adminTerminal.css', '.at-decide-panel'],
+    // A1, 2026-09-23 — three indicators, no structural 2px:
+    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row'],   // F2 Row's "highlighted" edge: a page open in a tab
+    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab'],      // the kit's tab underline, on the closable wrapper (KR-1)
+    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-settings-tab'],  // A2's Settings tab underline, as extracted
     // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
     ['src/index.css', '.lesson-content'],
     ['src/index.css', '.companion-chat-md'],
@@ -2086,7 +2090,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
     // Every assertion above is an empty-list check, and an empty list is what
     // a scan that opened nothing also returns. These are the denominators.
-    expect(CSS_FILES.length).toBe(5);
+    // Six since A1 (2026-09-23): D.O.G.'s dog.css joined the audit.
+    expect(CSS_FILES.length).toBe(6);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
     // anywhere fails here instead of passing everywhere.

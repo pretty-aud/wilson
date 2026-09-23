@@ -96,13 +96,14 @@ describe('every exported component has a caller, or is on the list', () => {
     // deleted and both auth surfaces import the kit's. D1's own swap —
     // SettingsChrome.jsx re-pointing its local copy — is still outstanding and
     // is still D1's to make (plan §6.5).
-    Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
-    Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
+    // Panel came off this list with A1 (2026-09-23): D.O.G.'s deck-outline
+    // sidebar is its first caller. A3 and C1 still owe their four sidebars.
+    Drawer:      'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
     Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
-    // Switch HAD a caller through binUi until Audrey ruled Bins back onto its
-    // own primitives until B6 (764f8f5). It is not a regression in the
-    // component; it is the six hand-rolled toggles still waiting for it.
-    Switch:       'D1 (Settings toggles) or B6 (binUi re-points at the kit)',
+    // Switch came off this list with A1 (2026-09-23): D.O.G.'s Full Deck
+    // toggle is its caller. It had one through binUi until Audrey ruled Bins
+    // back onto its own primitives until B6 (764f8f5); D1's Settings toggles
+    // and B6's binUi re-point still owe it theirs.
   }
 
   const root = resolve(here, '..')

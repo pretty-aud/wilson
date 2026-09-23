@@ -173,6 +173,9 @@ export const CSS_FILES = [
   'src/components/Dashboard/dashboard.css',
   'src/components/AdminTerminal/adminTerminal.css',
   'src/components/Resources/resources.css',
+  // A1, 2026-09-23 — D.O.G.'s extracted state and its A1 restyle. The A2
+  // half still holds the extraction's oklch palette literals (no hex).
+  'src/tools/deck-outline-generator_v0.514/dog.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting
@@ -267,6 +270,10 @@ export const CSS_PATTERNS = [
                            warning and an error on the Settings page.
        dashboard.css  443  the selected note row's 2px edge — §3.2 verbatim
        adminTerminal  700  the decide panel's signal edge, same job
+       dog.css  (A1)  .dog-history-row — F2 Row's "highlighted" 2px edge (a page
+                      open in a tab); .dog-page-tab — the kit's tab underline on
+                      the closable wrapper (kit request KR-1); .dog-settings-tab
+                      — A2's Settings tab underline, as the extraction left it
 
      The one that was NOT an indicator — dashboard.css's ProseMirror
      blockquote, a neutral colour with no conditional and no state — is the
