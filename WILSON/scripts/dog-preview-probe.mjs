@@ -73,39 +73,42 @@ const DECK = [
 ].join('\n');
 
 /* ── the pinned numbers ──────────────────────────────────────────────────
-   Measured at A1's branch point, before any restyle commit (see the A1
-   hand-off's preview-box table). A change here is a C4 decision, not a
-   re-baseline: it needs the reason written beside it.                     */
+   Measured with REAL scrollbars (see the launch below), at A1's branch point
+   (the file as of 58b23bc, swapped in under the running server) and again
+   after A1's restyle: every number below was identical between the two runs
+   except the two frame lines marked. The first pin (58b23bc) was taken with
+   headless Chromium's hidden scrollbars, which is a layout no user sees
+   (A1 review round 1). A change here is a C4 decision, not a re-baseline:
+   it needs the reason written beside it.                                  */
 const PINNED = {
   "1440x900": {
     output: {
       root: {
-        w: 1178,
+        w: 1168,
         h: 751
       },
       padding: "16px 16px 16px 16px",
-      available: 1178,
+      available: 1168,
       wrapper: {
-        w: 1178,
+        w: 1168,
         h: 781.84
       },
-            // A1 restyle (2026-09-23), a deliberate C4 decision: the frame lost its
-      // 2px stone-600 box (review D15, V1-12) and keeps the preview's width
-      // with a 2px inset of its own ground instead (dog.css `.dog-output-frame`).
-      // Its borders and its height (the 2px bottom edge) changed; every number
-      // that is the PREVIEW's — available, root, padding, slide, visible — did not.
+      // A1 restyle, a deliberate C4 decision: the frame lost its 2px stone-600
+      // box (review D15, V1-12) and keeps the preview's width with a 2px inset
+      // of its own ground (dog.css `.dog-output-frame`). Its borders and its
+      // height (the 2px bottom edge) changed; every PREVIEW number did not.
       frameBorders: "0px 0px 0px 0px",
       frame: {
-        w: 1182,
+        w: 1172,
         h: 781.84
       },
-      mainScrollbar: 0,
+      mainScrollbar: 10,
       slide: {
         w: 1141,
         h: 641
       },
       slideVisible: 1141,
-      assetColumnVisible: 5
+      assetColumnVisible: 0
     },
     resolver: {
       frame: {
@@ -127,31 +130,30 @@ const PINNED = {
   "1280x700": {
     output: {
       root: {
-        w: 1018,
+        w: 1008,
         h: 751
       },
       padding: "16px 16px 16px 16px",
-      available: 1018,
+      available: 1008,
       wrapper: {
-        w: 1018,
+        w: 1008,
         h: 781.84
       },
-            // A1 restyle (2026-09-23), a deliberate C4 decision: the frame lost its
-      // 2px stone-600 box (review D15, V1-12) and keeps the preview's width
-      // with a 2px inset of its own ground instead (dog.css `.dog-output-frame`).
-      // Its borders and its height (the 2px bottom edge) changed; every number
-      // that is the PREVIEW's — available, root, padding, slide, visible — did not.
+      // A1 restyle, a deliberate C4 decision: the frame lost its 2px stone-600
+      // box (review D15, V1-12) and keeps the preview's width with a 2px inset
+      // of its own ground (dog.css `.dog-output-frame`). Its borders and its
+      // height (the 2px bottom edge) changed; every PREVIEW number did not.
       frameBorders: "0px 0px 0px 0px",
       frame: {
-        w: 1022,
+        w: 1012,
         h: 781.84
       },
-      mainScrollbar: 0,
+      mainScrollbar: 10,
       slide: {
         w: 1141,
         h: 641
       },
-      slideVisible: 1002,
+      slideVisible: 992,
       assetColumnVisible: 0
     },
     resolver: {
@@ -233,8 +235,12 @@ async function clickText(page, text, { exact = true, scope = 'body' } = {}) {
   const ok = await page.evaluate(({ text, exact, scope }) => {
     const root = document.querySelector(scope) || document.body;
     const els = [...root.querySelectorAll('button, [role="button"], label')].filter((e) => e.offsetParent !== null);
-    const hit = els.find((e) => (exact ? e.textContent.trim() === text : e.textContent.trim().startsWith(text)))
-      || els.find((e) => e.getAttribute('title') === text || e.getAttribute('aria-label') === text);
+    // Case-insensitive, so the same probe measures the file before A1's
+    // sentence-case pass and after it.
+    const lc = (v) => (v || '').trim().toLowerCase();
+    const t = lc(text);
+    const hit = els.find((e) => (exact ? lc(e.textContent) === t : lc(e.textContent).startsWith(t)))
+      || els.find((e) => lc(e.getAttribute('title')) === t || lc(e.getAttribute('aria-label')) === t);
     if (!hit) return false;
     hit.click();
     return true;
@@ -250,7 +256,7 @@ async function run(browser, W, H) {
   await page.getByText('Generate Page Outline').first().waitFor({ timeout: 20000 });
 
   // Paste the deck into Import/Export History and import it.
-  await clickText(page, 'Import/Export History');
+  await clickText(page, 'Import/export history');
   await clickText(page, 'Import');
   await page.getByPlaceholder('Or paste DECKOUTLINE content here...').fill(DECK);
   await clickText(page, 'Import to History');
@@ -272,7 +278,7 @@ async function run(browser, W, H) {
   }
 
   // The duplicate resolver: Export sees page #1 twice and opens it.
-  await clickText(page, 'Import/Export History');
+  await clickText(page, 'Import/export history');
   await clickText(page, 'Export');
   await clickText(page, 'Download', { exact: false });
   await page.waitForTimeout(600);
@@ -291,7 +297,13 @@ async function run(browser, W, H) {
   return { output, resolver };
 }
 
-const browser = await chromium.launch();
+/* 🚨 REAL SCROLLBARS (A1 review round 1). Playwright starts headless
+   Chromium with --hide-scrollbars, so `mainScrollbar` measured 0 whatever the
+   page did and every width here was a layout no user sees: in the app the
+   main column's 10px scrollbar takes its share. Dropping that flag measures
+   the page as it draws, and makes a change that adds or removes the main
+   column's scrollbar fail the pin like any other pixel. */
+const browser = await chromium.launch({ ignoreDefaultArgs: ['--hide-scrollbars'] });
 const results = {};
 try {
   for (const [W, H] of SIZES) {

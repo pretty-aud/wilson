@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, EmptyState } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -3719,7 +3719,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <>
               <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
               <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
-              <IconButton size="sm" icon={FolderUp} title="Import/Export History" onClick={() => setShowHistoryModal(true)} />
+              <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
               <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
             </>
           }
@@ -3865,15 +3865,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                             const isCore = doc.isCore !== false;
                             return (
                               <div key={doc.id} className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
+                                <Chip
+                                  active={isCore}
                                   onClick={() => toggleProjectFileCore('documents', doc.id)}
-                                  className="dog-role-btn px-1.5 py-0.5 rounded-control text-dense transition-colors flex-shrink-0"
-                                  data-core={isCore}
+                                  className="dog-role-chip"
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
                                 >
                                   {isCore ? 'Core' : 'Ref'}
-                                </button>
+                                </Chip>
                                 <span className="dog-role-name">{doc.name}</span>
                               </div>
                             );
@@ -3882,15 +3881,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                             const isCore = asset.isCore !== false;
                             return (
                               <div key={asset.id} className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
+                                <Chip
+                                  active={isCore}
                                   onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="dog-role-btn px-1.5 py-0.5 rounded-control text-dense transition-colors flex-shrink-0"
-                                  data-core={isCore}
+                                  className="dog-role-chip"
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
                                 >
                                   {isCore ? 'Core' : 'Ref'}
-                                </button>
+                                </Chip>
                                 <span className="dog-role-name">{asset.name}</span>
                               </div>
                             );
@@ -4222,7 +4220,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             {/* Tabs Bar + View Toggle — the kit's tab contract (.ui-tabs /
                 .ui-tab) worn by D.O.G.'s own markup, because each page tab is
                 CLOSABLE and the kit's Tabs has no close control yet (A1 kit
-                request KR-1). The close button is now BESIDE the tab rather
+                request A1-KR-1). The close button is now BESIDE the tab rather
                 than inside it (review D22: a button inside a button). */}
             {openTabs.length > 0 && (
               <div className="dog-tabbar">
@@ -4232,10 +4230,11 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     const numB = parseInt(b.pageNum) || 999;
                     return numA - numB;
                   }).map(tab => (
-                    <span key={tab.id} className="dog-page-tab" data-active={activeTabId === tab.id}>
+                    <span key={tab.id} className="dog-page-tab" role="presentation" data-active={activeTabId === tab.id}>
                       <button
                         type="button"
                         role="tab"
+                        id={`dog-tab-${tab.id}`}
                         aria-selected={activeTabId === tab.id}
                         aria-controls="dog-output-panel"
                         className="ui-tab"
@@ -4246,15 +4245,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                         <span className="dog-tab-num">#{tab.pageNum}</span>
                         <span className="dog-tab-title">{tab.title}</span>
                       </button>
-                      <button
-                        type="button"
-                        className="dog-tab-close"
-                        aria-label={`Close page ${tab.pageNum}`}
+                      <IconButton
+                        size="sm"
+                        icon={X}
                         title={`Close page ${tab.pageNum}`}
+                        className="dog-tab-close"
                         onClick={(e) => closeTab(tab.id, e)}
-                      >
-                        <X aria-hidden="true" />
-                      </button>
+                      />
                     </span>
                   ))}
                 </div>
@@ -4352,7 +4349,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {/* Formatting Toolbar */}
             {activeTab && (
-              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 border-l border-r border-l-stone-600 border-r-stone-600 flex items-center gap-1">
+              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 flex items-center gap-1">
                 {/* Undo / Redo */}
                 <button
                   onClick={handleTextUndo}
@@ -4414,7 +4411,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
             )}
             
-            <div ref={textareaContainerRef} id="dog-output-panel" role="tabpanel" className="dog-output-frame">
+            <div
+              ref={textareaContainerRef}
+              id="dog-output-panel"
+              role={openTabs.length > 0 ? 'tabpanel' : undefined}
+              aria-labelledby={openTabs.length > 0 && activeTab ? `dog-tab-${activeTab.id}` : undefined}
+              className="dog-output-frame"
+            >
               {activeTab ? (
                 viewMode === 'text' ? (
                   <>
@@ -4424,7 +4427,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       onChange={handleTextareaChange}
                       onContextMenu={handleTextareaContextMenu}
                       onKeyDown={handleTextareaKeyDown}
-                      className="w-full min-h-[780px] p-4 text-body whitespace-pre-wrap text-orange-400 bg-stone-950 leading-relaxed border-none resize-y"
+                      className="dog-editor w-full min-h-[780px] p-4 text-body whitespace-pre-wrap border-none resize-y"
                       style={{ minHeight: '780px' }}
                     />
                   </>
@@ -4568,7 +4571,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             }}
           >
             {/* Panel Header */}
-            <header className="ui-panel-head dog-card-head">
+            <div className="ui-panel-head dog-card-head">
               <h2 className="ui-panel-title dog-card-title">
                 <Settings className="dog-head-icon" aria-hidden="true" />
                 Settings
@@ -4576,7 +4579,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="ui-panel-actions">
                 <IconButton size="sm" icon={X} title="Close settings" onClick={() => setShowSettingsMenu(false)} />
               </div>
-            </header>
+            </div>
             
             {/* Tabs */}
             <div className="flex border-b border-stone-600 flex-shrink-0">
@@ -4991,7 +4994,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           {/* Modal */}
           <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
             {/* Modal Header */}
-            <header className="ui-panel-head dog-card-head">
+            <div className="ui-panel-head dog-card-head">
               <h2 className="ui-panel-title dog-card-title">
                 <HelpCircle className="dog-head-icon" aria-hidden="true" />
                 Help & documentation
@@ -4999,7 +5002,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="ui-panel-actions">
                 <IconButton size="sm" icon={X} title="Close help" onClick={() => setShowHelpModal(false)} />
               </div>
-            </header>
+            </div>
 
             {/* Modal Body — Sidebar + Content */}
             <div className="flex-1 flex overflow-hidden">

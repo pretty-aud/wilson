@@ -128,7 +128,7 @@ await park();
 await shot('09-output-empty');
 
 // ── A deck, tabs, the view toggle, the formatting toolbar ──────────────
-await clickTitle('Import/Export History');
+await clickTitle('Import/export history');
 await page.getByRole('button', { name: 'Import', exact: true }).click();
 await page.getByPlaceholder('Or paste DECKOUTLINE content here...').fill(DECK);
 await page.getByRole('button', { name: 'Import to History' }).click();
