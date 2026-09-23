@@ -31,12 +31,20 @@
 // Omit both and the bar renders exactly as it did without them. The bar is
 // drawn on every view except Summary; on Summary Rabbit.jsx docks the same two
 // nodes at the tab bar's right end (see its comment).
+//
+// ── The look (B1 restyle) ────────────────────────────────────────────────────
+// The kit's Toolbar: 44px, the 24px page gutter, one hairline, every control
+// 28px on one centre line. The status is the kit's StatusBadge (a dot plus
+// the word at the Label step) — the three greens and the filled orange pill
+// it replaces were four of the review's five disagreeing status maps (R07).
+// The switcher is a floating surface, so it alone carries the one shadow.
 
 import { useState, useRef, useEffect } from 'react'
-import {
-  Folder, ChevronDown, Check, Circle,
-} from 'lucide-react'
+import { Folder, ChevronDown, Check } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { Toolbar } from '../../../ui/Toolbar'
+import { Button } from '../../../ui/Button'
+import { StatusBadge } from '../../../ui/StatusBadge'
 import '../rabbitShell.css'
 
 export default function ProjectContextBar({ presenceSlot = null, adapterSlot = null } = {}) {
@@ -67,33 +75,11 @@ export default function ProjectContextBar({ presenceSlot = null, adapterSlot = n
 
   const status = project?.status || (activeProjectId ? 'draft' : null)
 
-  return (
-    <div
-      className="flex items-center gap-3 px-6 py-2"
-      style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
-    >
-      <Folder className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
-
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <span className="text-label uppercase" style={{ color: '#78716c' }}>
-          Project
-        </span>
-        <span className="rb-ctx-title text-dense font-semibold truncate" data-empty={project ? undefined : 'true'}>
-          {project?.title || (activeProjectId ? 'Loading…' : 'No project selected')}
-        </span>
-        {status && (
-          <span
-            className="rb-ctx-status px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
-            data-status={status}
-          >
-            {status}
-          </span>
-        )}
-      </div>
-
+  const right = (
+    <>
       {/* The two named slots (Q10): presence, then the adapter dot. */}
       {(presenceSlot || adapterSlot) && (
-        <div className="flex items-center gap-2 flex-shrink-0" data-slot="status">
+        <div className="rb-ctx-status-group" data-slot="status">
           <span className="contents" data-slot="presence">{presenceSlot}</span>
           <span className="contents" data-slot="adapter">{adapterSlot}</span>
         </div>
@@ -101,69 +87,51 @@ export default function ProjectContextBar({ presenceSlot = null, adapterSlot = n
 
       {/* Switcher dropdown */}
       <div ref={wrapperRef} className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors"
-          style={{
-            color: '#a8a29e',
-            backgroundColor: '#292524',
-            border: '1px solid #44403c',
-          }}
-        >
+        <Button size="sm" onClick={() => setOpen(o => !o)} aria-expanded={open}>
           Switch
-          <ChevronDown className="w-3 h-3" />
-        </button>
+          <ChevronDown className="rb-ctx-chevron" aria-hidden="true" />
+        </Button>
         {open && (
-          <div
-            className="absolute right-0 mt-1 z-40 rounded-control shadow-2xl overflow-hidden"
-            style={{
-              backgroundColor: '#292524',
-              border: '1px solid #44403c',
-              minWidth: 240,
-              maxHeight: 360,
-            }}
-          >
-            <div className="overflow-y-auto" style={{ maxHeight: 360 }}>
-              {projects.length === 0 ? (
-                <div className="px-3 py-2 text-dense italic" style={{ color: '#78716c' }}>
-                  No projects yet.
-                </div>
-              ) : (
-                projects.map(p => {
-                  const isActive = p.id === activeProjectId
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => {
-                        setActiveProject?.(p.id)
-                        setOpen(false)
-                      }}
-                      className="rb-ctx-option w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-stone-700 transition-colors"
-                      data-active={isActive ? 'true' : undefined}
-                    >
-                      {isActive
-                        ? <Check className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-                        : <Circle className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />}
-                      <span className="flex-1 truncate text-dense">{p.title || 'Untitled'}</span>
-                      {p.status && (
-                        <span className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="rb-ctx-option-dot w-1.5 h-1.5 rounded-full flex-shrink-0" data-status={p.status} />
-                          <span className="rb-ctx-option-status text-label uppercase" data-status={p.status}>
-                            {p.status}
-                          </span>
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
-              )}
-            </div>
+          <div className="rb-ctx-menu">
+            {projects.length === 0 ? (
+              <div className="rb-ctx-menu-empty text-dense">No projects yet.</div>
+            ) : (
+              projects.map(p => {
+                const isActive = p.id === activeProjectId
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveProject?.(p.id)
+                      setOpen(false)
+                    }}
+                    className="rb-ctx-option text-dense"
+                    data-active={isActive ? 'true' : undefined}
+                  >
+                    <span className="rb-ctx-option-mark" aria-hidden="true">
+                      {isActive && <Check />}
+                    </span>
+                    <span className="rb-ctx-option-title">{p.title || 'Untitled'}</span>
+                    {p.status && <StatusBadge status={p.status} />}
+                  </button>
+                )
+              })
+            )}
           </div>
         )}
       </div>
+    </>
+  )
 
-    </div>
+  return (
+    <Toolbar className="rb-ctx" right={right}>
+      <Folder className="rb-ctx-icon" aria-hidden="true" />
+      <span className="text-label uppercase rb-ctx-eyebrow">Project</span>
+      <span className="rb-ctx-title text-h3" data-empty={project ? undefined : 'true'}>
+        {project?.title || (activeProjectId ? 'Loading…' : 'No project selected')}
+      </span>
+      {status && <StatusBadge status={status} />}
+    </Toolbar>
   )
 }

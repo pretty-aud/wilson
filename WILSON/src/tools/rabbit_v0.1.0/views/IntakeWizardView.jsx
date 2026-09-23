@@ -17,6 +17,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon, Calendar, Hash } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import '../rabbitShell.css'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { PERSONA_LIST } from '../intake/personas'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
@@ -275,16 +276,16 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Project type">
                 <select value={draft.project_type} onChange={e => patch('project_type', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.project_type ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={draft.project_type ? undefined : 'true'}>
                   <option value="">Select type...</option>
                   {TYPE_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
                 </select>
               </FormField>
               <FormField label="Project tier">
                 <select value={draft.project_tier} onChange={e => patch('project_tier', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.project_tier ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={draft.project_tier ? undefined : 'true'}>
                   <option value="">Select tier...</option>
                   {TIER_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
                 </select>
@@ -294,13 +295,15 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Start date">
                 <input type="date" value={draft.start_date} onChange={e => patch('start_date', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
+                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={draft.start_date ? undefined : 'true'}
+                  style={{ colorScheme: 'dark' }} />
               </FormField>
               <FormField label="End date">
                 <input type="date" value={draft.end_date} onChange={e => patch('end_date', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.end_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
+                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={draft.end_date ? undefined : 'true'}
+                  style={{ colorScheme: 'dark' }} />
               </FormField>
             </div>
           </SectionCard>
@@ -310,16 +313,16 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Director">
                 <select value={draft.director_id} onChange={e => patch('director_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.director_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={draft.director_id ? undefined : 'true'}>
                   <option value="">Select director...</option>
                   {(tm.members || []).map(m => <option key={m.id} value={m.id}>{m.name}{m.title ? ` — ${m.title}` : ''}</option>)}
                 </select>
               </FormField>
               <FormField label="Producer">
                 <select value={draft.producer_id} onChange={e => patch('producer_id', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.producer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={draft.producer_id ? undefined : 'true'}>
                   <option value="">Select producer...</option>
                   {(tm.members || []).map(m => <option key={m.id} value={m.id}>{m.name}{m.title ? ` — ${m.title}` : ''}</option>)}
                 </select>
@@ -593,9 +596,9 @@ function FormField({ label, required, children }) {
 function ConfirmRow({ label, value }) {
   const isLong = value && value.length > 60
   return (
-    <div className={isLong ? 'flex flex-col gap-0.5' : 'flex gap-3'}>
-      <span className="text-label uppercase flex-shrink-0" style={{ color: '#57534e', width: isLong ? undefined : 90 }}>{label}</span>
-      <span className={`text-caption ${isLong ? '' : 'truncate'}`} style={{ color: '#d6d3d1', whiteSpace: isLong ? 'pre-wrap' : undefined }}>{value}</span>
+    <div className="rb-confirm-row" data-long={isLong ? 'true' : undefined}>
+      <span className="rb-confirm-label text-label uppercase flex-shrink-0">{label}</span>
+      <span className="rb-confirm-value text-caption">{value}</span>
     </div>
   )
 }
@@ -615,13 +618,8 @@ function StepIndicator({ step }) {
         return (
           <div key={s.id} className="flex items-center gap-2">
             <div
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-control"
-              style={{
-                color: active ? '#fff7ed' : '#a8a29e',
-                backgroundColor: active ? '#ea580c' : 'transparent',
-                border: '1px solid #44403c',
-                opacity: done || active ? 1 : 0.5,
-              }}
+              className="rb-step flex items-center gap-1.5 px-2 py-0.5 rounded-control"
+              data-state={active ? 'active' : done ? 'done' : 'future'}
             >
               <span className="text-dense font-semibold">{i + 1}</span>
               <span className="text-label uppercase">{s.label}</span>

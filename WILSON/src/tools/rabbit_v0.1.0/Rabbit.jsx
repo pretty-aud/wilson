@@ -40,7 +40,7 @@ import { useRosterMembers } from '../../components/TeamMembers/useRosterMembers'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
 import { isOwnAvatarUrl } from '../../components/TeamMembers/useWorkspaceMembers'
-import ViewTabs from './components/ViewTabs'
+import ViewTabs, { RABBIT_VIEW_PANEL_ID } from './components/ViewTabs'
 import ProjectContextBar from './components/ProjectContextBar'
 import IngestionToast from './components/IngestionToast'
 import IntakeWizardView from './views/IntakeWizardView'
@@ -57,6 +57,11 @@ import ExperiencesView from './views/ExperiencesView'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 import { subscribeNavigate } from './state/rabbitNavigate'
+import { IconButton } from '../../ui/IconButton'
+import { Button } from '../../ui/Button'
+import { EmptyState } from '../../ui/EmptyState'
+import { StatusDot } from '../../ui/StatusDot'
+import { StatusBadge } from '../../ui/StatusBadge'
 import './rabbitShell.css'
 
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
@@ -181,7 +186,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const statusInTabBar = activeView === 'summary'
 
   return (
-    <div className="relative h-full w-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+    <div className="rb-shell relative h-full w-full flex flex-col">
       {/* ── View tabs ── */}
       <ViewTabs
         activeView={activeView}
@@ -191,27 +196,13 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
         rightSlot={(
           <>
             {statusInTabBar && (
-              <span className="flex items-center gap-2 mr-2" data-slot="status">
+              <span className="rb-ctx-status-group rb-tabbar-status" data-slot="status">
                 <span className="contents" data-slot="presence">{presence}</span>
                 <span className="contents" data-slot="adapter">{adapterDot}</span>
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              title="RABBIT settings"
-              className="rb-shell-iconbtn p-1.5 rounded-control transition-colors"
-            >
-              <SettingsIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowHelpModal(true)}
-              title="Help & Documentation"
-              className="rb-shell-iconbtn p-1.5 rounded-control transition-colors"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
+            <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
+            <IconButton size="sm" Icon={HelpCircle} title="Help & Documentation" onClick={() => setShowHelpModal(true)} />
           </>
         )}
       />
@@ -222,7 +213,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
       )}
 
       {/* ── View body ── */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-hidden relative" role="tabpanel" id={RABBIT_VIEW_PANEL_ID}>
         {!activeProjectId && activeView !== 'summary' ? (
           <NoProjectPlaceholder onPickSummary={() => setActiveView('summary')} />
         ) : (
@@ -283,6 +274,12 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
 // A coloured circle: red when offline, green when online, dim grey while
 // the adapter isn't configured. Hovering reveals the adapter mode and
 // status. Docked in a slot since B1 (Q10); it no longer positions itself.
+// Since B1's restyle it is the kit's StatusDot: one 8px dot from the
+// status tones, no glow (§3.3 deletes the status-dot glow). The adapter's
+// "offline" is a fault, so it takes the danger tone explicitly — the kit's
+// own `offline` key is presence semantics (a person away), which is neutral.
+const ADAPTER_TONE = { unconfigured: 'neutral', online: 'success', offline: 'danger' }
+
 function AdapterStatusDot({ mode, status }) {
   const configured = !!mode
   const online = !!status?.online
@@ -290,18 +287,7 @@ function AdapterStatusDot({ mode, status }) {
   const label = configured
     ? `${(mode || '').replace('_', ' ')} — ${online ? 'online' : 'offline'}`
     : 'adapter not configured'
-  return (
-    <div
-      title={label}
-      className="rb-adapter-dot rounded-full flex-shrink-0"
-      data-state={state}
-      style={{
-        width: 10,
-        height: 10,
-        border: '1px solid rgba(0,0,0,0.5)',
-      }}
-    />
-  )
+  return <StatusDot tone={ADAPTER_TONE[state]} label={label} data-state={state} />
 }
 
 // ─── Realtime presence strip ───
@@ -321,29 +307,30 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
     return out
   }, [rosterMembers])
   if (!realtimeStatus || realtimeStatus === 'off') return null
+  // The pill is the kit's StatusBadge, which sets its word at the Label
+  // step (uppercase, tracked) itself — so the words here are sentence case.
   const pill = {
-    live:       { label: 'LIVE' },
-    connecting: { label: 'SYNC' },
-    error:      { label: 'SYNC ERR' },
-  }[realtimeStatus] || { label: realtimeStatus.toUpperCase() }
+    live:       { label: 'Live',       tone: 'success' },
+    connecting: { label: 'Sync',       tone: 'neutral' },
+    error:      { label: 'Sync error', tone: 'danger'  },
+  }[realtimeStatus] || { label: realtimeStatus, tone: 'neutral' }
   const list = Array.isArray(users) ? users : []
   const shown = list.slice(0, 5)
   const overflow = list.length - shown.length
   const initials = (label) => (label || '?')
     .split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
   return (
-    <div className="flex items-center gap-1 flex-shrink-0">
-      <span
-        className="rb-presence-pill text-label uppercase font-semibold px-1 py-px rounded-control"
+    <div className="rb-presence flex-shrink-0">
+      <StatusBadge
+        tone={pill.tone}
+        label={pill.label}
         data-status={realtimeStatus}
         title={realtimeStatus === 'live'
           ? 'Live sync connected — edits from teammates appear instantly'
           : realtimeStatus === 'error'
             ? 'Live sync error — changes still save; the view refreshes on reconnect'
             : 'Connecting live sync…'}
-      >
-        {pill.label}
-      </span>
+      />
       {shown.map(u => {
         const avatar = avatarByUserId[u.user_id]
         return isOwnAvatarUrl(avatar) ? (
@@ -352,27 +339,20 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
             src={avatar}
             alt=""
             title={u.label || 'Member'}
-            className="rounded-full object-cover"
-            style={{ width: 16, height: 16, border: '1px solid #78716c' }}
+            className="rb-presence-avatar object-cover"
           />
         ) : (
           <span
             key={u.user_id || u.label}
             title={u.label || 'Member'}
-            className="flex items-center justify-center rounded-full text-dense font-semibold"
-            style={{
-              width: 16, height: 16,
-              color: '#fff7ed',
-              backgroundColor: '#57534e',
-              border: '1px solid #78716c',
-            }}
+            className="rb-presence-avatar text-label uppercase"
           >
             {initials(u.label)}
           </span>
         )
       })}
       {overflow > 0 && (
-        <span className="text-caption" style={{ color: '#78716c' }}>
+        <span className="rb-presence-more text-caption">
           +{overflow}
         </span>
       )}
@@ -383,24 +363,14 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
 // ─── No-project placeholder ───
 function NoProjectPlaceholder({ onPickSummary }) {
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-4" style={{ backgroundColor: '#1c1917' }}>
-      <ListChecks className="w-10 h-10" style={{ color: '#78716c' }} />
-      <div className="text-dense text-center max-w-sm leading-relaxed" style={{ color: '#a8a29e' }}>
-        No project selected. Open the Summary tab to pick an
-        existing project or scaffold a new one.
-      </div>
-      <button
-        type="button"
-        onClick={onPickSummary}
-        className="px-4 py-1.5 text-dense rounded-control transition-colors"
-        style={{
-          color: '#fff7ed',
-          backgroundColor: '#ea580c',
-          border: '1px solid #c2410c',
-        }}
+    <div className="h-full flex items-center justify-center">
+      <EmptyState
+        Icon={ListChecks}
+        title="No project selected"
+        body="Open the Summary tab to pick an existing project or scaffold a new one."
       >
-        Go to Summary
-      </button>
+        <Button variant="primary" onClick={onPickSummary}>Go to Summary</Button>
+      </EmptyState>
     </div>
   )
 }

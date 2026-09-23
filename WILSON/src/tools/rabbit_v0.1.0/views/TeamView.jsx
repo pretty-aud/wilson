@@ -32,12 +32,9 @@ import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useWorkspaceMembers } from '../../../components/TeamMembers/useWorkspaceMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject } from '../../../permissions/projectRoleMatrix'
+import '../rabbitShell.css'
 
-const ROLE_COLORS = {
-  member:   { fg: '#d6d3d1', bg: '#1c1917', border: '#44403c' },
-  manager:  { fg: '#fbbf24', bg: '#1c1917', border: '#78350f' },
-  reviewer: { fg: '#a78bfa', bg: '#1c1917', border: '#4c1d95' },
-}
+// ROLE_COLORS moved to `.rb-role[data-role]` in rabbitShell.css (B1 state extraction).
 
 const TEAM_ROLES = ['member', 'manager', 'reviewer']
 const EMPLOYMENT_TYPES = ['full_time', 'freelancer']
@@ -316,9 +313,8 @@ export default function TeamView() {
 
   function renderMemberRow(r) {
     const member = r.member
-    const roleColor = ROLE_COLORS[r.role] || ROLE_COLORS.member
     return (
-      <tr key={r.id} className="hover:!bg-stone-800 transition-colors" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+      <tr key={r.id} className="rb-team-row transition-colors">
         <Td>
           <div className="flex items-center gap-2">
             <MemberAvatar member={member} size={24} />
@@ -338,11 +334,8 @@ export default function TeamView() {
           </span>
         </Td>
         <Td>
-          <span className="text-dense font-mono px-1.5 py-0.5 rounded-control" style={{
-            color: member.employment_type === 'freelancer' ? '#fbbf24' : '#86efac',
-            backgroundColor: member.employment_type === 'freelancer' ? '#1c1917' : '#1c1917',
-            border: `1px solid ${member.employment_type === 'freelancer' ? '#78350f' : '#14532d'}`,
-          }}>
+          <span className="rb-employment text-dense font-mono px-1.5 py-0.5 rounded-control"
+            data-kind={member.employment_type === 'freelancer' ? 'freelancer' : 'full_time'}>
             {member.employment_type === 'freelancer' ? 'Freelancer' : 'Full-Time'}
           </span>
         </Td>
@@ -350,12 +343,8 @@ export default function TeamView() {
           <select
             value={r.role || 'member'}
             onChange={(e) => handleRoleChange(r.id, e.target.value)}
-            className="px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 cursor-pointer"
-            style={{
-              backgroundColor: roleColor.bg,
-              color: roleColor.fg,
-              border: `1px solid ${roleColor.border}`,
-            }}
+            className="rb-role px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 cursor-pointer"
+            data-role={r.role || 'member'}
           >
             <option value="member">Member</option>
             <option value="manager">Manager</option>
@@ -372,13 +361,9 @@ export default function TeamView() {
             type="date"
             value={r.start_date || ''}
             onChange={(e) => handleDateChange(r.id, 'start_date', e.target.value)}
-            className="text-dense px-1.5 py-0.5 rounded-control focus:ring-2 focus:ring-orange-500"
-            style={{
-              backgroundColor: '#1c1917',
-              color: r.start_date ? '#a8a29e' : '#57534e',
-              border: '1px solid #44403c',
-              colorScheme: 'dark',
-            }}
+            className="rb-team-date text-dense px-1.5 py-0.5 rounded-control focus:ring-2 focus:ring-orange-500"
+            data-empty={r.start_date ? undefined : 'true'}
+            style={{ colorScheme: 'dark' }}
           />
         </Td>
         <Td>
@@ -386,13 +371,9 @@ export default function TeamView() {
             type="date"
             value={r.end_date || ''}
             onChange={(e) => handleDateChange(r.id, 'end_date', e.target.value)}
-            className="text-dense px-1.5 py-0.5 rounded-control focus:ring-2 focus:ring-orange-500"
-            style={{
-              backgroundColor: '#1c1917',
-              color: r.end_date ? '#a8a29e' : '#57534e',
-              border: '1px solid #44403c',
-              colorScheme: 'dark',
-            }}
+            className="rb-team-date text-dense px-1.5 py-0.5 rounded-control focus:ring-2 focus:ring-orange-500"
+            data-empty={r.end_date ? undefined : 'true'}
+            style={{ colorScheme: 'dark' }}
           />
         </Td>
         <Td>
@@ -443,8 +424,9 @@ export default function TeamView() {
       <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          className="rb-tool-toggle flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
+          data-active={filters.length > 0 ? 'true' : undefined}
+          style={{ border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
@@ -452,8 +434,9 @@ export default function TeamView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+            className="rb-tool-toggle px-2 py-1.5 text-dense rounded-control cursor-pointer"
+            data-active={sortField ? 'true' : undefined}
+            style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {TEAM_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -470,8 +453,9 @@ export default function TeamView() {
 
         {/* Group */}
         <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-          style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          className="rb-tool-toggle px-2 py-1.5 text-dense rounded-control cursor-pointer"
+          data-active={groupBy ? 'true' : undefined}
+          style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
           {TEAM_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
@@ -798,7 +782,6 @@ function ProjectMembersPanel({ ctx }) {
               const name = m?.display_name || m?.username || 'Unknown member'
               const role = pm.project_role || 'member'
               const roleDef = PROJECT_ROLE_OPTIONS.find(o => o.value === role) || PROJECT_ROLE_OPTIONS[0]
-              const roleColor = ROLE_COLORS[role] || ROLE_COLORS.member
               return (
                 <div key={pm.user_id} className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid #1c1917' }}>
                   {/* identity cluster */}
@@ -815,14 +798,13 @@ function ProjectMembersPanel({ ctx }) {
                       <select
                         value={role}
                         onChange={e => handleSeatRoleChange(pm.user_id, e.target.value)}
-                        className="px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                        style={{ backgroundColor: roleColor.bg, color: roleColor.fg, border: `1px solid ${roleColor.border}` }}
+                        className="rb-role px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                        data-role={role}
                       >
                         {PROJECT_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     ) : (
-                      <span className="px-1.5 py-0.5 text-dense rounded-control"
-                        style={{ backgroundColor: roleColor.bg, color: roleColor.fg, border: `1px solid ${roleColor.border}` }}>
+                      <span className="rb-role px-1.5 py-0.5 text-dense rounded-control" data-role={role}>
                         {roleDef.label}
                       </span>
                     )}
@@ -971,13 +953,8 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
               return (
                 <label
                   key={m.id}
-                  className="flex items-center gap-3 w-full px-4 py-2.5 cursor-pointer transition-colors"
-                  style={{
-                    borderBottom: '1px solid #1c1917',
-                    backgroundColor: checked ? 'rgba(234, 88, 12, 0.12)' : 'transparent',
-                  }}
-                  onMouseEnter={(e) => { if (!checked) e.currentTarget.style.backgroundColor = '#44403c' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = checked ? 'rgba(234, 88, 12, 0.12)' : 'transparent' }}
+                  className="rb-picker-row flex items-center gap-3 w-full px-4 py-2.5 cursor-pointer transition-colors"
+                  data-checked={checked ? 'true' : undefined}
                 >
                   <input
                     type="checkbox"
@@ -1190,8 +1167,8 @@ function TeamSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
   return (
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(o => !o)}
-        className="p-1.5 rounded-control hover:bg-stone-700 transition-colors"
-        style={{ color: views.length > 0 ? '#fb923c' : '#57534e' }}
+        className="rb-saved-views p-1.5 rounded-control hover:bg-stone-700 transition-colors"
+        data-active={views.length > 0 ? 'true' : undefined}
         title="Saved views">
         <BookmarkPlus className="w-3.5 h-3.5" />
       </button>

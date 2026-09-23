@@ -19,6 +19,13 @@
    - Rabbit.jsx's settings and help buttons declared `hover:bg-stone-700`
      beside an inline `backgroundColor`, so the hover never painted. The
      hover now lives in `.rb-shell-iconbtn:hover` and paints as declared.
+   - IntakeReview's section header declared `hover:bg-stone-700` (#44403c)
+     over an inline `#44403c`: a hover that could never be seen. The no-op
+     utility is gone; the header keeps its one fill.
+   - Team's table row reached its hover only through `hover:!bg-stone-800`,
+     an !important utility fighting its own inline fill. Both now live in
+     `.rb-team-row`, with no !important.
+   - StatusPill (Summary) had no caller and was deleted (review R36).
 
    🚨 THE `@layer` STATEMENT BELOW IS THE FIRST RULE OF THIS FILE, and it has
    to be. This stylesheet is imported from a component, so the bundler can
@@ -31,60 +38,230 @@
 
 @layer components {
 
-  /* ═══ ViewTabs ═══════════════════════════════════════════════════════════
-     The active tab: V1's stopgap ink (#1c1917, 4.91:1) on the frame's own
-     orange. §3.2 takes the fill away for an underline — that is the
-     restyle, not this commit. */
-  .rb-viewtab {
-    color: #a8a29e;
-    background-color: transparent;
-    border: 1px solid transparent;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
+  /* ═══ The shell ══════════════════════════════════════════════════════════
+     B1 restyle: every value from here to the Intake section is a token. */
+  .rb-shell { background-color: var(--color-paper); }
+
+  /* ═══ ViewTabs: the kit's Tabs, on the page gutter ═══════════════════════
+     The first tab's ICON sits on the 24px gutter, the same line as the tool
+     title above and the context bar's icon below (review R44): the kit tab
+     carries 10px of its own padding, so the strip pads gutter − 10 on the
+     left. The kit underline overlaps the strip's hairline by 1px, so the
+     active tab sits ON the line rather than floating above it (R16). */
+  .rb-viewtabs {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 10px);
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
   }
-  .rb-viewtab[data-active="true"] {
-    color: #1c1917;
-    background-color: #ea580c;
-    border-bottom-color: #ea580c;
+  .rb-viewtabs-list { flex: 1 1 auto; min-width: 0; }
+  .rb-viewtabs .ui-tab { margin-bottom: -1px; }
+  .rb-viewtab-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .rb-viewtabs-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+  /* ═══ The status group (Q10): presence, then the adapter dot ═════════════
+     Docked in the context bar's slots, or on Summary at the tab strip's
+     right end. */
+  .rb-ctx-status-group { display: flex; align-items: center; gap: 8px; }
+  .rb-tabbar-status { margin-right: 8px; }
+  .rb-presence { display: flex; align-items: center; gap: 4px; }
+  .rb-presence-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
   }
+  .rb-presence-more { color: var(--color-ink-3); }
 
-  /* ═══ The shell's two icon buttons (settings, help) ═══════════════════ */
-  .rb-shell-iconbtn {
-    color: #a8a29e;
-    background-color: #1c1917;
-    border: 1px solid #44403c;
+  /* ═══ ProjectContextBar: the kit's Toolbar ═══════════════════════════════ */
+  .rb-ctx { background-color: var(--color-paper); }
+  .rb-ctx-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
+  .rb-ctx-eyebrow { color: var(--color-ink-3); }
+  .rb-ctx-title { min-width: 0; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-ctx-title[data-empty="true"] { color: var(--color-ink-3); font-weight: 400; }
+  .rb-ctx-chevron { width: var(--icon-sm); height: var(--icon-sm); }
+
+  /* the switcher: a floating surface, so the one shadow and the float radius */
+  .rb-ctx-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 40;
+    min-width: 240px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 4px 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
   }
-  .rb-shell-iconbtn:hover { background-color: #44403c; }
+  .rb-ctx-menu-empty { padding: 8px 12px; color: var(--color-ink-3); }
+  .rb-ctx-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--row-dense);
+    padding: 0 12px;
+    text-align: left;
+    color: var(--color-ink-2);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .rb-ctx-option:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .rb-ctx-option[data-active="true"] { color: var(--color-ink); font-weight: 600; }
+  .rb-ctx-option-mark { display: inline-flex; width: var(--icon-sm); flex-shrink: 0; color: var(--color-signal); }
+  .rb-ctx-option-mark > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-ctx-option-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* ═══ Adapter status dot: three states ════════════════════════════════ */
-  .rb-adapter-dot { background-color: #57534e; box-shadow: none; }
-  .rb-adapter-dot[data-state="online"]  { background-color: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
-  .rb-adapter-dot[data-state="offline"] { background-color: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+  /* ═══ Intake wizard (IntakeWizardView) ════════════════════════════════ */
+  /* the six new-project fields: a value, or the empty placeholder ink */
+  .rb-field { background-color: #1c1917; color: #f4a261; border: 1px solid #44403c; }
+  .rb-field[data-empty="true"] { color: #57534e; }
 
-  /* ═══ Realtime presence pill: live / connecting / error / anything else ═ */
-  .rb-presence-pill { color: #78716c; border: 1px solid #78716c; opacity: 0.85; }
-  .rb-presence-pill[data-status="live"]  { color: #fb923c; border-color: #fb923c; }
-  .rb-presence-pill[data-status="error"] { color: #ef4444; border-color: #ef4444; }
+  /* the confirm dialog's rows: short (label beside value) or long (stacked) */
+  .rb-confirm-row { display: flex; gap: 12px; }
+  .rb-confirm-row[data-long="true"] { flex-direction: column; gap: 2px; }
+  .rb-confirm-label { color: #57534e; width: 90px; }
+  .rb-confirm-row[data-long="true"] .rb-confirm-label { width: auto; }
+  .rb-confirm-value { color: #d6d3d1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-confirm-row[data-long="true"] .rb-confirm-value { overflow: visible; text-overflow: clip; white-space: pre-wrap; }
 
-  /* ═══ ProjectContextBar ═══════════════════════════════════════════════ */
-  .rb-ctx-title { color: #d6d3d1; }
-  .rb-ctx-title[data-empty="true"] { color: #78716c; }
+  /* the step strip: done / active / future */
+  .rb-step { color: #a8a29e; background-color: transparent; border: 1px solid #44403c; opacity: 0.5; }
+  .rb-step[data-state="done"] { opacity: 1; }
+  .rb-step[data-state="active"] { color: #fff7ed; background-color: #ea580c; opacity: 1; }
 
-  /* the status pill: draft (and anything unknown) / active / wrapped / archived */
-  .rb-ctx-status { color: #fff7ed; background-color: #ea580c; border: 1px solid #ea580c; }
-  .rb-ctx-status[data-status="active"],
-  .rb-ctx-status[data-status="wrapped"]  { background-color: #15803d; border-color: #15803d; }
-  .rb-ctx-status[data-status="archived"] { background-color: #57534e; border-color: #57534e; }
+  /* ═══ Intake: Prepare ═════════════════════════════════════════════════ */
+  /* the two drop zones (large when empty, compact once files are in) */
+  .rb-dropzone { background-color: transparent; border: 2px dashed #3a3733; }
+  .rb-dropzone[data-size="compact"] { border-width: 1px; }
+  .rb-dropzone[data-dragging="true"] { background-color: #292524; border-color: #ea580c; }
+  .rb-dropzone-icon { color: #57534e; }
+  .rb-dropzone[data-dragging="true"] .rb-dropzone-icon { color: #fb923c; }
 
-  /* the switcher's rows: the active project, and each row's status dot + word */
-  .rb-ctx-option { color: #d6d3d1; border-bottom: 1px solid #1c1917; }
-  .rb-ctx-option[data-active="true"] { color: #fb923c; }
-  .rb-ctx-option-dot { background-color: #ea580c; }
-  .rb-ctx-option-dot[data-status="active"],
-  .rb-ctx-option-dot[data-status="wrapped"]  { background-color: #15803d; }
-  .rb-ctx-option-dot[data-status="archived"] { background-color: #57534e; }
-  .rb-ctx-option-status { color: #fb923c; }
-  .rb-ctx-option-status[data-status="active"],
-  .rb-ctx-option-status[data-status="wrapped"]  { color: #4ade80; }
-  .rb-ctx-option-status[data-status="archived"] { color: #78716c; }
+  /* persona chips: on / off */
+  .rb-persona { color: #78716c; background-color: transparent; border: 1px solid #3a3733; }
+  .rb-persona[data-on="true"] { color: #fff7ed; background-color: #ea580c; border-color: #c2410c; font-weight: 600; }
+
+  /* generation options: on / off / disabled (scenes off for the project) */
+  .rb-gen { cursor: pointer; background-color: transparent; border: 1px solid #3a3733; }
+  .rb-gen[data-state="on"] { background-color: #292524; border-color: #44403c; }
+  .rb-gen[data-state="disabled"] { cursor: not-allowed; opacity: 0.3; }
+  .rb-gen-icon { color: #57534e; }
+  .rb-gen[data-state="on"] .rb-gen-icon { color: #fb923c; }
+  .rb-gen-label { color: #78716c; }
+  .rb-gen[data-state="on"] .rb-gen-label { color: #d6d3d1; }
+
+  /* Run Intake: enabled / disabled */
+  .rb-run { cursor: pointer; }
+  .rb-run:disabled { cursor: default; opacity: 0.25; }
+
+  /* ═══ Intake: Review ══════════════════════════════════════════════════ */
+  .rb-review-head { background-color: #44403c; border-bottom: none; }
+  .rb-review-head[data-open="true"] { border-bottom: 1px solid #44403c; }
+
+  /* ═══ Summary (ProjectSummaryView) ════════════════════════════════════ */
+  /* the gallery strip's cards: active / not, and each card's status dot */
+  .rb-gallery-card { background-color: #1c1917; border: 1px solid #333; box-shadow: none; }
+  .rb-gallery-card[data-active="true"] { background-color: #292524; border-color: #ea580c; box-shadow: 0 0 0 1px #ea580c; }
+  .rb-gallery-title { color: #d6d3d1; }
+  .rb-gallery-card[data-active="true"] .rb-gallery-title { color: #fb923c; }
+  .rb-gallery-dot { background-color: #ea580c; }
+  .rb-gallery-dot[data-status="active"]   { background-color: #15803d; }
+  .rb-gallery-dot[data-status="archived"] { background-color: #57534e; }
+  .rb-gallery-dot[data-status="wrapped"]  { background-color: #3b82f6; }
+  .rb-gallery-dot[data-status="on_hold"]  { background-color: #f59e0b; }
+
+  /* the no-project gallery's mini cards */
+  .rb-minicard { background-color: #1c1917; border: 1px solid #44403c; box-shadow: none; }
+  .rb-minicard[data-active="true"] { border-color: #ea580c; box-shadow: 0 0 0 1px #ea580c; }
+  .rb-minicard-title { color: #d6d3d1; }
+  .rb-minicard[data-active="true"] .rb-minicard-title { color: #fb923c; }
+  .rb-minicard-status { color: #fff7ed; background-color: #ea580c; border: 1px solid #ea580c; }
+  .rb-minicard-status[data-status="active"],
+  .rb-minicard-status[data-status="wrapped"]  { background-color: #15803d; border-color: #15803d; }
+  .rb-minicard-status[data-status="archived"] { background-color: #57534e; border-color: #57534e; }
+
+  /* the header card's status select */
+  .rb-status-select { color: #fff7ed; background-color: #ea580c; border: 1px solid #ea580c; }
+  .rb-status-select[data-status="active"]   { background-color: #15803d; border-color: #15803d; }
+  .rb-status-select[data-status="on_hold"]  { background-color: #f59e0b; border-color: #f59e0b; }
+  .rb-status-select[data-status="wrapped"]  { background-color: #3b82f6; border-color: #3b82f6; }
+  .rb-status-select[data-status="archived"] { background-color: #57534e; border-color: #57534e; }
+
+  /* Next up / At risk rows: normal or danger */
+  .rb-listrow-chevron { color: #a8a29e; }
+  .rb-listrow[data-danger="true"] .rb-listrow-chevron { color: #fca5a5; }
+  .rb-listrow-tag { color: #fb923c; background-color: #1c1917; border: 1px solid #57534e; }
+  .rb-listrow[data-danger="true"] .rb-listrow-tag { color: #fff7ed; background-color: #7f1d1d; border-color: #991b1b; }
+
+  /* budget snapshot tiles: neutral / good / danger */
+  .rb-budget-tile { background-color: #1c1917; border: 1px solid #44403c; }
+  .rb-budget-tile[data-tone="good"]   { border-color: #15803d; }
+  .rb-budget-tile[data-tone="danger"] { border-color: #7f1d1d; }
+  .rb-budget-value { color: #d6d3d1; }
+  .rb-budget-tile[data-tone="good"] .rb-budget-value   { color: #86efac; }
+  .rb-budget-tile[data-tone="danger"] .rb-budget-value { color: #fca5a5; }
+
+  /* Control Panel: the three module cards (on / off), the folder path, the toggle */
+  .rb-module { background-color: #292524; border: 1px solid #33302e; opacity: 0.7; }
+  .rb-module[data-enabled="true"] { border-color: #44403c; opacity: 1; }
+  .rb-module-head { border-bottom: none; border-left: 3px solid #57534e; }
+  .rb-module[data-enabled="true"] .rb-module-head { border-bottom: 1px solid #44403c; border-left-color: #fb923c; }
+  .rb-module-accent { color: #57534e; }
+  .rb-module[data-enabled="true"] .rb-module-accent { color: #fb923c; }
+  .rb-folder-path { color: #a8a29e; }
+  .rb-folder-path[data-empty="true"] { color: #57534e; }
+  .rb-toggle { background-color: #44403c; }
+  .rb-toggle[data-checked="true"] { background-color: #ea580c; }
+  .rb-toggle-knob { transform: translateX(0); }
+  .rb-toggle[data-checked="true"] .rb-toggle-knob { transform: translateX(16px); }
+
+  /* ═══ Team (TeamView) ═════════════════════════════════════════════════ */
+  /* the Local Server table's rows: rest / hover */
+  .rb-team-row { background-color: #1c1917; border-bottom: 1px solid #44403c; }
+  .rb-team-row:hover { background-color: #292524; }
+
+  /* employment type and role badges / selects */
+  .rb-employment { background-color: #1c1917; color: #86efac; border: 1px solid #14532d; }
+  .rb-employment[data-kind="freelancer"] { color: #fbbf24; border-color: #78350f; }
+  .rb-role { background-color: #1c1917; color: #d6d3d1; border: 1px solid #44403c; }
+  .rb-role[data-role="manager"]  { color: #fbbf24; border-color: #78350f; }
+  .rb-role[data-role="reviewer"] { color: #a78bfa; border-color: #4c1d95; }
+
+  /* the two date cells: a date, or empty */
+  .rb-team-date { background-color: #1c1917; color: #a8a29e; border: 1px solid #44403c; }
+  .rb-team-date[data-empty="true"] { color: #57534e; }
+
+  /* the toolbar's filter / sort / group controls light up when set */
+  .rb-tool-toggle { color: #78716c; }
+  .rb-tool-toggle[data-active="true"] { color: #fb923c; }
+  .rb-saved-views { color: #57534e; }
+  .rb-saved-views[data-active="true"] { color: #fb923c; }
+
+  /* the member picker's rows: rest / hover / checked (checked wins over hover).
+     MemberPickerModal used to write these through e.currentTarget.style in
+     onMouseEnter / onMouseLeave (review risk 1). */
+  .rb-picker-row { background-color: transparent; border-bottom: 1px solid #1c1917; }
+  .rb-picker-row:hover { background-color: #44403c; }
+  .rb-picker-row[data-checked="true"],
+  .rb-picker-row[data-checked="true"]:hover { background-color: rgba(234, 88, 12, 0.12); }
+
+  /* ═══ Reduced motion (§3.4): every transition this file declares ends instantly,
+     scoped by class — never a blanket rule (C5: the pet). ═══ */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-ctx-option { transition: none; }
+  }
 }
