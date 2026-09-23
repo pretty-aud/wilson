@@ -1359,9 +1359,15 @@ describe('the inline half: every type value reads a token (T3)', () => {
                                     Dense step. A token read would only
                                     SPELL the mismatch; the fix is either the
                                     leading (1.45) or the step (Body, 14px),
-                                    and which one is lane B1's call. Filed. */
-  const T2_LEADING_RESIDUE = 6;
-  it('R.A.B.B.I.T. declares no type in a style object, except six leadings', () => {
+                                    and which one is lane B1's call. Filed.
+
+     B1 (2026-09-23): ONE. Lane B1 made the call for all five of
+     IntakePrepare's (V1-13): each <p> is Dense prose, so it takes the Dense
+     step's own leading (1.45) and the declaration goes — 1.6 and 1.7 were
+     off the scale, and 1.5 was Body's leading on the Dense step. The one
+     left is TimelineView.jsx's tick label, lane B3's. */
+  const T2_LEADING_RESIDUE = 1;
+  it('R.A.B.B.I.T. declares no type in a style object, except one leading', () => {
     const spellings = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT, INLINE_CASE];
     const hits = spellings.flatMap((re) => sweep(re, ({ file }) => T2_LANE.test(file)));
     expect(hits, `inline type in T2's lane:\n${hits.join('\n')}`).toEqual([]);

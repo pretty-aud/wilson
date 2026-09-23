@@ -125,139 +125,118 @@
   .rb-ctx-option-mark > svg { width: var(--icon-sm); height: var(--icon-sm); }
   .rb-ctx-option-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* ═══ Intake wizard (IntakeWizardView) ════════════════════════════════ */
-  /* the six new-project fields: a value, or the empty placeholder ink */
-  .rb-field { background-color: #1c1917; color: #f4a261; border: 1px solid #44403c; }
-  .rb-field[data-empty="true"] { color: #57534e; }
+  /* ═══ Cards on this surface: the kit's Card, its title with a 16px icon ═══ */
+  .rb-card-title { display: inline-flex; align-items: center; gap: 8px; }
+  .rb-card-icon { width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-3); flex-shrink: 0; }
+
+  /* ═══ Intake wizard (IntakeWizardView) ════════════════════════════════
+     Every field is the kit's `.ui-input` (Dense, 36px, one hairline, the kit
+     focus ring). An empty select or date reads as its own placeholder. */
+  .rb-field[data-empty="true"] { color: var(--color-ink-3); }
 
   /* the confirm dialog's rows: short (label beside value) or long (stacked) */
   .rb-confirm-row { display: flex; gap: 12px; }
-  .rb-confirm-row[data-long="true"] { flex-direction: column; gap: 2px; }
-  .rb-confirm-label { color: #57534e; width: 90px; }
+  .rb-confirm-row[data-long="true"] { flex-direction: column; gap: 4px; }
+  .rb-confirm-label { width: 96px; flex-shrink: 0; color: var(--color-ink-3); }
   .rb-confirm-row[data-long="true"] .rb-confirm-label { width: auto; }
-  .rb-confirm-value { color: #d6d3d1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-confirm-value { min-width: 0; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rb-confirm-row[data-long="true"] .rb-confirm-value { overflow: visible; text-overflow: clip; white-space: pre-wrap; }
 
-  /* the step strip: done / active / future */
-  .rb-step { color: #a8a29e; background-color: transparent; border: 1px solid #44403c; opacity: 0.5; }
-  .rb-step[data-state="done"] { opacity: 1; }
-  .rb-step[data-state="active"] { color: #fff7ed; background-color: #ea580c; opacity: 1; }
+  /* the step strip (R28): past / current / future. The current step takes the
+     one active treatment — a 2px signal underline — never an orange fill
+     under 11–13px text (C6; the walk counted 2 C6 hits here). */
+  .rb-step { color: var(--color-ink-3); background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
+  .rb-step[data-state="done"] { color: var(--color-ink-2); }
+  .rb-step[data-state="active"] { color: var(--color-ink); font-weight: 600; border-bottom-color: var(--color-signal); }
 
   /* ═══ Intake: Prepare ═════════════════════════════════════════════════ */
-  /* the two drop zones (large when empty, compact once files are in) */
-  .rb-dropzone { background-color: transparent; border: 2px dashed #3a3733; }
-  .rb-dropzone[data-size="compact"] { border-width: 1px; }
-  .rb-dropzone[data-dragging="true"] { background-color: #292524; border-color: #ea580c; }
-  .rb-dropzone-icon { color: #57534e; }
-  .rb-dropzone[data-dragging="true"] .rb-dropzone-icon { color: #fb923c; }
+  /* the two drop zones: one hairline (dashed), the signal only while a file
+     is being dragged over — that is the one live state on this screen */
+  .rb-dropzone { background-color: transparent; border: 1px dashed var(--color-rule); }
+  .rb-dropzone[data-dragging="true"] { background-color: var(--color-signal-tint); border-color: var(--color-signal); }
+  .rb-dropzone-icon { color: var(--color-ink-3); }
+  .rb-dropzone[data-dragging="true"] .rb-dropzone-icon { color: var(--color-ink); }
 
-  /* persona chips: on / off */
-  .rb-persona { color: #78716c; background-color: transparent; border: 1px solid #3a3733; }
-  .rb-persona[data-on="true"] { color: #fff7ed; background-color: #ea580c; border-color: #c2410c; font-weight: 600; }
-
-  /* generation options: on / off / disabled (scenes off for the project) */
-  .rb-gen { cursor: pointer; background-color: transparent; border: 1px solid #3a3733; }
-  .rb-gen[data-state="on"] { background-color: #292524; border-color: #44403c; }
-  .rb-gen[data-state="disabled"] { cursor: not-allowed; opacity: 0.3; }
-  .rb-gen-icon { color: #57534e; }
-  .rb-gen[data-state="on"] .rb-gen-icon { color: #fb923c; }
-  .rb-gen-label { color: #78716c; }
-  .rb-gen[data-state="on"] .rb-gen-label { color: #d6d3d1; }
-
-  /* Run Intake: enabled / disabled */
-  .rb-run { cursor: pointer; }
-  .rb-run:disabled { cursor: default; opacity: 0.25; }
+  /* generation options: on / off / disabled. Disabled is the third ink and
+     not-allowed — never an opacity (§3.1). */
+  .rb-gen { cursor: pointer; background-color: transparent; border: 1px solid var(--color-rule); }
+  .rb-gen[data-state="on"] { background-color: var(--color-paper-raised); }
+  .rb-gen[data-state="disabled"] { cursor: not-allowed; }
+  .rb-gen-icon { color: var(--color-ink-3); }
+  .rb-gen[data-state="on"] .rb-gen-icon { color: var(--color-ink); }
+  .rb-gen-label { color: var(--color-ink-2); }
+  .rb-gen[data-state="on"] .rb-gen-label { color: var(--color-ink); }
 
   /* ═══ Intake: Review ══════════════════════════════════════════════════ */
-  .rb-review-head { background-color: #44403c; border-bottom: none; }
-  .rb-review-head[data-open="true"] { border-bottom: 1px solid #44403c; }
+  .rb-review-head { background-color: var(--color-paper-raised); border-bottom: 1px solid transparent; }
+  .rb-review-head[data-open="true"] { border-bottom-color: var(--color-rule); }
 
-  /* ═══ Summary (ProjectSummaryView) ════════════════════════════════════ */
-  /* the gallery strip's cards: active / not, and each card's status dot */
-  .rb-gallery-card { background-color: #1c1917; border: 1px solid #333; box-shadow: none; }
-  .rb-gallery-card[data-active="true"] { background-color: #292524; border-color: #ea580c; box-shadow: 0 0 0 1px #ea580c; }
-  .rb-gallery-title { color: #d6d3d1; }
-  .rb-gallery-card[data-active="true"] .rb-gallery-title { color: #fb923c; }
-  .rb-gallery-dot { background-color: #ea580c; }
-  .rb-gallery-dot[data-status="active"]   { background-color: #15803d; }
-  .rb-gallery-dot[data-status="archived"] { background-color: #57534e; }
-  .rb-gallery-dot[data-status="wrapped"]  { background-color: #3b82f6; }
-  .rb-gallery-dot[data-status="on_hold"]  { background-color: #f59e0b; }
+  /* ═══ Summary (ProjectSummaryView) ════════════════════════════════════
+     The gallery strip's cards and the no-project mini cards: the kit Row's
+     one selected treatment — the signal tint and a 2px signal left edge —
+     instead of an orange frame plus an orange ring plus an orange title
+     (R23: "mark active with the signal left border the shared Row uses"). */
+  .rb-gallery-card,
+  .rb-minicard { background-color: var(--color-paper); border: 1px solid var(--color-rule); }
+  .rb-gallery-card[data-active="true"],
+  .rb-minicard[data-active="true"] { background-color: var(--color-signal-tint); box-shadow: inset 2px 0 0 0 var(--color-signal); }
+  .rb-gallery-title,
+  .rb-minicard-title { color: var(--color-ink); }
 
-  /* the no-project gallery's mini cards */
-  .rb-minicard { background-color: #1c1917; border: 1px solid #44403c; box-shadow: none; }
-  .rb-minicard[data-active="true"] { border-color: #ea580c; box-shadow: 0 0 0 1px #ea580c; }
-  .rb-minicard-title { color: #d6d3d1; }
-  .rb-minicard[data-active="true"] .rb-minicard-title { color: #fb923c; }
-  .rb-minicard-status { color: #fff7ed; background-color: #ea580c; border: 1px solid #ea580c; }
-  .rb-minicard-status[data-status="active"],
-  .rb-minicard-status[data-status="wrapped"]  { background-color: #15803d; border-color: #15803d; }
-  .rb-minicard-status[data-status="archived"] { background-color: #57534e; border-color: #57534e; }
+  /* the metric tiles — the band and the budget snapshot are both the kit's Stat
+     (F2 §8: the Summary band is its first caller), boxed alike */
+  .rb-stat-tile { padding: 12px 16px; background-color: var(--color-paper); border: 1px solid var(--color-rule); border-radius: var(--radius-control); }
 
-  /* the header card's status select */
-  .rb-status-select { color: #fff7ed; background-color: #ea580c; border: 1px solid #ea580c; }
-  .rb-status-select[data-status="active"]   { background-color: #15803d; border-color: #15803d; }
-  .rb-status-select[data-status="on_hold"]  { background-color: #f59e0b; border-color: #f59e0b; }
-  .rb-status-select[data-status="wrapped"]  { background-color: #3b82f6; border-color: #3b82f6; }
-  .rb-status-select[data-status="archived"] { background-color: #57534e; border-color: #57534e; }
+  /* the header card's status select: the kit input with the status's dot */
+  .rb-status-select-wrap { position: relative; display: inline-flex; align-items: center; }
+  .rb-status-select-wrap > .ui-status-dot { position: absolute; left: 10px; pointer-events: none; }
+  /* (0,3,0): it has to outrank the kit's `.ui-input[data-size]` padding, and this
+     file can be emitted before index.css, so source order cannot be relied on */
+  .rb-status-select-wrap > .ui-input.rb-status-select { width: auto; padding-left: 26px; padding-right: 28px; }
 
-  /* Next up / At risk rows: normal or danger */
-  .rb-listrow-chevron { color: #a8a29e; }
-  .rb-listrow[data-danger="true"] .rb-listrow-chevron { color: #fca5a5; }
-  .rb-listrow-tag { color: #fb923c; background-color: #1c1917; border: 1px solid #57534e; }
-  .rb-listrow[data-danger="true"] .rb-listrow-tag { color: #fff7ed; background-color: #7f1d1d; border-color: #991b1b; }
+  /* Next up / At risk rows: the chevron takes the danger ink on an at-risk row */
+  .rb-listrow { border-bottom: 1px solid var(--color-rule); }
+  .rb-listrow-chevron { color: var(--color-ink-3); }
+  .rb-listrow[data-danger="true"] .rb-listrow-chevron { color: var(--color-danger); }
 
-  /* budget snapshot tiles: neutral / good / danger */
-  .rb-budget-tile { background-color: #1c1917; border: 1px solid #44403c; }
-  .rb-budget-tile[data-tone="good"]   { border-color: #15803d; }
-  .rb-budget-tile[data-tone="danger"] { border-color: #7f1d1d; }
-  .rb-budget-value { color: #d6d3d1; }
-  .rb-budget-tile[data-tone="good"] .rb-budget-value   { color: #86efac; }
-  .rb-budget-tile[data-tone="danger"] .rb-budget-value { color: #fca5a5; }
-
-  /* Control Panel: the three module cards (on / off), the folder path, the toggle */
-  .rb-module { background-color: #292524; border: 1px solid #33302e; opacity: 0.7; }
-  .rb-module[data-enabled="true"] { border-color: #44403c; opacity: 1; }
-  .rb-module-head { border-bottom: none; border-left: 3px solid #57534e; }
-  .rb-module[data-enabled="true"] .rb-module-head { border-bottom: 1px solid #44403c; border-left-color: #fb923c; }
-  .rb-module-accent { color: #57534e; }
-  .rb-module[data-enabled="true"] .rb-module-accent { color: #fb923c; }
-  .rb-folder-path { color: #a8a29e; }
-  .rb-folder-path[data-empty="true"] { color: #57534e; }
-  .rb-toggle { background-color: #44403c; }
-  .rb-toggle[data-checked="true"] { background-color: #ea580c; }
-  .rb-toggle-knob { transform: translateX(0); }
-  .rb-toggle[data-checked="true"] .rb-toggle-knob { transform: translateX(16px); }
+  /* Control Panel: the three module cards. Off reads through the Switch and
+     a third-ink title — not a dimmed card and not a border colour (R22). */
+  .rb-module { background-color: var(--color-paper-raised); border: 1px solid var(--color-rule); }
+  .rb-module-head { border-bottom: 1px solid transparent; }
+  .rb-module[data-enabled="true"] .rb-module-head { border-bottom-color: var(--color-rule); }
+  .rb-module-accent { color: var(--color-ink-3); }
+  .rb-module[data-enabled="true"] .rb-module-accent { color: var(--color-ink); }
+  .rb-folder-path { color: var(--color-ink-2); }
+  .rb-folder-path[data-empty="true"] { color: var(--color-ink-3); }
 
   /* ═══ Team (TeamView) ═════════════════════════════════════════════════ */
-  /* the Local Server table's rows: rest / hover */
-  .rb-team-row { background-color: #1c1917; border-bottom: 1px solid #44403c; }
-  .rb-team-row:hover { background-color: #292524; }
+  /* the Local Server table's rows: rest / hover (one hover fill, §4 Table) */
+  .rb-team-row { background-color: var(--color-paper); border-bottom: 1px solid var(--color-rule); }
+  .rb-team-row:hover { background-color: var(--color-hover); }
 
-  /* employment type and role badges / selects */
-  .rb-employment { background-color: #1c1917; color: #86efac; border: 1px solid #14532d; }
-  .rb-employment[data-kind="freelancer"] { color: #fbbf24; border-color: #78350f; }
-  .rb-role { background-color: #1c1917; color: #d6d3d1; border: 1px solid #44403c; }
-  .rb-role[data-role="manager"]  { color: #fbbf24; border-color: #78350f; }
-  .rb-role[data-role="reviewer"] { color: #a78bfa; border-color: #4c1d95; }
+  /* employment type and role: inert labels on the kit Badge's terms — one
+     hairline, the second ink. A category is not a status, so no status
+     colour; the violet reviewer and the amber manager were two cool/warm
+     hues the chrome does not carry (R08). */
+  .rb-employment,
+  .rb-role:not(select) { background-color: transparent; color: var(--color-ink-2); border: 1px solid var(--color-rule); }
 
   /* the two date cells: a date, or empty */
-  .rb-team-date { background-color: #1c1917; color: #a8a29e; border: 1px solid #44403c; }
-  .rb-team-date[data-empty="true"] { color: #57534e; }
+  .rb-team-date[data-empty="true"] { color: var(--color-ink-3); }
 
-  /* the toolbar's filter / sort / group controls light up when set */
-  .rb-tool-toggle { color: #78716c; }
-  .rb-tool-toggle[data-active="true"] { color: #fb923c; }
-  .rb-saved-views { color: #57534e; }
-  .rb-saved-views[data-active="true"] { color: #fb923c; }
+  /* the toolbar's filter / sort / group / saved-views controls light up when
+     set: the ink rises from the second to the first */
+  .rb-tool-toggle,
+  .rb-saved-views { color: var(--color-ink-2); }
+  .rb-tool-toggle[data-active="true"],
+  .rb-saved-views[data-active="true"] { color: var(--color-ink); }
 
-  /* the member picker's rows: rest / hover / checked (checked wins over hover).
-     MemberPickerModal used to write these through e.currentTarget.style in
-     onMouseEnter / onMouseLeave (review risk 1). */
-  .rb-picker-row { background-color: transparent; border-bottom: 1px solid #1c1917; }
-  .rb-picker-row:hover { background-color: #44403c; }
+  /* the member picker's rows: rest / hover / checked (checked wins over hover;
+     the kit Row's selected treatment) */
+  .rb-picker-row { background-color: transparent; border-bottom: 1px solid var(--color-rule); }
+  .rb-picker-row:hover { background-color: var(--color-hover); }
   .rb-picker-row[data-checked="true"],
-  .rb-picker-row[data-checked="true"]:hover { background-color: rgba(234, 88, 12, 0.12); }
+  .rb-picker-row[data-checked="true"]:hover { background-color: var(--color-signal-tint); box-shadow: inset 2px 0 0 0 var(--color-signal); }
 
   /* ═══ Reduced motion (§3.4): every transition this file declares ends instantly,
      scoped by class — never a blanket rule (C5: the pet). ═══ */

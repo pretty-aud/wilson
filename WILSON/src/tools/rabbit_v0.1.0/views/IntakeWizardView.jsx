@@ -15,9 +15,13 @@
 // can fill in fields and confirm before anything is created.
 
 import { useState, useCallback, useRef } from 'react'
-import { Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon, Calendar, Hash } from 'lucide-react'
+import {
+  Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon,
+} from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import '../rabbitShell.css'
+import { Toolbar } from '../../../ui/Toolbar'
+import { Button } from '../../../ui/Button'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { PERSONA_LIST } from '../intake/personas'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
@@ -90,7 +94,7 @@ export default function IntakeWizardView() {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full flex flex-col" style={{ backgroundColor: 'var(--color-paper)' }}>
       {/* Step indicator */}
       <StepIndicator step={step} />
 
@@ -226,21 +230,14 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
   const canSubmit = draft.title.trim().length > 0
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full flex flex-col" style={{ backgroundColor: 'var(--color-paper)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3" style={{ borderBottom: '2px solid #f97316', backgroundColor: '#292524' }}>
-        <div className="flex items-center gap-2.5">
-          <Plus className="w-4 h-4" style={{ color: '#fb923c' }} />
-          <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
-            Create New Project
-          </span>
-        </div>
-        <button type="button" onClick={onCancel}
-          className="px-3 py-1 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          Cancel
-        </button>
-      </div>
+      {/* The kit's Toolbar: 44px, the gutter, one hairline — not a 2px signal
+          rule under a Label-step shout. The title is a title (H2, sentence). */}
+      <Toolbar right={<Button size="sm" onClick={onCancel}>Cancel</Button>}>
+        <Plus className="rb-card-icon" aria-hidden="true" />
+        <h2 className="text-h2" style={{ color: 'var(--color-ink)', margin: 0 }}>Create new project</h2>
+      </Toolbar>
 
       {/* Form body — two-column: left form, right files */}
       <div className="flex-1 overflow-auto">
@@ -254,29 +251,26 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <FormField label="Project name" required>
               <input type="text" autoFocus value={draft.title} onChange={e => patch('title', e.target.value)}
                 placeholder="e.g. Nike — Summer Campaign"
-                className="w-full px-3 py-2.5 text-body rounded-control focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                className="ui-input" data-size="md" data-surface="dark" />
             </FormField>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Client / Studio">
                 <input type="text" value={draft.client_name} onChange={e => patch('client_name', e.target.value)}
                   placeholder="Company name"
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                  className="ui-input" data-size="md" data-surface="dark" />
               </FormField>
               <FormField label="Project code">
                 <input type="text" value={draft.project_code} onChange={e => patch('project_code', e.target.value.toUpperCase())}
                   placeholder="PROJ"
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                  className="ui-input" data-size="md" data-surface="dark" />
               </FormField>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Project type">
                 <select value={draft.project_type} onChange={e => patch('project_type', e.target.value)}
-                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  className="ui-input rb-field" data-size="md" data-surface="dark"
                   data-empty={draft.project_type ? undefined : 'true'}>
                   <option value="">Select type...</option>
                   {TYPE_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
@@ -284,7 +278,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               </FormField>
               <FormField label="Project tier">
                 <select value={draft.project_tier} onChange={e => patch('project_tier', e.target.value)}
-                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  className="ui-input rb-field" data-size="md" data-surface="dark"
                   data-empty={draft.project_tier ? undefined : 'true'}>
                   <option value="">Select tier...</option>
                   {TIER_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
@@ -295,15 +289,13 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Start date">
                 <input type="date" value={draft.start_date} onChange={e => patch('start_date', e.target.value)}
-                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  data-empty={draft.start_date ? undefined : 'true'}
-                  style={{ colorScheme: 'dark' }} />
+                  className="ui-input rb-field" data-size="md" data-surface="dark"
+                  data-empty={draft.start_date ? undefined : 'true'} style={{ colorScheme: 'dark' }} />
               </FormField>
               <FormField label="End date">
                 <input type="date" value={draft.end_date} onChange={e => patch('end_date', e.target.value)}
-                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  data-empty={draft.end_date ? undefined : 'true'}
-                  style={{ colorScheme: 'dark' }} />
+                  className="ui-input rb-field" data-size="md" data-surface="dark"
+                  data-empty={draft.end_date ? undefined : 'true'} style={{ colorScheme: 'dark' }} />
               </FormField>
             </div>
           </SectionCard>
@@ -313,7 +305,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Director">
                 <select value={draft.director_id} onChange={e => patch('director_id', e.target.value)}
-                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  className="ui-input rb-field" data-size="md" data-surface="dark"
                   data-empty={draft.director_id ? undefined : 'true'}>
                   <option value="">Select director...</option>
                   {(tm.members || []).map(m => <option key={m.id} value={m.id}>{m.name}{m.title ? ` — ${m.title}` : ''}</option>)}
@@ -321,7 +313,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               </FormField>
               <FormField label="Producer">
                 <select value={draft.producer_id} onChange={e => patch('producer_id', e.target.value)}
-                  className="rb-field w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  className="ui-input rb-field" data-size="md" data-surface="dark"
                   data-empty={draft.producer_id ? undefined : 'true'}>
                   <option value="">Select producer...</option>
                   {(tm.members || []).map(m => <option key={m.id} value={m.id}>{m.name}{m.title ? ` — ${m.title}` : ''}</option>)}
@@ -335,16 +327,14 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-3 gap-4">
               <FormField label="Currency">
                 <select value={draft.budget_currency} onChange={e => patch('budget_currency', e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+                  className="ui-input" data-size="md" data-surface="dark">
                   {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </FormField>
               <FormField label="Budget total">
                 <input type="number" value={draft.budget_total} onChange={e => patch('budget_total', e.target.value)}
                   placeholder="0"
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                  className="ui-input" data-size="md" data-surface="dark" />
               </FormField>
               <div />
             </div>
@@ -353,28 +343,25 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <FormField label="Margin %">
                 <input type="number" value={draft.budget_margin_pct} onChange={e => patch('budget_margin_pct', e.target.value)}
                   placeholder="0" min="0" max="100" step="0.5"
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                  className="ui-input" data-size="md" data-surface="dark" />
               </FormField>
               <FormField label="Contingency %">
                 <input type="number" value={draft.budget_contingency_pct} onChange={e => patch('budget_contingency_pct', e.target.value)}
                   placeholder="0" min="0" max="100" step="0.5"
-                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                  className="ui-input" data-size="md" data-surface="dark" />
               </FormField>
               <div className="flex flex-col gap-1">
                 <FormField label="Agency fee">
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input type="checkbox" checked={draft.budget_agency_enabled} onChange={e => patch('budget_agency_enabled', e.target.checked)}
-                        className="accent-orange-500" />
-                      <span className="text-dense" style={{ color: '#a8a29e' }}>Enable</span>
+                        className="accent-signal" />
+                      <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>Enable</span>
                     </label>
                     {draft.budget_agency_enabled && (
                       <input type="number" value={draft.budget_agency_pct} onChange={e => patch('budget_agency_pct', e.target.value)}
                         placeholder="20" min="0" max="100" step="0.5"
-                        className="w-20 px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                        style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                        className="ui-input w-20" data-size="sm" data-surface="dark" />
                     )}
                   </div>
                 </FormField>
@@ -388,15 +375,13 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <textarea value={draft.description} onChange={e => patch('description', e.target.value)}
                 placeholder="Brief project description..."
                 rows={3}
-                className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                className="ui-input resize-y" data-size="md" data-surface="dark" />
             </FormField>
             <FormField label="Notes">
               <textarea value={draft.notes} onChange={e => patch('notes', e.target.value)}
                 placeholder="Internal notes..."
                 rows={2}
-                className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                className="ui-input resize-y" data-size="md" data-surface="dark" />
             </FormField>
           </SectionCard>
 
@@ -417,38 +402,38 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               e.target.value = ''
             }} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-dense rounded-control hover:bg-stone-700 transition-colors"
-              style={{ color: '#a8a29e', border: '2px dashed #44403c' }}>
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-dense rounded-control hover:bg-hover transition-colors"
+              style={{ color: 'var(--color-ink-2)', border: '2px dashed var(--color-rule)' }}>
               <Upload className="w-4 h-4" /> Drop or click to add files
             </button>
             {files.length > 0 && (
               <div className="flex flex-col gap-2 mt-1">
-                <span className="text-label font-mono uppercase" style={{ color: '#57534e' }}>
+                <span className="text-label font-mono uppercase" style={{ color: 'var(--color-ink-3)' }}>
                   {files.length} file{files.length !== 1 ? 's' : ''} attached
                 </span>
                 {files.map((f, i) => (
-                  <div key={i} className="flex items-start gap-2.5 px-3 py-2.5 rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #3a3733' }}>
-                    <FileIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#fb923c' }} />
+                  <div key={i} className="flex items-start gap-2.5 px-3 py-2.5 rounded-control" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                    <FileIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--color-ink)' }} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-dense truncate" style={{ color: '#d6d3d1' }}>{f.name}</div>
+                      <div className="text-dense truncate" style={{ color: 'var(--color-ink)' }}>{f.name}</div>
                       <div className="flex items-center gap-3 mt-1">
                         {f.size > 0 && (
-                          <span className="text-dense font-mono tabular-nums" style={{ color: '#57534e' }}>
+                          <span className="text-dense font-mono tabular-nums" style={{ color: 'var(--color-ink-3)' }}>
                             {f.size < 1024 ? `${f.size} B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)} KB` : `${(f.size / 1048576).toFixed(1)} MB`}
                           </span>
                         )}
                         {f.type && (
-                          <span className="text-caption" style={{ color: '#57534e' }}>{f.type.split('/').pop()}</span>
+                          <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>{f.type.split('/').pop()}</span>
                         )}
                         {f.lastModified && (
-                          <span className="text-caption font-mono" style={{ color: '#57534e' }}>
+                          <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>
                             {new Date(f.lastModified).toLocaleDateString()}
                           </span>
                         )}
                       </div>
                     </div>
                     <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
-                      className="p-0.5 hover:bg-stone-700 rounded-control transition-colors flex-shrink-0" style={{ color: '#fca5a5' }}>
+                      className="p-0.5 hover:bg-hover rounded-control transition-colors flex-shrink-0" style={{ color: 'var(--color-danger)' }}>
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -457,8 +442,8 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             )}
             {files.length === 0 && (
               <div className="text-center py-4">
-                <Paperclip className="w-6 h-6 mx-auto mb-2" style={{ color: '#44403c' }} />
-                <p className="text-dense" style={{ color: '#57534e' }}>
+                <Paperclip className="w-6 h-6 mx-auto mb-2" style={{ color: 'var(--color-ink-3)' }} />
+                <p className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
                   No files attached yet. Upload scripts, briefs, references, or any project documents.
                 </p>
               </div>
@@ -470,19 +455,19 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-6 py-3" style={{ borderTop: '1px solid #44403c', backgroundColor: '#292524' }}>
-        <span className="text-dense" style={{ color: '#57534e' }}>
+      <div className="flex items-center justify-between px-6 py-3" style={{ borderTop: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}>
+        <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
           Nothing is saved until you confirm.
         </span>
         <div className="flex items-center gap-3">
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+            className="px-4 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
+            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>
             Cancel
           </button>
           <button type="button" onClick={handleReviewAndConfirm} disabled={!canSubmit}
             className="px-5 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+            style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
             Review & Create
           </button>
         </div>
@@ -493,20 +478,20 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
         <>
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowConfirm(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden"
-            style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
+            style={{ backgroundColor: 'var(--color-paper-raised)', border: '2px solid var(--color-signal)', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
             onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c' }}>
-              <AlertTriangle className="w-4 h-4" style={{ color: '#fb923c' }} />
-              <span className="text-dense font-semibold" style={{ color: '#fb923c' }}>Confirm project creation</span>
+            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
+              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-ink)' }} />
+              <span className="text-dense font-semibold" style={{ color: 'var(--color-ink)' }}>Confirm project creation</span>
             </div>
             <div className="px-5 py-4 max-h-[60vh] overflow-auto">
-              <p className="text-dense leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
+              <p className="text-dense leading-relaxed mb-4" style={{ color: 'var(--color-ink-2)' }}>
                 Please verify the details below are correct. This will create a new project in your workspace.
               </p>
               <div className="flex flex-col gap-3">
                 {/* Project info */}
-                <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                  <span className="text-label uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Project</span>
+                <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                  <span className="text-label uppercase font-semibold mb-0.5" style={{ color: 'var(--color-ink-3)' }}>Project</span>
                   <ConfirmRow label="Name" value={draft.title} />
                   {draft.client_name && <ConfirmRow label="Client" value={draft.client_name} />}
                   {draft.project_code && <ConfirmRow label="Code" value={draft.project_code} />}
@@ -517,16 +502,16 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 </div>
                 {/* People */}
                 {(draft.director_id || draft.producer_id) && (
-                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>People</span>
+                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: 'var(--color-ink-3)' }}>People</span>
                     {draft.director_id && <ConfirmRow label="Director" value={(tm.members || []).find(m => m.id === draft.director_id)?.name || draft.director_id} />}
                     {draft.producer_id && <ConfirmRow label="Producer" value={(tm.members || []).find(m => m.id === draft.producer_id)?.name || draft.producer_id} />}
                   </div>
                 )}
                 {/* Budget */}
                 {(draft.budget_total || draft.budget_margin_pct || draft.budget_contingency_pct || draft.budget_agency_enabled) && (
-                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Budget</span>
+                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: 'var(--color-ink-3)' }}>Budget</span>
                     <ConfirmRow label="Currency" value={draft.budget_currency} />
                     {draft.budget_total && <ConfirmRow label="Total" value={Number(draft.budget_total).toLocaleString()} />}
                     {draft.budget_margin_pct && <ConfirmRow label="Margin" value={`${draft.budget_margin_pct}%`} />}
@@ -536,30 +521,30 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 )}
                 {/* Details */}
                 {(draft.description || draft.notes) && (
-                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Details</span>
+                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: 'var(--color-ink-3)' }}>Details</span>
                     {draft.description && <ConfirmRow label="Description" value={draft.description} />}
                     {draft.notes && <ConfirmRow label="Notes" value={draft.notes} />}
                   </div>
                 )}
                 {/* Files */}
                 {files.length > 0 && (
-                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: '#57534e' }}>Attachments</span>
+                  <div className="rounded-control p-3 flex flex-col gap-1.5" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                    <span className="text-label uppercase font-semibold mb-0.5" style={{ color: 'var(--color-ink-3)' }}>Attachments</span>
                     <ConfirmRow label="Files" value={`${files.length} file${files.length !== 1 ? 's' : ''}`} />
                   </div>
                 )}
               </div>
             </div>
-            <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
+            <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid var(--color-rule)' }}>
               <button type="button" onClick={() => setShowConfirm(false)}
-                className="px-4 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-                style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+                className="px-4 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
+                style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>
                 Go back
               </button>
               <button type="button" onClick={handleConfirmCreate} disabled={creating}
                 className="px-5 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
                 {creating ? 'Creating...' : 'Confirm & Create'}
               </button>
             </div>
@@ -572,10 +557,10 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
 
 function SectionCard({ icon, title, children }) {
   return (
-    <div className="rounded-control flex flex-col gap-4 p-4" style={{ backgroundColor: '#292524', border: '1px solid #3a3733' }}>
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid #3a3733' }}>
-        <span style={{ color: '#fb923c' }}>{icon}</span>
-        <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>{title}</span>
+    <div className="rounded-control flex flex-col gap-4 p-4" style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}>
+      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
+        <span style={{ color: 'var(--color-ink)' }}>{icon}</span>
+        <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink)' }}>{title}</span>
       </div>
       {children}
     </div>
@@ -585,8 +570,8 @@ function SectionCard({ icon, title, children }) {
 function FormField({ label, required, children }) {
   return (
     <div>
-      <label className="block text-label uppercase mb-1.5" style={{ color: '#78716c' }}>
-        {label}{required && <span style={{ color: '#ef4444' }}> *</span>}
+      <label className="block text-label uppercase mb-1.5" style={{ color: 'var(--color-ink-3)' }}>
+        {label}{required && <span style={{ color: 'var(--color-danger)' }}> *</span>}
       </label>
       {children}
     </div>
@@ -610,7 +595,7 @@ function StepIndicator({ step }) {
   return (
     <div
       className="flex items-center gap-2 px-6 py-3"
-      style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
+      style={{ borderBottom: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}
     >
       {STEPS.map((s, i) => {
         const done = i < stepIdx
@@ -621,11 +606,11 @@ function StepIndicator({ step }) {
               className="rb-step flex items-center gap-1.5 px-2 py-0.5 rounded-control"
               data-state={active ? 'active' : done ? 'done' : 'future'}
             >
-              <span className="text-dense font-semibold">{i + 1}</span>
-              <span className="text-label uppercase">{s.label}</span>
+              <span className="text-dense tabular-nums">{i + 1}</span>
+              <span className="text-dense">{s.label}</span>
             </div>
             {i < STEPS.length - 1 && (
-              <span className="text-caption" style={{ color: '#78716c' }}>›</span>
+              <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>›</span>
             )}
           </div>
         )
@@ -639,19 +624,19 @@ function NoProjectGate({ onNewProject }) {
   return (
     <div
       className="h-full flex flex-col items-center justify-center gap-4 p-8"
-      style={{ backgroundColor: '#1c1917' }}
+      style={{ backgroundColor: 'var(--color-paper)' }}
     >
-      <Folder className="w-10 h-10" style={{ color: '#57534e' }} />
+      <Folder className="w-10 h-10" style={{ color: 'var(--color-ink-3)' }} />
       <div
         className="text-dense text-center max-w-md leading-relaxed"
-        style={{ color: '#a8a29e' }}
+        style={{ color: 'var(--color-ink-2)' }}
       >
-        No project selected. Open the <span style={{ color: '#fb923c' }}>Summary</span> tab
+        No project selected. Open the <span style={{ color: 'var(--color-ink)' }}>Summary</span> tab
         to pick an existing project, or create a new one below.
       </div>
       <button type="button" onClick={onNewProject}
         className="flex items-center gap-1.5 px-5 py-2 text-dense rounded-control transition-colors"
-        style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+        style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
         <Plus className="w-3.5 h-3.5" /> New project
       </button>
     </div>

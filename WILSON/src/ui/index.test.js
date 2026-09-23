@@ -98,7 +98,9 @@ describe('every exported component has a caller, or is on the list', () => {
     // is still D1's to make (plan §6.5).
     Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
     Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
-    Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
+    // Stat came off this list when B1 integrated (2026-09-23): the Summary
+    // band's four tiles and its budget snapshot render the kit's Stat. B2's
+    // four Tasks tiles are its second caller, still to come.
     // Switch came off when B6 re-pointed binUi at the kit (2026-09-23): Bins'
     // Toggle is the kit's Switch again, and AddFilesDialog's "Folders become
     // nested bins" is its caller.
