@@ -515,6 +515,45 @@
     background-color: var(--color-paper-recessed);
   }
 
+  /* ═══ A2'S HALF — ON THE KIT AND THE TOKENS ═════════════════════════════
+     UI overhaul A2, 2026-09-23. Each surface below left the transcription
+     at the bottom of this file in its own commit; nothing here writes a hex
+     or a palette literal. */
+
+  /* ── The two toolbars (regenerate bar, formatting toolbar) — the kit's
+        Toolbar. 44px, one baseline, every child the 28px sm control
+        (review D16). Inside a Card the gutter is the card's 12px, not the
+        page's 24px: the tab bar above and the panel header above that both
+        start at 12px, and a toolbar 12px further in would break the column
+        (review D13, four gutters in one panel). Two classes, because the
+        kit's `.ui-toolbar` sets the same property and a tie is a loss. */
+  .ui-toolbar.dog-toolbar { padding: 0 12px; }
+  .dog-toolbar-label {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    /* Was orange-400, the accent as a label ink (review D9). */
+    color: var(--color-ink-2);
+  }
+
+  /* The regenerate bar: the field takes the row, as it always did. */
+  .dog-regen-bar > .ui-toolbar-slot { flex: 1 1 auto; }
+  .ui-input.dog-regen-input { flex: 1 1 0; width: auto; }
+  .dog-regen-layout { position: relative; flex-shrink: 0; }
+  .ui-input.dog-regen-select { width: auto; min-width: 140px; }
+  /* The chevron inside a 28px control is the 14px icon (§3.3). */
+  .dog-regen-layout .dog-select-chevron { width: var(--icon-sm); height: var(--icon-sm); }
+  .dog-regen-go { flex-shrink: 0; }
+  /* `.dog-select` sets `cursor: pointer` in `components`, which outranks
+     `@layer base`'s `:disabled { cursor: not-allowed }` whatever the
+     selectors say — so a disabled layout select (Section 2 in Full Deck
+     mode, this one while a page regenerates) showed a pointer. */
+  .dog-select:disabled { cursor: not-allowed; }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
@@ -540,17 +579,6 @@
 
   /* ── Regenerate bar and formatting toolbar (A2's surfaces; extracted
         here because the extraction is the whole file) ──────────────────── */
-
-  /* `disabled` is exactly "no previous / redo version". */
-  .dog-regen-hist-btn { background-color: oklch(37.4% 0.01 67.558); /* stone-700 */ color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  @media (hover: hover) {
-    .dog-regen-hist-btn:hover:not(:disabled) { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
-  }
-  .dog-regen-hist-btn:disabled {
-    background-color: oklch(26.8% 0.007 34.298); /* stone-800 */
-    color: oklch(44.4% 0.011 73.639);            /* stone-600 */
-    cursor: not-allowed;
-  }
 
   /* `disabled` is exactly `count === 0`. Active after hover, as Tailwind
      orders `active:` after `hover:`. */

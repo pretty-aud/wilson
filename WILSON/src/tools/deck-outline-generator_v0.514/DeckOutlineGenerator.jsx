@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -4260,87 +4260,72 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
             )}
 
-            {/* Regenerate Bar */}
+            {/* Regenerate Bar — the kit's Toolbar (review D16: five controls at
+                three heights; every child is now the 28px sm control). The
+                field wears the kit's Input contract on D.O.G.'s own <input>
+                (the A1 / C3 precedent): the kit Input blurs on Enter and
+                reverts on Escape, and this field submits on Enter (C1). */}
             {activeTab && (
-              <div className="bg-stone-900 px-3 py-2 border-b border-stone-600">
-                <div className="flex items-center gap-2">
-                  {/* Title */}
-                  <span className="text-label text-orange-400 uppercase font-semibold flex-shrink-0">Edit Output:</span>
-                  
-                  {/* Revision Prompt Input */}
-                  <input
-                    type="text"
-                    value={revisionPrompt}
-                    onChange={(e) => setRevisionPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !isRegenerating && hasFileContent) {
-                        regeneratePage();
-                      }
-                    }}
-                    disabled={isRegenerating}
-                    placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
-                    className="flex-1 px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-control text-stone-300 text-dense placeholder-stone-500 focus:border-orange-500 disabled:opacity-50"
-                  />
-                  
-                  {/* Layout Dropdown */}
-                  <div className="relative flex-shrink-0">
-                    <select
-                      value={regenerateLayout}
-                      onChange={(e) => setRegenerateLayout(e.target.value)}
-                      disabled={isRegenerating}
-                      className="px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-control text-stone-300 text-dense focus:border-orange-500 appearance-none pr-6 cursor-pointer disabled:opacity-50"
-                      style={{ minWidth: '140px' }}
-                    >
-                      <option value="">Keep layout</option>
-                      {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id}>
-                          {layout.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-stone-500 pointer-events-none" />
-                  </div>
-                  
-                  {/* Regenerate Button */}
-                  <button
-                    onClick={regeneratePage}
-                    disabled={isRegenerating || !hasFileContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-control font-semibold text-white text-dense transition-colors flex-shrink-0"
-                  >
-                    {isRegenerating ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Regenerating...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3 h-3" />
-                        Regenerate Page
-                      </>
-                    )}
-                  </button>
-                  
-                  {/* Undo Button */}
-                  <button
-                    onClick={undoRegeneration}
-                    disabled={!(previousContent[activeTab.id]?.length > 0)}
-                    className="dog-regen-hist-btn p-1.5 rounded-control transition-colors flex-shrink-0"
-                    title={previousContent[activeTab.id]?.length > 0 ? `Undo regeneration (${previousContent[activeTab.id].length})` : 'No previous version'}
-                  >
-                    <Undo2 className="w-4 h-4" />
-                  </button>
+              <Toolbar className="dog-toolbar dog-regen-bar">
+                <span className="dog-toolbar-label">Edit Output:</span>
 
-                  {/* Redo Button */}
-                  <button
-                    onClick={redoRegeneration}
-                    disabled={!(redoContent[activeTab.id]?.length > 0)}
-                    className="dog-regen-hist-btn p-1.5 rounded-control transition-colors flex-shrink-0"
-                    title={redoContent[activeTab.id]?.length > 0 ? `Redo regeneration (${redoContent[activeTab.id].length})` : 'No redo available'}
-                  >
-                    <Redo2 className="w-4 h-4" />
-                  </button>
+                <input
+                  type="text"
+                  value={revisionPrompt}
+                  onChange={(e) => setRevisionPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isRegenerating && hasFileContent) {
+                      regeneratePage();
+                    }
+                  }}
+                  disabled={isRegenerating}
+                  placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
+                  aria-label="Describe changes"
+                  className="ui-input dog-regen-input" data-size="sm" data-surface="dark"
+                />
+
+                <div className="dog-regen-layout">
+                  <Select
+                    size="sm"
+                    value={regenerateLayout}
+                    onChange={setRegenerateLayout}
+                    disabled={isRegenerating}
+                    placeholder="Keep layout"
+                    options={SLIDE_LAYOUTS.map((layout) => ({ value: layout.id, label: layout.name }))}
+                    aria-label="Layout for the regenerated page"
+                    className="dog-select dog-regen-select"
+                  />
+                  <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                 </div>
-              </div>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  Icon={RefreshCw}
+                  loading={isRegenerating}
+                  loadingLabel="Regenerating..."
+                  onClick={regeneratePage}
+                  disabled={!hasFileContent}
+                  className="dog-regen-go"
+                >
+                  Regenerate page
+                </Button>
+
+                <IconButton
+                  size="sm"
+                  Icon={Undo2}
+                  onClick={undoRegeneration}
+                  disabled={!(previousContent[activeTab.id]?.length > 0)}
+                  title={previousContent[activeTab.id]?.length > 0 ? `Undo regeneration (${previousContent[activeTab.id].length})` : 'No previous version'}
+                />
+                <IconButton
+                  size="sm"
+                  Icon={Redo2}
+                  onClick={redoRegeneration}
+                  disabled={!(redoContent[activeTab.id]?.length > 0)}
+                  title={redoContent[activeTab.id]?.length > 0 ? `Redo regeneration (${redoContent[activeTab.id].length})` : 'No redo available'}
+                />
+              </Toolbar>
             )}
 
             {/* Formatting Toolbar */}
