@@ -12,7 +12,7 @@
  * tabs. T1 and T2 each found the hard way that URLs are not screens. This
  * registry adds Settings' tabs, the Admin Terminal's sections, Budget's
  * views, O.T.T.E.R.'s tools and lesson, Help's sections, the shell's nav and
- * quit dialog, and 18 of the app's roughly sixty dialogs — 80 screens.
+ * quit dialog, and 18 of the app's roughly sixty dialogs — 77 screens.
  * NOT walked, and named so nobody reads "every screen": the other ~40
  * dialogs, R.A.B.B.I.T.'s Levels and Experiences tabs (hidden for this
  * project type), Timeline's TaskEditor, and anything behind a real session.
@@ -60,8 +60,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   pageCensus, typeCensus, renderedFaces, typeRules, pageGround, openDialog, tableAlignment, toolbarAlignment,
-  unnamedControls, selectedControl, styledActive, stopPointCensus, bodyTextCount,
+  unnamedControls, selectedControl, styledActive, stopPointCensus, bodyTextCount, formFields, nestedButtons,
 } from './ui-measure.mjs';
+
+/* An orange ground, by hue: the signal, signal-fill and Tailwind's orange
+   400-700 all qualify; the light page ground #f4a261 and #dd9155 too. */
+const isOrange = (h) => { const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); return r > 180 && g > 50 && g < 175 && b < 110 && r - b > 100; };
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
@@ -121,7 +125,7 @@ const REGISTRY = [
 
   // D.O.G.
   P('dog-history', '/dog', { steps: ['Import/Export History'], expect: { dialog: true } }),
-  P('dog-settings', '/dog', { steps: ['Tool settings'], expect: { dialog: true } }),
+  P('dog-settings', '/dog', { steps: ['Tool settings'], expect: { dialog: 'System Prompts' } }),
 
   // O.T.T.E.R. — the reading surface and the views behind the tool's own bar.
   P('otter-lesson', '/otter', { steps: ['@lesson'], expect: { selector: '.lesson-content' } }),
@@ -133,7 +137,7 @@ const REGISTRY = [
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
   P('otter-new-course', '/otter', { steps: ['New Course'], expect: { text: 'New Software Course' } }),
-  P('otter-import', '/otter', { steps: ['Import'], expect: { text: 'Import Data' } }),
+  P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import Data' } }),
 
   // R.A.B.B.I.T. — the nine tabs with the project open, then what opens off them.
   ...['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins'].map((t) =>
@@ -142,25 +146,25 @@ const REGISTRY = [
   P('rabbit-help', '/rabbit', { steps: ['Help & Documentation'], expect: { text: 'Key Features' } }),
   P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel'], expect: { text: 'Budget Variables' } }),
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
-  P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: true } }),
+  P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: 'Lock the shooting script' } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),
   ...['By Phase', 'By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>
     P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { styled: t } })),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
   P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details'], expect: { dialog: true } }),
   // "Lighthouse, dawn" is on the Scenes table before the dialog opens.
-  P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: true } }),
+  P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: 'Lighthouse, dawn' } }),
 
   // Settings' seven tabs (General is the page itself) and its one dialog.
   ...['Profile', 'Models', 'Storage', 'Teams', 'Agent', 'Agent Skills'].map((t) =>
     P(`settings-${t.toLowerCase().replace(/\s+/g, '-')}`, '/settings', { steps: [t], expect: { active: t } })),
-  P('settings-reset-dialog', '/settings', { steps: ['Reset history'], expect: { dialog: true } }),
+  P('settings-reset-dialog', '/settings', { steps: ['Reset history'], expect: { dialog: 'Reset pet history' } }),
 
   // The resource pages' sub-views.
   P('projects-detail', '/project-manager', { steps: ['@row:Salt Hours'], expect: { text: 'Project details' } }),
-  P('rate-card-gsheet', '/rate-card', { steps: ['Google Sheet'], expect: { dialog: true } }),
-  P('team-invite', '/team-members', { steps: ['Invite user'], expect: { dialog: true } }),
-  P('team-rate', '/team-members', { steps: ['Edit rate card entry'], expect: { dialog: true } }),
+  P('rate-card-gsheet', '/rate-card', { steps: ['Google Sheet'], expect: { dialog: 'Import a Google Sheet' } }),
+  P('team-invite', '/team-members', { steps: ['Invite user'], expect: { dialog: 'Invite a workspace member' } }),
+  P('team-rate', '/team-members', { steps: ['Edit rate card entry'], expect: { dialog: 'Edit rate' } }),
   // Files opens in its Columns (Finder) view; the table exists only after "Table".
   P('files-project', '/project-files', { steps: ['@files', 'Table'], expect: { selector: 'table tbody tr' } }),
   P('dashboard-profile', '/dashboard', { steps: ['Profile'], expect: { active: 'Profile' } }),
@@ -198,6 +202,105 @@ const KNOWN = {
   upper: [],
   tracking: [],
   dialogFit: [],
+  /* V1-02 — C6: text on an orange ground under its threshold. Keyed on the
+     screen and the element's own quoted text, generated from both walks.
+     O.T.T.E.R.'s "+ New", "All" and its count repeat on every one of its
+     views; D.O.G.'s step badges "1" / "2" on every D.O.G. screen. The fix
+     is the rule, not the ink (§3.2, Q16): a filled PRIMARY takes
+     signal-fill with white, a selected TAB or CHIP loses the fill. */
+  c6: [
+    { key: 'dog', text: '"1"' },
+    { key: 'dog', text: '"2"' },
+    { key: 'dog-history', text: '"1"' },
+    { key: 'dog-history', text: '"2"' },
+    { key: 'dog-history', text: '"Export"' },
+    { key: 'dog-settings', text: '"1"' },
+    { key: 'dog-settings', text: '"2"' },
+    { key: 'otter', text: '"1"' },
+    { key: 'otter', text: '"All"' },
+    { key: 'otter', text: '"New Course"' },
+    { key: 'otter', text: '"New"' },
+    { key: 'otter-admin', text: '"1"' },
+    { key: 'otter-admin', text: '"All"' },
+    { key: 'otter-admin', text: '"New"' },
+    { key: 'otter-hotkeys', text: '"1"' },
+    { key: 'otter-hotkeys', text: '"All"' },
+    { key: 'otter-hotkeys', text: '"New"' },
+    { key: 'otter-import', text: '"1"' },
+    { key: 'otter-import', text: '"All"' },
+    { key: 'otter-import', text: '"New Course"' },
+    { key: 'otter-import', text: '"New"' },
+    { key: 'otter-lesson', text: '"1"' },
+    { key: 'otter-lesson', text: '"All"' },
+    { key: 'otter-lesson', text: '"New"' },
+    { key: 'otter-lesson', text: '"Next"' },
+    { key: 'otter-new-course', text: '"1"' },
+    { key: 'otter-new-course', text: '"All"' },
+    { key: 'otter-new-course', text: '"beginner"' },
+    { key: 'otter-new-course', text: '"New"' },
+    { key: 'otter-nodes', text: '"1"' },
+    { key: 'otter-nodes', text: '"All"' },
+    { key: 'otter-nodes', text: '"New"' },
+    { key: 'otter-quiz', text: '"1"' },
+    { key: 'otter-quiz', text: '"All"' },
+    { key: 'otter-quiz', text: '"New"' },
+    { key: 'otter-search', text: '"1"' },
+    { key: 'otter-search', text: '"All"' },
+    { key: 'otter-search', text: '"New Course"' },
+    { key: 'otter-search', text: '"New"' },
+    { key: 'otter-settings', text: '"1"' },
+    { key: 'otter-settings', text: '"All"' },
+    { key: 'otter-settings', text: '"New Course"' },
+    { key: 'otter-settings', text: '"New"' },
+    { key: 'otter-validate', text: '"1"' },
+    { key: 'otter-validate', text: '"All"' },
+    { key: 'otter-validate', text: '"New"' },
+    { key: 'otter-validate', text: '"Validate All (17)"' },
+    { key: 'rabbit', text: '"New project"' },
+    { key: 'rabbit-asset-detail', text: '"Add files"' },
+    { key: 'rabbit-asset-detail', text: '"Done"' },
+    { key: 'rabbit-asset-detail', text: '"New asset"' },
+    { key: 'rabbit-asset-detail', text: '"Table"' },
+    { key: 'rabbit-asset-new', text: '"New asset"' },
+    { key: 'rabbit-asset-new', text: '"Table"' },
+    { key: 'rabbit-assets', text: '"New asset"' },
+    { key: 'rabbit-assets', text: '"Table"' },
+    { key: 'rabbit-bins', text: '"Add"' },
+    { key: 'rabbit-intake', text: '"1"' },
+    { key: 'rabbit-intake', text: '"Creative Producer"' },
+    { key: 'rabbit-intake', text: '"Executive Producer"' },
+    { key: 'rabbit-intake', text: '"New Project"' },
+    { key: 'rabbit-intake', text: '"Prepare"' },
+    { key: 'rabbit-intake', text: '"Technical Producer"' },
+    { key: 'rabbit-scene-detail', text: '"Add files"' },
+    { key: 'rabbit-scene-detail', text: '"Scene"' },
+    { key: 'rabbit-scene-detail', text: '"Scenes"' },
+    { key: 'rabbit-scene-detail', text: '"Table"' },
+    { key: 'rabbit-scenes', text: '"Scene"' },
+    { key: 'rabbit-scenes', text: '"Scenes"' },
+    { key: 'rabbit-scenes', text: '"Table"' },
+    { key: 'rabbit-task-detail', text: '"Add files"' },
+    { key: 'rabbit-task-detail', text: '"Done"' },
+    { key: 'rabbit-task-detail', text: '"New task"' },
+    { key: 'rabbit-task-detail', text: '"Table"' },
+    { key: 'rabbit-task-history', text: '"New task"' },
+    { key: 'rabbit-task-history', text: '"Table"' },
+    { key: 'rabbit-task-new', text: '"New task"' },
+    { key: 'rabbit-task-new', text: '"Table"' },
+    { key: 'rabbit-tasks', text: '"New task"' },
+    { key: 'rabbit-tasks', text: '"Table"' },
+    { key: 'rabbit-timeline', text: '"Task"' },
+    { key: 'rabbit-timeline', text: '"Week"' },
+    { key: 'shell-nav', text: '"1"' },
+    { key: 'shell-nav', text: '"2"' },
+  ],
+  /* V1-09 — buttons nested inside buttons, counted in the DOM per screen
+     (React warns once per tag pair per page load, so its warning cannot
+     count them). The larger count of the two window sizes. */
+  nested: [
+    { key: 'rabbit-asset-detail', n: 2 },
+    { key: 'rabbit-scene-detail', n: 2 },
+  ],
   errors: [
     /* Environment, not UI. The dev tester has NO session (App.jsx: "sign-in
        skipped, no session, no workspace"), so a section that fetches from
@@ -292,9 +395,11 @@ function newAnon(key, anon) {
 /* The PAGE before the shell: `help-otter` used to click the nav strip's
    "O.T.T.E.R." (an exact-text match) instead of Help's own entry (whose text
    carries a subtitle) and so measured the tool page. The shell is searched
-   only when the page has no match — `shell-nav`'s hamburger lives there. */
-async function click(page, label) {
-  return page.evaluate((label) => {
+   only on a step's LAST try — round two: falling back on the first try sent
+   a not-yet-rendered "Team" tab to the shell's "Team members" and navigated
+   away. `shell-nav`'s hamburger lives there, and gets there on try five. */
+async function click(page, label, allowShell) {
+  return page.evaluate(({ label, allowShell }) => {
     const vis = (e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0;
     const inShell = (e) => !!e.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
     const all = [...document.querySelectorAll('button, [role="button"], [role="tab"], a')].filter(vis);
@@ -304,11 +409,11 @@ async function click(page, label) {
       || els.find((e) => named(e).some((n) => n === label))
       || els.find((e) => named(e).some((n) => n.startsWith(label)))
       || els.find((e) => norm(e.textContent).startsWith(label));
-    const hit = find(all.filter((e) => !inShell(e))) || find(all.filter(inShell));
+    const hit = find(all.filter((e) => !inShell(e))) || (allowShell ? find(all.filter(inShell)) : null);
     if (!hit) return false;
     hit.click();
     return true;
-  }, label);
+  }, { label, allowShell });
 }
 
 /* A step LOOKS for its target a few times before it gives up: the walk's
@@ -320,18 +425,26 @@ async function step(page, s) {
   // click the course again and could collapse it.
   if (s === '@lesson' || s === '@quit') return stepOnce(page, s);
   for (let i = 0; i < 5; i++) {
-    const ok = await stepOnce(page, s);
+    const ok = await stepOnce(page, s, i === 4);
     if (ok) return true;
     await sleep(800);
   }
   return false;
 }
 
-async function stepOnce(page, s) {
+/* `@proj` succeeds when the project IS OPEN, not when a click was accepted
+   (round two): a click the app's transition swallowed used to count as a
+   step that drove. Evidence of an open project is the button only an open
+   one shows — "Control Panel" on Summary, "Switch" on every other tab. So a
+   try clicks when it must and reports success only on a later look. */
+async function stepOnce(page, s, lastTry) {
   if (s === '@proj') return page.evaluate(() => {
-    const x = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Salt Hours') && b.offsetParent !== null
-      && !b.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]'));
-    if (x) { x.click(); return true; } return false;
+    const vis = (b) => b.offsetParent !== null && !b.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
+    const buttons = [...document.querySelectorAll('button')].filter(vis);
+    if (buttons.some((b) => ['Control Panel', 'Switch'].includes((b.textContent || '').trim()))) return true;
+    const x = buttons.find((b) => (b.textContent || '').includes('Salt Hours'));
+    if (x) x.click();
+    return false;
   });
   if (s === '@files') return page.evaluate(() => {
     const sel = [...document.querySelectorAll('select')].find((s) => /choose a project/i.test(s.options[0]?.textContent || ''));
@@ -355,12 +468,17 @@ async function stepOnce(page, s) {
     return a && wide('Project setup and media');
   }
   if (s === '@quit') return page.evaluate(() => { if (!window.__v1Close) return false; window.__v1Close(); return true; });
-  return click(page, s);
+  return click(page, s, lastTry);
 }
 
 async function opened(page, expect) {
   if (!expect) return true;
-  if (expect.dialog) return !!(await page.evaluate(openDialog));
+  /* `dialog: true` proves A dialog; `dialog: '<text>'` proves THE dialog —
+     its panel must say that text (round two). */
+  if (expect.dialog) {
+    const d = await page.evaluate(openDialog);
+    return !!d && (expect.dialog === true || d.panelText.includes(expect.dialog));
+  }
   if (expect.active) return page.evaluate(selectedControl, expect.active);
   if (expect.styled) return page.evaluate(styledActive, expect.styled);
   return page.evaluate((e) => {
@@ -386,17 +504,20 @@ async function visit(ctx, entry) {
   await cdp.send('DOM.enable');
   await cdp.send('CSS.enable');
   const errors = [];
+  const filling = [];
   /* React writes its warnings as a format string ("%s cannot be a descendant
-     of <%s>") with the elements as arguments; `text()` returns the format.
-     The arguments are filled in so a KNOWN entry can name the elements. */
-  page.on('console', async (m) => {
+     of <%s>") with the elements as arguments. The message is recorded the
+     moment it arrives — round two: pushing it only after the arguments
+     resolved could land it after the verdict, or after the page closed —
+     and the placeholders are filled in afterwards, awaited before judging. */
+  page.on('console', (m) => {
     if (m.type() !== 'error') return;
-    let t = m.text();
-    if (t.includes('%s')) {
-      const vals = await Promise.all(m.args().slice(1).map((a) => a.jsonValue().then(String).catch(() => '?')));
-      let i = 0; t = t.replace(/%s/g, () => (i < vals.length ? vals[i++] : '%s'));
-    }
-    errors.push(t.replace(/\s+/g, ' ').slice(0, 160));
+    const i = errors.push(m.text().replace(/\s+/g, ' ').slice(0, 400)) - 1;
+    if (!errors[i].includes('%s')) return;
+    filling.push(Promise.all(m.args().slice(1).map((a) => a.jsonValue().then(String).catch(() => '?'))).then((vals) => {
+      let j = 0;
+      errors[i] = errors[i].replace(/%s/g, () => (j < vals.length ? vals[j++].replace(/\s+/g, ' ').slice(0, 120) : '%s'));
+    }).catch(() => {}));
   });
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + String(e).slice(0, 110)));
 
@@ -437,12 +558,25 @@ async function visit(ctx, entry) {
   const bars = await page.evaluate(toolbarAlignment);
   const anon = await page.evaluate(unnamedControls);
   const census = await page.evaluate(stopPointCensus);
+  const fields = await page.evaluate(formFields);
+  const nested = await page.evaluate(nestedButtons);
+  /* The URL too (round two): the twelve pages have no step before their
+     proof, and "Salt Hours" is page text on three of them. A walk that lands
+     on the wrong route fails here whatever its proof says. */
+  const urlOk = new URL(page.url()).pathname.replace(/\/+$/, '') === entry.path.replace(/\/+$/, '');
   /* The proof AGAIN, after ~13s of measuring: a reload or a popup closing
      itself mid-measurement would otherwise report the fresh page. */
   const stillOpen = await opened(page, entry.expect);
+  await Promise.allSettled(filling);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, `${entry.key}-${W}x${H}.png`), animations: 'disabled' });
 
   const k = entry.key;
+  /* C6 is a hard constraint, so it GATES (round two: the Budget sub-tab fix
+     had no guard at all — putting its old ink back left everything green).
+     A C6 row is a contrast failure whose ground is orange; the rest of the
+     contrast census stays a report. */
+  const c6 = census.contrast.filter((d) => { const m = d.match(/ on #([0-9a-f]{6}) /); return m && isOrange(m[1]); });
+  const nestedKnown = KNOWN.nested.find((x) => x.key === k)?.n ?? 0;
   const news = {
     face: faces.off.filter((r) => !isKnown('face', k, r.text)),
     weight: rules.weight.filter((r) => !isKnown('weight', k, r.text)),
@@ -450,11 +584,14 @@ async function visit(ctx, entry) {
     tracking: rules.tracking.filter((r) => !isKnown('tracking', k, r.text)),
     errors: errors.filter((e) => !isKnown('errors', k, e)),
     anon: newAnon(k, anon),
+    c6: c6.filter((d) => !isKnown('c6', k, d)),
+    nested: nested > nestedKnown ? nested - nestedKnown : 0,
   };
   const faceGap = !FAST && (faces.unmeasured > 0 || faces.probed !== rows.length);
-  // Form fields cannot be asked which font drew them (see typeCensus); their
-  // DECLARED family is checked instead.
-  const formFace = rows.filter((r) => r.form && !/^Geist( Mono)?$/.test(r.family));
+  /* Form fields cannot be asked which font drew them; their DECLARED family
+     is checked — every visible input, select and textarea (round two found
+     30 selects on the Rate Card that no check had looked at). */
+  const formFace = fields.filter((f) => !/^Geist( Mono)?$/.test(f.family));
   const dlgBad = dlg && !dlg.fits && !isKnown('dialogFit', k, 'fits');
   /* "Did this page render?", counted OUTSIDE the shell: the shell and the
      dev badge alone are 18 text nodes, so the old floor of 10 could not
@@ -463,25 +600,30 @@ async function visit(ctx, entry) {
      nodes, and a body that rendered nothing is 0. */
   const thin = body < 3;
   const open = isOpen && stillOpen;
-  const bad = !open || thin || faceGap || formFace.length || info.overflow || info.offScale || dlgBad
-    || news.face.length || news.weight.length || news.upper.length || news.tracking.length || news.errors.length || news.anon.length;
+  const bad = !open || !urlOk || thin || faceGap || formFace.length || info.overflow || info.offScale || dlgBad
+    || news.face.length || news.weight.length || news.upper.length || news.tracking.length || news.errors.length || news.anon.length
+    || news.c6.length || news.nested;
 
   const knownN = (faces.off.length - news.face.length) + (rules.weight.length - news.weight.length)
-    + (rules.upper.length - news.upper.length) + (rules.tracking.length - news.tracking.length) + (anon.length - news.anon.length);
+    + (rules.upper.length - news.upper.length) + (rules.tracking.length - news.tracking.length) + (anon.length - news.anon.length)
+    + (c6.length - news.c6.length);
   const dl = dlg ? ` dlg=${dlg.kind}:${dlg.bg}/r${dlg.radius}/${dlg.box[2]}x${dlg.box[3]}${dlg.fits ? '' : ' OFF-SCREEN'}${dlg.scrolls.length ? ' scrolls' : ''}` : '';
   const gr = dlg ? '(under a dialog)' : ground.join('/');
   const why = !open ? (preexisting ? '   ← PROOF TRUE BEFORE ITS STEP' : !isOpen ? '   ← DID NOT OPEN' : '   ← CLOSED WHILE MEASURED') : '';
   console.log(`${(open ? '' : '✗ ') + k}`.padEnd(30)
     + ` err=${errors.length} ovf=${info.overflow ? 'Y' : 'n'} off=${info.offScale} clip=${String(info.clipped).padEnd(3)}`
-    + ` face=${FAST ? '-' : faces.off.length} wt=${rules.weight.length} up=${rules.upper.length} trk=${rules.tracking.length} anon=${anon.length}`
+    + ` face=${FAST ? '-' : faces.off.length} wt=${rules.weight.length} up=${rules.upper.length} trk=${rules.tracking.length} anon=${anon.length} c6=${c6.length} nest=${nested}`
     + (knownN ? ` (known ${knownN})` : '')
     + ` b2=${census.border.length} rad=${census.radius.length} white=${census.white.length} cr=${census.contrast.length} brk=${census.broken.length} caps=${census.typedCaps.length}`
     + ` ground=${gr}${dl}${why}`
+    + (urlOk ? '' : `   ← WRONG ROUTE ${new URL(page.url()).pathname}`)
     + (thin ? `   ← ONLY ${body} TEXT NODES OUTSIDE THE SHELL` : '')
     + (faceGap ? `   ← FACE UNMEASURED ${faces.unmeasured}, PROBED ${faces.probed} OF ${rows.length}` : ''));
   const show = (label, arr, f) => { for (const r of arr.slice(0, VERBOSE ? 50 : 4)) console.log(`      ${label} ${f(r)}`); if (!VERBOSE && arr.length > 4) console.log(`      ${label} … +${arr.length - 4}`); };
   show('face', news.face, (r) => `${r.used} x${r.glyphs} <${r.tag}> "${r.text}"`);
-  show('form', formFace, (r) => `declares ${r.family} <${r.tag}> "${r.text}"`);
+  show('form', formFace, (f) => `declares ${f.family} <${f.tag}> "${f.value}"`);
+  show('c6  ', news.c6, (d) => d);
+  if (news.nested) console.log(`      nest ${nested} button(s) inside buttons; ${nestedKnown} filed`);
   if (faceGap) show('gap ', faces.missed || [], (r) => `no answer for <${r.tag}.${r.cls}> "${r.text}"`);
   show('wt  ', news.weight, (r) => `${r.weight} ${r.px}px <${r.tag}.${r.cls}> "${r.text}"`);
   show('up  ', news.upper, (r) => `${r.px}px ${r.weight} <${r.tag}.${r.cls}> "${r.text}"`);
@@ -495,7 +637,7 @@ async function visit(ctx, entry) {
     if (tables.alignMismatch.length || tables.offset.length) console.log(`      tbl  ${tables.tables} tables/${tables.columns} cols  align: ${tables.alignMismatch.join('; ') || '-'}  offset: ${tables.offset.join('; ') || '-'}`);
     for (const b of bars.slice(0, 3)) console.log(`      bar  spread ${b.spread}px  h ${b.heights}  ${b.labels}`);
   }
-  REPORT.push({ key: k, open, ground: dlg ? ['(dialog)'] : ground, dlg, tables, bars, faces: faces.tally,
+  REPORT.push({ key: k, open, urlOk, c6, nested, fields: fields.length, ground: dlg ? ['(dialog)'] : ground, dlg, tables, bars, faces: faces.tally,
     faceProbe: { probed: faces.probed, rows: rows.length, unmeasured: faces.unmeasured },
     clipped: info.clipped, body, anon, census, face: faces.off, rules, errors });
   if (bad) FAILED.push(k);
@@ -575,6 +717,9 @@ if (FAILED.length) {
   process.exit(1);
 }
 const knownFace = REPORT.reduce((a, r) => a + r.face.length, 0);
-console.log(`\n✓ ${entries.length} screens: every one opened and stayed open, 0 new errors, 0 overflow, 0 off-scale, `
-  + (FAST ? 'face NOT checked (--fast), ' : `every text node's face measured — ${knownFace} in a fallback face, all filed (V1-01), `)
-  + 'no new break of §3.1\'s weight, case or tracking, no new unnamed control');
+const knownC6 = REPORT.reduce((a, r) => a + r.c6.length, 0);
+console.log(`\n✓ ${entries.length} screens: every one opened on its own route and stayed open, 0 new errors, 0 overflow, 0 off-scale, `
+  + (FAST ? 'face NOT checked (--fast), ' : `the drawn face of every text node measured — ${knownFace} in a fallback face, all filed (V1-01) — `)
+  + 'form fields by their DECLARED family only, '
+  + `no new break of §3.1's weight, case or tracking, no new unnamed control, no new nested button, `
+  + `no new C6 break (${knownC6} filed, V1-02)`);

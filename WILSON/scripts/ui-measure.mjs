@@ -180,15 +180,28 @@ export async function renderedFaces(cdp, rows, allowed = /^Geist( Mono)?$/) {
  */
 export function typeRules(rows, { homeCaps = false } = {}) {
   const homeCap = (r) => homeCaps && r.px === 16 && r.transform === 'uppercase' && r.weight === '600';
-  /* Tracking is checked against the RULE, not merely allowed at a size
-     (round one: "any tracking at 11px" let +0.2em pass as a Label). §3.1:
-     +0.06em at the Label step, +0.01em at H1, 0 everywhere else; Home's
-     W4 capitals carry +0.06em. Half a thousandth of an em either way. */
+  /* Tracking is checked against the RULE, in BOTH directions. Round one:
+     "any tracking at 11px" let +0.2em pass as a Label. Round two: a bare
+     `tracking === 0` passed at every size, so a Label that LOST its
+     tracking stayed green. §3.1: the Label step's capitals carry +0.06em
+     and nothing else; an H1 +0.01em and nothing else; Home's W4
+     capitals +0.06em; lower-case 11px text 0 or the Label's +0.06em;
+     everything else 0. Tolerances: five thousandths of an em on +0.06em,
+     two on H1's +0.01em. Measured across eleven pages on 2026-09-23: all
+     175 capitals at 11px carry 0.66px exactly, all 148 H1s 0.2px. */
   const em = (r) => r.tracking / r.px;
-  const trackingOk = (r) => r.tracking === 0
-    || (r.px === 11 && Math.abs(em(r) - 0.06) <= 0.005)
-    || (r.px === 20 && Math.abs(em(r) - 0.01) <= 0.005)
-    || (homeCap(r) && Math.abs(em(r) - 0.06) <= 0.005);
+  const near = (r, target, tol) => Math.abs(em(r) - target) <= tol;
+  const trackingOk = (r) => {
+    if (homeCap(r)) return near(r, 0.06, 0.005);
+    if (r.px === 11 && r.transform === 'uppercase') return near(r, 0.06, 0.005);
+    /* H1 is a ROLE — the page title, an <h1> — not a size: the kit's Stat
+       numerals are 20px / 600 with no tracking, which is right for figures
+       and not a page title (V1's own first strict run flagged three). */
+    if (r.tag === 'h1') return near(r, 0.01, 0.002);
+    if (r.px === 20) return r.tracking === 0 || near(r, 0.01, 0.002);
+    if (r.px === 11) return r.tracking === 0 || near(r, 0.06, 0.005);
+    return r.tracking === 0;
+  };
   return {
     weight: rows.filter((r) => r.weight !== '400' && r.weight !== '600'),
     upper: rows.filter((r) => r.transform === 'uppercase' && r.px !== 11 && !homeCap(r)),
@@ -256,7 +269,13 @@ export function openDialog() {
       const r = e.getBoundingClientRect();
       return r.width * r.height >= innerWidth * innerHeight * 0.6;
     });
-    const backdrop = layers.pop();
+    /* A BACKDROP is translucent or transparent — never opaque. Round two:
+       the asset modal is an opaque fixed layer covering 76% of a 1280x700
+       window, came after the real backdrop in the DOM, and was taken for
+       it; its 320px left column then became the "panel" and `fits` and
+       `scrolls` were measured on that column. An opaque big layer is a
+       panel candidate below, not a backdrop. */
+    const backdrop = layers.filter((e) => !opaqueBg(e)).pop();
     if (!backdrop) return null;
     const area = (e) => { const r = e.getBoundingClientRect(); return r.width * r.height; };
     const inner = [...backdrop.querySelectorAll('*')].filter((e) => vis(e) && opaqueBg(e)).sort((a, b) => area(b) - area(a));
@@ -272,9 +291,10 @@ export function openDialog() {
       return e !== backdrop && cs.position === 'fixed' && vis(e) && opaqueBg(e) && Number(cs.zIndex || 0) >= bz
         && area(e) < innerWidth * innerHeight * 0.95;
     }).sort((a, b) => area(b) - area(a));
-    panel = inner[0] || siblings[0] || null;
-    kind = inner[0] ? 'overlay' : 'overlay-sibling';
+    // The larger of the two candidates is the panel.
+    panel = [inner[0], siblings[0]].filter(Boolean).sort((a, b) => area(b) - area(a))[0] || null;
     if (!panel) return null;
+    kind = backdrop.contains(panel) ? 'overlay' : 'overlay-sibling';
   }
   const r = panel.getBoundingClientRect();
   const cs = getComputedStyle(panel);
@@ -298,6 +318,9 @@ export function openDialog() {
     box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
     fits: r.top >= -0.5 && r.left >= -0.5 && r.bottom <= innerHeight + 0.5 && r.right <= innerWidth + 0.5,
     scrolls,
+    // What the panel SAYS, so a proof can name which dialog it expects —
+    // round two: `dialog: true` proved "a dialog", not "the dialog".
+    panelText: (panel.innerText || '').replace(/\s+/g, ' ').slice(0, 400),
     title: title ? { text: title.textContent.trim().slice(0, 40), px: parseFloat(tcs.fontSize), weight: tcs.fontWeight, color: tcs.color, transform: tcs.textTransform } : null,
   };
 }
@@ -574,7 +597,19 @@ export function stopPointCensus() {
      Timeline labels (.4-.7), dimmed nav items (.35). Opacity is now
      multiplied into the ink instead (`opacityOf`), which is how it paints. */
   const faded = (el) => !!el.closest('button:disabled, [aria-disabled="true"], input:disabled, select:disabled, fieldset:disabled');
-  const opacityOf = (el) => { let o = 1; for (let e = el; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return o; };
+  /* The translucent LAYER an element paints inside: the outermost ancestor
+     with opacity below 1, and the product of every opacity on the way. Round
+     two: multiplying opacity into the INK alone reported the Resources nav
+     column — opacity 0, inside a closed strip — as "1.00 #ea580c on
+     #ea580c" on every screen (442 of 2,547 contrast rows), and scored the
+     LIVE pill against a ground it does not paint on. So: under 0.05 the text
+     is HIDDEN and not counted at all; otherwise ink AND ground are both
+     composited through the layer onto what lies behind it. */
+  const layerOf = (el) => {
+    let layer = null, op = 1;
+    for (let e = el; e; e = e.parentElement) { const o = Number(getComputedStyle(e).opacity); if (o < 1) { layer = e; op *= o; } }
+    return { layer, op };
+  };
 
   /* A single token broken across lines. V1 found R.A.B.B.I.T.'s Tasks table
      printing its start dates as "2026-11-" over "06": the type pass took the
@@ -605,10 +640,12 @@ export function stopPointCensus() {
     return words.length >= 2 && letters.length >= 6 && letters === letters.toUpperCase();
   };
 
-  const out = { border: [], radius: [], white: [], contrast: [], broken: [], typedCaps: [], faded: 0, unknown: 0 };
+  const out = { border: [], radius: [], white: [], contrast: [], broken: [], typedCaps: [], faded: 0, unknown: 0, hidden: 0 };
   for (const el of document.querySelectorAll('body *')) {
     if (badge && badge.contains(el)) continue;
     if (!vis(el)) continue;
+    const { layer, op } = layerOf(el);
+    if (op < 0.05) { out.hidden++; continue; }   // painted, but invisible
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
 
@@ -636,13 +673,52 @@ export function stopPointCensus() {
     if (!g) { out.unknown++; continue; }
     const fg0 = parse(cs.color);
     if (!fg0) continue;
-    // The layer's opacity paints the ink THROUGH to what is under it.
-    const alpha = fg0.a * opacityOf(el);
-    const fg = alpha < 1 ? over({ ...fg0, a: alpha }, g) : fg0;
+    // Inside the layer: the ink over its own ground.
+    let fg = fg0.a < 1 ? over(fg0, g) : fg0;
+    let gr = g;
+    // Then the whole layer — ink and ground alike — at its opacity, over
+    // whatever lies behind the layer.
+    if (layer && op < 1) {
+      const behind = ground(layer.parentElement) || { r: 255, g: 255, b: 255, a: 1 };
+      fg = over({ ...fg, a: op }, behind);
+      gr = over({ ...g, a: op }, behind);
+    }
     const px = parseFloat(cs.fontSize);
     const large = px >= 24 || (px >= 19 && Number(cs.fontWeight) >= 600);
-    const cr = ratio(fg, g);
-    if (cr < (large ? 3 : 4.5)) out.contrast.push(`${cr.toFixed(2)} ${hex(fg)} on ${hex(g)} ${px}px/${cs.fontWeight} <${name(el)}> "${own.replace(/\s+/g, ' ').slice(0, 28)}"`);
+    const cr = ratio(fg, gr);
+    if (cr < (large ? 3 : 4.5)) out.contrast.push(`${cr.toFixed(2)} ${hex(fg)} on ${hex(gr)} ${px}px/${cs.fontWeight} <${name(el)}> "${own.replace(/\s+/g, ' ').slice(0, 28)}"`);
   }
   return out;
+}
+
+/**
+ * Every visible form field and the family it DECLARES. A field draws its
+ * value inside the browser's own shadow DOM, so the platform-font query in
+ * `renderedFaces` cannot see it, and a <select> or <input> has no text node
+ * for `typeCensus` to pick up at all — round two found 30 selects on the Rate
+ * Card ("Production", "tier_1") that no check had looked at. This is the
+ * DECLARED family only; it cannot see a fallback glyph typed into a field.
+ */
+export function formFields() {
+  const skip = new Set(['hidden', 'checkbox', 'radio', 'range', 'color', 'file', 'image', 'submit', 'reset', 'button']);
+  return [...document.querySelectorAll('input, select, textarea')].filter((e) => {
+    if (e.tagName === 'INPUT' && skip.has((e.type || 'text').toLowerCase())) return false;
+    const r = e.getBoundingClientRect();
+    return e.offsetParent !== null && r.width > 0 && r.height > 0;
+  }).map((e) => ({
+    tag: e.tagName.toLowerCase(),
+    family: getComputedStyle(e).fontFamily.split(',')[0].replace(/["']/g, '').trim(),
+    value: (e.tagName === 'SELECT' ? (e.selectedOptions[0]?.textContent || '') : (e.value || e.placeholder || '')).trim().slice(0, 30),
+  }));
+}
+
+/**
+ * Buttons nested inside buttons, counted in the DOM. React warns about a
+ * `<button>` inside a `<button>` ONCE per tag pair per page load, so an
+ * excused console warning cannot tell the filed nesting from a new one
+ * (round two). The count can.
+ */
+export function nestedButtons() {
+  return [...document.querySelectorAll('button button, button [role="button"], [role="button"] button')]
+    .filter((e) => e.offsetParent !== null).length;
 }

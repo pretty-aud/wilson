@@ -97,9 +97,14 @@ export const PATTERNS = [
   /* V1, round one of its review: and neither row above sees a border set in
      a STYLE OBJECT — `border: '2px solid …'`, `borderBottom: \`2px …\``,
      `borderWidth: 2` — which is how R.A.B.B.I.T.'s popups draw their 2px
-     frames. The width must follow the colon or the quote directly, so a
-     `12px` cannot match on its `2`. A census, like the row above. */
-  ['border 2px+ (inline style)',     /\bborder(?:Top|Right|Bottom|Left)?(?:Width)?\s*:\s*['"`]?\s*[2-9](?:\.\d+)?(?:px)?\b/g],
+     frames. Round two: the first pattern wanted the width straight after
+     the colon, so a ternary — `borderBottom: active ? '2px solid …' : …`,
+     which is exactly how R.A.B.B.I.T.'s two tab bars draw their underline —
+     was invisible. It scans the whole value now, up to the next comma or
+     line end, for a px width of 2 or more that is not the tail of a decimal
+     (`0.5px`); a bare numeric `borderWidth: 2` counts too. A census, like the
+     row above. */
+  ['border 2px+ (inline style)',     /\bborder(?:Top|Right|Bottom|Left)?(?:Width)?\s*:[^,;}\n]*?(?<![\d.])(?:[2-9]|[1-9]\d)(?:\.\d+)?px\b|\bborder(?:Top|Right|Bottom|Left)?Width\s*:\s*(?:[2-9]|[1-9]\d)\b/g],
   ['rounded-sm/md/lg/xl/2xl',        /\brounded-(?:sm|md|lg|xl|2xl)\b/g],
   /* Added by T0 after pass 3: the bare `rounded` is Tailwind's 4px, which
      §3.3 deletes along with 2, 5, 8 and 10. It was missing from the first
