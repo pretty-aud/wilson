@@ -94,12 +94,12 @@ describe('the state extraction holds in every extracted B2 file', () => {
   }
   it('CONTROL: the scanner still fires on the shapes ProjectTasksView shipped (one line put back)', () => {
     const mutants = [
-      // the row's selected border, as it was
-      source.tasks.replace('data-selected={isSelected ? \'true\' : \'false\'}', "style={{ border: isSelected ? '1px solid #ea580c' : '1px solid #44403c' }}"),
-      // the row's hover reveal, as it was
-      source.tasks.replace('className="rb-task-reveal flex items-center">', "className=\"flex items-center\" style={{ opacity: hovered ? 1 : 0 }}>"),
+      // the checkbox's reveal, as an inline ternary
+      source.tasks.replace("data-checked={isSelected ? 'all' : 'none'}", "style={{ opacity: isSelected ? 1 : 0 }}"),
+      // a group's drop highlight, as it was
+      source.tasks.replace("data-drag-over={dragOver ? 'true' : 'false'}>", "style={{ boxShadow: dragOver ? 'inset 3px 0 0 #ea580c' : 'none' }}>"),
       // the draggable cursor, as a template literal
-      source.tasks.replace('className="rb-task-row flex"', "className={`flex ${canWrite ? 'cursor-grab' : ''}`}"),
+      source.tasks.replace('className="rb-task-row rb-task-drop"', "className={`rb-task-row ${canWrite ? 'cursor-grab' : ''}`}"),
     ]
     for (const m of mutants) {
       expect(m).not.toBe(source.tasks)
