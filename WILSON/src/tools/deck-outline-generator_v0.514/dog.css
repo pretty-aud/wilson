@@ -563,6 +563,75 @@
     background-color: var(--color-rule);
   }
 
+  /* ── The rewrite preview — a floating surface on the kit's float tokens
+        (review D5: a sixth floating surface with its own orange edge and
+        shadow). The box, its z-order and the anchor arithmetic in the JSX
+        (420 wide, 310 tall, clamped with 428 / 320) are unchanged. ─────── */
+  .dog-rewrite {
+    position: absolute;
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    width: 420px;
+    max-height: 310px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+  }
+  .dog-rewrite-part { padding: 8px 12px; }
+  .dog-rewrite-orig {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-rewrite-orig-scroll { margin-top: 4px; max-height: 60px; overflow-y: auto; }
+  .dog-rewrite-new { flex: 1; min-height: 0; overflow-y: auto; }
+  .dog-rewrite-body { margin-top: 4px; }
+  .dog-rewrite-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  /* The rewrite was set in orange-400 and the original in stone-400 (D9):
+     the new text is the one to read, so it takes the ink and the original
+     steps back to ink-2. The Dense step's own leading (was 1.625). */
+  .dog-rewrite-text {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    white-space: pre-wrap;
+    color: var(--color-ink);
+  }
+  .dog-rewrite-text[data-role='original'] { color: var(--color-ink-2); }
+  .dog-rewrite-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-rewrite-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .dog-rewrite-actions > .ui-btn { margin-left: 4px; }
+  /* The Regenerate icon takes its button's ink (the kit's ink-2, its hover
+     and its disabled ink-3) and spins while the rewrite loads. Its own
+     keyframes (below the layer): Tailwind emits `spin` only while some
+     utility uses `animate-spin`. Like the kit's spinner it keeps turning
+     under reduced motion: an indeterminate wait has no end state. */
+  .dog-rewrite-regen-icon[data-loading='true'] { animation: dog-spin 1s linear infinite; }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
@@ -585,18 +654,6 @@
   .dog-switch[data-on='true'] { background-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
   .dog-switch-knob { left: 0.25rem; /* left-1 */ }
   .dog-switch[data-on='true'] .dog-switch-knob { left: 1.5rem; /* left-6 */ }
-
-  /* The rewrite popover's Regenerate icon: spins while loading. Its own
-     keyframes (below the layer): Tailwind emits `spin` only while some
-     utility uses `animate-spin`, the same fragility the header describes. */
-  .dog-rewrite-regen-icon { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-  @media (hover: hover) {
-    .dog-rewrite-regen-icon:not([data-loading='true']):hover { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  }
-  .dog-rewrite-regen-icon[data-loading='true'] {
-    color: oklch(75% 0.183 55.934); /* orange-400 */
-    animation: dog-spin 1s linear infinite;
-  }
 
   /* ── Settings slide-out (A2's surface) ───────────────────────────────── */
 

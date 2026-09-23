@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -4421,48 +4421,51 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 const relX = Math.max(8, Math.min(contextMenu.x - rect.left, rect.width - 428));
                 const relY = Math.max(8, Math.min(contextMenu.y - rect.top + 10, rect.height - 320));
                 return (
+                  /* A floating surface (review D5): the kit's float tokens —
+                     paper-raised, the hairline, 6px, the one shadow — at the
+                     same 420 x 310 box and the same anchor arithmetic above.
+                     The kit has no Popover (kit request A2-KR-1). */
                   <div
-                    className="absolute z-[80] bg-stone-800 border border-orange-500/40 rounded-control shadow-2xl w-[420px] max-h-[310px] flex flex-col"
+                    className="dog-rewrite"
                     style={{ left: relX, top: relY }}
                   >
                     {/* Original text being replaced */}
-                    <div className="px-3 pt-2 pb-1 flex-shrink-0 border-b border-stone-700">
-                      <span className="text-label text-stone-500 uppercase font-semibold">Replacing</span>
-                      <div className="mt-1 max-h-[60px] overflow-y-auto">
-                        <p className="text-dense text-stone-400 whitespace-pre-wrap leading-relaxed">{contextMenu.selectedText}</p>
+                    <div className="dog-rewrite-part dog-rewrite-orig">
+                      <span className="dog-rewrite-label">Replacing</span>
+                      <div className="dog-rewrite-orig-scroll">
+                        <p className="dog-rewrite-text" data-role="original">{contextMenu.selectedText}</p>
                       </div>
                     </div>
 
                     {/* Generated rewrite */}
-                    <div className="px-3 pt-2 pb-2 flex-1 min-h-0 overflow-y-auto">
-                      <span className="text-label text-orange-400 uppercase font-semibold">Rewritten</span>
-                      <div className="mt-1">
+                    <div className="dog-rewrite-part dog-rewrite-new">
+                      <span className="dog-rewrite-label">Rewritten</span>
+                      <div className="dog-rewrite-body">
                         {rewritePreview.isLoading ? (
-                          <div className="flex items-center gap-2 py-4 justify-center">
-                            <Loader2 className="w-4 h-4 text-orange-400 animate-spin" />
-                            <span className="text-dense text-stone-400">Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
+                          <div className="dog-rewrite-loading">
+                            <Spinner size="md" aria-hidden="true" />
+                            <span>Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
                           </div>
                         ) : (
-                          <p className="text-dense text-orange-400 whitespace-pre-wrap leading-relaxed">{rewritePreview.text}</p>
+                          <p className="dog-rewrite-text" data-role="rewrite">{rewritePreview.text}</p>
                         )}
                       </div>
                     </div>
 
                     {/* Compact action bar */}
-                    <div className="px-3 py-1.5 border-t border-stone-700 flex items-center justify-end gap-1.5 flex-shrink-0">
-                      <button onClick={handleRewriteCancel} className="p-1.5 hover:bg-stone-700 rounded-control transition-colors" title="Cancel">
-                        <X className="w-3.5 h-3.5 text-stone-500 hover:text-stone-300" />
-                      </button>
-                      <button onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} className="p-1.5 hover:bg-stone-700 disabled:opacity-50 rounded-control transition-colors" title="Regenerate">
-                        <RefreshCw className="dog-rewrite-regen-icon w-3.5 h-3.5" data-loading={rewritePreview.isLoading} />
-                      </button>
-                      <button
+                    <div className="dog-rewrite-actions">
+                      <IconButton size="sm" Icon={X} onClick={handleRewriteCancel} title="Cancel" />
+                      <IconButton size="sm" onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} title="Regenerate">
+                        <RefreshCw className="dog-rewrite-regen-icon" data-loading={rewritePreview.isLoading} aria-hidden="true" />
+                      </IconButton>
+                      <Button
+                        variant="primary"
+                        size="sm"
                         onClick={handleRewriteReplace}
                         disabled={rewritePreview.isLoading || !rewritePreview.text || rewritePreview.text.startsWith('Error:')}
-                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-control text-white font-semibold text-dense transition-colors"
                       >
                         Replace
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 );
