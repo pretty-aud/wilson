@@ -4328,61 +4328,36 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </Toolbar>
             )}
 
-            {/* Formatting Toolbar */}
+            {/* Formatting Toolbar — the kit's Toolbar and IconButtons (review
+                D16: a 30px row of 22px buttons on its own fill, the icons in
+                the accent). The same five controls, the same two conditions. */}
             {activeTab && (
-              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 flex items-center gap-1">
-                {/* Undo / Redo */}
-                <button
+              <Toolbar className="dog-toolbar dog-format-bar">
+                <IconButton
+                  size="sm"
+                  Icon={Undo2}
                   onClick={handleTextUndo}
                   disabled={undoRedoCounts.undo === 0}
-                  className="dog-fmt-hist-btn p-1 rounded-control transition-colors"
                   title="Undo (text)"
-                >
-                  <Undo2 className="w-3.5 h-3.5" />
-                </button>
-                <button
+                />
+                <IconButton
+                  size="sm"
+                  Icon={Redo2}
                   onClick={handleTextRedo}
                   disabled={undoRedoCounts.redo === 0}
-                  className="dog-fmt-hist-btn p-1 rounded-control transition-colors"
                   title="Redo (text)"
-                >
-                  <Redo2 className="w-3.5 h-3.5" />
-                </button>
+                />
 
                 {/* Bold, Bullet, Numbered — only in markdown text view */}
                 {viewMode === 'text' && (
                   <>
-                    <div className="w-px h-4 bg-stone-600 mx-1" />
-
-                    {/* Bold */}
-                    <button
-                      onClick={handleToggleBold}
-                      className="p-1 rounded-control transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Bold"
-                    >
-                      <Bold className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Bullet List */}
-                    <button
-                      onClick={handleToggleBullet}
-                      className="p-1 rounded-control transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Toggle Bullet List"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Numbered List */}
-                    <button
-                      onClick={handleToggleNumbered}
-                      className="p-1 rounded-control transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Toggle Numbered List"
-                    >
-                      <ListOrdered className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="dog-toolbar-divider" aria-hidden="true" />
+                    <IconButton size="sm" Icon={Bold} onClick={handleToggleBold} title="Bold" />
+                    <IconButton size="sm" Icon={List} onClick={handleToggleBullet} title="Toggle Bullet List" />
+                    <IconButton size="sm" Icon={ListOrdered} onClick={handleToggleNumbered} title="Toggle Numbered List" />
                   </>
                 )}
-              </div>
+              </Toolbar>
             )}
 
             {/* Descriptor - shown in text edit mode between edit bar and content */}

@@ -554,6 +554,15 @@
      mode, this one while a page regenerates) showed a pointer. */
   .dog-select:disabled { cursor: not-allowed; }
 
+  /* The formatting toolbar: the one divider between text history and the
+     three markdown controls. */
+  .dog-toolbar-divider {
+    width: 1px;
+    height: var(--icon-md);
+    flex-shrink: 0;
+    background-color: var(--color-rule);
+  }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
@@ -576,18 +585,6 @@
   .dog-switch[data-on='true'] { background-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
   .dog-switch-knob { left: 0.25rem; /* left-1 */ }
   .dog-switch[data-on='true'] .dog-switch-knob { left: 1.5rem; /* left-6 */ }
-
-  /* ── Regenerate bar and formatting toolbar (A2's surfaces; extracted
-        here because the extraction is the whole file) ──────────────────── */
-
-  /* `disabled` is exactly `count === 0`. Active after hover, as Tailwind
-     orders `active:` after `hover:`. */
-  .dog-fmt-hist-btn { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  @media (hover: hover) {
-    .dog-fmt-hist-btn:hover:not(:disabled) { background-color: color-mix(in oklab, oklch(70.5% 0.213 47.604) 20%, transparent); /* orange-500/20 */ }
-  }
-  .dog-fmt-hist-btn:active:not(:disabled) { background-color: color-mix(in oklab, oklch(70.5% 0.213 47.604) 30%, transparent); /* orange-500/30 */ }
-  .dog-fmt-hist-btn:disabled { color: oklch(44.4% 0.011 73.639); /* stone-600 */ cursor: not-allowed; }
 
   /* The rewrite popover's Regenerate icon: spins while loading. Its own
      keyframes (below the layer): Tailwind emits `spin` only while some
