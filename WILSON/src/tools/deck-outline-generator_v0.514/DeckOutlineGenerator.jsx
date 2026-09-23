@@ -4519,7 +4519,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       {/* Settings Slide-Out Panel — the kit's Drawer, its first caller (plan
           §4; F2's hand-off §8 left it waiting for this one). It was an
           absolute panel inside its own fixed overlay: a black/50 backdrop,
-          `shadow-2xl`, a hand-set 32px paddingTop under Electron's title
+          the heaviest shadow, a hand-set 32px paddingTop under Electron's title
           bar, and its entrance declared three times (review D24: a dead
           `animate-slide-in-right`, an inline `slideInRight 0.3s` and a
           third copy of the keyframes injected below it). The Drawer owns
@@ -4946,7 +4946,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         >
           {/* Sidebar — Table of Contents. The active page is F2's selected
               row: the signal tint and a 2px signal edge drawn inside the row,
-              where it was a `border-l-2` that pushed every label 2px in. */}
+              where it was a 2px left border that pushed every label in. */}
           <nav className="dog-help-side wilson-dark-scroll" aria-label="Help contents">
             <div className="dog-help-list">
               {DOG_HELP_SIDEBAR_ITEMS.map(item => (
@@ -5015,8 +5015,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       {/* Footer bar is now managed by App.jsx container */}
 
       {/* New Project Modal — the kit's Dialog (review D20: the one modal on
-          the tool written in inline style objects, with #fff on #ea580c at
-          13px (C6), #f4a261 ink, 2px frames, a focus ring of its own and ✕
+          the tool written in inline style objects, with white on the signal at
+          13px (C6), light-orange ink, 2px frames, a focus ring of its own and ✕
           glyphs). Same fields in the same order, the same validation, the
           same close paths: Cancel, the backdrop, and now the named Close. */}
       {showNewProjectModal && (
