@@ -11,13 +11,13 @@
 //   ├────────────────────────────────────────────────────┤
 //   │                                                    │
 //   │              <active view body>                    │
-//   │  ●                                                 │   ← server status dot (bottom-left)
 //   └────────────────────────────────────────────────────┘
 //
 // The old title + adapter pill + refresh-index header has been
-// removed entirely. Adapter health now lives as a single red or
-// green dot in the bottom-left corner of the frame, just above
-// the scroll bar. Refreshing the projects index is no longer a
+// removed entirely. Adapter health is a single red or green dot.
+// Since B1 (2026-09-23, Q10) it and the realtime presence pill dock in
+// ProjectContextBar's two named slots instead of floating over the
+// view body's bottom-left corner. Refreshing the projects index is no longer a
 // manual user action — the Summary view refreshes on demand.
 //
 // As of WILSON v0.6.x the header no longer hosts a project
@@ -57,6 +57,7 @@ import ExperiencesView from './views/ExperiencesView'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 import { subscribeNavigate } from './state/rabbitNavigate'
+import './rabbitShell.css'
 
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
@@ -166,6 +167,19 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
     setActiveView('intake')
   }
 
+  // ── The adapter dot and the presence pill (Q10, B1 2026-09-23) ──
+  // They used to be absolutely positioned over the view body's bottom-left
+  // corner, where they covered content on every view but Bins (V1-08: Tasks'
+  // last row, Timeline's task label, Summary's "Project Files"). Q10 moves
+  // them into ProjectContextBar's two named slots. Summary draws no context
+  // bar — its gallery IS the project picker, and the bar would state the
+  // project a fourth time on one scroll (review R23) — so on Summary they
+  // dock at the tab bar's right end, beside settings and help. Hidden on no
+  // view (C1).
+  const adapterDot = <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
+  const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} />
+  const statusInTabBar = activeView === 'summary'
+
   return (
     <div className="relative h-full w-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── View tabs ── */}
@@ -176,12 +190,17 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
         hiddenTabs={hiddenTabs}
         rightSlot={(
           <>
+            {statusInTabBar && (
+              <span className="flex items-center gap-2 mr-2" data-slot="status">
+                <span className="contents" data-slot="presence">{presence}</span>
+                <span className="contents" data-slot="adapter">{adapterDot}</span>
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
               title="RABBIT settings"
-              className="p-1.5 rounded-control transition-colors hover:bg-stone-700"
-              style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
+              className="rb-shell-iconbtn p-1.5 rounded-control transition-colors"
             >
               <SettingsIcon className="w-3.5 h-3.5" />
             </button>
@@ -189,8 +208,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
               type="button"
               onClick={() => setShowHelpModal(true)}
               title="Help & Documentation"
-              className="p-1.5 rounded-control transition-colors hover:bg-stone-700"
-              style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
+              className="rb-shell-iconbtn p-1.5 rounded-control transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />
             </button>
@@ -200,7 +218,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
 
       {/* ── Project context bar ── */}
       {activeView !== 'summary' && (
-        <ProjectContextBar />
+        <ProjectContextBar adapterSlot={adapterDot} presenceSlot={presence} />
       )}
 
       {/* ── View body ── */}
@@ -257,55 +275,37 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
           mounted once at the App.jsx level, inside <RabbitProvider>,
           so it stays visible when deletes fire from pages that keep
           this shell display:none (e.g. ProjectsPage). */}
-
-      {/* ── Adapter status dot ── */}
-      {/* Replaces the old header adapter pill. A single 10px
-          circle pinned to the bottom-right corner of the frame,
-          offset up so it sits just above a horizontal scroll bar
-          if one appears. Red = offline, green = online. Hovering
-          reveals the adapter mode + status text. */}
-      <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
-
-      {/* ── Realtime presence strip (Session 7) ── */}
-      <RealtimePresenceStrip
-        realtimeStatus={ctx?.realtimeStatus}
-        users={ctx?.presentUsers}
-      />
     </div>
   )
 }
 
 // ─── Adapter status dot ───
-// Tiny corner indicator — just a colored circle. Red when offline,
-// green when online, dim gray while the adapter isn't configured.
+// A coloured circle: red when offline, green when online, dim grey while
+// the adapter isn't configured. Hovering reveals the adapter mode and
+// status. Docked in a slot since B1 (Q10); it no longer positions itself.
 function AdapterStatusDot({ mode, status }) {
   const configured = !!mode
   const online = !!status?.online
-  const color = !configured ? '#57534e' : (online ? '#22c55e' : '#ef4444')
-  const glow  = !configured ? 'none'     : (online ? '0 0 6px rgba(34,197,94,0.7)' : '0 0 6px rgba(239,68,68,0.7)')
+  const state = !configured ? 'unconfigured' : (online ? 'online' : 'offline')
   const label = configured
     ? `${(mode || '').replace('_', ' ')} — ${online ? 'online' : 'offline'}`
     : 'adapter not configured'
   return (
     <div
       title={label}
-      className="absolute rounded-full pointer-events-auto"
+      className="rb-adapter-dot rounded-full flex-shrink-0"
+      data-state={state}
       style={{
-        left: 10,
-        bottom: 18,
         width: 10,
         height: 10,
-        backgroundColor: color,
         border: '1px solid rgba(0,0,0,0.5)',
-        boxShadow: glow,
-        zIndex: 50,
       }}
     />
   )
 }
 
 // ─── Realtime presence strip ───
-// Sits beside the adapter dot: a LIVE/SYNC pill plus up to five
+// Docked beside the adapter dot: a LIVE/SYNC pill plus up to five
 // initial chips for who else has this project open (Session 7
 // presence, cloud mode only — hidden when realtime is off).
 function RealtimePresenceStrip({ realtimeStatus, users }) {
@@ -322,28 +322,25 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
   }, [rosterMembers])
   if (!realtimeStatus || realtimeStatus === 'off') return null
   const pill = {
-    live:       { label: 'LIVE', color: '#fb923c' },
-    connecting: { label: 'SYNC', color: '#78716c' },
-    error:      { label: 'SYNC ERR', color: '#ef4444' },
-  }[realtimeStatus] || { label: realtimeStatus.toUpperCase(), color: '#78716c' }
+    live:       { label: 'LIVE' },
+    connecting: { label: 'SYNC' },
+    error:      { label: 'SYNC ERR' },
+  }[realtimeStatus] || { label: realtimeStatus.toUpperCase() }
   const list = Array.isArray(users) ? users : []
   const shown = list.slice(0, 5)
   const overflow = list.length - shown.length
   const initials = (label) => (label || '?')
     .split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
   return (
-    <div
-      className="absolute flex items-center gap-1 pointer-events-auto"
-      style={{ left: 26, bottom: 13, zIndex: 50 }}
-    >
+    <div className="flex items-center gap-1 flex-shrink-0">
       <span
-        className="text-label uppercase font-semibold px-1 py-px rounded-control"
+        className="rb-presence-pill text-label uppercase font-semibold px-1 py-px rounded-control"
+        data-status={realtimeStatus}
         title={realtimeStatus === 'live'
           ? 'Live sync connected — edits from teammates appear instantly'
           : realtimeStatus === 'error'
             ? 'Live sync error — changes still save; the view refreshes on reconnect'
             : 'Connecting live sync…'}
-        style={{ color: pill.color, border: `1px solid ${pill.color}`, opacity: 0.85 }}
       >
         {pill.label}
       </span>

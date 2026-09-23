@@ -14,7 +14,7 @@ import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
   Film, Gamepad2, Clapperboard,
 } from 'lucide-react'
-import { INK_LIGHT } from '../../../ui/tokens.js'
+import '../rabbitShell.css'
 
 export const RABBIT_VIEWS = [
   { id: 'intake',      label: 'Intake',       Icon: Sparkles   },
@@ -58,24 +58,20 @@ export default function ViewTabs({ activeView, onChange, disabled, rightSlot, hi
            meantime. `aria-current` is the same step's other half: the active
            view was expressed ONLY as an inline colour, so neither a screen
            reader nor ui-page-check's tab proof could tell which view was
-           showing. */
+           showing.
+
+           B1 (2026-09-23), commit 1: the active branch moved out of this
+           inline style onto `data-active` + `.rb-viewtab` in rabbitShell.css,
+           values unchanged. */
         return (
           <button
             key={id}
             type="button"
             aria-current={active ? 'page' : undefined}
+            data-active={active ? 'true' : undefined}
             onClick={() => onChange(id)}
             disabled={disabled}
-            className="flex items-center gap-1.5 px-3 py-2 text-dense transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{
-              color: active ? INK_LIGHT : '#a8a29e',
-              backgroundColor: active ? '#ea580c' : 'transparent',
-              borderLeft: '1px solid transparent',
-              borderRight: '1px solid transparent',
-              borderTop: '1px solid transparent',
-              borderBottom: active ? '2px solid #ea580c' : '2px solid transparent',
-              marginBottom: '-1px',
-            }}
+            className="rb-viewtab flex items-center gap-1.5 px-3 py-2 text-dense transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Icon className="w-3.5 h-3.5" />
             {label}
