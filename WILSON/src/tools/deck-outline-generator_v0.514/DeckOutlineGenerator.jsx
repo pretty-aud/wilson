@@ -4403,7 +4403,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}
                     />
-                    <p className="text-dense text-ink-3 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
+                    {/* 🚨 C4: this caption sits INSIDE the preview's wrapper and its
+                        height is the pin's `wrapper.h` (751 + 30.84). Review
+                        D27 asked for roman, the Caption step and a 60ch
+                        measure; only roman is height-neutral. See
+                        `.dog-preview-caption`. */}
+                    <p className="dog-preview-caption">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
                   </div>
                 )
               ) : (

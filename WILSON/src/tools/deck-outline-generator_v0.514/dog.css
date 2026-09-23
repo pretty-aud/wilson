@@ -482,8 +482,7 @@
   }
 
   /* The descriptor above the text view (review D27: roman, the Caption
-     step, a measure). The caption UNDER the preview sits inside the C4
-     wrapper and only changed its ink, so the wrapper's geometry cannot move. */
+     step, a measure). The caption UNDER the preview is below. */
   .dog-caption-row {
     padding: 6px 12px;
     border-bottom: 1px solid var(--color-rule);
@@ -492,6 +491,31 @@
     max-width: 60ch;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* 🚨 C4 — THE CAPTION UNDER THE PREVIEW (A2's written decision on review
+     D27). It sits INSIDE the preview's overflow-hidden wrapper, so its box
+     is part of the pinned `wrapper.h` (751 + 30.84 = 781.84 at both sizes).
+     D27 asked for three things:
+       roman, not italic ........ DONE — the line box is the same, the probe
+                                  is green and `wrapper.h` did not move;
+       the Caption step (12px) .. NOT DONE — 12 x 1.4 is 16.8 against the
+                                  Dense step's 18.85, so the wrapper would
+                                  lose 2.05px;
+       a 60ch measure ........... NOT DONE — the sentence is ~115 characters,
+                                  so 60ch wraps it onto a second line and the
+                                  wrapper grows ~19px.
+     The preview's own box would not move either way (root, slide, padding
+     and available width are above and beside it), but the pin holds the
+     wrapper, and C4 says a D.O.G. session measures and does not re-pin in
+     passing. The last two are carried to Audrey: a re-pin of `wrapper.h`
+     with its reason, or the caption as it is. Every length below is the
+     utilities' it replaced (`text-dense px-4 py-1.5`). */
+  .dog-preview-caption {
+    padding: 6px 16px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
     color: var(--color-ink-3);
   }
 
