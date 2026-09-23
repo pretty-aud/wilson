@@ -180,6 +180,9 @@ export const CSS_FILES = [
   // A1, 2026-09-23 — D.O.G.'s extracted state and its A1 restyle. The A2
   // half still holds the extraction's oklch palette literals (no hex).
   'src/tools/deck-outline-generator_v0.514/dog.css',
+  // B6, 2026-09-23 — Bins' extracted state and its restyle, on the tokens.
+  // Added deliberately, like the two above; it scores 0 on every row.
+  'src/tools/rabbit_v0.1.0/views/bins/bins.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting
