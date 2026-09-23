@@ -23,7 +23,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
   if (!list.length) {
     return (
       <button type="button" onClick={open} title={canWrite ? 'Assign takes from the bins' : 'No takes assigned'}
-        className="inline-flex items-center gap-1 px-1.5 rounded-control text-dense hover:bg-stone-700 transition-colors"
+        className="inline-flex items-center gap-1 px-1.5 rounded-control text-dense hover:bg-hover transition-colors"
         style={{ height, color: C.dimmer, border: `1px dashed ${C.line}` }}>
         {canWrite ? <><Plus style={{ width: 10, height: 10 }} /> takes</> : '—'}
       </button>
@@ -31,10 +31,10 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
   }
   return (
     <button type="button" onClick={open} title={`${list.length} take${list.length === 1 ? '' : 's'} — click to manage`}
-      className="inline-flex items-center gap-1 rounded-control px-0.5 hover:bg-stone-700/60 transition-colors" style={{ height: height + 4 }}>
+      className="inline-flex items-center gap-1 rounded-control px-0.5 hover:bg-hover transition-colors" style={{ height: height + 4 }}>
       {shown.map(({ take, file }) => (
         <span key={take.id} className="relative inline-block flex-shrink-0" title={`${file.display_name || file.original_name} · ${TAKE_ROLE_META[take.role]?.label || take.role}`}>
-          <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={w} height={height} radius={2} primary={take.role === 'primary'} />
+          <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={w} height={height} primary={take.role === 'primary'} />
           {take.role === 'primary' && (
             <Star style={{ width: 8, height: 8, position: 'absolute', top: 1, left: 1, color: C.accentText, fill: C.accentText }} />
           )}

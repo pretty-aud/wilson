@@ -17,6 +17,8 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { C } from './binUi'
+import { INK_2, INK_3, SIGNAL, THEME } from '../../../../ui/tokens'
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url))
 const read = (rel) => readFileSync(here(rel), 'utf8')
@@ -90,10 +92,39 @@ export function inlineStateTernaries(src) {
 
 // ── The two sides of the contract ───────────────────────────────────────────
 const cssClasses = () => new Set((code.match(/\.bn-[a-z-]+/g) || []).map(s => s.slice(1)))
+// Not preceded by a word character or a hyphen: `--bn-ink-3` is a custom
+// property the lift sets, not a class.
 const jsxClasses = () => {
   const s = new Set()
-  for (const src of Object.values(JSX)) for (const m of src.matchAll(/\bbn-[a-z-]+/g)) s.add(m[0])
+  for (const src of Object.values(JSX)) for (const m of src.matchAll(/(?<![\w-])bn-[a-z-]+/g)) s.add(m[0])
   return s
+}
+
+/** The rules inside `@layer components { … }`, as { selectors, body }. */
+export function rules(cssCode) {
+  const open = cssCode.search(/@layer\s+components\s*\{/)
+  const inner = cssCode.slice(cssCode.indexOf('{', open) + 1, cssCode.lastIndexOf('}'))
+  return [...inner.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({
+    selectors: m[1].split(',').map(s => s.trim()).filter(Boolean),
+    body: m[2],
+  }))
+}
+
+/** Every STATE selector on a row that paints the row's ground — the hover
+ *  fill, the selection tint, the drop mix. Each one must lift the quiet inks. */
+export function paintedRowStates(cssCode) {
+  const out = []
+  for (const { selectors, body } of rules(cssCode)) {
+    if (!/background-(?:color|image)\s*:(?!\s*transparent)/.test(body)) continue
+    for (const s of selectors) {
+      if (/^\.bn-(?:tree-row|trow|tile|pick-row)(?::hover|\[data-[a-z-]+="true"\])$/.test(s)) out.push(s)
+    }
+  }
+  return out
+}
+export function liftSelectors(cssCode) {
+  const lift = rules(cssCode).find(r => /--bn-ink-3\s*:/.test(r.body) && /--bn-signal-ink\s*:/.test(r.body))
+  return lift ? lift.selectors : []
 }
 // `data-bin-grid` is behaviour (the keyboard handler reads the grid's real
 // tracks from it), not state; nothing in the stylesheet keys on it. And
@@ -171,7 +202,55 @@ describe('the extracted state', () => {
   })
 })
 
+describe('the restyle: tokens only, and the lift (B04, B02)', () => {
+  it('bins.css writes no raw colour — every value is a token from @theme (C8)', () => {
+    expect(code.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) || []).toEqual([])
+  })
+
+  it('every var(--color-*) bins.css reads exists in @theme', () => {
+    const used = new Set([...code.matchAll(/var\(--color-([a-z0-9-]+)/g)].map(m => `color-${m[1]}`))
+    expect([...used].filter(t => !(t in THEME))).toEqual([])
+  })
+
+  it('binUi\'s C is the kit ladder: the quiet inks lift, everything else is a token', () => {
+    expect(C.dim).toBe('var(--bn-ink-3, var(--color-ink-3))')
+    expect(C.dimmer).toBe(C.dim)
+    expect(C.accentText).toBe('var(--bn-signal-ink, var(--color-signal))')
+    expect([C.text, C.muted]).toEqual([INK_2, INK_2])
+    expect(C.accent).toBe(SIGNAL)
+    // The fallbacks are the real tokens, spelled as index.css spells them.
+    expect(THEME['color-ink-3']).toBe(INK_3)
+    for (const [k, v] of Object.entries(C)) {
+      if (['dim', 'dimmer', 'accentText'].includes(k)) continue
+      expect(Object.values(THEME), `C.${k} = ${v} is not a token`).toContain(v)
+    }
+  })
+
+  it('🚨 nothing appends an alpha to a C colour (a var() cannot take one)', () => {
+    const bad = []
+    for (const [f, src] of Object.entries(JSX)) {
+      for (const m of src.matchAll(/\$\{C\.\w+\}[0-9a-fA-F]{2}\b|C\.\w+\s*\+\s*['"`]/g)) bad.push(`${f}: ${m[0]}`)
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('🚨 every state that paints a row\'s ground also lifts ink-3 and the signal', () => {
+    const painted = paintedRowStates(code)
+    const lifted = new Set(liftSelectors(code))
+    // The four row kinds each have a hover and a selection state at least.
+    expect(painted.length).toBeGreaterThanOrEqual(8)
+    expect(painted.filter(s => !lifted.has(s))).toEqual([])
+  })
+})
+
 describe('the guard itself (mutants run through the SAME predicate)', () => {
+  it('the lift check sees a new painted state that does not lift', () => {
+    const extra = code.replace(/\}\s*$/, '  .bn-trow[data-flash="true"] { background-color: var(--color-hover); }\n}')
+    const painted = paintedRowStates(extra)
+    const lifted = new Set(liftSelectors(extra))
+    expect(painted.filter(s => !lifted.has(s))).toEqual(['.bn-trow[data-flash="true"]'])
+  })
+
   it('catches a background ternary, a template-literal border ternary and a spread-free opacity ternary', () => {
     expect(inlineStateTernaries(`<div style={{ backgroundColor: selected ? 'x' : 'y' }} />`)).toHaveLength(1)
     expect(inlineStateTernaries('<div style={{ border: `1px solid ${a ? C.x : C.y}`, width: 3 }} />')).toHaveLength(1)

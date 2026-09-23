@@ -26,7 +26,7 @@ export function mediaIconFor(type) {
   }
 }
 
-export default function BinPoster({ row, src, width = 32, height = null, radius = 2, className = '', style = {}, iconSize = null, primary = false }) {
+export default function BinPoster({ row, src, width = 32, height = null, radius = 3, className = '', style = {}, iconSize = null, primary = false }) {
   const [erroredSrc, setErroredSrc] = useState(null)
   const h = height ?? width
   const Icon = mediaIconFor(row?.media_type)
@@ -46,7 +46,7 @@ export default function BinPoster({ row, src, width = 32, height = null, radius 
         <Icon className="bn-poster-icon" style={{ width: iconSize || Math.max(12, Math.min(40, width / 3)), height: iconSize || Math.max(12, Math.min(40, width / 3)), '--poster-icon': meta.color }} />
       )}
       {offline && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1" style={{ backgroundColor: 'rgba(12,10,9,0.8)' }}>
+        <div className="bn-scrim absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1">
           <Unplug style={{ width: 10, height: 10, color: C.amber }} />
           {width >= 96 && <span className="text-label uppercase" style={{ color: C.amber }}>offline</span>}
         </div>

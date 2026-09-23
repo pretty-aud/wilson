@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Layers, FolderTree, Check } from 'lucide-react'
-import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Spinner } from './binUi'
+import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Spinner, Banner } from './binUi'
 import { MEDIA_TYPES, MEDIA_TYPE_META, formatBytes } from '../../bins/binMedia'
 
 function suggestionText(s) {
@@ -80,12 +80,12 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
         <Btn primary onClick={confirm} disabled={busy || included.length === 0}><Check className="w-3 h-3" /> Add {included.length} {included.length === 1 ? 'item' : 'items'}</Btn>
       </>}>
       {plan?.truncated && (
-        <div className="flex items-center gap-2 px-2 py-1.5 mb-3 rounded-control text-dense" style={{ color: C.amber, border: `1px solid ${C.amber}55`, backgroundColor: 'rgba(245,158,11,0.08)' }}>
-          <AlertTriangle className="w-3.5 h-3.5" /> The folder was too large to walk completely; add the rest in a second pass.
-        </div>
+        <Banner tone="warning" Icon={AlertTriangle} className="mb-3 rounded-control">
+          The folder was too large to walk completely; add the rest in a second pass.
+        </Banner>
       )}
 
-      <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+      <div className="bn-field-grid grid gap-4 mb-3" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
         <Field label="Scene (all)">
           <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></Field>
         <Field label="Shoot day (all)">
@@ -113,7 +113,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
         </div>
         <div className="max-h-[46vh] overflow-y-auto">
           {items.length > RENDER_CAP && (
-            <div className="px-3 py-1.5 text-dense font-mono" style={{ color: C.amber, borderBottom: `1px solid ${C.faint}` }}>
+            <div className="px-3 py-1.5 text-dense" style={{ color: C.amber, borderBottom: `1px solid ${C.faint}` }}>
               Showing the first {RENDER_CAP} of {items.length}. The rest are added with their defaults (ticked unless duplicate or missing); use Tick all / Untick all to change them together.
             </div>
           )}
@@ -122,7 +122,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
             const sug = suggestionText(it.suggestions)
             return (
               <div key={it.source_path} className="bn-add-row grid items-center px-2" data-disabled={disabled ? 'true' : undefined} data-included={it.include ? 'true' : undefined} style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', borderBottom: `1px solid ${C.faint}`, minHeight: 34 }}>
-                <input type="checkbox" checked={!!it.include} disabled={disabled} onChange={e => set(idx, { include: e.target.checked })} className="accent-orange-600" />
+                <input type="checkbox" checked={!!it.include} disabled={disabled} onChange={e => set(idx, { include: e.target.checked })} className="accent-signal" />
                 <div className="px-1 py-1 min-w-0">
                   <TextInput value={it.display_name} onChange={v => set(idx, { display_name: v })} disabled={disabled} className="!py-0.5" />
                   <div className="bn-add-meta truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" data-duplicate={it.duplicate ? 'true' : undefined} title={it.source_path}>
@@ -139,7 +139,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                 <div className="px-1 min-w-0">
                   {sug ? (
                     <label className="flex items-center gap-1.5 cursor-pointer min-w-0">
-                      <input type="checkbox" checked={!!it.apply} disabled={disabled} onChange={e => set(idx, { apply: e.target.checked })} className="accent-orange-600" />
+                      <input type="checkbox" checked={!!it.apply} disabled={disabled} onChange={e => set(idx, { apply: e.target.checked })} className="accent-signal" />
                       <span className="bn-add-sug truncate text-dense" data-apply={it.apply ? 'true' : undefined} title={sug}>{sug}</span>
                     </label>
                   ) : <span className="text-dense" style={{ color: C.dimmer }}>—</span>}

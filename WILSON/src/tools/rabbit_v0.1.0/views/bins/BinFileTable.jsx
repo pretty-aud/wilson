@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, ArrowDown } from 'lucide-react'
-import { C, MediaTag, FlagMark, ColorDot } from './binUi'
+import { C, MediaTag, FlagMark, ColorDot, EmptyState } from './binUi'
 import BinPoster from './BinPoster'
 import { DND_FILES } from './BinTree'
 import { formatDuration, formatBytes } from '../../bins/binMedia'
@@ -23,16 +23,19 @@ export const TABLE_COLUMNS = [
   { id: 'take_number',  label: 'Take',     width: '64px',  sortable: true },
   { id: 'camera',       label: 'Cam',      width: '48px',  sortable: true },
   { id: 'roll',         label: 'Roll',     width: '70px',  sortable: true },
-  { id: 'shoot_day',    label: 'Day',      width: '92px',  sortable: true },
-  { id: 'scene',        label: 'Scene',    width: '110px', sortable: false },
-  { id: 'used',         label: 'Used in',  width: '70px',  sortable: false },
+  { id: 'shoot_day',    label: 'Day',      width: '104px', sortable: true },
+  { id: 'scene',        label: 'Scene',    width: '110px', sortable: false, mono: false },
+  { id: 'used',         label: 'Used in',  width: '70px',  sortable: false, mono: false },
   { id: 'duration_sec', label: 'Duration', width: '72px',  sortable: true, align: 'right' },
   { id: 'dims',         label: 'Size px',  width: '90px',  sortable: false, align: 'right' },
   { id: 'fps',          label: 'fps',      width: '56px',  sortable: false, align: 'right' },
   { id: 'codec',        label: 'Codec',    width: '80px',  sortable: false },
   { id: 'size_bytes',   label: 'Bytes',    width: '72px',  sortable: true, align: 'right' },
-  { id: 'bin',          label: 'Bin',      width: '130px', sortable: false },
+  { id: 'bin',          label: 'Bin',      width: '130px', sortable: false, mono: false },
 ]
+// `mono: false` — a name (a scene's, a bin's) or words, not a figure or an
+// identifier: set in the sans. Every other cell is data in the mono (plan
+// §3.1: figures and identifiers; B27).
 
 const FLAG_NEXT = { unflagged: 'select', select: 'reject', reject: 'unflagged' }
 
@@ -51,7 +54,7 @@ export default function BinFileTable({
         {cols.map(c => (
           <button key={c.id} type="button" disabled={!c.sortable} onClick={() => c.sortable && onSort?.(c.id)}
             data-sorted={sort?.field === c.id ? 'true' : undefined}
-            className={`bn-th flex items-center gap-1 px-2 py-1.5 text-dense ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? '' : 'cursor-default'}`}>
+            className={`bn-th flex items-center gap-1 px-2 py-1.5 ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? '' : 'cursor-default'}`}>
             {c.label}
             {sort?.field === c.id && (sort.dir === 'desc' ? <ArrowDown className="w-2.5 h-2.5" /> : <ArrowUp className="w-2.5 h-2.5" />)}
           </button>
@@ -83,7 +86,7 @@ export default function BinFileTable({
         )
       })}
       {rows.length === 0 && (
-        <div className="px-4 py-6 text-dense" style={{ color: C.dimmer }}>Nothing matches.</div>
+        <EmptyState compact title="Nothing matches" body="Clear a filter or the search to see more." />
       )}
     </div>
   )
@@ -108,9 +111,9 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
                   onBlur={commit}
                   className="ui-input" data-size="sm" aria-label="File name" />
               ) : (
-                <div className="bn-trow-name truncate text-dense" title={row.display_name}>{row.display_name || row.original_name}</div>
+                <div className="bn-trow-name truncate text-dense font-semibold" title={row.display_name}>{row.display_name || row.original_name}</div>
               )}
-              <div className="truncate text-dense" style={{ color: C.dimmer }} title={row.source_path}>{row.original_name}{row.is_sequence && row.frame_count ? ` · ${row.frame_count} frames` : ''}</div>
+              <div className="truncate text-caption" style={{ color: C.dimmer }} title={row.source_path}>{row.original_name}{row.is_sequence && row.frame_count ? ` · ${row.frame_count} frames` : ''}</div>
             </div>
           </div>
         )
@@ -119,7 +122,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
         return (
           <button type="button" title="Click to cycle select → reject → unflagged" disabled={!canWrite}
             onClick={e => { e.stopPropagation(); onPatch({ review_flag: FLAG_NEXT[row.review_flag || 'unflagged'] }) }}
-            className="flex items-center gap-1 px-1 rounded-control hover:bg-stone-700 disabled:cursor-default" style={{ minHeight: 18 }}>
+            className="flex items-center gap-1 px-1 rounded-control hover:bg-hover disabled:cursor-default" style={{ minHeight: 18 }}>
             <FlagMark flag={row.review_flag} circled={row.circled} />
             {row.color && <ColorDot color={row.color} size={8} />}
             {!row.color && row.review_flag === 'unflagged' && !row.circled && <span className="text-dense" style={{ color: C.dimmer }}>—</span>}
@@ -150,7 +153,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
       data-offline={row.online === false ? 'true' : undefined}
       style={{ gridTemplateColumns: template, minWidth: 'max-content', minHeight: 34 }}>
       {cols.map(c => (
-        <div key={c.id} className={`px-2 py-1 text-dense font-mono min-w-0 ${c.align === 'right' ? 'text-right' : ''}`}>{cell(c.id)}</div>
+        <div key={c.id} className={`px-2 py-1 text-dense min-w-0 ${c.mono === false ? '' : 'font-mono'} ${c.align === 'right' ? 'text-right' : ''}`}>{cell(c.id)}</div>
       ))}
     </div>
   )

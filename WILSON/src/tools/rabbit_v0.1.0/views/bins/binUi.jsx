@@ -26,16 +26,27 @@ import { Check, Ban, Circle } from 'lucide-react'
 import { MEDIA_TYPE_META, COLOR_HEX, COLORS } from '../../bins/binMedia'
 import {
   Button, IconButton, Chip as KitChip, Kbd, Menu as KitMenu, Dialog, Field, Input, TextArea,
-  Select as KitSelect, EmptyState, Spinner, Switch, overlayOpen,
+  Select as KitSelect, EmptyState, Spinner, Switch, Banner, StatusBadge, overlayOpen,
+  PAPER, PAPER_RAISED, PAPER_RECESSED, INK, INK_2, RULE, SIGNAL, SUCCESS, DANGER, WARNING,
 } from '../../../../ui'
 // The Bins surface's own state (tree, table, tiles, pick lists, posters …).
 import './bins.css'
 
+// Bins' colour names, onto the kit's ladder (B04; F1's map: stone-300/400 →
+// ink-2, stone-500/600 → ink-3). Five inks were three screens of stone plus a
+// near-white, and two of them failed: #57534e at 2.29:1 and #78716c at 3.64:1
+// on the paper. The two QUIET inks are custom properties with the token as the
+// fallback, because ink-3 and the signal fail on the hover and selection
+// grounds (3.75–4.33:1) and a hovered or selected row lifts them one step —
+// see "the lift" in bins.css. A var() is a string like any colour here, except
+// that nothing may append an alpha to it; binsCss.test.js holds that line.
+const INK_3_LIFTABLE = 'var(--bn-ink-3, var(--color-ink-3))'
+const SIGNAL_INK_LIFTABLE = 'var(--bn-signal-ink, var(--color-signal))'
 export const C = {
-  bg: '#1c1917', panel: '#292524', deep: '#0c0a09', line: '#44403c', faint: '#292524',
-  text: '#d6d3d1', bright: '#fff7ed', muted: '#a8a29e', dim: '#78716c', dimmer: '#57534e',
-  accent: '#ea580c', accentBorder: '#c2410c', accentText: '#fb923c',
-  green: '#22c55e', red: '#ef4444', amber: '#f59e0b',
+  bg: PAPER, panel: PAPER_RAISED, deep: PAPER_RECESSED, line: RULE, faint: RULE,
+  text: INK_2, bright: INK, muted: INK_2, dim: INK_3_LIFTABLE, dimmer: INK_3_LIFTABLE,
+  accent: SIGNAL, accentBorder: SIGNAL, accentText: SIGNAL_INK_LIFTABLE,
+  green: SUCCESS, red: DANGER, amber: WARNING,
 }
 
 // ── The kit, under the Bins names (identical contracts) ────────────────────
@@ -44,7 +55,7 @@ export const C = {
 //   was ~28px at 13px; toolbars pass `small` (28px, Dense 13).
 // Toggle → Switch: `checked`, `onChange`, `label` unchanged. Difference: the
 //   track is a real <button role="switch"> (focusable, Space / Enter), 36x20.
-export { Kbd, Field, TextArea, EmptyState, Spinner, overlayOpen }
+export { Kbd, Field, TextArea, EmptyState, Spinner, Banner, StatusBadge, overlayOpen }
 export { Button as Btn, Switch as Toggle }
 
 // ── Adapters ───────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select, Banner } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -646,14 +646,17 @@ export default function BinsView() {
     <div className="h-full w-full flex flex-col" style={{ backgroundColor: C.bg }}>
       {/* ── Notice ── */}
       {(notice || loadError) && (
-        <div className="bn-notice flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0"
-          data-tone={(notice?.kind === 'error' || loadError) ? 'error' : notice?.kind === 'warn' ? 'warn' : notice?.kind === 'ok' ? 'ok' : undefined}
-          style={{ borderBottom: `1px solid ${C.line}`, backgroundColor: C.deep }}>
-          {(notice?.kind === 'error' || loadError) ? <AlertTriangle className="w-3 h-3" /> : notice?.kind === 'ok' ? <Check className="w-3 h-3" /> : null}
-          <span className="flex-1 truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
-          {loadError && <Btn small onClick={load}>Retry</Btn>}
-          <IconBtn Icon={X} title="Dismiss" onClick={() => { setNotice(null); setLoadError(null) }} />
-        </div>
+        // The in-flow strip is the kit's Banner (C8): one tone each, the icon in
+        // the tone, the words in the ink.
+        <Banner className="flex-shrink-0"
+          tone={(notice?.kind === 'error' || loadError) ? 'danger' : notice?.kind === 'warn' ? 'warning' : notice?.kind === 'ok' ? 'success' : 'info'}
+          Icon={(notice?.kind === 'error' || loadError) ? AlertTriangle : notice?.kind === 'ok' ? Check : undefined}
+          action={<>
+            {loadError && <Btn small onClick={load}>Retry</Btn>}
+            <IconBtn Icon={X} title="Dismiss" onClick={() => { setNotice(null); setLoadError(null) }} />
+          </>}>
+          <span className="block truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
+        </Banner>
       )}
 
       <div className="flex-1 min-h-0 flex">
@@ -678,7 +681,7 @@ export default function BinsView() {
                   {currentBin ? currentBin.name : 'All files'}
                   {currentBin && <span className="ml-2 text-dense normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
                 </div>
-                <div className="text-dense font-mono tabular-nums flex items-center gap-2 flex-wrap" style={{ color: C.dim }}>
+                <div className="text-caption tabular-nums flex items-center gap-2 flex-wrap" style={{ color: C.dim }}>
                   <span>{stats.count} file{stats.count === 1 ? '' : 's'}{rows.length !== stats.count ? ` · ${rows.length} shown` : ''}</span>
                   {stats.durationSec > 0 && <span>· {formatDuration(stats.durationSec)}</span>}
                   {stats.sizeBytes > 0 && <span>· {formatBytes(stats.sizeBytes)}</span>}
@@ -715,7 +718,7 @@ export default function BinsView() {
                 <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} />
               </div>
               {view === 'grid' && (
-                <input type="range" min={120} max={360} step={20} value={tileWidth} onChange={e => setTileWidth(Number(e.target.value))} title="Tile size" className="w-20 accent-orange-600" />
+                <input type="range" min={120} max={360} step={20} value={tileWidth} onChange={e => setTileWidth(Number(e.target.value))} title="Tile size" aria-label="Tile size" className="w-20 accent-signal" />
               )}
               <IconBtn Icon={Filter} title="Filters" active={showFilters || filterCount > 0} onClick={() => setShowFilters(v => !v)} />
               <div className="relative">
@@ -758,8 +761,8 @@ export default function BinsView() {
           {/* ── Body ── */}
           <div className="flex-1 min-h-0 flex flex-col relative">
             {dragOver && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" style={{ backgroundColor: 'rgba(234,88,12,0.12)', border: `2px dashed ${C.accent}` }}>
-                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
+              <div className="bn-drop absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accent}` }}>
                   Drop to add to {currentBin ? `"${currentBin.name}"` : 'a new bin'}
                 </div>
               </div>
@@ -808,7 +811,7 @@ export default function BinsView() {
             {/* ── Selection bar ── */}
             {selection.size > 0 && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 flex-shrink-0 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, backgroundColor: C.deep }}>
-                <span className="text-dense font-mono tabular-nums mr-1" style={{ color: C.bright }}>{selection.size} selected</span>
+                <span className="text-dense tabular-nums mr-1" style={{ color: C.bright }}>{selection.size} selected</span>
                 {shownStats && selection.size > 1 && <span className="text-dense font-mono tabular-nums" style={{ color: C.dim }}>{formatDuration(binStats(selectedRows).durationSec)} {formatBytes(binStats(selectedRows).sizeBytes)}</span>}
                 {canWrite && <>
                   <Btn small onClick={() => patchSelection({ review_flag: 'select' })} title="Select (S)"><Check className="w-3 h-3" style={{ color: C.green }} /> Select</Btn>
@@ -867,7 +870,7 @@ function RenameBar({ row, onCommit, onCancel }) {
   const [v, setV] = useState(row?.display_name || '')
   if (!row) return null
   return (
-    <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-control shadow-2xl" style={{ backgroundColor: C.panel, border: `1px solid ${C.accentBorder}` }}>
+    <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-float shadow-float" style={{ backgroundColor: C.panel, border: `1px solid ${C.accent}` }}>
       <Edit3 className="w-3 h-3" style={{ color: C.accentText }} />
       <span className="text-label uppercase" style={{ color: C.dim }}>Rename</span>
       <input autoFocus value={v} onChange={e => setV(e.target.value)} aria-label="New name"
