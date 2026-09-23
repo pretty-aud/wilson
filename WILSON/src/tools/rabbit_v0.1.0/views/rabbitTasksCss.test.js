@@ -110,10 +110,10 @@ describe('the state extraction holds in every extracted B2 file', () => {
     const mutants = [
       // a property field's empty ink, as it was
       source.detail.replace("data-empty={task.phase_id ? 'false' : 'true'}", "style={{ color: task.phase_id ? '#f4a261' : '#57534e' }}"),
-      // the two widths, as a template literal
+      // the priority's tone, as an inline colour picked by a call
       source.detail.replace(
-        'className="rb-task-popup fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col"',
-        "className={`fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col ${hasLeftColumn ? 'max-w-4xl' : 'max-w-2xl'}`}",
+        "data-tone={priorityTone(task.priority || 'medium')}>",
+        "style={{ color: priorityColor(task.priority) }}>",
       ),
     ]
     for (const m of mutants) {
