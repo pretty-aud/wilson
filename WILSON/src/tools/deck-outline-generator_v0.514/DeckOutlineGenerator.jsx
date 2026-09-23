@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner, Menu } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -4994,63 +4994,42 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         </div>
       )}
 
-      {/* Right-Click Context Menu */}
+      {/* Right-Click Context Menu — the kit's Menu (header / divider / item /
+          hint on the one float surface; the kit's hover and viewport clamp).
+          It was a private stylesheet injected on every open: a 3px orange
+          left edge and an orange tint on hover, every item in the accent.
+          Same items, same order, same shortcuts shown. Every item is
+          `keepOpen` because every handler already closes the menu itself —
+          a rewrite with nothing selected returns early and leaves it open,
+          exactly as before — and the click stays inside it (the window
+          listener above closes it on any click that reaches the window). */}
       {contextMenu.visible && (
-        <div
-          className="fixed z-[70] bg-stone-800 border border-stone-600 rounded-control shadow-xl py-1 min-w-[180px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+        <Menu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          minWidth={180}
+          onClose={closeContextMenu}
           onClick={(e) => e.stopPropagation()}
-        >
-          <style>{`
-            .ctx-btn { border-left: 3px solid transparent; transition: all 0.1s ease; cursor: pointer; }
-            .ctx-btn:hover:not(:disabled) { border-left-color: #f97316; background: rgba(249,115,22,0.12); }
-            .ctx-btn:disabled { color: #57534e; cursor: default; }
-            .ctx-btn:disabled:hover { border-left-color: transparent; background: transparent; }
-          `}</style>
-          {/* Section 1: Edit — text view only */}
-          {contextMenu.source !== 'visualizer' && (
-            <>
-              <button onClick={() => handleClipboardAction('undo')} className="ctx-btn w-full px-3 py-1.5 text-left text-dense text-orange-400 flex items-center gap-2">
-                <Undo2 className="w-3 h-3 flex-shrink-0" /> Undo <span className="ml-auto text-stone-600 text-caption">{modKey}Z</span>
-              </button>
-              <button onClick={() => handleClipboardAction('redo')} className="ctx-btn w-full px-3 py-1.5 text-left text-dense text-orange-400 flex items-center gap-2">
-                <Redo2 className="w-3 h-3 flex-shrink-0" /> Redo <span className="ml-auto text-stone-600 text-caption">{shiftModKey}Z</span>
-              </button>
-
-              {/* Divider */}
-              <div className="border-t border-stone-600 my-1" />
-
-              {/* Section 2: Clipboard */}
-              <button onClick={() => handleClipboardAction('cut')} className="ctx-btn w-full px-3 py-1.5 text-left text-dense text-orange-400 flex items-center gap-2">
-                <Scissors className="w-3 h-3 flex-shrink-0" /> Cut <span className="ml-auto text-stone-600 text-caption">{modKey}X</span>
-              </button>
-              <button onClick={() => handleClipboardAction('copy')} className="ctx-btn w-full px-3 py-1.5 text-left text-dense text-orange-400 flex items-center gap-2">
-                <Copy className="w-3 h-3 flex-shrink-0" /> Copy <span className="ml-auto text-stone-600 text-caption">{modKey}C</span>
-              </button>
-              <button onClick={() => handleClipboardAction('paste')} className="ctx-btn w-full px-3 py-1.5 text-left text-dense text-orange-400 flex items-center gap-2">
-                <ClipboardList className="w-3 h-3 flex-shrink-0" /> Paste <span className="ml-auto text-stone-600 text-caption">{modKey}V</span>
-              </button>
-
-              {/* Divider */}
-              <div className="border-t border-stone-600 my-1" />
-            </>
-          )}
-
-          {/* AI Rewrite — shown in both views */}
-          <div className="px-3 py-1">
-            <span className="text-label text-stone-500 uppercase font-semibold">AI Rewrite</span>
-          </div>
-          {Object.entries(REWRITE_LABELS).map(([mode, label]) => (
-            <button
-              key={mode}
-              onClick={() => handleRewriteRequest(mode)}
-              className="ctx-btn w-full px-3 py-1.5 text-left text-dense text-orange-400 flex items-center gap-2"
-            >
-              <Sparkles className="w-3 h-3 flex-shrink-0" />
-              {label}
-            </button>
-          ))}
-        </div>
+          className="dog-context-menu"
+          items={[
+            ...(contextMenu.source !== 'visualizer' ? [
+              // Section 1: Edit — text view only
+              { label: 'Undo', Icon: Undo2, hint: `${modKey}Z`, onClick: () => handleClipboardAction('undo'), keepOpen: true },
+              { label: 'Redo', Icon: Redo2, hint: `${shiftModKey}Z`, onClick: () => handleClipboardAction('redo'), keepOpen: true },
+              { divider: true },
+              // Section 2: Clipboard
+              { label: 'Cut', Icon: Scissors, hint: `${modKey}X`, onClick: () => handleClipboardAction('cut'), keepOpen: true },
+              { label: 'Copy', Icon: Copy, hint: `${modKey}C`, onClick: () => handleClipboardAction('copy'), keepOpen: true },
+              { label: 'Paste', Icon: ClipboardList, hint: `${modKey}V`, onClick: () => handleClipboardAction('paste'), keepOpen: true },
+              { divider: true },
+            ] : []),
+            // AI Rewrite — shown in both views
+            { header: 'AI Rewrite' },
+            ...Object.entries(REWRITE_LABELS).map(([mode, label]) => (
+              { label, Icon: Sparkles, onClick: () => handleRewriteRequest(mode), keepOpen: true }
+            )),
+          ]}
+        />
       )}
 
       {/* Footer bar is now managed by App.jsx container */}
