@@ -2119,6 +2119,10 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // 9: B1 added rabbitShell.css, A1 dog.css, B6 bins.css and B2
     // rabbitTasks.css (all 2026-09-23).
     expect(CSS_FILES.length).toBe(9);
+    // …and the ninth is B2's sheet, listed once (a duplicate line kept the
+    // count at 9 while dropping it; B2 round one).
+    expect(CSS_FILES).toContain('src/tools/rabbit_v0.1.0/views/rabbitTasks.css');
+    expect(new Set(CSS_FILES).size).toBe(CSS_FILES.length);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
     // anywhere fails here instead of passing everywhere.

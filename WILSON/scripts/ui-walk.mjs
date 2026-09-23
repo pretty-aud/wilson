@@ -151,7 +151,9 @@ const REGISTRY = [
   // B2: the rest of the Tasks view the walk could not see — the board, and
   // the two small dialogs off its toolbar (Phase creates nothing until its
   // own Create; Save view writes nothing until its own Save).
-  P('rabbit-tasks-board', '/rabbit', { steps: ['@proj', 'Tasks', 'Board'], expect: { styled: 'Board' } }),
+  // The board itself, not which tab is styled: with two tabs, "the one
+  // styled differently" is true of both before any click (B2 round one).
+  P('rabbit-tasks-board', '/rabbit', { steps: ['@proj', 'Tasks', 'Board'], expect: { selector: '.rb-task-board' } }),
   P('rabbit-task-phase', '/rabbit', { steps: ['@proj', 'Tasks', 'Phase'], expect: { dialog: true } }),
   P('rabbit-task-save-view', '/rabbit', { steps: ['@proj', 'Tasks', 'Views', 'Save current view'], expect: { dialog: true } }),
   ...['By Phase', 'By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>

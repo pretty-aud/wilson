@@ -75,10 +75,16 @@ describe('Stat', () => {
   })
 
   it('has a stylesheet rule for every value tone, and the light surface keeps its one ink', () => {
+    // Comments out, whole rules matched (B2 round one: a `toContain` passed
+    // with the rule commented out, with the success tone painting danger, and
+    // with the rule made heavier than the light surface's).
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '')
     for (const tone of ['signal', 'success', 'warning', 'danger']) {
-      expect(css, tone).toContain(`.ui-stat-value[data-tone="${tone}"]`)
+      expect(code, tone).toMatch(new RegExp(`(^|[\\s}])\\.ui-stat-value\\[data-tone="${tone}"\\]\\s*\\{\\s*color:\\s*var\\(--color-${tone}\\);?\\s*\\}`))
     }
-    // (0,3,0) against the tones' (0,2,0): on light the value is the one ink.
-    expect(css).toMatch(/\.ui-stat\[data-surface="light"\] \.ui-stat-value\s*\{\s*color:\s*var\(--color-ink-light\)/)
+    // (0,3,0) against the tones' (0,2,0): on light the value is the one ink,
+    // and no heavier spelling of a tone rule exists to beat it.
+    expect(code).toMatch(/\.ui-stat\[data-surface="light"\] \.ui-stat-value\s*\{\s*color:\s*var\(--color-ink-light\)/)
+    expect(code).not.toMatch(/\.ui-stat[^{}\s]*\s+\.ui-stat-value\[data-tone/)
   })
 })
