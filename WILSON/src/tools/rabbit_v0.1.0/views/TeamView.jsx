@@ -34,7 +34,9 @@ import '../rabbitShell.css'
 import { Dialog } from '../../../ui/Dialog'
 import { Button } from '../../../ui/Button'
 
-// ROLE_COLORS moved to `.rb-role[data-role]` in rabbitShell.css (B1 state extraction).
+// ROLE_COLORS went in B1: the extraction moved it onto `.rb-role[data-role]`,
+// and the restyle drew every role in the same ink (a role is a category, not
+// a status, and the violet/amber pair were hues the chrome does not carry).
 
 const TEAM_ROLES = ['member', 'manager', 'reviewer']
 const EMPLOYMENT_TYPES = ['full_time', 'freelancer']
@@ -446,7 +448,7 @@ export default function TeamView() {
           )}
         </div>
 
-        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-paper-raised)' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Group */}
         <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
@@ -455,19 +457,19 @@ export default function TeamView() {
           {TEAM_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
-        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-paper-raised)' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Saved views */}
         <TeamSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSaveRequest={() => setShowSaveDialog(true)} />
 
-        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-paper-raised)' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Search */}
         <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}>
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: 'var(--color-ink-3)' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search members…"
-            className="ui-input flex-1 bg-transparent" data-size="sm" data-surface="dark" />
+            className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense outline-none" style={{ color: 'var(--color-ink)' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-hover rounded-control transition-colors" style={{ color: 'var(--color-ink-3)' }}>
               <X className="w-3 h-3" />
@@ -481,9 +483,8 @@ export default function TeamView() {
             {processed.length}/{teamAssignments.length} member{teamAssignments.length === 1 ? '' : 's'}
           </span>
           <button type="button" onClick={openPicker}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control"
-            style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-            <UserPlus className="w-3 h-3" /> Assign Members
+            className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
+            <UserPlus className="w-3 h-3" /> Assign members
           </button>
         </div>
       </div>
@@ -723,11 +724,11 @@ function ProjectMembersPanel({ ctx }) {
                   onChange={e => { setSearch(e.target.value); setPickerOpen(true) }}
                   onFocus={() => setPickerOpen(true)}
                   placeholder="Add member — search the workspace directory…"
-                  className="ui-input flex-1 bg-transparent" data-size="sm" data-surface="dark"
+                  className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense outline-none" style={{ color: 'var(--color-ink)' }}
                 />
               </div>
               {pickerOpen && (
-                <div className="absolute left-4 right-4 mt-1 z-40 rounded-control shadow-2xl overflow-y-auto"
+                <div className="absolute left-4 right-4 mt-1 z-40 rounded-float shadow-float overflow-y-auto"
                   style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)', maxHeight: 220 }}>
                   {dir.loading ? (
                     <div className="px-3 py-2 text-dense italic" style={{ color: 'var(--color-ink-3)' }}>
@@ -900,8 +901,9 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
         </>
       )}
     >
+        <div className="rb-picker">
         {/* Search */}
-        <div className="px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
+        <div className="rb-picker-search px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
           <input
             autoFocus
             type="text"
@@ -964,6 +966,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
           )}
         </div>
 
+        </div>
     </Dialog>
   )
 }
@@ -1019,7 +1022,10 @@ function MemberAvatar({ member, size = 28 }) {
       style={{
         width: size,
         height: size,
-        backgroundColor: 'var(--color-paper-raised)',
+        // paper with a hairline: the chip sits on the raised roster panel, where
+        // the raised paper it was mapped to drew no circle at all (B1 R1).
+        backgroundColor: 'var(--color-paper)',
+        border: '1px solid var(--color-rule)',
         color: 'var(--color-ink)',
       }}
     >
@@ -1131,7 +1137,7 @@ function TeamSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
         <BookmarkPlus className="w-3.5 h-3.5" />
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 z-40 rounded-control shadow-2xl overflow-hidden"
+        <div className="absolute right-0 mt-1 z-40 rounded-float shadow-float overflow-hidden"
           style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)', minWidth: 180, maxHeight: 240 }}>
           <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
             {views.length === 0 ? (

@@ -128,9 +128,12 @@ export default function ProjectContextBar({ presenceSlot = null, adapterSlot = n
     <Toolbar className="rb-ctx" right={right}>
       <Folder className="rb-ctx-icon" aria-hidden="true" />
       <span className="text-label uppercase rb-ctx-eyebrow">Project</span>
-      <span className="rb-ctx-title text-h3" data-empty={project ? undefined : 'true'}>
-        {project?.title || (activeProjectId ? 'Loading…' : 'No project selected')}
-      </span>
+      {/* Two elements, not one with a data attribute: `text-h3` carries its
+          600 weight from the utilities layer, which no component rule can
+          outrank (R1 finding 7), so the empty state takes the Body step. */}
+      {project
+        ? <span className="rb-ctx-title text-h3">{project.title || (activeProjectId ? 'Loading…' : 'No project selected')}</span>
+        : <span className="rb-ctx-title text-body" data-empty="true">{activeProjectId ? 'Loading…' : 'No project selected'}</span>}
       {status && <StatusBadge status={status} />}
     </Toolbar>
   )

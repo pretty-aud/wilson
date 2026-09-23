@@ -120,7 +120,7 @@ export default function IntakeProgress({
       {/* Error block */}
       {phase === 'error' && errorMsg && (
         <div
-          className="max-w-md text-dense leading-relaxed p-3 rounded-control text-center"
+          className="max-w-md text-dense p-3 rounded-control text-center"
           style={{ backgroundColor: 'var(--color-paper)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
         >
           {errorMsg}
@@ -133,8 +133,7 @@ export default function IntakeProgress({
           <button
             type="button"
             onClick={handleAbort}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control"
-            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)', backgroundColor: 'transparent' }}
+            className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
           >
             <X className="w-3 h-3" />
             Cancel
@@ -148,10 +147,9 @@ export default function IntakeProgress({
               startedRef.current = false
               onBack?.()
             }}
-            className="px-3 py-1.5 text-dense rounded-control"
-            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)', backgroundColor: 'transparent' }}
+            className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
           >
-            ← Back to settings
+            Back to settings
           </button>
         )}
       </div>

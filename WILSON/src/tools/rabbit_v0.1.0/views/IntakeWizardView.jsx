@@ -461,16 +461,10 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
           Nothing is saved until you confirm.
         </span>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
-            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>
-            Cancel
-          </button>
-          <button type="button" onClick={handleReviewAndConfirm} disabled={!canSubmit}
-            className="px-5 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-            style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-            Review & Create
-          </button>
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" onClick={handleReviewAndConfirm} disabled={!canSubmit}>
+            Review and create
+          </Button>
         </div>
       </div>
 
@@ -496,7 +490,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
           )}
         >
             <div>
-              <p className="text-dense leading-relaxed mb-4" style={{ color: 'var(--color-ink-2)' }}>
+              <p className="text-dense mb-4" style={{ color: 'var(--color-ink-2)' }}>
                 Please verify the details below are correct. This will create a new project in your workspace.
               </p>
               <div className="flex flex-col gap-3">
@@ -601,7 +595,7 @@ function StepIndicator({ step }) {
         return (
           <div key={s.id} className="flex items-center gap-2">
             <div
-              className="rb-step flex items-center gap-1.5 px-2 py-0.5 rounded-control"
+              className="rb-step flex items-center gap-1.5 px-2 py-0.5"
               data-state={active ? 'active' : done ? 'done' : 'future'}
             >
               <span className="text-dense tabular-nums">{i + 1}</span>
@@ -626,17 +620,13 @@ function NoProjectGate({ onNewProject }) {
     >
       <Folder className="w-10 h-10" style={{ color: 'var(--color-ink-3)' }} />
       <div
-        className="text-dense text-center max-w-md leading-relaxed"
+        className="text-dense text-center max-w-md"
         style={{ color: 'var(--color-ink-2)' }}
       >
         No project selected. Open the <span style={{ color: 'var(--color-ink)' }}>Summary</span> tab
         to pick an existing project, or create a new one below.
       </div>
-      <button type="button" onClick={onNewProject}
-        className="flex items-center gap-1.5 px-5 py-2 text-dense rounded-control transition-colors"
-        style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-        <Plus className="w-3.5 h-3.5" /> New project
-      </button>
+      <Button variant="primary" Icon={Plus} onClick={onNewProject}>New project</Button>
     </div>
   )
 }

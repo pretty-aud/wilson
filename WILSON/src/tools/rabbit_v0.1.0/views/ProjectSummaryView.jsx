@@ -240,8 +240,7 @@ export default function ProjectSummaryView() {
                 {allProjects.length} project{allProjects.length !== 1 ? 's' : ''}
               </span>
               <button type="button" onClick={handleNewProject} disabled={creating}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-50"
-                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
+                className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
                 <Plus className="w-3.5 h-3.5" />
                 {creating ? 'Creating…' : 'New project'}
               </button>
@@ -357,7 +356,7 @@ export default function ProjectSummaryView() {
                 {project.title}
               </h1>
               {project.description && (
-                <p className="text-dense mt-1.5 leading-relaxed" style={{ color: 'var(--color-ink-2)' }}>
+                <p className="text-dense mt-1.5" style={{ color: 'var(--color-ink-2)' }}>
                   {project.description}
                 </p>
               )}
@@ -478,7 +477,7 @@ export default function ProjectSummaryView() {
           const allProjFiles = [...(ctx?.files || []), ...(ctx?.managedFiles || [])]
           if (allProjFiles.length === 0) return null
           return (
-            <Card title="Project Files" icon={FileText}>
+            <Card title="Project files" icon={FileText}>
               <ProjectFilesTable files={withDisplaySize(allProjFiles)} readOnly maxHeight={220} />
             </Card>
           )
@@ -672,7 +671,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
             {project.title || 'Untitled Project'}
           </h2>
           {project.description && (
-            <p className="text-dense mt-1.5 leading-relaxed" style={{ color: 'var(--color-ink-2)' }}>
+            <p className="text-dense mt-1.5" style={{ color: 'var(--color-ink-2)' }}>
               {project.description}
             </p>
           )}
@@ -755,7 +754,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
 
         {/* LEFT: Budget — money is manager-only (Audrey, 2026-08-04) */}
         {canSeeMoney && (
-        <SettingsSection title="Budget Variables" icon={DollarSign}>
+        <SettingsSection title="Budget variables" icon={DollarSign}>
           <div className="grid grid-cols-2 gap-3">
             <SettingsField label="Currency">
               <SettingsSelect value={project.budget_currency || 'USD'} options={CURRENCY_OPTIONS} onChange={v => update('budget_currency', v)} />
@@ -855,7 +854,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
                 </span>
               </div>
 
-              <div style={{ height: 1, backgroundColor: 'var(--color-paper-raised)', margin: '4px 0' }} />
+              <div style={{ height: 1, backgroundColor: 'var(--color-rule)', margin: '4px 0' }} />
 
               <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-3)' }}>Timing</span>
               <div className="grid grid-cols-2 gap-3">
@@ -944,7 +943,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
           </div>
           {project.experiences_enabled && (
             <div className="p-4">
-              <p className="text-dense leading-relaxed" style={{ color: 'var(--color-ink-2)' }}>
+              <p className="text-dense" style={{ color: 'var(--color-ink-2)' }}>
                 For physical activations, events, immersive experiences, etc.
               </p>
             </div>
@@ -1031,7 +1030,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
   const allFiles = [...(files || []), ...(managedFiles || [])]
 
   return (
-    <SettingsSection title="Files & Storage" icon={FolderOpen}>
+    <SettingsSection title="Files & storage" icon={FolderOpen}>
       {/* ── Folder ── */}
       <SettingsField label="Project folder">
         <div className="flex items-center gap-2">
@@ -1111,7 +1110,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
       </div>
 
       {uploadError && (
-        <p className="text-dense leading-relaxed" style={{ color: 'var(--color-danger)' }}>
+        <p className="text-dense" style={{ color: 'var(--color-danger)' }}>
           {uploadError}
         </p>
       )}
@@ -1127,8 +1126,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
             {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
           </span>
           <button type="button" onClick={() => setRelinkOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-control text-dense transition-[filter] hover:brightness-125 flex-shrink-0"
-            style={{ backgroundColor: 'var(--color-signal-fill)', color: 'var(--color-on-fill)', border: '1px solid var(--color-signal-fill)' }}>
+            className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
             <FolderSearch className="w-3 h-3" /> Relink…
           </button>
         </div>
@@ -1277,7 +1275,7 @@ function ProjectMiniCard({ project, active, onClick }) {
       </div>
       {project.description && (
         <p
-          className="text-dense leading-relaxed line-clamp-2"
+          className="text-dense line-clamp-2"
           style={{ color: 'var(--color-ink-2)' }}
         >
           {project.description}
