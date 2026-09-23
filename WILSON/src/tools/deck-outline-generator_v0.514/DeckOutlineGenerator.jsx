@@ -4358,8 +4358,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <>
                     <span className="dog-toolbar-divider" aria-hidden="true" />
                     <IconButton size="sm" Icon={Bold} onClick={handleToggleBold} title="Bold" />
-                    <IconButton size="sm" Icon={List} onClick={handleToggleBullet} title="Toggle Bullet List" />
-                    <IconButton size="sm" Icon={ListOrdered} onClick={handleToggleNumbered} title="Toggle Numbered List" />
+                    <IconButton size="sm" Icon={List} onClick={handleToggleBullet} title="Toggle bullet list" />
+                    <IconButton size="sm" Icon={ListOrdered} onClick={handleToggleNumbered} title="Toggle numbered list" />
                   </>
                 )}
               </Toolbar>
@@ -4556,11 +4556,11 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <p className="dog-settings-foot-note">
               Changes are applied immediately. Use "Reset to default" to restore original settings.
             </p>
-            <IconButton size="sm" Icon={HelpCircle} title="Help & Documentation" onClick={() => setShowHelpModal(true)} />
+            <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           </div>
         )}
       >
-            {/* Tabs — the kit's Tabs (review D21: a stone-700 fill and a
+            {/* Tabs — the kit's Tabs (review D21: a dark grey fill and a
                 2px orange underline with a -4px overlap). */}
             <Tabs
               items={[{ id: 'prompts', label: 'System prompts' }, { id: 'format', label: 'Output format' }]}

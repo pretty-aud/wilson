@@ -250,7 +250,7 @@ ${contentBody}
       className="dog-history-dialog"
     >
       {/* Export / Import — the kit's Tabs (review D21: the active mode was a
-          white-on-orange-500 fill, C6). */}
+          white-on-orange fill, C6). */}
       <Tabs
         items={[{ id: 'export', label: 'Export' }, { id: 'import', label: 'Import' }]}
         value={mode}

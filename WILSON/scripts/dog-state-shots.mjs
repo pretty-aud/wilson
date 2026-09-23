@@ -187,7 +187,7 @@ await shot('25-settings-hover-reset');
 await page.getByRole('tab', { name: 'Output Format' }).or(page.getByRole('button', { name: 'Output Format' })).click();
 await park();
 await shot('26-settings-format-tab');
-await clickTitle('Help & Documentation');
+await clickTitle('Help & documentation');
 await park();
 await shot('27-help');
 const helpItems = page.locator('nav button');
