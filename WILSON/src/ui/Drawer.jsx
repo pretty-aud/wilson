@@ -54,6 +54,12 @@ export function Drawer({
     if (!open || !onClose) return undefined
     const onKey = (e) => {
       if (e.key !== 'Escape') return
+      // A layer above already answered it — a Dialog marks the Escape it
+      // owns — so this one does not close on the same key press. 🚨 This is
+      // the check that works: the DOM check below cannot see a Dialog that
+      // has already closed, and in a browser it has, by the time a `window`
+      // listener runs (A2 review round 1).
+      if (e.defaultPrevented) return
       // Never over a Dialog: a modal owns Escape while it is open (the kit's
       // overlay stack is what decides that), and a drawer behind one must not
       // steal the key from it.

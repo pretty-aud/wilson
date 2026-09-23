@@ -37,6 +37,11 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
   const vh = typeof window !== 'undefined' ? window.innerHeight : 900
   const left = Math.max(0, Math.min(x, vw - minWidth - 12))
   const maxHeight = Math.max(160, vh - y - 12)
+  // 🚨 The top follows the height. Below ~172px from the bottom edge the
+  // menu keeps its 160px floor, so it has to start higher to end inside the
+  // window; it used to keep the pointer's y and run off the bottom with its
+  // last items out of reach (A2 review round 1, measured at 1440x900).
+  const top = Math.max(0, Math.min(y, vh - maxHeight - 12))
 
   // No `role="menu"` / `menuitem` yet: those roles promise arrow-key roving
   // focus and a suppressed Tab, which this menu does not implement (the Bins
@@ -47,7 +52,7 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
       ref={ref}
       className={`ui-menu ${className}`.trim()}
       data-surface="dark"
-      style={{ left, top: Math.min(y, vh - 60), minWidth, maxHeight }}
+      style={{ left, top, minWidth, maxHeight }}
       onContextMenu={(e) => e.preventDefault()}
       {...rest}
     >

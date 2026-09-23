@@ -121,18 +121,23 @@ export function Dialog({
 
     const key = (e) => {
       if (!isTopModal(id)) return
-      // K4 (lane B2): a kit Menu open INSIDE this dialog closes on the same
-      // Escape in its capture-phase listener, and this bubble-phase one used
-      // to close the dialog behind it as well — one key, two layers gone (the
-      // template editor's dependency picker). The Menu marks its Escape
-      // handled (preventDefault) and a handled Escape is not this dialog's.
-      // 🚨 The open-menu COUNT alone is not enough, and the first cut used it
-      // alone: in a browser React commits the menu's close — and its effect
-      // cleanup that lowers the count — in a microtask that runs BETWEEN the
-      // two document listeners, so by the time this one ran the count was
-      // already 0. jsdom runs no microtask there, so the unit test passed on
-      // an inert guard; the running app is what caught it.
-      if (e.key === 'Escape') { if (e.defaultPrevented || menuOpen()) return; tryCloseRef.current(); return }
+      // Two rules meet here, and both need the event's handled mark, because
+      // React commits a close in a microtask that runs BETWEEN two document
+      // listeners — whatever a listener could ask the DOM is already gone.
+      //  · K4 (lane B2): a kit Menu open INSIDE this dialog closes on this
+      //    same Escape in its capture-phase listener and marks it handled; a
+      //    handled Escape is not this dialog's (the template editor's
+      //    dependency picker: one key closed the picker and the editor). The
+      //    open-menu count stays as a second reason; alone it was inert in a
+      //    browser, and jsdom, which runs no microtask there, passed it.
+      //  · A2: Escape is this dialog's while it is on top, whether or not it
+      //    closes (busy, or a guard refused): it marks it handled, so a layer
+      //    under it — a Drawer listening on `window` — stands down (A2 review
+      //    round 1, measured: one Escape closed Help and Settings together).
+      if (e.key === 'Escape') {
+        if (e.defaultPrevented || menuOpen()) return
+        e.preventDefault(); tryCloseRef.current(); return
+      }
       if (e.key !== 'Tab' || !node) return
 
       // ── The trap ──

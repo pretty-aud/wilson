@@ -125,7 +125,7 @@ const REGISTRY = [
 
   // D.O.G.
   P('dog-history', '/dog', { steps: ['Import/export history'], expect: { dialog: true } }),
-  P('dog-settings', '/dog', { steps: ['Tool settings'], expect: { dialog: 'System Prompts' } }),
+  P('dog-settings', '/dog', { steps: ['Tool settings'], expect: { dialog: 'System prompts' } }),
 
   // O.T.T.E.R. — the reading surface and the views behind the tool's own bar.
   P('otter-lesson', '/otter', { steps: ['@lesson'], expect: { selector: '.lesson-content' } }),

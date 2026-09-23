@@ -269,10 +269,11 @@ ${contentBody}
 
             {/* Project Name */}
             <div className="dog-history-group">
-              <label className="ui-field-label dog-history-label" htmlFor="dog-history-name">Project Name</label>
+              <label className="ui-field-label dog-history-label" id="dog-history-name-label">Project Name</label>
               <div className="dog-history-name">
                 <input
                   id="dog-history-name"
+                  aria-labelledby="dog-history-name-label"
                   type="text"
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
@@ -325,9 +326,9 @@ ${contentBody}
             {/* Checkboxes Section — above button */}
             <div className="dog-history-group dog-history-rule dog-history-checks">
               {checkRow(includeVisExport, () => setIncludeVisExport(!includeVisExport), 'Include theme colors & deck visual description')}
-              {checkRow(enableImgPromptExport, () => setEnableImgPromptExport(!enableImgPromptExport), 'Generate Image Prompts')}
+              {checkRow(enableImgPromptExport, () => setEnableImgPromptExport(!enableImgPromptExport), 'Generate image prompts')}
               {/* Export Visual Assets Checkbox — only visible when placement is active */}
-              {hasPlacedAssets && checkRow(includeVisAssets, () => setIncludeVisAssets(!includeVisAssets), 'Export Placed Visual Assets')}
+              {hasPlacedAssets && checkRow(includeVisAssets, () => setIncludeVisAssets(!includeVisAssets), 'Export placed visual assets')}
             </div>
 
             {/* Model Dropdown — visible only when image prompts enabled. It
@@ -335,10 +336,11 @@ ${contentBody}
                 belongs to the checkbox above by proximity now. */}
             {enableImgPromptExport && (
               <div className="dog-history-model">
-                <label className="ui-field-label dog-history-label" htmlFor="dog-history-model">Image Generation Model</label>
+                <label className="ui-field-label dog-history-label" id="dog-history-model-label">Image Generation Model</label>
                 <div className="dog-history-select">
                   <Select
                     id="dog-history-model"
+                    aria-labelledby="dog-history-model-label"
                     value={imgPromptModel}
                     onChange={setImgPromptModel}
                     options={[
@@ -359,12 +361,17 @@ ${contentBody}
             <p className="dog-history-lede">
               Import a DECKOUTLINE markdown file to restore history.
             </p>
-            {/* The file picker wears the kit's secondary Button contract on
-                its <label>, as A1's upload control does. */}
-            <label className="ui-btn dog-history-upload" data-variant="secondary" data-size="md" data-surface="dark">
+            {/* The file picker is the kit's secondary Button, as New
+                project's are (review D30). It was a <label> round a hidden
+                input, which the keyboard could not reach. */}
+            <Button
+              variant="secondary"
+              className="dog-history-upload"
+              onClick={() => document.getElementById('dog-history-file-input')?.click()}
+            >
               Choose DECKOUTLINE.md file
-              <input type="file" className="hidden" accept=".md,.txt" onChange={handleFileUpload} />
-            </label>
+            </Button>
+            <input id="dog-history-file-input" type="file" className="hidden" accept=".md,.txt" onChange={handleFileUpload} />
             <textarea
               value={importText}
               onChange={(e) => setImportText(e.target.value)}

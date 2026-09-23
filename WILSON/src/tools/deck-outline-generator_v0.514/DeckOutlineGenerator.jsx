@@ -2058,7 +2058,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     formal: 'Formal',
     extend: 'Extend',
     shorten: 'Shorten',
-    editor: 'Editor Pass',
+    editor: 'Editor pass',
   };
 
   // Handle right-click on textarea
@@ -2875,6 +2875,11 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     const handler = (e) => {
       // Only handle arrow keys
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      // A control that already used the key keeps it: the kit's Tabs (History,
+      // Settings) move focus on Left / Right and mark the key handled, and
+      // this handler used to switch the page behind the dialog as well
+      // (A2 review round 1).
+      if (e.defaultPrevented) return;
       // Don't handle if no tabs are open
       if (openTabs.length === 0) return;
       // Don't handle if user is typing in an input, textarea, or contenteditable
@@ -4558,7 +4563,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             {/* Tabs — the kit's Tabs (review D21: a stone-700 fill and a
                 2px orange underline with a -4px overlap). */}
             <Tabs
-              items={[{ id: 'prompts', label: 'System Prompts' }, { id: 'format', label: 'Output Format' }]}
+              items={[{ id: 'prompts', label: 'System prompts' }, { id: 'format', label: 'Output format' }]}
               value={settingsTab}
               onChange={setSettingsTab}
               label="Settings sections"
@@ -5040,9 +5045,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           <div className="dog-np-body">
             {/* Title */}
             <div>
-              <label className="ui-field-label dog-np-label" htmlFor="dog-np-title">Project Title</label>
+              <label className="ui-field-label dog-np-label" id="dog-np-title-label">Project Title</label>
               <input
                 id="dog-np-title"
+                aria-labelledby="dog-np-title-label"
                 type="text"
                 value={newProjectTitle}
                 onChange={(e) => setNewProjectTitle(e.target.value)}
@@ -5054,9 +5060,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {/* Description */}
             <div>
-              <label className="ui-field-label dog-np-label" htmlFor="dog-np-description">Description</label>
+              <label className="ui-field-label dog-np-label" id="dog-np-description-label">Description</label>
               <textarea
                 id="dog-np-description"
+                aria-labelledby="dog-np-description-label"
                 value={newProjectDescription}
                 onChange={(e) => setNewProjectDescription(e.target.value)}
                 placeholder="Brief description of the project..."
@@ -5068,9 +5075,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             {/* Dates */}
             <div className="dog-np-dates">
               <div>
-                <label className="ui-field-label dog-np-label" htmlFor="dog-np-start">Start Date</label>
+                <label className="ui-field-label dog-np-label" id="dog-np-start-label">Start Date</label>
                 <input
                   id="dog-np-start"
+                  aria-labelledby="dog-np-start-label"
                   type="date"
                   value={newProjectStartDate}
                   onChange={(e) => setNewProjectStartDate(e.target.value)}
@@ -5078,9 +5086,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 />
               </div>
               <div>
-                <label className="ui-field-label dog-np-label" htmlFor="dog-np-end">End Date</label>
+                <label className="ui-field-label dog-np-label" id="dog-np-end-label">End Date</label>
                 <input
                   id="dog-np-end"
+                  aria-labelledby="dog-np-end-label"
                   type="date"
                   value={newProjectEndDate}
                   onChange={(e) => setNewProjectEndDate(e.target.value)}
