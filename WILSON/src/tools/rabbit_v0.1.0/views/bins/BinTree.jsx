@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, ChevronDown, Plus, FolderOpen, Layers, Unplug } from 'lucide-react'
-import { C, ColorDot } from './binUi'
+import { C, ColorDot, IconBtn } from './binUi'
 import { buildBinTree, flattenTree } from '../../bins/binSelectors'
 import { COLOR_HEX } from '../../bins/binMedia'
 
@@ -53,10 +53,7 @@ export default function BinTree({
     <div className="flex flex-col flex-shrink-0 h-full select-none" style={{ width, borderRight: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="flex items-center justify-between px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
         <span className="text-label uppercase" style={{ color: C.dim }}>Bins</span>
-        <button type="button" title="New bin" disabled={!canWrite} onClick={() => onCreateBin?.(null)}
-          className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30" style={{ color: C.accentText, border: `1px solid ${C.line}` }}>
-          <Plus className="w-3 h-3" />
-        </button>
+        <IconBtn Icon={Plus} title="New bin" disabled={!canWrite} onClick={() => onCreateBin?.(null)} />
       </div>
       <div className="flex-1 overflow-y-auto py-1">
         <TreeRow
@@ -142,8 +139,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
           onClick={e => e.stopPropagation()}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onRename(draft.trim() || bin.name) } if (e.key === 'Escape') { e.preventDefault(); onRenameCancel() } }}
           onBlur={() => onRename(draft.trim() || bin.name)}
-          className="flex-1 min-w-0 px-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
+          className="ui-input flex-1" data-size="sm" aria-label="Bin name" />
       ) : (
         <span className="flex-1 truncate" title={bin.description || bin.name}>{bin.name || 'Untitled'}</span>
       )}

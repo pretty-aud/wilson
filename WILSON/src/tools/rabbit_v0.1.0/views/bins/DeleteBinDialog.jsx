@@ -28,7 +28,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
       : `Delete bin and remove ${n} file${n === 1 ? '' : 's'}`
 
   return (
-    <Modal title={`Delete "${bin.name}"`} onClose={onCancel} width={520} busy={busy} error={error}
+    <Modal title={`Delete "${bin.name}"`} onClose={onCancel} width="form" busy={busy} error={error}
       subtitle={childBins.length ? `Includes ${childBins.length} nested bin${childBins.length === 1 ? '' : 's'}: ${childBins.map(b => b.name).join(', ')}` : null}
       footer={<>
         <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>

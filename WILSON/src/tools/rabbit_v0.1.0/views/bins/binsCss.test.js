@@ -96,8 +96,10 @@ const jsxClasses = () => {
   return s
 }
 // `data-bin-grid` is behaviour (the keyboard handler reads the grid's real
-// tracks from it), not state; nothing in the stylesheet keys on it.
-const BEHAVIOUR_ATTRS = new Set(['bin-grid'])
+// tracks from it), not state; nothing in the stylesheet keys on it. And
+// `data-size` is the KIT's (`.ui-input[data-size="sm"]` in index.css), written
+// on the native search and rename fields that borrow the kit's input class.
+const BEHAVIOUR_ATTRS = new Set(['bin-grid', 'size'])
 const cssAttrs = () => new Set([...code.matchAll(/\[data-([a-z-]+)/g)].map(m => m[1]))
 const jsxAttrs = () => {
   const s = new Set()

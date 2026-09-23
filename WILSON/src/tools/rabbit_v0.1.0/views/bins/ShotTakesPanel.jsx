@@ -136,7 +136,7 @@ export default function ShotTakesPanel({
 export function ShotTakesDialog({ shot, scene, onClose, children, ...panelProps }) {
   const title = `Takes — ${shot?.name || 'Untitled shot'}`
   return (
-    <Modal title={title} subtitle={scene ? `${scene.name || 'Untitled scene'} · shot #${shot?.shot_number ?? '—'}` : `shot #${shot?.shot_number ?? '—'}`} onClose={onClose} width={720}
+    <Modal title={title} subtitle={scene ? `${scene.name || 'Untitled scene'} · shot #${shot?.shot_number ?? '—'}` : `shot #${shot?.shot_number ?? '—'}`} onClose={onClose} width="reading"
       footer={<Btn onClick={onClose}>Close</Btn>}>
       <ShotTakesPanel shot={shot} {...panelProps} />
       {children}

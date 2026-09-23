@@ -74,7 +74,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
   const applyCount = match ? match.proposals.length + Object.values(choices).filter(Boolean).length : 0
 
   return (
-    <Modal title="Relink offline files" onClose={onClose} width={720} busy={phase === 'applying'}
+    <Modal title="Relink offline files" onClose={onClose} width="reading" busy={phase === 'applying'}
       subtitle={`${offlineRows.length} file${offlineRows.length === 1 ? '' : 's'} cannot be found at ${offlineRows.length === 1 ? 'its' : 'their'} recorded path`}
       footer={<>
         {error && <span className="text-dense mr-auto flex items-center gap-1.5" style={{ color: '#fca5a5' }}><AlertTriangle className="w-3 h-3" /> {error}</span>}

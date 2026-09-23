@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Layers, FolderTree, Check } from 'lucide-react'
-import { C, Btn, Modal, Select, TextInput, MediaTag, Toggle, Spinner } from './binUi'
+import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Spinner } from './binUi'
 import { MEDIA_TYPES, MEDIA_TYPE_META, formatBytes } from '../../bins/binMedia'
 
 function suggestionText(s) {
@@ -72,7 +72,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   }
 
   return (
-    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width={860} busy={busy} error={error}
+    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width="workbench" busy={busy} error={error}
       subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
         {busy && progress && <span className="flex items-center gap-2 text-dense mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
@@ -86,25 +86,25 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
       )}
 
       <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Scene (all)</span>
-          <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Shoot day (all)</span>
-          <TextInput type="date" value={batch.shoot_day} onChange={v => setBatch(b => ({ ...b, shoot_day: v }))} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Camera (all)</span>
-          <TextInput value={batch.camera} onChange={v => setBatch(b => ({ ...b, camera: v.toUpperCase() }))} placeholder="A" maxLength={4} /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Roll (all)</span>
-          <TextInput value={batch.roll} onChange={v => setBatch(b => ({ ...b, roll: v.toUpperCase() }))} placeholder="A001" /></label>
-        <label className="flex flex-col gap-1"><span className="text-label uppercase" style={{ color: C.dim }}>Tags (all)</span>
-          <TextInput value={batch.tags} onChange={v => setBatch(b => ({ ...b, tags: v }))} placeholder="hero, b-roll" /></label>
+        <Field label="Scene (all)">
+          <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></Field>
+        <Field label="Shoot day (all)">
+          <TextInput type="date" value={batch.shoot_day} onChange={v => setBatch(b => ({ ...b, shoot_day: v }))} /></Field>
+        <Field label="Camera (all)">
+          <TextInput value={batch.camera} onChange={v => setBatch(b => ({ ...b, camera: v.toUpperCase() }))} placeholder="A" maxLength={4} /></Field>
+        <Field label="Roll (all)">
+          <TextInput value={batch.roll} onChange={v => setBatch(b => ({ ...b, roll: v.toUpperCase() }))} placeholder="A001" /></Field>
+        <Field label="Tags (all)">
+          <TextInput value={batch.tags} onChange={v => setBatch(b => ({ ...b, tags: v }))} placeholder="hero, b-roll" /></Field>
       </div>
       <div className="flex items-center gap-4 mb-2 flex-wrap">
         {anySub && <Toggle checked={createSubBins} onChange={setCreateSubBins} label="Folders become nested bins" />}
-        <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }}
-          onClick={() => setItems(list => list.map(it => ({ ...it, include: it.status === 'ok' })))}>Tick all</button>
-        <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }}
-          onClick={() => setItems(list => list.map(it => ({ ...it, include: false })))}>Untick all</button>
-        <button type="button" className="text-dense hover:text-stone-200" style={{ color: C.dim }}
-          onClick={() => setItems(list => list.map(it => ({ ...it, apply: !!it.suggestions && it.apply === false })))}>Toggle suggestions</button>
+        <Btn variant="ghost" small
+          onClick={() => setItems(list => list.map(it => ({ ...it, include: it.status === 'ok' })))}>Tick all</Btn>
+        <Btn variant="ghost" small
+          onClick={() => setItems(list => list.map(it => ({ ...it, include: false })))}>Untick all</Btn>
+        <Btn variant="ghost" small
+          onClick={() => setItems(list => list.map(it => ({ ...it, apply: !!it.suggestions && it.apply === false })))}>Toggle suggestions</Btn>
       </div>
 
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>

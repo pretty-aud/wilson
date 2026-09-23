@@ -265,7 +265,6 @@ const KNOWN = {
     { key: 'rabbit-asset-new', text: '"Table"' },
     { key: 'rabbit-assets', text: '"New asset"' },
     { key: 'rabbit-assets', text: '"Table"' },
-    { key: 'rabbit-bins', text: '"Add"' },
     { key: 'rabbit-intake', text: '"1"' },
     { key: 'rabbit-intake', text: '"Creative Producer"' },
     { key: 'rabbit-intake', text: '"Executive Producer"' },

@@ -56,7 +56,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
   const totalShots = groups.reduce((n, g) => n + g.shots.length, 0)
 
   return (
-    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width={720} busy={busy} error={error}
+    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width="reading" busy={busy} error={error}
       subtitle={`${totalShots} shot${totalShots === 1 ? '' : 's'} across ${groups.filter(g => g.scene).length} scene${groups.filter(g => g.scene).length === 1 ? '' : 's'}${hiddenOmitted ? ` · ${hiddenOmitted} omitted shot${hiddenOmitted === 1 ? '' : 's'} hidden` : ''}`}
       footer={<>
         <Select value={role} className="!w-auto" options={[{ value: 'auto', label: 'Automatic — primary if the shot has none, else alt' }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
@@ -80,10 +80,9 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
         <div className="relative flex-1">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
           <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shots by name, number, scene or framing…"
-            className="w-full pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
+            className="ui-input pl-6 pr-6" data-size="sm" aria-label="Search shots"
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
-          {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
+          {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
         </div>
         <span className="text-dense" style={{ color: C.dimmer }}>tick several to use these takes in more than one shot · a shot's first take is always its primary</span>
       </div>
