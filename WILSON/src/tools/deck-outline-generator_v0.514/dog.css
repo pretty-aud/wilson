@@ -593,9 +593,13 @@
         (review D5: a sixth floating surface with its own orange edge and
         shadow). The box, its z-order and the anchor arithmetic in the JSX
         (420 wide, 310 tall, clamped with 428 / 320) are unchanged. ─────── */
+  /* z 40: over the preview's own layers (LayoutVisualizer's highest is 10),
+     UNDER every overlay — the Drawer (59/60), a Dialog (70), a Menu (80).
+     At 80 it sat over Help and its buttons stayed live over a modal (A2
+     review round 1); before A2, Help was z-100 and covered it. */
   .dog-rewrite {
     position: absolute;
-    z-index: 80;
+    z-index: 40;
     display: flex;
     flex-direction: column;
     width: 420px;
@@ -664,6 +668,11 @@
         Export folder, the options, the model; the mode's one action moved
         to the Dialog's footer. */
   .dog-history-modes { margin: -8px 0 16px; border-bottom: 1px solid var(--color-rule); }
+  /* Each mode takes half the strip, as each button did: a click anywhere in
+     the strip still switches (C1; the kit's tabs are content-wide, which
+     left three quarters of it dead — A2 review round 1). */
+  .ui-tabs.dog-history-modes > .ui-tab,
+  .ui-tabs.dog-settings-tabs > .ui-tab { flex: 1 1 0; justify-content: center; }
   .dog-history-panel > * + * { margin-top: 16px; }
   .dog-history-lede {
     font-size: var(--text-body);
@@ -950,7 +959,6 @@
   .ui-tabs.dog-settings-tabs {
     flex-shrink: 0;
     flex-wrap: nowrap;
-    padding: 0 12px;
     border-bottom: 1px solid var(--color-rule);
   }
   .dog-settings-body { flex: 1; min-height: 0; overflow-y: auto; }
@@ -1056,6 +1064,10 @@
      live (they still open and close) and their labels step down to ink-3,
      as they stepped from orange to stone-500 before. */
   .dog-settings-body[data-locked='true'] .dog-acc-label { color: var(--color-ink-3); }
+  /* …and so do the model picker's own label and note (Settings' ModelPicker,
+     `settings.css`; the old opacity dimmed them with everything else — A2
+     review round 1). Scoped to this panel; the picker's own sheet is D1's. */
+  .dog-settings-body[data-locked='true'] :is(.s-mp-label, .s-mp-note) { color: var(--color-ink-3); }
   @media (prefers-reduced-motion: reduce) {
     .dog-acc-head,
     .dog-acc-chevron { transition: none; }
