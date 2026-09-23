@@ -21,12 +21,39 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   cssCode, jsCode, unreachableAttributeValues, weakAgainstKit, utilityConflicts, inlineStateTernaries,
+  signalGrounds, indexCss,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
 
 const sheet = read('rabbitTasks.css')
+
+// The restyle's end state (B2 stage 2): every value a token. The sheet joined
+// scripts/ui-audit.mjs's stylesheet list in the commit that took its last hex
+// out, as B1's did.
+describe('rabbitTasks.css writes no colour of its own, and paints no orange ground', () => {
+  const code = cssCode(sheet)
+  it('no hex literal anywhere in the rules (@theme is the only place a hex is written)', () => {
+    expect(code.match(/#[0-9a-fA-F]{3,8}\b/g) || []).toEqual([])
+  })
+  it('no rgb()/rgba() literal either — the alpha tokens are in @theme too', () => {
+    expect(code.match(/\brgba?\(/g) || []).toEqual([])
+  })
+  it('every custom property it reads is defined in index.css, or is its own (--rb-*, set by the JSX)', () => {
+    const read = [...new Set([...code.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
+    expect(read.filter((p) => !p.startsWith('--rb-') && !new RegExp(`${p}\\s*:`).test(cssCode(indexCss)))).toEqual([])
+  })
+  it('C6: no rule paints a signal or signal-fill ground (the tint is allowed; the kit Button owns the one fill)', () => {
+    expect(signalGrounds(sheet)).toEqual([])
+  })
+  it('CONTROL: the colour guards fire on the spellings the stage-1 sheet used', () => {
+    expect('.a { color: #fb923c; }'.match(/#[0-9a-fA-F]{3,8}\b/g)).not.toBeNull()
+    expect(cssCode('.a { background-color: rgba(234, 88, 12, 0.08); }').match(/\brgba?\(/g)).not.toBeNull()
+    expect(signalGrounds('.rb-tpl-edit[data-active="true"] { background-color: var(--color-signal); }')).toHaveLength(1)
+    expect(signalGrounds('.rb-tpl-check[data-checked="true"] { background-color: var(--color-signal-tint); }')).toEqual([])
+  })
+})
 
 /** B2's four files, relative to this directory. */
 const FILES = {

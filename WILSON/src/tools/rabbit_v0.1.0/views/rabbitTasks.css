@@ -516,11 +516,6 @@
     color: var(--color-ink-3);
   }
 
-  /* A value's ink: full when set, grey when empty (the template manager's
-     role and dependencies, until its restyle). */
-  .rb-task-cell-value { color: #d6d3d1; }
-  .rb-task-cell-value[data-empty="true"] { color: #57534e; }
-
   /* ═══ NewTaskPopup ═══════════════════════════════════════════════════════
      The kit's Dialog at the form width (560); its fields share the popup's
      .rb-task-prop / .rb-task-prop-grid / .rb-task-status-select rules. The
@@ -671,30 +666,63 @@
   .rb-task-section-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-dense); font-weight: 600; }
   .rb-task-section-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
 
-  /* ═══ TaskTemplateManager (stage 1) ═══════════════════════════════════════
+  /* ═══ TaskTemplateManager ═════════════════════════════════════════════════
      (components/TaskTemplates/; opened from Settings > Storage and from the
-     Timeline's settings panel.) Its task cells use `.rb-task-cell-value`. */
-  /* The template being edited is tinted. The row's `hover:bg-stone-800/40`
-     lost to its inline fill in both states and never painted. */
-  .rb-tpl-row[data-editing="true"] { background-color: rgba(234, 88, 12, 0.08); }
-  .rb-tpl-edit { color: #fb923c; background-color: transparent; }
-  .rb-tpl-edit[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
-  /* Read-only buttons were `disabled={readOnly}` with an inline cursor from
-     the same flag: `:disabled` is that condition. */
-  .rb-tpl-desc { color: #d6d3d1; cursor: pointer; }
-  .rb-tpl-desc[data-empty="true"] { color: #78716c; }
-  .rb-tpl-desc:disabled { cursor: default; }
-  .rb-tpl-editable { color: #e7e5e4; cursor: pointer; }
-  .rb-tpl-editable[data-empty="true"] { color: #57534e; }
-  .rb-tpl-editable:disabled { cursor: default; }
-  /* A template's task row, and its delete button's reveal. */
-  .rb-tpl-task-row { background-color: transparent; transition: background-color 150ms ease; }
-  .rb-tpl-task-row:hover { background-color: rgba(41, 37, 36, 0.5); }
-  .rb-tpl-reveal { opacity: 0; pointer-events: none; transition: opacity 150ms ease; }
-  .rb-tpl-task-row:hover .rb-tpl-reveal { opacity: 1; pointer-events: auto; }
-  /* The dependency picker's options and the two hand-drawn checkboxes. */
-  .rb-tpl-dep { color: #d6d3d1; }
-  .rb-tpl-dep[data-checked="true"] { color: #fb923c; }
-  .rb-tpl-check { background-color: transparent; border: 1px solid #44403c; }
-  .rb-tpl-check[data-checked="true"] { background-color: #ea580c; border-color: #ea580c; }
+     Timeline's settings panel.) The manager is the kit's Dialog at the
+     workbench width, the editor stacks over it at the reading width, the
+     confirm over both; the two tables are the kit's Table and reuse the Tasks
+     table's cell editors (.rb-task-cell-text / -select / -editor, and the
+     .rb-task-row hover with its hover-only carets). */
+  .rb-tpl-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .rb-tpl-actions { display: flex; justify-content: flex-end; }
+  /* Cells whose editor pads itself 6px: text lands under the header's 12px.
+     (0,4,0) against the kit's (0,1,0) / dense (0,3,0). */
+  .rb-tpl-body .ui-table .ui-td.rb-tpl-cell { padding-left: 6px; padding-right: 6px; }
+  .rb-tpl-body .ui-table.rb-tpl-task-table .ui-td { padding-top: 2px; padding-bottom: 2px; }
+  /* Days: the number spinner's reserved 15px, as on the Tasks table's Bid.
+     Third column; the kit's `numeric` prop sets its attribute out of the
+     scanner's sight. */
+  .rb-tpl-body .ui-table.rb-tpl-task-table .ui-th:nth-child(3) { padding-right: 27px; }
+  .rb-tpl-desc-cell { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-2); }
+  .rb-tpl-desc-cell[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-tpl-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; }
+  .rb-tpl-name { font-weight: 600; }
+  .rb-task-cell-text:disabled { cursor: default; }
+
+  /* Scope, and the dependency picker's options: one hand-drawn box, checked
+     as the kit's one active treatment (tint + signal edge, no fill under a
+     glyph — the ✓ was white on the signal, and a character Geist does not draw). */
+  .rb-tpl-scope { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-tpl-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+  .rb-tpl-check > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-tpl-check[data-checked="true"] { background-color: var(--color-signal-tint); border-color: var(--color-signal); }
+  .rb-tpl-check:disabled { cursor: default; }
+  .rb-tpl-deps { display: flex; align-items: center; gap: 4px; }
+  .rb-tpl-deps-label { display: inline-flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-tpl-deps-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-tpl-deps-none { padding: 0 6px; }
+
+  .rb-tpl-tasks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rb-tpl-tasks-title { color: var(--color-ink-3); }
+  .rb-tpl-total {
+    margin-right: auto;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-tpl-total-figure { font-weight: 600; color: var(--color-ink); }
 }

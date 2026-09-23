@@ -184,6 +184,9 @@ export const CSS_FILES = [
   // B6, 2026-09-23 — Bins' extracted state and its restyle, on the tokens.
   // Added deliberately, like the two above; it scores 0 on every row.
   'src/tools/rabbit_v0.1.0/views/bins/bins.css',
+  // B2, 2026-09-23 — Tasks, the task popups and the template manager. Added
+  // in the commit that took its last hex out, as B1's was.
+  'src/tools/rabbit_v0.1.0/views/rabbitTasks.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting

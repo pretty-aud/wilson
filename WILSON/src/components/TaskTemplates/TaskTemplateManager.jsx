@@ -2,7 +2,9 @@
 // TaskTemplateManager — popup for managing task templates
 // ============================================================
 //
-// Opened from the Settings > RABBIT tab. Shows all workspace
+// Opened from Settings > Storage (the old RABBIT tab) and from the Timeline's
+// settings panel. All three of its overlays are the kit's Dialog (B2), the
+// editor stacked over the manager and the confirm over both. Shows all workspace
 // task templates in a table, with CRUD operations. Each template
 // can be expanded to edit its tasks (name, role, days, deps).
 //
@@ -16,13 +18,16 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import {
-  X, Plus, Trash2, ChevronDown, ChevronRight, GripVertical,
+  Plus, Trash2, ChevronDown, Check,
   Copy, AlertCircle, Link2,
 } from 'lucide-react'
 import { useTaskTemplates } from './useTaskTemplates'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canWriteTaskTemplate } from '../../permissions/projectRoleMatrix'
+import {
+  Dialog, Button, IconButton, Table, Th, Td, Row, Banner, Loading, EmptyState, HoverActions, Menu,
+} from '../../ui'
 import '../../tools/rabbit_v0.1.0/views/rabbitTasks.css'
 
 const DEFAULT_ROLES = [
@@ -123,174 +128,116 @@ export default function TaskTemplateManager({ onClose }) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.65)' }} onClick={onClose} />
-      {/* Modal */}
-      <div
-        className="fixed z-[60] top-1/2 left-1/2 w-full max-w-5xl rounded-control overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#292524',
-          border: '2px solid #f97316',
-          maxHeight: '85vh',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        }}
-        onClick={e => e.stopPropagation()}
+      <Dialog
+        width="workbench"
+        title="Task templates"
+        subtitle={`${tt.templates.length} template${tt.templates.length === 1 ? '' : 's'}`}
+        // The backdrop closed it before, and still does; Escape too (Q17).
+        dismissOnBackdrop
+        onClose={onClose}
+        footer={(
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        )}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
-          <div className="flex items-center gap-2">
-            <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
-              Task Templates
-            </span>
-            <span className="text-dense font-mono px-1.5 py-0.5 rounded-control" style={{ color: '#a8a29e', backgroundColor: '#1c1917' }}>
-              {tt.templates.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {canCreate && (
-              <button type="button" onClick={handleCreate}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+        <div className="rb-tpl-body">
+          {canCreate && (
+            <div className="rb-tpl-actions">
+              <Button size="sm" Icon={Plus} onClick={handleCreate}
                 title={newTemplateProjectId
                   ? 'Creates a template pinned to the project you have open'
                   : 'Creates a template available to every project'}>
-                <Plus className="w-3.5 h-3.5" />
-                {newTemplateProjectId ? 'New Project Template' : 'New Template'}
-              </button>
-            )}
-            <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+                {newTemplateProjectId ? 'New project template' : 'New template'}
+              </Button>
+            </div>
+          )}
 
-        {/* Session 28: say why, rather than nothing. An RLS refusal used to
-            reach the screen as a row appearing and disappearing — the hook has
-            always set `error` and nothing has ever rendered it. */}
-        {tt.error && (
-          <div className="px-5 py-2 flex items-start gap-2" style={{ backgroundColor: 'rgba(220, 38, 38, 0.12)', borderBottom: '1px solid #7f1d1d' }}>
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" style={{ color: '#fca5a5' }} />
-            <span className="text-dense" style={{ color: '#fca5a5' }}>{tt.error}</span>
-          </div>
-        )}
-        {!canCreate && (
-          <div className="px-5 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #292524' }}>
-            <span className="text-dense" style={{ color: '#78716c' }}>
+          {/* Session 28: say why, rather than nothing. An RLS refusal used to
+              reach the screen as a row appearing and disappearing — the hook has
+              always set `error` and nothing has ever rendered it. */}
+          {tt.error && (
+            <Banner tone="danger" Icon={AlertCircle}>{tt.error}</Banner>
+          )}
+          {!canCreate && (
+            <Banner tone="info">
               Read-only. Task templates are managed by workspace admins and managers,
               or by a project manager for their own project&rsquo;s templates.
-            </span>
-          </div>
-        )}
+            </Banner>
+          )}
 
-        {/* Body */}
-        <div className="flex-1 overflow-auto">
           {tt.loading ? (
-            <div className="flex items-center justify-center py-12">
-              <span className="text-caption" style={{ color: '#78716c' }}>Loading...</span>
-            </div>
+            <Loading label="Loading templates" />
           ) : tt.templates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-2">
-              <span className="text-dense" style={{ color: '#78716c' }}>No templates yet</span>
-              <span className="text-caption" style={{ color: '#57534e' }}>
-                Create a template to define reusable task sets for assets
-              </span>
-            </div>
+            <EmptyState
+              title="No templates yet"
+              body="Create a template to define reusable task sets for assets"
+            />
           ) : (
-            <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-              <thead>
-                <tr style={{ backgroundColor: '#1c1917' }}>
-                  <Th style={{ width: '30%' }}>Name</Th>
-                  <Th style={{ width: '15%' }}>Scope</Th>
-                  <Th style={{ width: '10%', textAlign: 'center' }}>Tasks</Th>
-                  <Th style={{ width: '12%', textAlign: 'center' }}>Total Days</Th>
-                  <Th style={{ width: '18%' }}>Description</Th>
-                  <Th style={{ width: '15%', textAlign: 'right' }}>Actions</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {tt.templates.map(tmpl => {
-                  const stats = tt.getTemplateStats(tmpl)
-                  const isEditing = editingId === tmpl.id
-                  const rowWritable = canWriteRow(tmpl)
-                  return (
-                    <tr key={tmpl.id}
-                      style={{ borderBottom: '1px solid #292524' }}
-                      className="rb-tpl-row transition-colors"
-                      data-editing={isEditing ? 'true' : 'false'}>
-                      <Td>
-                        <TemplateName template={tmpl} readOnly={!rowWritable}
-                          onUpdate={(name) => tt.updateTemplate(tmpl.id, { name })} />
-                      </Td>
-                      <Td>
-                        <TemplateScope
-                          template={tmpl}
-                          projects={projects}
-                          readOnly={!rowWritable}
-                          onUpdate={(patch) => tt.updateTemplate(tmpl.id, patch)}
-                        />
-                      </Td>
-                      <Td style={{ textAlign: 'center' }}>
-                        <span className="text-dense font-mono tabular-nums" style={{ color: '#d6d3d1' }}>
-                          {stats.taskCount}
-                        </span>
-                      </Td>
-                      <Td style={{ textAlign: 'center' }}>
-                        <span className="text-dense font-mono tabular-nums font-semibold" style={{ color: '#f4a261' }}>
-                          {stats.totalDays}d
-                        </span>
-                      </Td>
-                      <Td>
-                        <span className="text-dense truncate block" style={{ color: '#a8a29e', maxWidth: 180 }}
-                          title={tmpl.description || ''}>
-                          {tmpl.description || '\u2014'}
-                        </span>
-                      </Td>
-                      <Td style={{ textAlign: 'right' }}>
-                        <div className="flex items-center justify-end gap-1">
-                          <button type="button" onClick={() => setEditingId(isEditing ? null : tmpl.id)}
-                            className="rb-tpl-edit px-2 py-1 text-dense rounded-control transition-colors"
-                            data-active={isEditing ? 'true' : 'false'}
-                            style={{ border: '1px solid #44403c' }}>
-                            {isEditing ? 'Close' : (rowWritable ? 'Edit' : 'View')}
-                          </button>
-                          {/* Duplicate WRITES a new template, so it needs the
-                              create right, not the row's — a member could
-                              otherwise duplicate a template they may not
-                              create. */}
-                          {canCreate && (
-                            <button type="button" onClick={() => handleDuplicate(tmpl)}
-                              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}
-                              title="Duplicate template">
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {rowWritable && (
-                            <button type="button" onClick={() => setConfirmDelete(tmpl.id)}
-                              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
-                              title="Delete template">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </Td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <Table
+              head={(
+                <Row>
+                  <Th width="30%">Name</Th>
+                  <Th width="15%">Scope</Th>
+                  <Th width="10%" numeric>Tasks</Th>
+                  <Th width="12%" numeric>Total days</Th>
+                  <Th width="18%">Description</Th>
+                  <Th width="15%" align="right">Actions</Th>
+                </Row>
+              )}
+            >
+              {tt.templates.map(tmpl => {
+                const stats = tt.getTemplateStats(tmpl)
+                const isEditing = editingId === tmpl.id
+                const rowWritable = canWriteRow(tmpl)
+                return (
+                  // The template being edited is the table's one selection
+                  // (the kit's tint and signal edge; it was a tint alone).
+                  <Row key={tmpl.id} selected={isEditing}>
+                    <Td className="rb-tpl-cell">
+                      <TemplateName template={tmpl} readOnly={!rowWritable}
+                        onUpdate={(name) => tt.updateTemplate(tmpl.id, { name })} />
+                    </Td>
+                    <Td className="rb-tpl-cell">
+                      <TemplateScope
+                        template={tmpl}
+                        projects={projects}
+                        readOnly={!rowWritable}
+                        onUpdate={(patch) => tt.updateTemplate(tmpl.id, patch)}
+                      />
+                    </Td>
+                    <Td numeric>{stats.taskCount}</Td>
+                    <Td numeric>{stats.totalDays}d</Td>
+                    <Td>
+                      <span className="rb-tpl-desc-cell" data-empty={tmpl.description ? 'false' : 'true'}
+                        title={tmpl.description || ''}>
+                        {tmpl.description || '—'}
+                      </span>
+                    </Td>
+                    <Td align="right">
+                      <span className="rb-tpl-row-actions">
+                        <Button size="sm" onClick={() => setEditingId(isEditing ? null : tmpl.id)}>
+                          {isEditing ? 'Close' : (rowWritable ? 'Edit' : 'View')}
+                        </Button>
+                        {/* Duplicate WRITES a new template, so it needs the
+                            create right, not the row's — a member could
+                            otherwise duplicate a template they may not
+                            create. */}
+                        {canCreate && (
+                          <IconButton size="sm" Icon={Copy} title="Duplicate template" onClick={() => handleDuplicate(tmpl)} />
+                        )}
+                        {rowWritable && (
+                          <IconButton size="sm" Icon={Trash2} danger title="Delete template" onClick={() => setConfirmDelete(tmpl.id)} />
+                        )}
+                      </span>
+                    </Td>
+                  </Row>
+                )
+              })}
+            </Table>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            Done
-          </button>
-        </div>
-      </div>
+      </Dialog>
 
       {/* Template editor overlay */}
       {editingTemplate && (
@@ -314,8 +261,8 @@ export default function TaskTemplateManager({ onClose }) {
 }
 
 
-// ────────────────────���─────────────────���──────────────
-// TEMPLATE EDITOR (slide-in panel)
+// ─────────────────────────────────────────────────────
+// TEMPLATE EDITOR
 // ─────────────────────────────────────────────────────
 function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
   const [descDraft, setDescDraft] = useState(template.description || '')
@@ -365,57 +312,54 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
   }, [localTasks])
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-[70]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      {/* Panel */}
-      <div
-        className="fixed z-[70] top-1/2 left-1/2 w-full max-w-3xl rounded-control overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#1c1917',
-          border: '2px solid #fb923c',
-          maxHeight: '80vh',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
-          <div className="flex items-center gap-2">
-            <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
-              {readOnly ? 'View Template' : 'Edit Template'}
+    <Dialog
+      width="reading"
+      title={readOnly ? 'View template' : 'Edit template'}
+      subtitle={template.name}
+      // It sat over the manager on its own backdrop, which closed it; the
+      // kit's stack does the same, and Escape closes this one first (Q17).
+      dismissOnBackdrop
+      onClose={onClose}
+      footer={(
+        <>
+          <span className="rb-tpl-total">
+            {/* 600, not `bold`: the faces are declared 400 600, so `bold`
+                clamped to 600 anyway. */}
+            Total: <span className="rb-tpl-total-figure">
+              {localTasks.reduce((sum, t) => sum + (t.bid_days || 0), 0)}d
             </span>
-            <span className="text-dense" style={{ color: '#a8a29e' }}>
-              {template.name}
-            </span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
+          </span>
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        </>
+      )}
+    >
+      <div className="rb-tpl-body">
         {/* Description */}
-        <div className="px-5 py-3" style={{ borderBottom: '1px solid #292524' }}>
-          <div className="text-label uppercase mb-1" style={{ color: '#78716c' }}>Description</div>
+        <div className="rb-task-textfield">
+          <span className="rb-task-textfield-label text-label uppercase">Description</span>
           {editingDesc && !readOnly ? (
             <textarea
               autoFocus
               value={descDraft}
+              aria-label="Description"
               onChange={e => setDescDraft(e.target.value)}
               onBlur={() => {
                 setEditingDesc(false)
                 if (descDraft !== (template.description || '')) onUpdate({ description: descDraft })
               }}
-              onKeyDown={e => { if (e.key === 'Escape') { setDescDraft(template.description || ''); setEditingDesc(false) } }}
+              // W2: Escape reverts the edit first; the dialog closes on the
+              // second press, so the first must not reach it.
+              onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setDescDraft(template.description || ''); setEditingDesc(false) } }}
               rows={2}
-              className="w-full px-2 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
+              className="ui-input rb-task-textarea"
             />
           ) : (
             <button type="button" disabled={readOnly}
               onClick={() => { setDescDraft(template.description || ''); setEditingDesc(true) }}
-              className="rb-tpl-desc text-dense text-left w-full hover:bg-stone-800 px-2 py-1 rounded-control min-h-[28px]"
+              className="rb-task-textblock"
+              data-size="sm"
               data-empty={template.description ? 'false' : 'true'}>
               {template.description || (readOnly ? '—' : 'Click to add description...')}
             </button>
@@ -423,81 +367,61 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
         </div>
 
         {/* Tasks table */}
-        <div className="flex-1 overflow-auto px-5 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-label font-mono uppercase" style={{ color: '#fb923c' }}>
-              Tasks ({localTasks.length})
-            </span>
-            {!readOnly && (
-              <button type="button" onClick={handleAddTask}
-                className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-                <Plus className="w-3 h-3" /> Add Task
-              </button>
-            )}
-          </div>
-
-          {localTasks.length === 0 ? (
-            <div className="text-dense italic py-6 text-center" style={{ color: '#78716c' }}>
-              {readOnly
-                ? 'This template has no tasks.'
-                : 'No tasks in this template. Add one to get started.'}
-            </div>
-          ) : (
-            <div>
-              {/* Header */}
-              <div className="flex gap-1 px-1 py-1.5" style={{ borderBottom: '2px solid #44403c' }}>
-                <div className="text-label uppercase font-semibold" style={{ color: '#a8a29e', flex: 3 }}>Task Name</div>
-                <div className="text-label uppercase font-semibold" style={{ color: '#a8a29e', flex: 1.5 }}>Role</div>
-                <div className="text-label uppercase font-semibold text-center" style={{ color: '#a8a29e', flex: 0.8 }}>Days</div>
-                <div className="text-label uppercase font-semibold" style={{ color: '#a8a29e', flex: 2 }}>Depends On</div>
-                <div style={{ width: 28 }} />
-              </div>
-
-              {/* Rows */}
-              {localTasks.map((task, idx) => (
-                <TemplateTaskRow
-                  key={task.id}
-                  task={task}
-                  allTasks={localTasks}
-                  taskById={taskById}
-                  readOnly={readOnly}
-                  onUpdate={(patch) => handleUpdateTask(task.id, patch)}
-                  onDelete={() => handleDeleteTask(task.id)}
-                />
-              ))}
-            </div>
+        <div className="rb-tpl-tasks-head">
+          <span className="rb-tpl-tasks-title text-label uppercase">
+            Tasks ({localTasks.length})
+          </span>
+          {!readOnly && (
+            <Button size="sm" Icon={Plus} onClick={handleAddTask}>
+              Add task
+            </Button>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
-            {/* 600, not `bold`. The faces are declared `font-weight: 400 600`
-                (index.css @font-face), so `bold` asks for 700 and CLAMPS to
-                600 — it has always rendered as 600 while the source claimed a
-                weight the system does not have. Zero visual change. */}
-            Total: <span style={{ color: '#f4a261', fontWeight: 600 }}>
-              {localTasks.reduce((sum, t) => sum + (t.bid_days || 0), 0)}d
-            </span>
-          </span>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            Done
-          </button>
-        </div>
+        {localTasks.length === 0 ? (
+          <EmptyState
+            compact
+            title={readOnly
+              ? 'This template has no tasks.'
+              : 'No tasks in this template. Add one to get started.'}
+          />
+        ) : (
+          <Table
+            dense
+            className="rb-tpl-task-table"
+            head={(
+              <Row>
+                <Th width="38%">Task name</Th>
+                <Th width="22%">Role</Th>
+                <Th width="10%" numeric>Days</Th>
+                <Th width="24%">Depends on</Th>
+                <Th width="6%"><span className="sr-only">Delete</span></Th>
+              </Row>
+            )}
+          >
+            {localTasks.map((task) => (
+              <TemplateTaskRow
+                key={task.id}
+                task={task}
+                allTasks={localTasks}
+                taskById={taskById}
+                readOnly={readOnly}
+                onUpdate={(patch) => handleUpdateTask(task.id, patch)}
+                onDelete={() => handleDeleteTask(task.id)}
+              />
+            ))}
+          </Table>
+        )}
       </div>
-    </>
+    </Dialog>
   )
 }
 
 
-// ───────────────��───────────────────────────��─────────
+// ─────────────────────────────────────────────────────
 // TEMPLATE TASK ROW
 // ─────────────────────────────────────────────────────
 function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnly = false }) {
-
   // Dependency selector
   const availableDeps = allTasks.filter(t => t.id !== task.id)
   const currentDeps = task.depends_on || []
@@ -509,50 +433,51 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
     onUpdate({ depends_on: next })
   }
 
+  // The Tasks table's row class: its hover fill and its hover-only carets.
   return (
-    <div className="rb-tpl-task-row flex gap-1 px-1 items-center"
-      style={{ borderBottom: '1px solid #292524', minHeight: 36 }}>
-
+    <Row className="rb-task-row">
       {/* Name */}
-      <div style={{ flex: 3 }}>
+      <Td className="rb-tpl-cell">
         <EditableText
           value={task.name || ''}
           placeholder="Task name..."
           readOnly={readOnly}
           onCommit={(name) => onUpdate({ name })}
         />
-      </div>
+      </Td>
 
       {/* Role */}
-      <div style={{ flex: 1.5 }}>
-        <select
-          value={task.role_slug || ''}
-          disabled={readOnly}
-          onChange={e => onUpdate({ role_slug: e.target.value || '' })}
-          className="rb-task-cell-value w-full px-1 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
-          data-empty={task.role_slug ? 'false' : 'true'}
-          style={{ backgroundColor: 'transparent', border: '1px solid transparent' }}>
-          <option value="">--</option>
-          {DEFAULT_ROLES.map(r => <option key={r} value={r}>{fmt(r)}</option>)}
-        </select>
-      </div>
+      <Td className="rb-tpl-cell">
+        <span className="rb-task-cell-editor">
+          <select
+            value={task.role_slug || ''}
+            disabled={readOnly}
+            aria-label="Role"
+            onChange={e => onUpdate({ role_slug: e.target.value || '' })}
+            className="rb-task-cell-select"
+            data-empty={task.role_slug ? 'false' : 'true'}>
+            <option value="">--</option>
+            {DEFAULT_ROLES.map(r => <option key={r} value={r}>{fmt(r)}</option>)}
+          </select>
+        </span>
+      </Td>
 
       {/* Days */}
-      <div style={{ flex: 0.8, textAlign: 'center' }}>
+      <Td numeric className="rb-tpl-cell">
         <input
           type="number"
           min={0}
           step={0.5}
           value={task.bid_days ?? ''}
           disabled={readOnly}
+          aria-label="Days"
           onChange={e => onUpdate({ bid_days: parseFloat(e.target.value) || 0 })}
-          className="w-full px-1 py-0.5 text-dense text-center rounded-control focus:ring-2 focus:ring-orange-500"
-          style={{ backgroundColor: 'transparent', color: '#f4a261', border: '1px solid transparent' }}
+          className="rb-task-cell-select rb-task-cell-number"
         />
-      </div>
+      </Td>
 
       {/* Dependencies */}
-      <div style={{ flex: 2 }}>
+      <Td className="rb-tpl-cell">
         <DependencyPicker
           currentDeps={currentDeps}
           availableDeps={availableDeps}
@@ -560,83 +485,80 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
           readOnly={readOnly}
           onToggle={toggleDep}
         />
-      </div>
+      </Td>
 
       {/* Delete */}
-      <div style={{ width: 28 }}>
+      <Td align="right" className="rb-tpl-cell">
         {!readOnly && (
-          <button type="button" onClick={onDelete}
-            className="rb-tpl-reveal p-1 rounded-control hover:bg-stone-700 transition-colors"
-            style={{ color: '#fca5a5' }}>
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          <HoverActions>
+            <IconButton size="sm" Icon={Trash2} danger title="Delete this task" onClick={onDelete} />
+          </HoverActions>
         )}
-      </div>
-    </div>
+      </Td>
+    </Row>
   )
 }
 
 
-// ────────────────��────────────────────────────────────
-// DEPENDENCY PICKER — multi-select dropdown
 // ─────────────────────────────────────────────────────
+// DEPENDENCY PICKER — multi-select, on the kit's Menu
+// ─────────────────────────────────────────────────────
+// The list is the kit's Menu (fixed to the trigger, so a table cell cannot
+// clip it; each option stays open for the next tick, as before). A click
+// outside closes it, as before; Escape now does too, and only it (K4).
 function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, readOnly = false }) {
-  const [open, setOpen] = useState(false)
+  const [at, setAt] = useState(null)
 
   if (availableDeps.length === 0) {
-    return <span className="text-caption font-mono italic" style={{ color: '#57534e' }}>--</span>
+    return <span className="rb-task-none rb-tpl-deps-none">--</span>
   }
 
   return (
-    <div className="relative">
-      <button type="button" disabled={readOnly} onClick={() => setOpen(!open)}
-        className="rb-task-cell-value flex items-center gap-1 w-full px-1 py-0.5 text-dense rounded-control hover:bg-stone-700/40 transition-colors text-left"
-        data-empty={currentDeps.length ? 'false' : 'true'}
-        style={{ border: '1px solid transparent' }}>
+    <>
+      <button type="button" disabled={readOnly}
+        aria-expanded={!!at}
+        onClick={e => {
+          const r = e.currentTarget.getBoundingClientRect()
+          setAt(at ? null : { x: r.left, y: r.bottom + 4 })
+        }}
+        className="rb-task-cell-text rb-tpl-deps"
+        data-empty={currentDeps.length ? 'false' : 'true'}>
         {currentDeps.length === 0 ? (
-          <span className="flex items-center gap-1">
-            <Link2 className="w-3 h-3" style={{ color: '#57534e' }} />
+          <span className="rb-tpl-deps-label">
+            <Link2 className="rb-tpl-deps-icon" aria-hidden="true" />
             None
           </span>
         ) : (
-          <span className="truncate">
+          <span className="rb-tpl-deps-label">
             {currentDeps.map(id => taskById[id]?.name || 'Unknown').join(', ')}
           </span>
         )}
-        <ChevronDown className="w-3 h-3 ml-auto flex-shrink-0" style={{ color: '#78716c' }} />
+        <ChevronDown className="rb-tpl-deps-icon" aria-hidden="true" />
       </button>
 
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 top-full left-0 mt-1 py-1 rounded-control shadow-lg min-w-[200px] max-h-[180px] overflow-auto"
-            style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
-            {availableDeps.map(dep => {
-              const checked = currentDeps.includes(dep.id)
-              return (
-                <button key={dep.id} type="button"
-                  onClick={() => onToggle(dep.id)}
-                  className="rb-tpl-dep w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-stone-700/50 transition-colors"
-                  data-checked={checked ? 'true' : 'false'}>
-                  <span className="rb-tpl-check w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
-                    data-checked={checked ? 'true' : 'false'}>
-                    {checked && <span className="text-dense text-white font-semibold">{'\u2713'}</span>}
-                  </span>
-                  <span className="text-dense truncate">
-                    {dep.name || 'Untitled'}
-                  </span>
-                  {dep.bid_days > 0 && (
-                    <span className="text-caption font-mono tabular-nums ml-auto flex-shrink-0" style={{ color: '#78716c' }}>
-                      {dep.bid_days}d
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </>
+      {at && (
+        <Menu
+          x={at.x}
+          y={at.y}
+          minWidth={200}
+          onClose={() => setAt(null)}
+          items={availableDeps.map(dep => {
+            const checked = currentDeps.includes(dep.id)
+            return {
+              label: dep.name || 'Untitled',
+              leading: (
+                <span className="rb-tpl-check" data-checked={checked ? 'true' : 'false'} aria-hidden="true">
+                  {checked && <Check />}
+                </span>
+              ),
+              hint: dep.bid_days > 0 ? `${dep.bid_days}d` : undefined,
+              keepOpen: true,
+              onClick: () => onToggle(dep.id),
+            }
+          })}
+        />
       )}
-    </div>
+    </>
   )
 }
 
@@ -648,33 +570,36 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
   const isProjectSpecific = !!template.project_id
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="rb-tpl-scope">
       <button type="button" disabled={readOnly}
         onClick={() => onUpdate({ project_id: isProjectSpecific ? null : (projects[0]?.id || null) })}
-        className="rb-tpl-check w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
+        className="rb-tpl-check"
         data-checked={isProjectSpecific ? 'true' : 'false'}
+        aria-pressed={isProjectSpecific}
         title={isProjectSpecific ? 'Project-specific' : 'Global (all projects)'}>
-        {isProjectSpecific && <span className="text-dense text-white font-semibold">{'\u2713'}</span>}
+        {isProjectSpecific && <Check aria-hidden="true" />}
       </button>
       {isProjectSpecific ? (
-        <select
-          value={template.project_id || ''}
-          disabled={readOnly}
-          onChange={e => onUpdate({ project_id: e.target.value || null })}
-          className="px-1 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-          style={{ backgroundColor: 'transparent', color: '#d6d3d1', border: '1px solid transparent', maxWidth: 120 }}>
-          <option value="">--</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
-        </select>
+        <span className="rb-task-cell-editor">
+          <select
+            value={template.project_id || ''}
+            disabled={readOnly}
+            aria-label="Project"
+            onChange={e => onUpdate({ project_id: e.target.value || null })}
+            className="rb-task-cell-select">
+            <option value="">--</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
+          </select>
+        </span>
       ) : (
-        <span className="text-dense" style={{ color: '#78716c' }}>Global</span>
+        <span className="rb-task-none">Global</span>
       )}
     </div>
   )
 }
 
 
-// ──────────────��───────────────────────────────��──────
+// ─────────────────────────────────────────────────────
 // TEMPLATE NAME (inline edit)
 // ─────────────────────────────────────────────────────
 function TemplateName({ template, onUpdate, readOnly = false }) {
@@ -691,18 +616,19 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
   if (editing && !readOnly) {
     return (
       <input autoFocus value={draft}
+        aria-label="Template name"
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(template.name); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-dense font-semibold rounded-control focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.stopPropagation(); setDraft(template.name); setEditing(false) } }}
+        className="ui-input rb-task-cell-input rb-tpl-name"
+        data-size="sm"
       />
     )
   }
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(template.name || ''); setEditing(true) }}
-      className="rb-tpl-editable text-dense font-semibold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
+      className="rb-task-cell-text rb-tpl-name"
       data-empty="false">
       {template.name || 'Untitled'}
     </button>
@@ -710,7 +636,7 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
 }
 
 
-// ───────────────────────────────────────────────���─────
+// ─────────────────────────────────────────────────────
 // EDITABLE TEXT (generic inline editor)
 // ─────────────────────────────────────────────────────
 function EditableText({ value, placeholder, onCommit, readOnly = false }) {
@@ -724,82 +650,49 @@ function EditableText({ value, placeholder, onCommit, readOnly = false }) {
   if (editing && !readOnly) {
     return (
       <input autoFocus value={draft}
+        aria-label={placeholder || 'Name'}
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.stopPropagation(); setDraft(value); setEditing(false) } }}
+        className="ui-input rb-task-cell-input"
+        data-size="sm"
       />
     )
   }
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(value); setEditing(true) }}
-      className="rb-tpl-editable text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
+      className="rb-task-cell-text"
       data-empty={value ? 'false' : 'true'}>
-      {value || (readOnly ? '\u2014' : placeholder || '\u2014')}
+      {value || (readOnly ? '—' : placeholder || '—')}
     </button>
   )
 }
 
 
 // ─────────────────────────────────────────────────────
-// CONFIRM DELETE DIALOG
+// CONFIRM DELETE DIALOG — the kit's Dialog (W9)
 // ─────────────────────────────────────────────────────
 function ConfirmDeleteDialog({ onConfirm, onCancel }) {
   return (
-    <>
-      <div className="fixed inset-0 z-[80]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onCancel} />
-      <div className="fixed z-[80] top-1/2 left-1/2 w-full max-w-sm rounded-control overflow-hidden"
-        style={{
-          backgroundColor: '#292524',
-          border: '2px solid #ef4444',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
-        }}
-        onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertCircle className="w-4 h-4" style={{ color: '#fca5a5' }} />
-            <span className="text-dense font-semibold" style={{ color: '#fca5a5' }}>Delete Template?</span>
-          </div>
-          <p className="text-dense" style={{ color: '#a8a29e' }}>
-            This action cannot be undone. The template and all its tasks will be permanently removed.
-          </p>
-        </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button" onClick={onCancel}
-            className="px-3 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+    <Dialog
+      width="confirm"
+      title="Delete template?"
+      // Its backdrop cancelled it before, and still does.
+      dismissOnBackdrop
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button autoFocus onClick={onCancel}>
             Cancel
-          </button>
-          <button type="button" onClick={onConfirm}
-            className="px-3 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#fff', backgroundColor: '#dc2626', border: '1px solid #b91c1c' }}>
+          </Button>
+          <Button variant="danger" onClick={onConfirm}>
             Delete
-          </button>
-        </div>
-      </div>
-    </>
-  )
-}
-
-
-// ─────────────────────────────────────────────────────
-// TABLE ATOMS
-// ───────────────────────────────────────────────���─────
-function Th({ children, style: extra }) {
-  return (
-    <th className="px-3 py-2.5 text-label uppercase font-semibold text-left"
-      style={{ color: '#a8a29e', borderBottom: '2px solid #44403c', ...extra }}>
-      {children}
-    </th>
-  )
-}
-function Td({ children, style: extra }) {
-  return (
-    <td className="px-3 py-2 align-middle" style={extra}>
-      {children}
-    </td>
+          </Button>
+        </>
+      )}
+    >
+      This action cannot be undone. The template and all its tasks will be permanently removed.
+    </Dialog>
   )
 }
