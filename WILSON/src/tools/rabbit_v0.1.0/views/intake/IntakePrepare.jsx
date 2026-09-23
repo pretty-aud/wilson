@@ -180,8 +180,7 @@ export default function IntakePrepare({
               style={{
                 width: '100%', display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 12,
-                padding: '48px 24px', borderRadius: 6, cursor: 'pointer',
-                transition: 'all 0.15s ease',
+                padding: '48px 24px', borderRadius: 'var(--radius-control)', cursor: 'pointer',
               }}>
               <Upload size={30} className="rb-dropzone-icon" style={{ strokeWidth: 1.5 }} />
               {/* 🚨 A CONTROL IS A CONTROL EVEN WHEN ITS COPY IS IN A CHILD.
@@ -227,8 +226,8 @@ export default function IntakePrepare({
               style={{
                 width: '100%', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', gap: 8,
-                padding: '10px 16px', borderRadius: 4, cursor: 'pointer',
-                marginBottom: 16, transition: 'all 0.15s ease',
+                padding: '10px 16px', borderRadius: 'var(--radius-control)', cursor: 'pointer',
+                marginBottom: 16,
               }}>
               <Upload size={14} style={{ color: 'var(--color-ink-3)' }} />
               <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
@@ -292,7 +291,7 @@ export default function IntakePrepare({
             ) : (
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                padding: '28px 16px', borderRadius: 5, border: '1px solid var(--color-rule)',
+                padding: '28px 16px', borderRadius: 'var(--radius-control)', border: '1px solid var(--color-rule)',
               }}>
                 <FileText size={22} style={{ color: 'var(--color-ink-3)', marginBottom: 10 }} />
                 <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
@@ -362,8 +361,7 @@ export default function IntakePrepare({
                       data-state={disabled ? 'disabled' : checked ? 'on' : 'off'}
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: 10,
-                        padding: '11px 16px', borderRadius: 5,
-                        transition: 'all 0.15s ease',
+                        padding: '11px 16px', borderRadius: 'var(--radius-control)',
                       }}>
                       <input type="checkbox" checked={checked} disabled={disabled}
                         onChange={() => !disabled && toggleGen(item.key)}
@@ -389,7 +387,7 @@ export default function IntakePrepare({
 
           {/* ── Overwrite warning ────────────────────────────── */}
           {hasExistingData && (
-            <div style={{ marginTop: 28, padding: '16px 20px', borderRadius: 5, backgroundColor: 'var(--color-paper-raised)', borderLeft: '3px solid var(--color-signal)' }}>
+            <div style={{ marginTop: 28, padding: '16px 20px', borderRadius: 'var(--radius-control)', backgroundColor: 'var(--color-paper-raised)', borderLeft: '3px solid var(--color-signal)' }}>
               <div className="flex items-start gap-3">
                 <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--color-ink)' }} />
                 <div className="flex-1">

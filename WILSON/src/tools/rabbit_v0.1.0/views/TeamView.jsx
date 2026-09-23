@@ -315,7 +315,7 @@ export default function TeamView() {
       <tr key={r.id} className="rb-team-row transition-colors">
         <Td>
           <div className="flex items-center gap-2">
-            <MemberAvatar member={member} size={24} />
+            <MemberAvatar member={member} size={28} />
             <span className="text-dense" style={{ color: 'var(--color-ink)' }}>
               {member.name || 'Unnamed'}
             </span>
@@ -742,7 +742,7 @@ function ProjectMembersPanel({ ctx }) {
                         className="flex items-center gap-2.5 w-full px-3 py-2 text-left hover:bg-hover transition-colors"
                         style={{ borderBottom: '1px solid var(--color-rule)' }}
                       >
-                        <MemberAvatar member={{ name: m.display_name || m.username }} size={24} />
+                        <MemberAvatar member={{ name: m.display_name || m.username }} size={28} />
                         <div className="flex-1 min-w-0">
                           <div className="text-dense font-mono" style={{ color: 'var(--color-ink)' }}>
                             {m.display_name || m.username || 'Unnamed'}
@@ -1004,7 +1004,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
 }
 
 // ─── Member avatar (initials circle) ───
-function MemberAvatar({ member, size = 24 }) {
+function MemberAvatar({ member, size = 28 }) {
   const initials = (member?.name || '?')
     .split(/\s+/)
     .filter(Boolean)
@@ -1044,7 +1044,11 @@ function MemberAvatar({ member, size = 24 }) {
        cap line a 24px circle offers about 22.4px, and WW is 23.67 at Caption
        and 23.02 even at Label. The chip wants to be 28px, not the type to be
        smaller. Two of the four call sites already are 28 — `:805` and `:988`
-       — and it is `:324` and `:770` that pass 24. */
+       — and it is `:324` and `:770` that pass 24.
+
+       B1 (2026-09-23) took the call: every call site passes 28 and the
+       default is 28, so the Caption initials sit inside the circle at every
+       width T2 measured (WW 23.67 against about 26.4px of room at 28). */
     <div
       className="flex items-center justify-center rounded-full flex-shrink-0 text-caption font-semibold"
       style={{
@@ -1062,13 +1066,16 @@ function MemberAvatar({ member, size = 24 }) {
 // ─── Table atoms (dark theme) ───
 function Th({ children }) {
   return (
-    <th className="px-4 py-2.5 text-label uppercase text-left" style={{ color: 'var(--color-ink-3)', borderBottom: '1px solid var(--color-rule)' }}>
+    /* R06: the head is sticky, and with no ground of its own the rows
+       scrolled through its text. The raised paper is the kit Table's head
+       token; the cells take the kit's 8px 12px (§3.3). */
+    <th className="px-3 py-2 text-label uppercase text-left" style={{ color: 'var(--color-ink-3)', backgroundColor: 'var(--color-paper-raised)', borderBottom: '1px solid var(--color-rule)' }}>
       {children}
     </th>
   )
 }
 function Td({ children }) {
-  return <td className="px-4 py-2.5 align-middle">{children}</td>
+  return <td className="px-3 py-2 align-middle">{children}</td>
 }
 
 // ─── Filter panel ───

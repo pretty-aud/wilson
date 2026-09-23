@@ -479,7 +479,7 @@ export default function ProjectSummaryView() {
           if (allProjFiles.length === 0) return null
           return (
             <Card title="Project Files" icon={FileText}>
-              <ProjectFilesTable files={allProjFiles} readOnly maxHeight={220} />
+              <ProjectFilesTable files={withDisplaySize(allProjFiles)} readOnly maxHeight={220} />
             </Card>
           )
         })()}
@@ -1138,7 +1138,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         <EmptyState compact Icon={FileText} title="No files attached" />
       ) : (
         <ProjectFilesTable
-          files={allFiles}
+          files={withDisplaySize(allFiles)}
           onUpdate={(id, patch) => ctx?.patchFile?.(id, patch)}
           onDelete={(id) => handleDelete(allFiles.find(f => f.id === id))}
           onAudit={(f) => setAuditFile(f)}
@@ -1352,6 +1352,18 @@ function BudgetTile({ label, value, hint, tone = 'neutral' }) {
 // The kit's EmptyState (R21: one empty state on this surface).
 function Empty({ children }) {
   return <EmptyState compact Icon={FileText} title={children} />
+}
+
+// A cloud file row carries its size as `size_bytes`; ProjectFilesTable reads
+// `size`, the local shape — the same datum under another name, so SIZE showed
+// "—" for every cloud row (dev-fixtures hand-off, defect 11). This is the
+// display half, fixed at B1's two call sites. KIND stays "—" on purpose: the
+// column is the intake's `document_kind` (script, treatment…), and a cloud
+// row's `kind` (source / reference / other) is a different taxonomy, so
+// aliasing it would misstate the row. That half is a data gap, recorded for B4,
+// which owns the table.
+function withDisplaySize(rows) {
+  return rows.map(f => (f && f.size == null && f.size_bytes != null ? { ...f, size: f.size_bytes } : f))
 }
 
 function fmtMoney(n, currency) {

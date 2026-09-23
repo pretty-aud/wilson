@@ -1988,6 +1988,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     ['src/components/settings/settings.css', '.s-feedback'],
     ['src/components/Dashboard/dashboard.css', '.dash-note-row'],
     ['src/components/AdminTerminal/adminTerminal.css', '.at-decide-panel'],
+    // B1: the intake step strip's current step — the kit Tabs' own underline, on a strip that reads as tabs
+    ['src/tools/rabbit_v0.1.0/rabbitShell.css', '.rb-step'],
     // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
     ['src/index.css', '.lesson-content'],
     ['src/index.css', '.companion-chat-md'],
@@ -2092,7 +2094,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
     // Every assertion above is an empty-list check, and an empty list is what
     // a scan that opened nothing also returns. These are the denominators.
-    expect(CSS_FILES.length).toBe(5);
+    // 6 since B1 added rabbitShell.css (2026-09-23).
+    expect(CSS_FILES.length).toBe(6);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
     // anywhere fails here instead of passing everywhere.

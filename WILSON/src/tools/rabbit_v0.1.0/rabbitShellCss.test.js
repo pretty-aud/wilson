@@ -50,6 +50,24 @@ describe('rabbitShell.css declares the cascade layer order before it uses a laye
   })
 })
 
+/* ── the surface writes no colour of its own (C8) ─────────────────────────── */
+describe('rabbitShell.css writes no colour of its own', () => {
+  const src = cssCode(shellCss)
+  const indexCss = cssCode(readFileSync(join(here, '../../index.css'), 'utf8'))
+
+  it('no hex literal anywhere in the rules (@theme is the only place a hex is written)', () => {
+    expect(src.match(/#[0-9a-fA-F]{3,8}\b/g) || []).toEqual([])
+  })
+  it('no rgb()/rgba() literal either — the alpha tokens are in @theme too', () => {
+    expect(src.match(/\brgba?\(/g) || []).toEqual([])
+  })
+  it('every custom property it reads is defined in index.css', () => {
+    const read = [...new Set((src.match(/var\(\s*(--[a-z0-9-]+)/g) || []).map((v) => v.replace(/^var\(\s*/, '')))]
+    expect(read.length).toBeGreaterThan(10)
+    expect(read.filter((p) => !new RegExp(`${p}\\s*:`).test(indexCss))).toEqual([])
+  })
+})
+
 /* ── every rb- class is declared and used ─────────────────────────────────── */
 const declaredIn = (css) => new Set((cssCode(css).match(/\.rb-[a-z0-9-]+/g) || []).map((s) => s.slice(1)))
 const usedIn = (sources) => new Set(sources.flatMap((s) => jsCode(s).match(/(?<![\w.-])rb-[a-z0-9-]+/g) || []))

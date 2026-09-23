@@ -12,8 +12,16 @@
    `data-*` attribute resolved here, with the values TRANSCRIBED UNCHANGED.
    An inline style beats a class, so a restyle written next to a surviving
    inline style silently drops the state (plan §1; R.A.B.B.I.T. review R40).
-   The hexes below are the shipped values, kept so this commit changes no
-   pixel; the restyle that follows moves them onto `@theme` tokens.
+   That commit transcribed the shipped hexes so it changed no pixel.
+
+   THE RESTYLE (this file's current state): every value is an `@theme`
+   token — no hex, no rgba (rabbitShellCss.test.js, and ui-audit.mjs's
+   stylesheet list, which carries this file since B1). Every selected state
+   is the kit Row's one treatment: the signal tint plus a 2px inset signal
+   edge. The ink ladder B1 applied to these files' inline styles:
+   #d6d3d1 and the near-whites → ink; #a8a29e → ink-2; #78716c, #57534e
+   → ink-3; #292524 → paper-raised; the stone borders → rule; orange as a
+   text or icon accent → ink; an orange fill → signal-fill with white.
 
    Dead branches found on the way, and what happened to them:
    - Rabbit.jsx's settings and help buttons declared `hover:bg-stone-700`
@@ -152,14 +160,14 @@
   /* ═══ Intake: Prepare ═════════════════════════════════════════════════ */
   /* the two drop zones: one hairline (dashed), the signal only while a file
      is being dragged over — that is the one live state on this screen */
-  .rb-dropzone { background-color: transparent; border: 1px dashed var(--color-rule); }
+  .rb-dropzone { background-color: transparent; border: 1px dashed var(--color-rule); transition: background-color var(--duration-state) ease-out, border-color var(--duration-state) ease-out; }
   .rb-dropzone[data-dragging="true"] { background-color: var(--color-signal-tint); border-color: var(--color-signal); }
   .rb-dropzone-icon { color: var(--color-ink-3); }
   .rb-dropzone[data-dragging="true"] .rb-dropzone-icon { color: var(--color-ink); }
 
   /* generation options: on / off / disabled. Disabled is the third ink and
      not-allowed — never an opacity (§3.1). */
-  .rb-gen { cursor: pointer; background-color: transparent; border: 1px solid var(--color-rule); }
+  .rb-gen { cursor: pointer; background-color: transparent; border: 1px solid var(--color-rule); transition: background-color var(--duration-state) ease-out; }
   .rb-gen[data-state="on"] { background-color: var(--color-paper-raised); }
   .rb-gen[data-state="disabled"] { cursor: not-allowed; }
   .rb-gen-icon { color: var(--color-ink-3); }
@@ -241,6 +249,6 @@
   /* ═══ Reduced motion (§3.4): every transition this file declares ends instantly,
      scoped by class — never a blanket rule (C5: the pet). ═══ */
   @media (prefers-reduced-motion: reduce) {
-    .rb-ctx-option { transition: none; }
+    .rb-ctx-option, .rb-dropzone, .rb-gen { transition: none; }
   }
 }
