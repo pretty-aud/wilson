@@ -36,7 +36,7 @@ const FILES = {
   templates: '../../../components/TaskTemplates/TaskTemplateManager.jsx',
 }
 /** The files whose state extraction has landed (one commit per component). */
-const EXTRACTED = ['tasks']
+const EXTRACTED = ['tasks', 'detail']
 
 const source = Object.fromEntries(Object.entries(FILES).map(([k, f]) => [k, read(f)]))
 const jsx = Object.values(source).map(jsCode).join('\n')
@@ -103,6 +103,21 @@ describe('the state extraction holds in every extracted B2 file', () => {
     ]
     for (const m of mutants) {
       expect(m).not.toBe(source.tasks)
+      expect(inlineStateTernaries(m)).not.toEqual([])
+    }
+  })
+  it('CONTROL: …and on the shapes TaskDetailPopup shipped', () => {
+    const mutants = [
+      // a property field's empty ink, as it was
+      source.detail.replace("data-empty={task.phase_id ? 'false' : 'true'}", "style={{ color: task.phase_id ? '#f4a261' : '#57534e' }}"),
+      // the two widths, as a template literal
+      source.detail.replace(
+        'className="rb-task-popup fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col"',
+        "className={`fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col ${hasLeftColumn ? 'max-w-4xl' : 'max-w-2xl'}`}",
+      ),
+    ]
+    for (const m of mutants) {
+      expect(m).not.toBe(source.detail)
       expect(inlineStateTernaries(m)).not.toEqual([])
     }
   })

@@ -24,6 +24,7 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
+import '../views/rabbitTasks.css'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -32,28 +33,9 @@ const TASK_STATUSES = [
 ]
 const PRIORITIES = ['low','medium','high','urgent']
 
-function statusColor(status) {
-  switch (status) {
-    case 'in_progress':    return '#fb923c'
-    case 'pending_review': return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':       return '#4ade80'
-    case 'final':          return '#22c55e'
-    case 'blocked':        return '#ef4444'
-    case 'on_hold':        return '#fcd34d'
-    case 'omitted':        return '#57534e'
-    default:               return '#a8a29e'
-  }
-}
-function priorityColor(p) {
-  switch (p) {
-    case 'urgent': return '#ef4444'
-    case 'high':   return '#fb923c'
-    case 'medium': return '#fbbf24'
-    case 'low':    return '#78716c'
-    default:       return '#a8a29e'
-  }
-}
+// Status and priority colours live in views/rabbitTasks.css (`.rb-task-status`,
+// `.rb-task-priority`), shared with ProjectTasksView: an element carries
+// `data-status` / `data-priority` and the sheet paints it.
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
 // ═════════════════════════════════════════════════════
@@ -148,8 +130,6 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
   if (!task) return null
 
-  const sc = statusColor(task.status)
-  const pc = priorityColor(task.priority)
   const linkedAsset = task.asset_id ? assets.find(a => a.id === task.asset_id) : null
   const linkedScene = task.scene_id ? scenes.find(s => s.id === task.scene_id) : null
   const linkedShot = task.shot_id ? shots.find(s => s.id === task.shot_id) : null
@@ -173,12 +153,13 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
       <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
       {/* Modal — wider when left column is shown */}
       <div
-        className={`fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col ${hasLeftColumn ? 'max-w-4xl' : 'max-w-2xl'}`}
+        className="rb-task-popup fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col"
+        data-wide={hasLeftColumn ? 'true' : 'false'}
         style={{ backgroundColor: '#292524', border: '2px solid #f97316', maxHeight: '85vh', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header — spans full width over both columns ── */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
+        <div className="rb-task-popup-head rb-task-status flex items-center justify-between px-5 py-3" data-status={task.status}>
           <div className="flex items-center gap-2.5">
             <ListChecks className="w-4 h-4" style={{ color: '#fb923c' }} />
             <span className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
@@ -322,17 +303,19 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Status</FieldLabel>
                 <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
-                  {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
+                  className="rb-task-status rb-task-status-ink w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-status={task.status}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+                  {TASK_STATUSES.map(s => <option key={s} value={s} className="rb-task-status rb-task-status-ink" data-status={s}>{fmt(s)}</option>)}
                 </select>
               </div>
               <div>
                 <FieldLabel>Priority</FieldLabel>
                 <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: pc, border: '1px solid #44403c' }}>
-                  {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
+                  className="rb-task-priority rb-task-priority-ink w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-priority={task.priority}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+                  {PRIORITIES.map(p => <option key={p} value={p} className="rb-task-priority rb-task-priority-ink" data-priority={p}>{fmt(p)}</option>)}
                 </select>
               </div>
               <div>
@@ -351,8 +334,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   </div>
                 ) : (
                   <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                    className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                    data-empty={task.asset_id ? 'false' : 'true'}
+                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
                   </select>
@@ -361,8 +345,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Phase</FieldLabel>
                 <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.phase_id ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
                 </select>
@@ -377,8 +362,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                     // Clear shot if scene changed
                     handleUpdate({ scene_id: v, shot_id: null })
                   }}
-                    className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                    className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                    data-empty={task.scene_id ? 'false' : 'true'}
+                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                   </select>
@@ -388,8 +374,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <div>
                   <FieldLabel>Shot</FieldLabel>
                   <select value={task.shot_id || ''} onChange={e => handleUpdate({ shot_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                    className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                    data-empty={task.shot_id ? 'false' : 'true'}
+                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                   </select>
@@ -399,8 +386,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <div>
                   <FieldLabel>Level</FieldLabel>
                   <select value={task.level_id || ''} onChange={e => handleUpdate({ level_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                    className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                    data-empty={task.level_id ? 'false' : 'true'}
+                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
                   </select>
@@ -410,8 +398,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <div>
                   <FieldLabel>Experience</FieldLabel>
                   <select value={task.experience_id || ''} onChange={e => handleUpdate({ experience_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                    className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                    data-empty={task.experience_id ? 'false' : 'true'}
+                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <option value="">--</option>
                     {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
                   </select>
@@ -421,8 +410,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Assignee</FieldLabel>
                 <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.assignee_id ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
@@ -430,8 +420,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Reviewer</FieldLabel>
                 <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.reviewer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.reviewer_id ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
@@ -448,8 +439,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                       assigned_position: entry ? entry.role_label : null,
                     })
                   }}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.assigned_role_slug ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                   <option value="">--</option>
                   {roleEntries.map(r => (
                     <option key={r.role_slug} value={r.role_slug}>
@@ -467,14 +459,16 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <FieldLabel>Bid days</FieldLabel>
                 <input type="number" value={task.bid_days ?? ''} min={0} step={0.5}
                   onChange={e => { const n = parseFloat(e.target.value); handleUpdate({ bid_days: isNaN(n) ? null : n }) }}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.bid_days != null ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.bid_days != null ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
                   placeholder="--" />
               </div>
               <div>
                 <FieldLabel>Bid total</FieldLabel>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono tabular-nums rounded-control"
-                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: bidTotal != null ? '#4ade80' : '#57534e', minHeight: 34 }}>
+                <div className="rb-task-bid-total flex items-center gap-1.5 px-2.5 py-1.5 text-dense font-mono tabular-nums rounded-control"
+                  data-empty={bidTotal != null ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', minHeight: 34 }}>
                   <DollarSign className="w-3 h-3 flex-shrink-0" style={{ opacity: 0.6 }} />
                   {bidTotal != null
                     ? `${bidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -490,14 +484,16 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <div>
                 <FieldLabel>Start date</FieldLabel>
                 <input type="date" value={task.start_date || ''} onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.start_date ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', colorScheme: 'dark' }} />
               </div>
               <div>
                 <FieldLabel>End date</FieldLabel>
                 <input type="date" value={task.end_date || ''} onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.end_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
+                  className="rb-task-field-value w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                  data-empty={task.end_date ? 'false' : 'true'}
+                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', colorScheme: 'dark' }} />
               </div>
             </div>
 
@@ -520,8 +516,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 />
               ) : (
                 <button type="button" onClick={() => { setDescDraft(task.description || ''); setEditingDesc(true) }}
-                  className="w-full text-left px-3 py-2 text-dense rounded-control hover:bg-stone-700/40 transition-colors min-h-[60px]"
-                  style={{ color: task.description ? '#f4a261' : '#57534e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+                  className="rb-task-field-value w-full text-left px-3 py-2 text-dense rounded-control hover:bg-stone-700/40 transition-colors min-h-[60px]"
+                  data-empty={task.description ? 'false' : 'true'}
+                  style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
                   {task.description || 'Click to add a description...'}
                 </button>
               )}
@@ -546,8 +543,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 />
               ) : (
                 <button type="button" onClick={() => { setNotesDraft(task.notes || ''); setEditingNotes(true) }}
-                  className="w-full text-left px-3 py-2 text-dense rounded-control hover:bg-stone-700/40 transition-colors min-h-[48px]"
-                  style={{ color: task.notes ? '#f4a261' : '#57534e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+                  className="rb-task-field-value w-full text-left px-3 py-2 text-dense rounded-control hover:bg-stone-700/40 transition-colors min-h-[48px]"
+                  data-empty={task.notes ? 'false' : 'true'}
+                  style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
                   {task.notes || 'Click to add notes...'}
                 </button>
               )}
@@ -586,7 +584,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 // ─── Collapsible section for left column ───
 function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColor, children }) {
   return (
-    <div className="rounded-control overflow-hidden mb-1" style={{ border: '1px solid #292524' }}>
+    <div className="rounded-control overflow-hidden mb-1" style={{ border: '1px solid #292524', '--rb-section': accentColor }}>
       <button
         type="button"
         onClick={onToggle}
@@ -596,8 +594,8 @@ function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColo
         {collapsed
           ? <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
           : <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />}
-        {Icon && <Icon className="w-3 h-3 flex-shrink-0" style={{ color: accentColor || '#fb923c' }} />}
-        <span className="text-label uppercase truncate" style={{ color: accentColor || '#fb923c' }}>
+        {Icon && <Icon className="rb-task-section-ink w-3 h-3 flex-shrink-0" />}
+        <span className="rb-task-section-ink text-label uppercase truncate">
           {label}
         </span>
       </button>
@@ -633,8 +631,9 @@ function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setE
       ) : (
         <button type="button"
           onClick={() => { setFileNameDraft(fileNameOverride); setEditingFileName(true) }}
-          className="w-full text-left px-2 py-1 text-dense rounded-control hover:bg-stone-700/40 transition-colors truncate"
-          style={{ color: fileNameOverride ? '#f4a261' : '#57534e', border: '1px dashed #44403c' }}>
+          className="rb-task-field-value w-full text-left px-2 py-1 text-dense rounded-control hover:bg-stone-700/40 transition-colors truncate"
+          data-empty={fileNameOverride ? 'false' : 'true'}
+          style={{ border: '1px dashed #44403c' }}>
           {fileNameOverride || 'Uses original file name'}
         </button>
       )}
@@ -672,8 +671,8 @@ function PopupInlineText({ value, placeholder, onCommit }) {
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-body font-semibold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded-control transition-colors"
-      style={{ color: value ? '#fb923c' : '#57534e' }}>
+      className="rb-task-title-value text-body font-semibold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded-control transition-colors"
+      data-empty={value ? 'false' : 'true'}>
       {value || placeholder || '\u2014'}
     </button>
   )

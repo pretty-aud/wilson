@@ -194,4 +194,22 @@
     border-bottom-color: #57534e;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
+
+  /* ═══ TaskDetailPopup ═════════════════════════════════════════════════════
+     Rendered by Tasks, the Dashboard's task table, Timeline, and nested in
+     the Scenes, Levels and Experiences detail dialogs. */
+  /* Wider when the files column is shown (Tailwind's max-w-4xl / max-w-2xl). */
+  .rb-task-popup { max-width: 42rem; }
+  .rb-task-popup[data-wide="true"] { max-width: 56rem; }
+  /* The status edge under the header. */
+  .rb-task-popup-head { border-bottom: 3px solid var(--rb-status); }
+  /* A property's value: the light-orange ink when set, grey when empty. */
+  .rb-task-field-value { color: #f4a261; }
+  .rb-task-field-value[data-empty="true"] { color: #57534e; }
+  .rb-task-bid-total { color: #4ade80; }
+  .rb-task-bid-total[data-empty="true"] { color: #57534e; }
+  .rb-task-title-value { color: #fb923c; }
+  .rb-task-title-value[data-empty="true"] { color: #57534e; }
+  /* A files section's accent (a per-section constant, passed as --rb-section). */
+  .rb-task-section-ink { color: var(--rb-section, #fb923c); }
 }
