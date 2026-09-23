@@ -6,6 +6,19 @@ import { StatusBadge } from './StatusBadge'
 afterEach(cleanup)
 
 describe('StatusBadge', () => {
+  // B1 kit request 1 (2026-09-23): the inner dot passed `title={undefined}`,
+  // and StatusDot's `title ?? name` then gave it a tooltip of its OWN — the
+  // status's label, or "Unknown" for a badge called with a tone and a word
+  // but no status key (R.A.B.B.I.T.'s LIVE pill, Summary's row tags). The
+  // dot sits inside the badge, so the dot's tooltip won the hover.
+  it('the inner dot has no tooltip of its own, so the title of the badge is the one shown', () => {
+    const { container } = render(<StatusBadge tone="success" label="Live" title="Live sync connected" />)
+    const dot = container.querySelector('.ui-status .ui-status-dot')
+    expect(dot).not.toBeNull()
+    expect(dot.getAttribute('title') ?? '').toBe('')
+    expect(container.querySelector('.ui-status').getAttribute('title')).toBe('Live sync connected')
+  })
+
   it('renders the word next to a dot, tone on both, from one source', () => {
     render(<StatusBadge status="approved" />)
     const b = screen.getByText('Approved').closest('.ui-status')
