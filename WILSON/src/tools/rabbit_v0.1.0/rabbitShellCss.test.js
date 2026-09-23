@@ -97,8 +97,10 @@ export function inlineStateTernaries(src) {
       else if (code[i] === '}' && --depth === 0) break
     }
     const body = code.slice(start, i + 1)
-    // `style={cond ? {…} : {…}}` decides the whole object by state.
-    const whole = /^\{\s*[\w.?!]+\s*\?\s*\{/.test(body)
+    // `style={cond ? {…} : {…}}` decides the whole object by state — any
+    // condition, including a comparison (`tone === 'good' ? {…} : {}` walked
+    // past the first version of this pattern; B1's mutant X7).
+    const whole = /^\{[^{}]*\?[^{}]*\{/.test(body)
     if (whole || STATE_PROP.test(body)) {
       hits.push(`${code.slice(0, m.index).split('\n').length}: ${body.replace(/\s+/g, ' ').slice(0, 90)}`)
     }
@@ -121,6 +123,8 @@ describe('the state extraction holds in every extracted file', () => {
       `<b style={{ opacity: disabled ? 0.3 : 1 }} />`,
       `<b style={{ boxShadow: isActive ? '0 0 0 1px x' : 'none' }} />`,
       `<b style={on ? { color: 'a' } : { color: 'b' }} />`,
+      `<b style={tone === 'good' ? { borderColor: 'a' } : {}} />`,
+      `<b style={isLong ? undefined : { width: 90 }} />`,
       `<b style={{ cursor: disabled ? 'not-allowed' : 'pointer' }} />`,
       `<b style={{ transform: checked ? 'translateX(16px)' : 'none' }} />`,
       '<b className={`text-dense ${on ? \'font-semibold\' : \'\'}`} />',
