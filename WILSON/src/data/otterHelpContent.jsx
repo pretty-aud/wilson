@@ -12,16 +12,24 @@ export const OTTER_HELP_SIDEBAR_ITEMS = [
   { id: 'otter-shortcuts', label: 'Keyboard Shortcuts' },
 ]
 
-// Light-theme style tokens matching HelpPage's L constants
+// Light-theme style tokens matching HelpPage's L constants.
+// 🚨 They did NOT match until V1 (2026-09-23): D2 converted HelpPage's `L`
+// to the one light ink and the scale, and this twin kept three stone greys
+// on the orange ground — list items at #44403b, 4.08:1, where C6 allows
+// `#1c1917` alone — plus capitals on every section title. V1's walk measured
+// eight such items on Help → O.T.T.E.R. the first time it opened Help's
+// section instead of the tool (its review round one found the old walk
+// clicking the nav). Now key for key HelpPage's values; `notesBox`, which
+// HelpPage has no twin for, keeps its tint.
 const L = {
-  sectionTitle: 'text-label font-semibold text-stone-900 uppercase mb-3',
-  bodyText: 'text-dense text-stone-800 leading-relaxed',
-  card: 'bg-well-light p-3 rounded-control border border-stone-400/30',
-  cardTitle: 'text-dense font-semibold text-stone-900 mb-2',
-  listItem: 'text-dense text-stone-700 leading-relaxed',
-  listBold: 'text-stone-900',
+  sectionTitle: 'text-h2 text-ink-light mb-3',
+  bodyText: 'text-body text-ink-light',
+  card: 'bg-well-light border border-rule-light rounded-control p-3',
+  cardTitle: 'text-h3 text-ink-light mb-2',
+  listItem: 'text-dense text-ink-light',
+  listBold: 'font-semibold',
   notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-control p-3',
-  notesTitle: 'text-label font-semibold text-stone-900 uppercase mb-2',
+  notesTitle: 'text-label text-ink-light uppercase mb-2',
 }
 
 // Dark-theme style tokens for in-tool help modal

@@ -1939,7 +1939,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
   it('the four page stylesheets write no hex and no off-scale size', () => {
     // C8 and C7, on the surfaces T3 swept. Everything the two rows still
     // report is inside `src/index.css`, in `.lesson-content` (T1's by plan §5
-    // lane A3) and `.companion-chat-md` (the pet, C5).
+    // lane A3) and `.companion-chat-md` (the agent panel's, lane A — `index.css`
+    // says so; it is not the pet's sprite, so C5 does not cover it; V1).
     for (const label of ['hex colour outside @theme', 'font-size off the scale']) {
       const row = cssRow(label);
       const where = row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`))
