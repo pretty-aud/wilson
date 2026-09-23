@@ -345,7 +345,7 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
           <span
             key={u.user_id || u.label}
             title={u.label || 'Member'}
-            className="rb-presence-avatar text-label"
+            className="rb-presence-avatar text-label uppercase"
           >
             {initials(u.label)}
           </span>
