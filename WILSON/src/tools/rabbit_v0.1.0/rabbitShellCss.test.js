@@ -65,8 +65,8 @@ describe('every rb- class is both declared and used', () => {
     expect([...used].filter((c) => !declared.has(c))).toEqual([])
   })
   it('CONTROL: the scanners find a real pair and ignore comments', () => {
-    expect(declared.has('rb-viewtab')).toBe(true)
-    expect(used.has('rb-viewtab')).toBe(true)
+    expect(declared.has('rb-viewtabs')).toBe(true)
+    expect(used.has('rb-viewtabs')).toBe(true)
     expect(declaredIn('/* .rb-ghost { } */ .rb-real { }')).toEqual(new Set(['rb-real']))
     expect(usedIn(['{/* className="rb-ghost" */}\n// rb-ghost2\nclassName="rb-real x"'])).toEqual(new Set(['rb-real']))
   })
