@@ -430,5 +430,32 @@ describe('Dialog', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  // The browser's order, which jsdom does not reproduce: the menu has ALREADY
+  // unmounted (its count is back to 0) when the Dialog's listener runs, and
+  // all that is left is the handled mark on the event.
+  it('stands down on an Escape something else already handled (K4, the browser order)', () => {
+    const onClose = vi.fn()
+    render(<Dialog title="Edit template" onClose={onClose}>body</Dialog>)
+    const handled = (e) => { if (e.key === 'Escape') e.preventDefault() }
+    document.addEventListener('keydown', handled, true)
+    try {
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', handled, true)
+    }
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('the kit Menu marks its Escape handled', () => {
+    const onClose = vi.fn()
+    render(<Menu x={0} y={0} onClose={onClose} items={[{ label: 'Rig' }]} />)
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.dispatchEvent(ev)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(ev.defaultPrevented).toBe(true)
+  })
 })
 

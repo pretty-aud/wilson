@@ -124,10 +124,15 @@ export function Dialog({
       // K4 (lane B2): a kit Menu open INSIDE this dialog closes on the same
       // Escape in its capture-phase listener, and this bubble-phase one used
       // to close the dialog behind it as well — one key, two layers gone (the
-      // template editor's dependency picker). The menu has not unmounted yet
-      // when this runs, so its count is still up: the dialog stands down and
-      // the NEXT Escape is its own.
-      if (e.key === 'Escape') { if (menuOpen()) return; tryCloseRef.current(); return }
+      // template editor's dependency picker). The Menu marks its Escape
+      // handled (preventDefault) and a handled Escape is not this dialog's.
+      // 🚨 The open-menu COUNT alone is not enough, and the first cut used it
+      // alone: in a browser React commits the menu's close — and its effect
+      // cleanup that lowers the count — in a microtask that runs BETWEEN the
+      // two document listeners, so by the time this one ran the count was
+      // already 0. jsdom runs no microtask there, so the unit test passed on
+      // an inert guard; the running app is what caught it.
+      if (e.key === 'Escape') { if (e.defaultPrevented || menuOpen()) return; tryCloseRef.current(); return }
       if (e.key !== 'Tab' || !node) return
 
       // ── The trap ──
