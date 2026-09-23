@@ -20,6 +20,8 @@ import { overlayOpen as kitOverlayOpen, Dialog, Switch } from '../../../../ui'
 import BinInspector from './BinInspector'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
+import { binsJsx, stripJs } from './binsGuards'
 import AddFilesDialog from './AddFilesDialog'
 import AssignToShotDialog from './AssignToShotDialog'
 import DeleteBinDialog from './DeleteBinDialog'
@@ -110,9 +112,14 @@ describe('W9: no native confirm on the Bins tab — the kit Dialog asks', () => 
   const code = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 
-  it('no Bins file calls window.confirm (comments may still name it)', () => {
-    for (const f of ['../BinsView.jsx', './AddFilesDialog.jsx', './DeleteBinDialog.jsx', './RelinkBinsDialog.jsx', './AssignToShotDialog.jsx', './TakePickerDialog.jsx', './ShotTakesPanel.jsx', './BinInspector.jsx']) {
-      expect(code(f), f).not.toMatch(/window\.confirm|\bconfirm\(/)
+  it('no Bins file opens a native pop-up — confirm, alert or prompt (comments may still name one)', () => {
+    // Every rendering file, found by walking the folder (round 1: a fixed list
+    // left BinTree, BinFileTable, BinFileGrid, binUi, BinPoster and
+    // ShotTakeChips unguarded, and alert / prompt unchecked).
+    const files = binsJsx(dirname(fileURLToPath(import.meta.url)))
+    expect(Object.keys(files).length).toBeGreaterThanOrEqual(14)
+    for (const [f, src] of Object.entries(files)) {
+      expect(stripJs(src), f).not.toMatch(/\b(?:window\.)?(?:confirm|alert|prompt)\s*\(/)
     }
   })
 
