@@ -18,6 +18,7 @@ import {
   Layers, Boxes, ListTodo, AlertTriangle, HelpCircle, DollarSign,
 } from 'lucide-react'
 import { useRabbit } from '../../state/RabbitProvider'
+import '../../rabbitShell.css'
 
 export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
   const ctx = useRabbit()
@@ -241,8 +242,8 @@ function Section({ title, count, defaultOpen = false, children }) {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-700"
-        style={{ borderBottom: open ? '1px solid #44403c' : 'none', backgroundColor: '#44403c' }}
+        className="rb-review-head w-full flex items-center gap-2 px-3 py-2"
+        data-open={open ? 'true' : undefined}
       >
         <Chevron className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
         <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>

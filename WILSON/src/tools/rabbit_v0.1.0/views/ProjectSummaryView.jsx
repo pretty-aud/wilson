@@ -22,6 +22,7 @@ import {
   Globe, Film, Sparkles, Upload, Trash2, Gamepad2, Plus, FolderSearch,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import '../rabbitShell.css'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
 import { canSeeProjectMoney, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
@@ -306,27 +307,22 @@ export default function ProjectSummaryView() {
               {allProjects.map(p => {
                 const isActive = p.id === activeProjectId
                 const st = p.status || 'draft'
-                const stColor = st === 'active' ? '#15803d' : st === 'archived' ? '#57534e' : st === 'wrapped' ? '#3b82f6' : st === 'on_hold' ? '#f59e0b' : '#ea580c'
                 const pType = p.type ? p.type.replace(/_/g, ' ') : null
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => setActiveProject?.(p.id)}
-                    className="flex-shrink-0 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-control transition-[filter] hover:brightness-110"
-                    style={{
-                      width: 180,
-                      backgroundColor: isActive ? '#292524' : '#1c1917',
-                      border: `1px solid ${isActive ? '#ea580c' : '#333'}`,
-                      boxShadow: isActive ? '0 0 0 1px #ea580c' : 'none',
-                    }}
+                    className="rb-gallery-card flex-shrink-0 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-control transition-[filter] hover:brightness-110"
+                    data-active={isActive ? 'true' : undefined}
+                    style={{ width: 180 }}
                   >
                     {/* Title */}
                     <div className="flex items-center gap-2 w-full">
-                      <span className="flex-1 text-dense font-semibold truncate text-left" style={{ color: isActive ? '#fb923c' : '#d6d3d1' }}>
+                      <span className="rb-gallery-title flex-1 text-dense font-semibold truncate text-left">
                         {p.title || 'Untitled'}
                       </span>
-                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: stColor }} />
+                      <span className="rb-gallery-dot w-1.5 h-1.5 rounded-full flex-shrink-0" data-status={st} />
                     </div>
                     {/* Client + type */}
                     <div className="flex items-center justify-between w-full">
@@ -813,15 +809,12 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
       <div className="grid grid-cols-3 gap-4">
 
         {/* Scenes & Shots */}
-        <div className="rounded-control overflow-hidden flex flex-col" style={{
-          backgroundColor: '#292524',
-          border: `1px solid ${project.scenes_enabled ? '#44403c' : '#33302e'}`,
-          opacity: project.scenes_enabled ? 1 : 0.7,
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.scenes_enabled ? 'true' : undefined} style={{
           transition: 'opacity 150ms ease, border-color 150ms ease',
         }}>
-          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.scenes_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.scenes_enabled ? SECTION_ACCENT : '#57534e'}` }}>
-            <Film className="w-3.5 h-3.5" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-label uppercase font-semibold flex-1" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }}>
+          <div className="rb-module-head flex items-center gap-2 px-4 py-3">
+            <Film className="rb-module-accent w-3.5 h-3.5" />
+            <span className="rb-module-accent text-label uppercase font-semibold flex-1">
               Scenes & Shots
             </span>
             <SettingsToggle checked={project.scenes_enabled} onChange={v => update('scenes_enabled', v)} />
@@ -878,15 +871,12 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         </div>
 
         {/* Levels */}
-        <div className="rounded-control overflow-hidden flex flex-col" style={{
-          backgroundColor: '#292524',
-          border: `1px solid ${project.levels_enabled ? '#44403c' : '#33302e'}`,
-          opacity: project.levels_enabled ? 1 : 0.7,
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.levels_enabled ? 'true' : undefined} style={{
           transition: 'opacity 150ms ease, border-color 150ms ease',
         }}>
-          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.levels_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.levels_enabled ? SECTION_ACCENT : '#57534e'}` }}>
-            <Gamepad2 className="w-3.5 h-3.5" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-label uppercase font-semibold flex-1" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }}>
+          <div className="rb-module-head flex items-center gap-2 px-4 py-3">
+            <Gamepad2 className="rb-module-accent w-3.5 h-3.5" />
+            <span className="rb-module-accent text-label uppercase font-semibold flex-1">
               Levels
             </span>
             <SettingsToggle checked={project.levels_enabled} onChange={v => {
@@ -940,15 +930,12 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         </div>
 
         {/* Experiences */}
-        <div className="rounded-control overflow-hidden flex flex-col" style={{
-          backgroundColor: '#292524',
-          border: `1px solid ${project.experiences_enabled ? '#44403c' : '#33302e'}`,
-          opacity: project.experiences_enabled ? 1 : 0.7,
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.experiences_enabled ? 'true' : undefined} style={{
           transition: 'opacity 150ms ease, border-color 150ms ease',
         }}>
-          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.experiences_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.experiences_enabled ? SECTION_ACCENT : '#57534e'}` }}>
-            <Sparkles className="w-3.5 h-3.5" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-label uppercase font-semibold flex-1" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }}>
+          <div className="rb-module-head flex items-center gap-2 px-4 py-3">
+            <Sparkles className="rb-module-accent w-3.5 h-3.5" />
+            <span className="rb-module-accent text-label uppercase font-semibold flex-1">
               Experiences
             </span>
             <SettingsToggle checked={project.experiences_enabled} onChange={v => update('experiences_enabled', v)} />
@@ -1049,7 +1036,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-control min-w-0"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
             <Folder className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-            <span className="text-dense font-mono truncate" style={{ color: project?.folder_root ? '#a8a29e' : '#57534e' }}>
+            <span className="rb-folder-path text-dense font-mono truncate" data-empty={project?.folder_root ? undefined : 'true'}>
               {project?.folder_root || 'Using default location'}
             </span>
           </div>
@@ -1222,33 +1209,38 @@ function SettingsToggle({ checked, onChange }) {
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="relative flex-shrink-0 transition-colors"
-      style={{
-        width: 36, height: 20, borderRadius: 10,
-        backgroundColor: checked ? '#ea580c' : '#44403c',
-      }}
+      className="rb-toggle relative flex-shrink-0 transition-colors"
+      data-checked={checked ? 'true' : undefined}
+      style={{ width: 36, height: 20, borderRadius: 10 }}
     >
       <span
+        className="rb-toggle-knob"
         style={{
           position: 'absolute', top: 3, left: 3,
           width: 14, height: 14, borderRadius: '50%',
           backgroundColor: '#fff7ed',
           transition: 'transform 150ms ease',
-          transform: checked ? 'translateX(16px)' : 'translateX(0)',
         }}
       />
     </button>
   )
 }
 
+/* The two sizes, each a named variant rather than a ternary inside a
+   template literal (B1 state extraction). */
+const SETTINGS_INPUT_SIZE = {
+  lg: 'px-4 py-2.5 text-body font-semibold',
+  md: 'px-3 py-2 text-dense',
+}
+
 function SettingsInput({ value, onChange, placeholder, size }) {
-  const lg = size === 'lg'
+  const sizeClass = SETTINGS_INPUT_SIZE[size === 'lg' ? 'lg' : 'md']
   return (
     <input
       type="text" value={value} onChange={e => onChange(e.target.value)}
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
-      className={`w-full rounded-control focus:ring-1 focus:ring-orange-500/50 transition-colors ${lg ? 'px-4 py-2.5 text-body font-semibold' : 'px-3 py-2 text-dense'}`}
+      className={`w-full rounded-control focus:ring-1 focus:ring-orange-500/50 transition-colors ${sizeClass}`}
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1305,39 +1297,23 @@ function SettingsNumberInput({ value, onChange, placeholder, min, max }) {
 // ─── Project mini card (used by the gallery section) ───
 function ProjectMiniCard({ project, active, onClick }) {
   const status = project.status || 'draft'
-  const statusColor =
-    status === 'active'   ? '#15803d' :
-    status === 'archived' ? '#57534e' :
-    status === 'wrapped'  ? '#15803d' :
-    '#ea580c'
   return (
     <button
       type="button"
       onClick={onClick}
-      className="text-left flex flex-col gap-2 p-3 rounded-control transition-transform hover:scale-[1.02]"
-      style={{
-        backgroundColor: '#1c1917',
-        border: `1px solid ${active ? '#ea580c' : '#44403c'}`,
-        boxShadow: active ? '0 0 0 1px #ea580c' : 'none',
-      }}
+      className="rb-minicard text-left flex flex-col gap-2 p-3 rounded-control transition-transform hover:scale-[1.02]"
+      data-active={active ? 'true' : undefined}
     >
       <div className="flex items-start gap-2">
         {active
           ? <Check className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#fb923c' }} />
           : <Folder className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#78716c' }} />}
-        <span
-          className="flex-1 text-dense font-semibold truncate"
-          style={{ color: active ? '#fb923c' : '#d6d3d1' }}
-        >
+        <span className="rb-minicard-title flex-1 text-dense font-semibold truncate">
           {project.title || 'Untitled'}
         </span>
         <span
-          className="px-1 py-0.5 text-label uppercase rounded-control flex-shrink-0"
-          style={{
-            color: '#fff7ed',
-            backgroundColor: statusColor,
-            border: `1px solid ${statusColor}`,
-          }}
+          className="rb-minicard-status px-1 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+          data-status={status}
         >
           {status}
         </span>
@@ -1371,30 +1347,17 @@ function Card({ title, icon: Icon, children }) {
   )
 }
 
-function StatusPill({ status }) {
-  const color = status === 'active' ? '#15803d' : status === 'archived' ? '#57534e' : '#ea580c'
-  return (
-    <span
-      className="px-2 py-0.5 text-label uppercase rounded-control"
-      style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
-    >
-      {status || 'draft'}
-    </span>
-  )
-}
-
-const STATUS_COLORS = { draft: '#ea580c', active: '#15803d', on_hold: '#f59e0b', wrapped: '#3b82f6', archived: '#57534e' }
+// StatusPill was deleted here in B1's state extraction: it had no caller (review R36).
 
 function StatusDropdown({ status, onChange }) {
   const current = status || 'draft'
-  const color = STATUS_COLORS[current] || '#ea580c'
   return (
     <div className="relative inline-flex items-center">
       <select
         value={current}
         onChange={e => onChange(e.target.value)}
-        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-        style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
+        className="rb-status-select appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
+        data-status={current}
       >
         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
       </select>
@@ -1421,10 +1384,11 @@ function Stat({ icon: Icon, label, value }) {
 function ListRow({ title, tag, hint, danger }) {
   return (
     <div
-      className="flex items-center gap-2.5 px-2.5 py-2"
+      className="rb-listrow flex items-center gap-2.5 px-2.5 py-2"
+      data-danger={danger ? 'true' : undefined}
       style={{ borderBottom: '1px solid #1c1917' }}
     >
-      <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: danger ? '#fca5a5' : '#a8a29e' }} />
+      <ChevronRight className="rb-listrow-chevron w-3.5 h-3.5 flex-shrink-0" />
       <span className="flex-1 text-dense truncate" style={{ color: '#d6d3d1' }}>{title}</span>
       {hint && (
         <span className="text-dense italic truncate max-w-[140px]" style={{ color: '#78716c' }}>
@@ -1433,12 +1397,7 @@ function ListRow({ title, tag, hint, danger }) {
       )}
       {tag && (
         <span
-          className="px-1.5 py-0.5 text-label uppercase rounded-control"
-          style={{
-            color: danger ? '#fff7ed' : '#fb923c',
-            backgroundColor: danger ? '#7f1d1d' : '#1c1917',
-            border: `1px solid ${danger ? '#991b1b' : '#57534e'}`,
-          }}
+          className="rb-listrow-tag px-1.5 py-0.5 text-label uppercase rounded-control"
         >
           {tag}
         </span>
@@ -1448,20 +1407,15 @@ function ListRow({ title, tag, hint, danger }) {
 }
 
 function BudgetTile({ label, value, hint, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1' },
-  }[tone]
   return (
     <div
-      className="flex flex-col px-3.5 py-2.5 rounded-control"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
+      className="rb-budget-tile flex flex-col px-3.5 py-2.5 rounded-control"
+      data-tone={tone}
     >
       <span className="text-label uppercase" style={{ color: '#a8a29e' }}>
         {label}
       </span>
-      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
+      <span className="rb-budget-value text-h1 font-mono font-semibold">{value}</span>
       {hint && (
         <span className="text-dense" style={{ color: '#78716c' }}>{hint}</span>
       )}

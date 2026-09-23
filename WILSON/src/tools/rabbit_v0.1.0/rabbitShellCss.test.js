@@ -37,7 +37,7 @@ const OWNED = [
   'views/IntakeWizardView.jsx', 'views/intake/IntakePrepare.jsx', 'views/intake/IntakeProgress.jsx',
   'views/intake/IntakeReview.jsx', 'views/ProjectSummaryView.jsx', 'views/TeamView.jsx',
 ]
-const EXTRACTED = ['Rabbit.jsx', 'components/ViewTabs.jsx', 'components/ProjectContextBar.jsx']
+const EXTRACTED = OWNED
 
 describe('rabbitShell.css declares the cascade layer order before it uses a layer', () => {
   const src = cssCode(shellCss)

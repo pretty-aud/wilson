@@ -16,6 +16,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Upload, AlertCircle, AlertTriangle, Layers, Boxes, ListChecks, Film, FileText, Plus } from 'lucide-react'
 import ProjectFilesTable, { detectDocumentKind } from '../../components/ProjectFilesTable'
 import { PERSONA_LIST } from '../../intake/personas'
+import '../../rabbitShell.css'
 
 /* ── constants ─────────────────────────────────────────────── */
 
@@ -180,15 +181,14 @@ export default function IntakePrepare({
           {/* ── Upload zone ──────────────────────────────────── */}
           {!hasFiles ? (
             <button type="button" onClick={() => inputRef.current?.click()} {...dropProps}
+              className="rb-dropzone" data-dragging={dragging ? 'true' : undefined}
               style={{
                 width: '100%', display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 12,
                 padding: '48px 24px', borderRadius: 6, cursor: 'pointer',
-                backgroundColor: dragging ? '#292524' : 'transparent',
-                border: `2px dashed ${dragging ? '#ea580c' : '#3a3733'}`,
                 transition: 'all 0.15s ease',
               }}>
-              <Upload size={30} style={{ color: dragging ? '#fb923c' : '#57534e', strokeWidth: 1.5 }} />
+              <Upload size={30} className="rb-dropzone-icon" style={{ strokeWidth: 1.5 }} />
               {/* 🚨 A CONTROL IS A CONTROL EVEN WHEN ITS COPY IS IN A CHILD.
                   T0's rule 0 keys on the element's own tag, which is right for
                   the 241 uppercase sites that sit ON a <button>. This drop zone
@@ -228,12 +228,11 @@ export default function IntakePrepare({
             </button>
           ) : (
             <button type="button" onClick={() => inputRef.current?.click()} {...dropProps}
+              className="rb-dropzone" data-size="compact" data-dragging={dragging ? 'true' : undefined}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', gap: 8,
                 padding: '10px 16px', borderRadius: 4, cursor: 'pointer',
-                backgroundColor: dragging ? '#292524' : 'transparent',
-                border: `1px dashed ${dragging ? '#ea580c' : '#3a3733'}`,
                 marginBottom: 16, transition: 'all 0.15s ease',
               }}>
               <Upload size={14} style={{ color: '#57534e' }} />
@@ -329,20 +328,19 @@ export default function IntakePrepare({
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {PERSONA_LIST.map(p => {
                     const on = enabledPersonas.includes(p.id)
-                    /* The weight is the SELECTED state, so it stays a
-                       conditional — as a class, not as a declaration. Reading
-                       the 600 arm as evidence about the element would decide
-                       the unselected chip on the selected chip's evidence,
-                       which is T0's trap 6. */
+                    /* The weight is the SELECTED state. Since B1's state
+                       extraction it lives with the other selected-state
+                       values on `.rb-persona[data-on="true"]` in
+                       rabbitShell.css — still never a declaration here, so
+                       the unselected chip is never judged on the selected
+                       chip's evidence (T0's trap 6). */
                     return (
                       <button key={p.id} type="button" onClick={() => togglePersona(p.id)}
-                        className={`text-dense ${on ? 'font-semibold' : ''}`}
+                        className="rb-persona text-dense"
+                        data-on={on ? 'true' : undefined}
                         style={{
                           padding: '7px 16px',
                           borderRadius: 4, cursor: 'pointer', transition: 'all 0.15s ease',
-                          color: on ? '#fff7ed' : '#78716c',
-                          backgroundColor: on ? '#ea580c' : 'transparent',
-                          border: `1px solid ${on ? '#c2410c' : '#3a3733'}`,
                         }}>
                         {p.label}
                       </button>
@@ -373,13 +371,11 @@ export default function IntakePrepare({
                   const disabled = item.key === 'generate_scenes' && !scenesEnabled
                   return (
                     <label key={item.key}
+                      className="rb-gen"
+                      data-state={disabled ? 'disabled' : checked ? 'on' : 'off'}
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: 10,
                         padding: '11px 16px', borderRadius: 5,
-                        cursor: disabled ? 'not-allowed' : 'pointer',
-                        opacity: disabled ? 0.3 : 1,
-                        backgroundColor: checked && !disabled ? '#292524' : 'transparent',
-                        border: `1px solid ${checked && !disabled ? '#44403c' : '#3a3733'}`,
                         transition: 'all 0.15s ease',
                       }}>
                       <input type="checkbox" checked={checked} disabled={disabled}
@@ -387,8 +383,8 @@ export default function IntakePrepare({
                         className="accent-orange-500" style={{ width: 15, height: 15, marginTop: 2 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <Icon size={14} style={{ color: checked && !disabled ? '#fb923c' : '#57534e', strokeWidth: 1.8 }} />
-                          <span className="text-dense font-semibold" style={{ color: checked && !disabled ? '#d6d3d1' : '#78716c' }}>
+                          <Icon size={14} className="rb-gen-icon" style={{ strokeWidth: 1.8 }} />
+                          <span className="rb-gen-label text-dense font-semibold">
                             {item.label}
                           </span>
                         </div>
@@ -448,12 +444,12 @@ export default function IntakePrepare({
             : 'Upload files to begin'}
         </span>
         <button type="button" onClick={onRun} disabled={!canRun}
-          className="text-body font-semibold"
+          className="rb-run text-body font-semibold"
           style={{
             padding: '10px 24px',
-            borderRadius: 4, cursor: canRun ? 'pointer' : 'default',
+            borderRadius: 4,
             color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c',
-            opacity: canRun ? 1 : 0.25, transition: 'opacity 0.15s ease',
+            transition: 'opacity 0.15s ease',
           }}>
           Run Intake →
         </button>
