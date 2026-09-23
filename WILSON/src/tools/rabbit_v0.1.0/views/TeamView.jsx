@@ -465,11 +465,11 @@ export default function TeamView() {
         <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Search */}
-        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}>
+        <div className="rb-field-wrap flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}>
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: 'var(--color-ink-3)' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search members…"
-            className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense outline-none" style={{ color: 'var(--color-ink)' }} />
+            className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense" style={{ color: 'var(--color-ink)' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-hover rounded-control transition-colors" style={{ color: 'var(--color-ink-3)' }}>
               <X className="w-3 h-3" />
@@ -484,7 +484,7 @@ export default function TeamView() {
           </span>
           <button type="button" onClick={openPicker}
             className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
-            <UserPlus className="w-3 h-3" /> Assign members
+            <UserPlus aria-hidden="true" /> Assign members
           </button>
         </div>
       </div>
@@ -716,7 +716,7 @@ function ProjectMembersPanel({ ctx }) {
           {/* Add-member picker — first thing in the card */}
           {canManage && (
             <div ref={pickerRef} className="relative px-4 py-3" style={{ borderBottom: '1px solid var(--color-rule)' }}>
-              <div className="flex items-center gap-2 px-2 rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper)' }}>
+              <div className="rb-field-wrap flex items-center gap-2 px-2 rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper)' }}>
                 <UserPlus className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
                 <input
                   type="text"
@@ -724,7 +724,7 @@ function ProjectMembersPanel({ ctx }) {
                   onChange={e => { setSearch(e.target.value); setPickerOpen(true) }}
                   onFocus={() => setPickerOpen(true)}
                   placeholder="Add member — search the workspace directory…"
-                  className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense outline-none" style={{ color: 'var(--color-ink)' }}
+                  className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense" style={{ color: 'var(--color-ink)' }}
                 />
               </div>
               {pickerOpen && (

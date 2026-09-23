@@ -143,8 +143,8 @@ const REGISTRY = [
   ...['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins'].map((t) =>
     P(`rabbit-${t.toLowerCase()}`, '/rabbit', { steps: ['@proj', t], expect: { active: t } })),
   P('rabbit-settings', '/rabbit', { steps: ['RABBIT settings'], expect: { text: 'Holidays / Blocked Days' } }),
-  P('rabbit-help', '/rabbit', { steps: ['Help & Documentation'], expect: { text: 'Key Features' } }),
-  P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel'], expect: { text: 'Budget Variables' } }),
+  P('rabbit-help', '/rabbit', { steps: ['Help & documentation'], expect: { text: 'Key Features' } }),
+  P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel'], expect: { text: 'Budget variables' } }),
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
   P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: 'Lock the shooting script' } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),

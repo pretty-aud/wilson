@@ -25,7 +25,7 @@ export function StatusBadge({ status, tone, label, children, title, surface = 'd
           one set of tone rules, one place a status colour is decided. The
           badge supplies the accessible name in its own word, so the dot is
           hidden from the accessibility tree here. */}
-      <StatusDot tone={t} status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" surface={surface} />
+      <StatusDot tone={t} status={status} aria-hidden="true" role={undefined} aria-label={undefined} title={title ?? ''} surface={surface} />
       <span>{children ?? word}</span>
     </span>
   )

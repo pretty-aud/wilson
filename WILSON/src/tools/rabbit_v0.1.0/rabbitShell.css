@@ -52,46 +52,54 @@
   .rb-shell { background-color: var(--color-paper); }
 
   /* ═══ ViewTabs: the kit's Tabs, on the page gutter ═══════════════════════
-     The first tab's ICON sits on the 24px gutter, the same line as the tool
-     title above and the context bar's icon below (review R44): the kit tab
-     carries 10px of its own padding, so the strip pads gutter − 10 on the
-     left. The kit underline overlaps the strip's hairline by 1px, so the
-     active tab sits ON the line rather than floating above it (R16). */
+     The first tab's LABEL (or icon) sits on the 24px gutter, the same line
+     as the tool title above and the context bar's icon below (review R44):
+     the strip pads the gutter less the tab's own side padding (8px here, 6px
+     when narrow). The active tab's 2px underline sits directly on the
+     strip's hairline, the kit's own treatment everywhere else in the app.
+
+     R2 finding 1: an earlier fix pulled each tab down 1px to overlap the
+     hairline; with the list's `overflow-x: auto` that made a 1px VERTICAL
+     overflow — a stray 10px scrollbar at the strip's right end on every
+     screen, and the underline clipped to 1px. No overlap now, and the list
+     never scrolls vertically. */
   .rb-viewtabs {
+    container: rb-viewtabs / inline-size;
     display: flex;
     align-items: stretch;
     gap: 8px;
-    padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 10px);
+    padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 8px);
     background-color: var(--color-paper);
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
-  /* One row, always (R1 finding 1). The kit's .ui-tabs wraps, which is right
-     for a set that needs a second line and wrong here: at Electron's 1024px
-     floor, on Summary (where the dot and presence strip also sit in this
-     row), "Bins" dropped to a second line and the whole view jumped 39px
-     every time the Summary tab was crossed. The R.A.B.B.I.T. tabs sit a
-     little tighter (8px sides, 4px separators) and, should a window still be
-     too narrow, the strip scrolls sideways — every tab stays reachable in
-     the same one click (C1), none is hidden. */
+  /* One row, always (R1 finding 1; R2 finding 3). The kit's .ui-tabs wraps,
+     which is right for a set that needs a second line and wrong here: at
+     Electron's 1024px floor, on Summary (where the status group also sits in
+     this row), a tab dropped to a second line and the view jumped as Summary
+     was crossed. The decision is keyed to the STRIP's own width (a container
+     query), not the window's: below 1240px of strip the decorative icons go
+     and the tabs tighten, which fits all eleven labels plus the Summary
+     status group at 1024. Should anything still overflow, the list scrolls
+     sideways without a scrollbar that would add height; arrow keys (the
+     kit's) move focus along the tabs and bring each into view. */
   .rb-viewtabs-list.ui-tabs {
     flex: 1 1 auto;
     min-width: 0;
     flex-wrap: nowrap;
     overflow-x: auto;
-    scrollbar-width: thin;
+    overflow-y: hidden;
+    scrollbar-width: none;
   }
-  /* Below 1152px the tab icons go: they are decoration (the label names the
-     view), and dropping them returns about 180px — enough that all eleven
-     labels and, on Summary, the status group fit at Electron's 1024px floor
-     without the strip scrolling. */
-  @media (max-width: 1152px) {
-    .rb-viewtab-icon { display: none; }
-  }
-  .rb-viewtabs .ui-tab { margin-bottom: -1px; padding: 0 8px; }
+  .rb-viewtabs .ui-tab { padding: 0 8px; }
   .rb-viewtabs .ui-tabs-sep { margin: 0 4px; }
   .rb-viewtab-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
   .rb-viewtabs-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  @container rb-viewtabs (max-width: 1240px) {
+    .rb-viewtab-icon { display: none; }
+    .rb-viewtabs .ui-tab { padding: 0 6px; }
+    .rb-viewtabs-list.ui-tabs { margin-left: 2px; }  /* 16 + 2 + 6 = the 24px gutter */
+  }
 
   /* ═══ The status group (Q10): presence, then the adapter dot ═════════════
      Docked in the context bar's slots, or on Summary at the tab strip's
@@ -101,15 +109,17 @@
   .rb-presence { display: flex; align-items: center; gap: 4px; }
   /* 28px, not 20: two Label-step capitals ("WW" 23.0px) spilled out of a 20px
      circle, which is T2's MemberAvatar finding at a smaller size (R1 finding
-     14). The chips overlap by 8px so three of them take 68px, not 92. */
-  .rb-presence-avatar + .rb-presence-avatar { margin-left: -8px; }
+     14). Consecutive chips overlap by 8px net of the group's 4px gap, so
+     three take 68px; the hairline each already carries is their separation
+     (R2 finding 8: a paper ring drawn as a shadow was a shadow on a docked
+     surface, which §3.3 does not allow). */
+  .rb-presence-avatar + .rb-presence-avatar { margin-left: -12px; }
   .rb-presence-avatar {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 28px;
     height: 28px;
-    box-shadow: 0 0 0 2px var(--color-paper);
     border-radius: 9999px;
     color: var(--color-ink-2);
     background-color: var(--color-paper-raised);
@@ -168,7 +178,7 @@
   /* ═══ Intake wizard (IntakeWizardView) ════════════════════════════════
      Every field is the kit's `.ui-input` (Dense, 36px, one hairline, the kit
      focus ring). An empty select or date reads as its own placeholder. */
-  .rb-field[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-field[data-empty="true"] { color: var(--color-ink-3); }
 
   /* the confirm dialog's rows: short (label beside value) or long (stacked) */
   .rb-confirm-row { display: flex; gap: 12px; }
@@ -265,7 +275,15 @@
   .ui-input.rb-role { width: auto; }
 
   /* the two date cells: a date, or empty */
-  .rb-team-date[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-team-date[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* The two bare inputs inside a bordered wrapper (Team's search, the cloud
+     roster's add-member field, Q21): the wrapper draws the field, so it
+     draws the keyboard focus too. R2 finding 2: the inputs carried
+     `outline-none`, a utility that beats the base focus ring, and left no
+     focus indicator at all. */
+  .rb-field-wrap:has(:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+  .rb-field-wrap input:focus-visible { outline: none; }
 
   /* the toolbar's filter / sort / group / saved-views controls light up when
      set: the ink rises from the second to the first */

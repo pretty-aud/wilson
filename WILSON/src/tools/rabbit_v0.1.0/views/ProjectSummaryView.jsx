@@ -21,7 +21,7 @@ import {
 import { useRabbit } from '../state/RabbitProvider'
 import '../rabbitShell.css'
 import { Switch } from '../../../ui/Switch'
-import { StatusDot } from '../../../ui/StatusDot'
+import { StatusDot, statusMeta } from '../../../ui/StatusDot'
 import { Button } from '../../../ui/Button'
 import { EmptyState } from '../../../ui/EmptyState'
 import { Card as KitCard } from '../../../ui/Card'
@@ -241,7 +241,7 @@ export default function ProjectSummaryView() {
               </span>
               <button type="button" onClick={handleNewProject} disabled={creating}
                 className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
-                <Plus className="w-3.5 h-3.5" />
+                <Plus aria-hidden="true" />
                 {creating ? 'Creating…' : 'New project'}
               </button>
             </div>
@@ -1127,7 +1127,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           </span>
           <button type="button" onClick={() => setRelinkOpen(true)}
             className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
-            <FolderSearch className="w-3 h-3" /> Relink…
+            <FolderSearch aria-hidden="true" /> Relink…
           </button>
         </div>
       )}
@@ -1311,7 +1311,7 @@ function StatusDropdown({ status, onChange }) {
         className="ui-input rb-status-select appearance-none cursor-pointer" data-size="sm" data-surface="dark"
         data-status={current}
       >
-        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{statusMeta(s).label}</option>)}
       </select>
       <ChevronDown className="absolute right-2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--color-ink-2)' }} />
     </div>

@@ -11,12 +11,21 @@ describe('StatusBadge', () => {
   // status's label, or "Unknown" for a badge called with a tone and a word
   // but no status key (R.A.B.B.I.T.'s LIVE pill, Summary's row tags). The
   // dot sits inside the badge, so the dot's tooltip won the hover.
-  it('the inner dot has no tooltip of its own, so the title of the badge is the one shown', () => {
+  // B1 review round two: `title=""` was no better — Chromium takes the
+  // tooltip from the first ancestor with a title attribute, and "" counts, so
+  // the dot became a dead zone. The dot carries the BADGE's title instead.
+  it('the inner dot shows the badge title, never one of its own', () => {
     const { container } = render(<StatusBadge tone="success" label="Live" title="Live sync connected" />)
     const dot = container.querySelector('.ui-status .ui-status-dot')
     expect(dot).not.toBeNull()
-    expect(dot.getAttribute('title') ?? '').toBe('')
+    expect(dot.getAttribute('title')).toBe('Live sync connected')
     expect(container.querySelector('.ui-status').getAttribute('title')).toBe('Live sync connected')
+  })
+
+  it('with no badge title the dot has none either (not "Unknown", not a status label)', () => {
+    const { container } = render(<StatusBadge tone="danger" label="Blocked tag" />)
+    const dot = container.querySelector('.ui-status .ui-status-dot')
+    expect(dot.getAttribute('title')).toBe('')
   })
 
   it('renders the word next to a dot, tone on both, from one source', () => {
