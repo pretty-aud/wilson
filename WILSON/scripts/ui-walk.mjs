@@ -107,7 +107,7 @@ const REGISTRY = [
   // The twelve URLs, as ui-page-check walks them. Proofs are page text, never
   // the shell's (excluded) — "R.A.B.B.I.T." here is Home's own button.
   P('home', '/', { homeCaps: true, expect: { text: 'R.A.B.B.I.T.' } }),
-  P('dog', '/dog', { expect: { text: 'Generate Page Outline' } }),
+  P('dog', '/dog', { expect: { text: 'Generate page outline' } }),   // A1: sentence case (Q2)
   P('otter', '/otter', { expect: { text: 'New Course' } }),
   P('rabbit', '/rabbit', { expect: { text: 'Salt Hours' } }),
   P('settings', '/settings', { expect: { text: 'Version and updates' } }),
@@ -195,7 +195,6 @@ const KNOWN = {
     { key: 'otter-new-course', text: '○ Share with the com' },
     { key: 'otter-new-course', text: '● Just for me' },
     { key: 'otter-new-course', text: '● New Course' },
-    { key: 'rabbit-intake', text: 'Run Intake →' },
     { key: 'rabbit-task-new', text: '✕' },
   ],
   weight: [],
@@ -205,17 +204,12 @@ const KNOWN = {
   /* V1-02 — C6: text on an orange ground under its threshold. Keyed on the
      screen and the element's own quoted text, generated from both walks.
      O.T.T.E.R.'s "+ New", "All" and its count repeat on every one of its
-     views; D.O.G.'s step badges "1" / "2" on every D.O.G. screen. The fix
+     views. (D.O.G.'s step badges "1" / "2" were here on every D.O.G. screen;
+     A1 took the fill away and deleted the lines, 2026-09-23.) The fix
      is the rule, not the ink (§3.2, Q16): a filled PRIMARY takes
      signal-fill with white, a selected TAB or CHIP loses the fill. */
   c6: [
-    { key: 'dog', text: '"1"' },
-    { key: 'dog', text: '"2"' },
-    { key: 'dog-history', text: '"1"' },
-    { key: 'dog-history', text: '"2"' },
     { key: 'dog-history', text: '"Export"' },
-    { key: 'dog-settings', text: '"1"' },
-    { key: 'dog-settings', text: '"2"' },
     { key: 'otter', text: '"1"' },
     { key: 'otter', text: '"All"' },
     { key: 'otter', text: '"New Course"' },
@@ -256,7 +250,6 @@ const KNOWN = {
     { key: 'otter-validate', text: '"All"' },
     { key: 'otter-validate', text: '"New"' },
     { key: 'otter-validate', text: '"Validate All (17)"' },
-    { key: 'rabbit', text: '"New project"' },
     { key: 'rabbit-asset-detail', text: '"Add files"' },
     { key: 'rabbit-asset-detail', text: '"Done"' },
     { key: 'rabbit-asset-detail', text: '"New asset"' },
@@ -265,12 +258,6 @@ const KNOWN = {
     { key: 'rabbit-asset-new', text: '"Table"' },
     { key: 'rabbit-assets', text: '"New asset"' },
     { key: 'rabbit-assets', text: '"Table"' },
-    { key: 'rabbit-intake', text: '"1"' },
-    { key: 'rabbit-intake', text: '"Creative Producer"' },
-    { key: 'rabbit-intake', text: '"Executive Producer"' },
-    { key: 'rabbit-intake', text: '"New Project"' },
-    { key: 'rabbit-intake', text: '"Prepare"' },
-    { key: 'rabbit-intake', text: '"Technical Producer"' },
     { key: 'rabbit-scene-detail', text: '"Add files"' },
     { key: 'rabbit-scene-detail', text: '"Scene"' },
     { key: 'rabbit-scene-detail', text: '"Scenes"' },
@@ -290,8 +277,6 @@ const KNOWN = {
     { key: 'rabbit-tasks', text: '"Table"' },
     { key: 'rabbit-timeline', text: '"Task"' },
     { key: 'rabbit-timeline', text: '"Week"' },
-    { key: 'shell-nav', text: '"1"' },
-    { key: 'shell-nav', text: '"2"' },
   ],
   /* V1-09 — buttons nested inside buttons, counted in the DOM per screen
      (React warns once per tag pair per page load, so its warning cannot
@@ -328,14 +313,9 @@ const KNOWN = {
      three window controls, seen only under the quit stub. `shell-nav` opens
      the strip over /dog, so its four are D.O.G.'s. */
   anon: [
-    { key: 'dog', text: 'lucide-check', n: 1 },
-    { key: 'dog', text: 'no-icon', n: 3 },
-    { key: 'dog-history', text: 'lucide-check', n: 1 },
     { key: 'dog-history', text: 'lucide-x', n: 1 },
-    { key: 'dog-history', text: 'no-icon', n: 5 },
-    { key: 'dog-settings', text: 'lucide-check', n: 1 },
-    { key: 'dog-settings', text: 'lucide-x', n: 1 },
-    { key: 'dog-settings', text: 'no-icon', n: 4 },
+    { key: 'dog-history', text: 'no-icon', n: 2 },
+    { key: 'dog-settings', text: 'no-icon', n: 1 },
     { key: 'otter-quiz', text: 'lucide-chevron-down', n: 1 },
     { key: 'otter-search', text: 'lucide-x', n: 1 },
     { key: 'otter-settings', text: 'lucide-x', n: 1 },
@@ -351,7 +331,6 @@ const KNOWN = {
     { key: 'rabbit-assets', text: 'lucide-trash2', n: 15 },
     { key: 'rabbit-budget', text: 'no-icon', n: 1 },
     { key: 'rabbit-control-panel', text: 'lucide-trash2', n: 32 },
-    { key: 'rabbit-control-panel', text: 'no-icon', n: 5 },
     { key: 'rabbit-help', text: 'lucide-x', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },
@@ -371,8 +350,6 @@ const KNOWN = {
     { key: 'rabbit-task-new', text: 'lucide-trash2', n: 42 },
     { key: 'rabbit-tasks', text: 'lucide-square', n: 43 },
     { key: 'rabbit-tasks', text: 'lucide-trash2', n: 42 },
-    { key: 'shell-nav', text: 'lucide-check', n: 1 },
-    { key: 'shell-nav', text: 'no-icon', n: 3 },
     { key: 'shell-quit', text: 'no-icon', n: 3 },
   ],
 };

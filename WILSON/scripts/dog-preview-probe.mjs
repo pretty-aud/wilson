@@ -89,10 +89,15 @@ const PINNED = {
         w: 1178,
         h: 781.84
       },
-      frameBorders: "0px 2px 2px 2px",
+            // A1 restyle (2026-09-23), a deliberate C4 decision: the frame lost its
+      // 2px stone-600 box (review D15, V1-12) and keeps the preview's width
+      // with a 2px inset of its own ground instead (dog.css `.dog-output-frame`).
+      // Its borders and its height (the 2px bottom edge) changed; every number
+      // that is the PREVIEW's — available, root, padding, slide, visible — did not.
+      frameBorders: "0px 0px 0px 0px",
       frame: {
         w: 1182,
-        h: 783.84
+        h: 781.84
       },
       mainScrollbar: 0,
       slide: {
@@ -131,10 +136,15 @@ const PINNED = {
         w: 1018,
         h: 781.84
       },
-      frameBorders: "0px 2px 2px 2px",
+            // A1 restyle (2026-09-23), a deliberate C4 decision: the frame lost its
+      // 2px stone-600 box (review D15, V1-12) and keeps the preview's width
+      // with a 2px inset of its own ground instead (dog.css `.dog-output-frame`).
+      // Its borders and its height (the 2px bottom edge) changed; every number
+      // that is the PREVIEW's — available, root, padding, slide, visible — did not.
+      frameBorders: "0px 0px 0px 0px",
       frame: {
         w: 1022,
-        h: 783.84
+        h: 781.84
       },
       mainScrollbar: 0,
       slide: {
@@ -251,7 +261,7 @@ async function run(browser, W, H) {
   // Open page #1 and switch the output panel to the visualizer.
   await page.getByText('Probe deck title', { exact: true }).first().click();
   await page.waitForTimeout(300);
-  await clickText(page, 'Layout Visualizer');
+  await clickText(page, 'Layout visualizer');
   await page.waitForTimeout(600);
   const output = await measureOutput(page);
   if (SHOTS) {

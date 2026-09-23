@@ -96,12 +96,15 @@ describe('every exported component has a caller, or is on the list', () => {
     // deleted and both auth surfaces import the kit's. D1's own swap —
     // SettingsChrome.jsx re-pointing its local copy — is still outstanding and
     // is still D1's to make (plan §6.5).
-    Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
+    // Panel came off this list with A1 (2026-09-23): D.O.G.'s deck-outline
+    // sidebar is its first caller. A3 and C1 still owe their four sidebars.
     Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
-    Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
+    // Stat came off this list when B1 integrated (2026-09-23): the Summary
+    // band's four tiles and its budget snapshot render the kit's Stat. B2's
+    // four Tasks tiles are its second caller, still to come.
     // Switch came off when B6 re-pointed binUi at the kit (2026-09-23): Bins'
     // Toggle is the kit's Switch again, and AddFilesDialog's "Folders become
-    // nested bins" is its caller.
+    // nested bins" is its caller. A1's D.O.G. Full Deck toggle is a second.
   }
 
   const root = resolve(here, '..')

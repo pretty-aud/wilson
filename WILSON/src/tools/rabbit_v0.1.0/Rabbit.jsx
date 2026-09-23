@@ -181,8 +181,24 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   // project a fourth time on one scroll (review R23) — so on Summary they
   // dock at the tab bar's right end, beside settings and help. Hidden on no
   // view (C1).
+  //
+  // The roster the presence avatars need is fetched HERE, once for the life of
+  // the shell. The strip is rendered under two different parents (the context
+  // bar, or the tab strip on Summary), so React remounts it whenever Summary
+  // is crossed — and when it owned this hook, every crossing re-ran the
+  // workspace directory RPC and the team fetch, and the avatars flashed back
+  // to initials while they loaded (R1 finding 4). Before B1 the strip mounted
+  // once; this keeps that cost.
+  const { members: rosterMembers } = useRosterMembers()
+  const avatarByUserId = useMemo(() => {
+    const out = {}
+    for (const m of rosterMembers || []) {
+      if (m.avatar_url) out[m.id] = m.avatar_url
+    }
+    return out
+  }, [rosterMembers])
   const adapterDot = <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
-  const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} />
+  const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} />
   const statusInTabBar = activeView === 'summary'
 
   return (
@@ -294,18 +310,10 @@ function AdapterStatusDot({ mode, status }) {
 // Docked beside the adapter dot: a LIVE/SYNC pill plus up to five
 // initial chips for who else has this project open (Session 7
 // presence, cloud mode only — hidden when realtime is off).
-function RealtimePresenceStrip({ realtimeStatus, users }) {
-  // Session 8: presence meta only carries { user_id, label } — join the
-  // roster so chips can show real avatars where members uploaded one.
-  // Hook order: called unconditionally, before the early return.
-  const { members: rosterMembers } = useRosterMembers()
-  const avatarByUserId = useMemo(() => {
-    const out = {}
-    for (const m of rosterMembers || []) {
-      if (m.avatar_url) out[m.id] = m.avatar_url
-    }
-    return out
-  }, [rosterMembers])
+function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {} }) {
+  // Session 8: presence meta only carries { user_id, label } — the roster is
+  // joined in so chips can show real avatars where members uploaded one. The
+  // shell fetches the roster and passes the map in (see Rabbit's comment).
   if (!realtimeStatus || realtimeStatus === 'off') return null
   // The pill is the kit's StatusBadge, which sets its word at the Label
   // step (uppercase, tracked) itself — so the words here are sentence case.

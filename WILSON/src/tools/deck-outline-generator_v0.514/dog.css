@@ -1,34 +1,27 @@
 /* ═══════════════════════════════════════════════════════════════
-   D.O.G. — the tool's extracted state
+   D.O.G. — the tool's page stylesheet
    UI overhaul A1, 2026-09-23
 
-   COMMIT 1, "NO VISUAL CHANGE" (plan §5: every session's first commit on a
-   file it restyles is the state extraction). Every one of the 101
-   template-literal classNames in DeckOutlineGenerator.jsx carried a state
-   ternary — disabled, active, open, locked, full-deck, focused, loading —
-   and a class-based restyle written next to one silently drops a branch
-   (review risk 2). Each branch is now a named variant here, keyed on a
+   Two jobs, in the order they were done (the dashboard.css pattern).
+
+   FIRST (commit "state extraction", no visual change): every one of the
+   101 template-literal classNames in DeckOutlineGenerator.jsx carried a
+   state ternary, and each branch became a named variant here, keyed on a
    `data-*` attribute or on the native `:disabled` where the ternary's
-   condition IS the element's `disabled` prop, with the values transcribed
-   unchanged from the utilities they replace.
+   condition IS the element's `disabled` prop. When a state changed a
+   property, EVERY value of that property moved here — a rule in
+   `components` loses to any utility left on the element.
 
-   THE VALUES ARE TAILWIND'S OWN, WRITTEN OUT. Tailwind v4 emits a palette
-   variable (`--color-stone-700`) only while some utility still uses it, so a
-   rule that referenced one would go blank the day the last `bg-stone-700`
-   in the app is restyled away — silently, and in every lane at once. The
-   oklch literals below are exactly what those utilities computed (v4.1.18,
-   `tailwindcss/theme.css`); each carries its step name. They are a
-   TRANSCRIPTION, not a design: the restyle commits that follow move A1's
-   surfaces onto the `@theme` tokens, and every rule still holding a literal
-   when A1 hands off is named in its hand-off for A2.
+   SECOND (this file's A1 half, below): A1's surfaces — the sidebar, the two
+   input sections, the output panel's head, tabs, toggle and frame, and the
+   six panel headers — moved onto the kit and the `@theme` tokens. No hex and
+   no palette literal is written in that half.
 
-   THE PROPERTY MOVES WHOLE. A rule in `components` loses to any utility on
-   the same element, so when a state changed a property, EVERY value of that
-   property — resting, hover, focus, the state itself — moved here and the
-   utility left the element. A hover rule written beside a surviving
-   `bg-stone-700` would be dead on arrival (review D3 is sixteen of those).
-
-   Tailwind wraps `hover:` in `@media (hover: hover)`; so does this file.
+   THE OTHER HALF IS STILL A TRANSCRIPTION. The regenerate bar, the
+   formatting toolbar, the rewrite popover, the Settings slide-out and the
+   Help modal are A2's (plan §5 Wave 3, lane A). Their extracted rules are
+   kept at the bottom of this file exactly as the extraction wrote them —
+   Tailwind's oklch values, written out — for A2 to move onto tokens.
 
    🚨 THE `@layer` STATEMENT IS THE FIRST LINE, and has to be: this sheet is
    imported from a component, so the bundler can emit it before
@@ -40,145 +33,511 @@
 
 @layer components {
 
-  /* ── Sidebar ─────────────────────────────────────────────────────────── */
+  /* ═══ THE PAGE ══════════════════════════════════════════════════════════
+     D1: the root stopped declaring `font-sans` (the only surface in the app
+     that did, then overrode it thirty times); the app sets the family once.
 
-  /* Undo / redo delete. `disabled` is exactly `stack.length === 0`. */
-  .dog-side-btn { color: oklch(70.9% 0.01 56.259); /* stone-400 */ }
+     🚨 C4 — THE MAIN COLUMN'S PADDING IS ARITHMETIC, NOT TASTE. The slide
+     preview is a fixed 1141 x 641 frame plus a 280px asset column inside an
+     overflow-hidden wrapper, so the width the chrome leaves it is exactly how
+     much of it the user sees, and C4 pins that width byte-for-byte
+     (scripts/dog-preview-probe.mjs). Horizontal chrome before A1:
+
+       sidebar 224 + main padding 16+16 + card border 1+1 + frame 2+2 = 262
+
+     after A1:
+
+       Panel md 240 + main padding 8+8 + card border 1+1 + frame inset 2+2 = 262
+
+     The Panel is md, not sm, because its header must hold a title and four
+     28px kit icon buttons (sm leaves 48px for "Deck outline", which measures
+     86.5px); md takes 16px more, so the main column gives 16px back. A 24px
+     gutter here would narrow the preview by 32px and clip the slide at 1440.
+     Change any term and the probe fails. */
+  .dog-root {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+  }
+  .dog-main {
+    padding: 8px;
+    background-color: var(--color-paper);
+  }
+  .dog-main > * + * { margin-top: 8px; }
+
+  /* ═══ THE SIDEBAR — the kit's Panel ═════════════════════════════════════ */
+
+  /* A1 kit request KR-2: the Panel header cannot hold a title and four sm
+     icon buttons at md with its 8px gap (84px left, 86.5px needed). 4px here,
+     scoped to this panel, until the kit decides. The hairline makes the
+     header one treatment with the other five (D4). */
+  .dog-sidebar .ui-panel-head {
+    gap: 4px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-sidebar .ui-panel-title { white-space: nowrap; }
+
+  .dog-history-row {
+    position: relative;
+    border-bottom: 1px solid var(--color-rule);
+    /* A page open in a tab is a STANDING role, not a selection: F2's Row
+       "highlighted" treatment — a 2px ink-3 edge, no fill. The edge is always
+       there (transparent) so nothing moves when it appears. */
+    border-left: 2px solid transparent;
+  }
+  .dog-history-row[data-open='true'] { border-left-color: var(--color-ink-3); }
+
+  .dog-history-open {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 12px 8px 10px;   /* 10 + the 2px edge = the header's 12px */
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
   @media (hover: hover) {
-    .dog-side-btn:hover:not(:disabled) { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
+    .dog-history-open:hover { background-color: var(--color-hover); }
   }
-  .dog-side-btn:disabled { color: oklch(44.4% 0.011 73.639); /* stone-600 */ cursor: not-allowed; }
-
-  /* A history row whose page is open in a tab. */
-  .dog-history-row[data-open='true'] {
-    background-color: color-mix(in oklab, oklch(37.4% 0.01 67.558) 50%, transparent); /* stone-700/50 */
+  .dog-history-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .dog-history-num {
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .dog-history-time {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .dog-history-title {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+    padding-right: 20px;
+  }
+  .dog-history-layout {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* Delete: revealed on hover as before (review D17 — the timestamp still
+     steps aside for it; a reserved slot is a flow change, recorded), and now
+     on keyboard focus too, which it never was. */
+  .dog-history-row .dog-history-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out,
+      background-color var(--duration-state) ease-out,
+      color var(--duration-state) ease-out;
+  }
+  .dog-history-row:hover .dog-history-remove,
+  .dog-history-row:focus-within .dog-history-remove { opacity: 1; }
+  .dog-history-row:hover .dog-history-time,
+  .dog-history-row:focus-within .dog-history-time { opacity: 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-history-open,
+    .dog-history-time,
+    .dog-history-row .dog-history-remove { transition: none; }
   }
 
-  /* ── Section 1 ───────────────────────────────────────────────────────── */
+  /* ═══ THE SIX PANEL HEADERS — one treatment (review D4) ═════════════════
+     The sidebar's header IS the kit's (Panel). The other five — Section 1,
+     Section 2, Generated output, the Settings slide-out, the Help modal —
+     wear the same `.ui-panel-head` / `.ui-panel-title` contract on their own
+     markup, because the kit exports no PanelHeader yet (A1 kit request KR-3).
+     32px, no fill, a hairline under it, the Label step, a 14px leading icon,
+     actions on the right.
 
-  .dog-project-select { color: oklch(86.9% 0.005 56.366); /* stone-300 */ }
-  .dog-project-select[data-empty='true'] { color: oklch(75% 0.183 55.934); /* orange-400 */ }
+     The title ink is ink-2, not the kit's ink-3: inside a card the fields
+     below are labelled at the Label step in ink-2 (`.ui-field-label`), and a
+     header dimmer than its own fields inverts the hierarchy. Recorded in
+     KR-3 for the kit to settle. */
+  .dog-card-head {
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .dog-card-head[data-collapsed='true'] { border-bottom-color: transparent; }
+  .dog-card-head[data-collapsible='true'] {
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  @media (hover: hover) {
+    .dog-card-head[data-collapsible='true']:hover { background-color: var(--color-hover); }
+  }
+  .dog-card-title,
+  .dog-sidebar .ui-panel-title {
+    color: var(--color-ink-2);
+  }
+  .dog-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  /* The step number. Was a filled orange-500 circle with 13px white mono in
+     it — 2.89:1, C6's exact failure — and mono for a numeral that is not
+     data (D1). */
+  .dog-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border: 1px solid var(--color-rule);
+    border-radius: 9999px;
+    /* The Caption step, not the title's Label: a numeral is not a capital,
+       and the Label step's +0.06em tracking would push one digit off centre
+       (§3.1 allows zero tracking only off the Label step — ui-walk's `trk`). */
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    letter-spacing: 0;
+    text-transform: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .dog-card-note {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--color-ink-3);
+  }
+  .dog-chevron {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    color: var(--color-ink-3);
+  }
+  .dog-head-icon {
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    flex-shrink: 0;
+    color: var(--color-ink-3);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-card-head[data-collapsible='true'] { transition: none; }
+  }
 
-  /* CORE / REFERENCE role toggle — was an inline style ternary. */
+  /* Section 2 in Full Deck mode is disabled: the disabled token (ink at
+     52 percent + not-allowed), never an opacity (§3.1). */
+  .dog-s2[data-full-deck='true'] .dog-card-head { cursor: not-allowed; }
+  .dog-s2[data-full-deck='true'] :is(.dog-card-title, .dog-step, .dog-chevron) {
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ THE TWO INPUT SECTIONS ════════════════════════════════════════════
+     The cards are the kit's Card. The fields wear the kit's Field and Input
+     contracts (`.ui-field-label`, `.ui-field-hint`, `.ui-input`) on D.O.G.'s
+     own native controls — the C3 precedent — because the kit's Input and
+     TextArea revert the edit on Escape, which these fields never did (C1). */
+  .dog-card-body { padding: 12px; }
+  .dog-card-body > * + * { margin-top: 16px; }
+  .dog-field-label { display: block; margin-bottom: 4px; }
+  .dog-field-hint { margin-bottom: 8px; }
+  .dog-field-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .dog-select { appearance: none; cursor: pointer; }
+  .dog-select-chevron {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    translate: 0 -50%;
+    width: var(--icon-md);
+    height: var(--icon-md);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  /* "No project selected" reads as a placeholder: the placeholder token. */
+  .dog-project-select[data-empty='true'] { color: var(--color-ink-3); }
+  .dog-layout-select { position: relative; width: 224px; }
+  .dog-layout-desc { margin-top: 4px; }
+  .ui-input.dog-page-number { width: 96px; }
+
+  /* The two prompts still grow while focused (review D12 is a C1 item: it
+     changes how much text is visible at rest — recorded, not changed).
+     (0,2,0) beats the kit's `textarea.ui-input { height: auto }` (0,1,1). */
+  .ui-input.dog-context-prompt { height: 80px; resize: none; }
+  .ui-input.dog-context-prompt[data-focused='true'] { height: 160px; }
+  .ui-input.dog-page-request { height: 96px; resize: none; }
+  .ui-input.dog-page-request[data-focused='true'] { height: 160px; }
+
+  .dog-hint-emph { color: var(--color-ink); }
+  .dog-generate { width: 100%; }
+
+  .dog-project-details {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .dog-details-desc {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    margin-bottom: 2px;
+  }
+  .dog-details-note {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+    margin-bottom: 8px;
+  }
+  .dog-roles {
+    border-top: 1px solid var(--color-rule);
+    padding-top: 8px;
+  }
+  .dog-roles-label { display: block; margin-bottom: 4px; }
+  .dog-role-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* CORE / REFERENCE. Was #fff7ed on a #ea580c fill at 13px — C6 again.
+     Core is now the one selection treatment: the signal tint and edge, ink
+     text. Reference is a hairline and the second ink. (Review D28 wants a
+     StatusBadge here; it is a toggle, and the kit's badge is inert.) */
   .dog-role-btn {
     width: 52px;
-    background-color: #44403c;
-    color: #a8a29e;
-    border: 1px solid #57534e;
+    background-color: transparent;
+    color: var(--color-ink-2);
+    border: 1px solid var(--color-rule);
   }
   .dog-role-btn[data-core='true'] {
-    background-color: var(--color-signal);       /* #ea580c */
-    color: #fff7ed;
-    border-color: var(--color-signal-fill);      /* #c2410c */
+    background-color: var(--color-signal-tint);
+    color: var(--color-ink);
+    border-color: var(--color-signal);
+  }
+  @media (hover: hover) {
+    .dog-role-btn:not([data-core='true']):hover { background-color: var(--color-hover); }
   }
 
-  /* The three option checkboxes' box. */
-  .dog-check { border-color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-  .dog-check[data-checked='true'] { border-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
+  .dog-upload-hint {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    color: var(--color-ink-3);
+  }
+  .dog-file-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 288px;
+    height: 32px;
+    padding: 0 2px 0 8px;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .dog-file-icon {
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    flex-shrink: 0;
+    color: var(--color-ink-3);
+  }
+  .dog-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .dog-file-size {
+    flex-shrink: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
 
-  /* The two hand-rolled switches: Full Deck, and the Settings lock
-     (`data-on` is "unlocked" there). */
+  /* The three option checkboxes. The kit has no Checkbox (review D26; A1
+     kit request KR-4), so this stays D.O.G.'s — on the tokens, named, and
+     announced as a checkbox. The glyph is the checkbox's own mark. */
+  .dog-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border: 1px solid var(--color-ink-3);
+    border-radius: var(--radius-control);
+    background-color: transparent;
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .dog-check[data-checked='true'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .dog-check-glyph { width: 10px; height: 10px; color: var(--color-ink); }
+  .dog-check-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-check { transition: none; }
+  }
+
+  /* ═══ THE OUTPUT PANEL ═════════════════════════════════════════════════ */
+
+  .dog-tabbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  /* The kit's tab strip, one row: the pages scroll sideways as they always
+     did rather than wrapping into a second row (the toolbar precedent,
+     `.ui-toolbar .ui-tabs`). */
+  .dog-page-tabs {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  /* A closable tab (A1 kit request KR-1): the tab and its close control sit
+     side by side in one wrapper, and the WRAPPER carries the kit's 2px signal
+     underline so it runs under both. */
+  .dog-page-tab {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    border-bottom: 2px solid transparent;
+  }
+  .dog-page-tab[data-active='true'] { border-bottom-color: var(--color-signal); }
+  .dog-page-tab > .ui-tab {
+    height: 34px;
+    border-bottom-width: 0;
+    padding-right: 4px;
+  }
+  .dog-tab-num {
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-tab[data-active='true'] .dog-tab-num { color: var(--color-ink-2); }
+  .dog-tab-title {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dog-tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-right: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--color-ink-3);
+    cursor: pointer;
+    transition: color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .dog-tab-close > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  @media (hover: hover) {
+    .dog-tab-close:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  }
+  .dog-view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-tab-close { transition: none; }
+  }
+
+  /* The descriptor above the text view (review D27: roman, the Caption
+     step, a measure). The caption UNDER the preview sits inside the C4
+     wrapper and only changed its ink, so the wrapper's geometry cannot move. */
+  .dog-caption-row {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-caption {
+    max-width: 60ch;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* 🚨 C4 — THE FRAME AROUND THE PREVIEW. It drew a 2px stone-600 box inside
+     the card's own hairline (review D15, V1-12: a border that changes weight
+     mid-panel). The card's hairline is now the only edge, and the frame
+     keeps the preview's width with a 2px INSET of its own recessed ground —
+     the same colour as the preview's, so it cannot be seen. The inset is the
+     one number here that is arithmetic rather than the spacing scale (see
+     THE PAGE above); dog-preview-probe.mjs pins what it protects. */
+  .dog-output-frame {
+    position: relative;
+    padding-inline: 2px;
+    background-color: var(--color-paper-recessed);
+  }
+  .dog-output-empty { min-height: 780px; }
+
+  /* ═══ SETTINGS ACCORDIONS — review D3 ══════════════════════════════════
+     Sixteen headers declared `hover:bg-stone-750`, a step Tailwind does not
+     have, so the densest panel in the tool gave no response to the pointer.
+     The hover is now the kit's one hover fill laid OVER whatever the resting
+     ground is, so it survives A2 re-surfacing the slide-out. The resting
+     ground is the extraction's stone-800, unchanged: that is A2's. */
+  .dog-acc-head { background-color: oklch(26.8% 0.007 34.298); /* stone-800 — A2's */ }
+  @media (hover: hover) {
+    .dog-acc-head:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  }
+
+  /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
+     Everything below is still Tailwind's palette written out as oklch
+     literals, exactly as the state extraction left it. A2 moves it onto the
+     tokens with the surfaces it restyles. */
+
+  /* The Settings lock switch (the Full Deck switch is now the kit's Switch).
+     `data-on` is "unlocked". */
   .dog-switch { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
   .dog-switch[data-on='true'] { background-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
   .dog-switch-knob { left: 0.25rem; /* left-1 */ }
   .dog-switch[data-on='true'] .dog-switch-knob { left: 1.5rem; /* left-6 */ }
-
-  /* The deck-context prompt grows while focused (review D12 — a C1 item,
-     recorded, not changed). */
-  .dog-context-prompt { height: 5rem; /* h-20 */ }
-  .dog-context-prompt[data-focused='true'] { height: 10rem; /* h-40 */ }
-
-  /* ── Section 2 — every state is Full Deck mode, carried once on the
-        section and read by its descendants ─────────────────────────────── */
-
-  .dog-s2[data-full-deck='true'] { opacity: 50%; }
-
-  .dog-s2-head { background-color: oklch(37.4% 0.01 67.558); /* stone-700 */ cursor: pointer; }
-  @media (hover: hover) {
-    .dog-s2:not([data-full-deck='true']) .dog-s2-head:hover { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
-  }
-  .dog-s2[data-full-deck='true'] .dog-s2-head { cursor: not-allowed; }
-
-  .dog-s2-accent { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  .dog-s2[data-full-deck='true'] .dog-s2-accent { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-
-  .dog-s2-step { background-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
-  .dog-s2[data-full-deck='true'] .dog-s2-step { background-color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-
-  /* Layout select, page number, page request. The resting border and the
-     focus border moved together (see the header). */
-  .dog-s2-select,
-  .dog-s2-input,
-  .dog-s2-textarea {
-    background-color: oklch(21.6% 0.006 56.043); /* stone-900 */
-    border-color: oklch(44.4% 0.011 73.639);     /* stone-600 */
-  }
-  .dog-s2-select { color: oklch(75% 0.183 55.934); /* orange-400 */ cursor: pointer; }
-  .dog-s2-input,
-  .dog-s2-textarea { color: oklch(86.9% 0.005 56.366); /* stone-300 */ }
-  .dog-s2-select:focus,
-  .dog-s2-input:focus,
-  .dog-s2-textarea:focus { border-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
-  .dog-s2-textarea { height: 6rem; /* h-24 */ }
-  .dog-s2-textarea[data-focused='true'] { height: 10rem; /* h-40 */ }
-  .dog-s2[data-full-deck='true'] :is(.dog-s2-select, .dog-s2-input, .dog-s2-textarea) {
-    background-color: oklch(37.4% 0.01 67.558); /* stone-700 */
-    color: oklch(55.3% 0.013 58.071);           /* stone-500 */
-    border-color: oklch(44.4% 0.011 73.639);    /* stone-600 — no focus colour in this mode */
-    cursor: not-allowed;
-  }
-  .dog-s2[data-full-deck='true'] .dog-s2-textarea { height: 6rem; /* h-24, focused or not */ }
-
-  /* ── Output panel ────────────────────────────────────────────────────── */
-
-  /* Page tabs. Active: a 2px box whose bottom edge takes the content's
-     colour and overlaps the bar by 4px. Inactive: a 1px box, no bottom. */
-  .dog-page-tab {
-    background-color: oklch(37.4% 0.01 67.558);  /* stone-700 */
-    color: oklch(70.9% 0.01 56.259);             /* stone-400 */
-    border-style: solid;
-    border-width: 1px 1px 0 1px;
-    border-color: oklch(44.4% 0.011 73.639);     /* stone-600 */
-    margin-bottom: 0;
-  }
-  @media (hover: hover) {
-    .dog-page-tab:not([data-active='true']):hover { color: oklch(86.9% 0.005 56.366); /* stone-300 */ }
-  }
-  .dog-page-tab[data-active='true'] {
-    background-color: oklch(14.7% 0.004 49.25); /* stone-950 */
-    color: oklch(75% 0.183 55.934);             /* orange-400 */
-    border-width: 2px;
-    border-color: oklch(44.4% 0.011 73.639);    /* stone-600 */
-    border-bottom-color: oklch(14.7% 0.004 49.25); /* stone-950 */
-    margin-bottom: -0.25rem;                    /* -mb-1 */
-    position: relative;
-    z-index: 10;
-  }
-
-  /* Text / visualizer toggle. */
-  .dog-view-btn { background-color: oklch(37.4% 0.01 67.558); /* stone-700 */ color: oklch(70.9% 0.01 56.259); /* stone-400 */ }
-  @media (hover: hover) {
-    .dog-view-btn:not([data-active='true']):hover { color: oklch(86.9% 0.005 56.366); /* stone-300 */ }
-  }
-  .dog-view-btn[data-active='true'] {
-    background-color: oklch(70.5% 0.213 47.604); /* orange-500 */
-    color: var(--color-on-fill);                 /* text-white, #ffffff */
-  }
-
-  /* The frame the preview sits in (C4). Its top edge exists only when there
-     is no tab bar above it to close the box, so the frame's border moved
-     here WHOLE: its widths and colour were three utilities beside a ternary
-     that decided the fourth, and the one-border guard in typeScale.test.js
-     had been exempting all three because a `border-` token followed them
-     inside a `${…}` (ui-pass4-surface.mjs reads that as an active-tab
-     indicator). It is not an indicator; it is structural 2px (V1-12). Its
-     width is decided in A1's restyle, against the preview's pinned box. */
-  .dog-output-frame {
-    border-style: solid;
-    border-width: 0 2px 2px 2px;                /* border-l-2 border-r-2 border-b-2 */
-    border-color: oklch(44.4% 0.011 73.639);    /* stone-600 */
-  }
-  .dog-output-frame[data-no-tabs='true'] { border-top-width: 2px; }
 
   /* ── Regenerate bar and formatting toolbar (A2's surfaces; extracted
         here because the extraction is the whole file) ──────────────────── */
