@@ -148,6 +148,12 @@ const REGISTRY = [
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
   P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: 'Lock the shooting script' } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),
+  // B2: the rest of the Tasks view the walk could not see — the board, and
+  // the two small dialogs off its toolbar (Phase creates nothing until its
+  // own Create; Save view writes nothing until its own Save).
+  P('rabbit-tasks-board', '/rabbit', { steps: ['@proj', 'Tasks', 'Board'], expect: { styled: 'Board' } }),
+  P('rabbit-task-phase', '/rabbit', { steps: ['@proj', 'Tasks', 'Phase'], expect: { dialog: true } }),
+  P('rabbit-task-save-view', '/rabbit', { steps: ['@proj', 'Tasks', 'Views', 'Save current view'], expect: { dialog: true } }),
   ...['By Phase', 'By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>
     P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { styled: t } })),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
@@ -159,6 +165,9 @@ const REGISTRY = [
   ...['Profile', 'Models', 'Storage', 'Teams', 'Agent', 'Agent Skills'].map((t) =>
     P(`settings-${t.toLowerCase().replace(/\s+/g, '-')}`, '/settings', { steps: [t], expect: { active: t } })),
   P('settings-reset-dialog', '/settings', { steps: ['Reset history'], expect: { dialog: 'Reset pet history' } }),
+  // B2: the task template manager (Settings' "Storage" tab is the old
+  // R.A.B.B.I.T. tab; the Timeline's settings panel opens the same component).
+  P('settings-task-templates', '/settings', { steps: ['Storage', 'Manage task templates'], expect: { dialog: true } }),
 
   // The resource pages' sub-views.
   P('projects-detail', '/project-manager', { steps: ['@row:Salt Hours'], expect: { text: 'Project details' } }),
@@ -169,6 +178,8 @@ const REGISTRY = [
   P('files-project', '/project-files', { steps: ['@files', 'Table'], expect: { selector: 'table tbody tr' } }),
   P('dashboard-profile', '/dashboard', { steps: ['Profile'], expect: { active: 'Profile' } }),
   P('dashboard-notes', '/dashboard', { steps: ['Notes'], expect: { active: 'Notes' } }),
+  // B2: TaskDetailPopup's second home — every Dashboard row click opens it.
+  P('dashboard-task-detail', '/dashboard', { steps: ['@row:Café location agreement'], expect: { dialog: 'Café location agreement' } }),
   ...['Company', 'Models', 'Storage', 'Requests', 'Logs', 'Diagnostics'].map((t) =>
     P(`admin-${t.toLowerCase()}`, '/admin-terminal', { steps: [t], expect: { active: t } })),
   ...['O.T.T.E.R.', 'Project Manager', 'Wilson'].map((t) =>
