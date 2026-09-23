@@ -14,12 +14,13 @@ step and the alignment of the tables and toolbars, and names anything off.
 The checks before this reached the twelve pages you can type into the
 address bar and R.A.B.B.I.T.'s tabs. V1 added Settings' tabs, the Admin
 Terminal's sections, Budget's ten views, O.T.T.E.R.'s tools and lesson page,
-Help's sections, and 18 of the app's roughly 60 pop-ups and panels — **FILL
+Help's sections, and 18 of the app's roughly 60 pop-ups and panels — **77
 screens at both window sizes**. What it did not reach is named in the last
 section, so nobody reads this as "every screen".
 
-There is **one change you will see**: the active tab along the top of
-R.A.B.B.I.T. The rest are named below, with the pictures.
+There are **two changes you will see**: the active tab along the top of
+R.A.B.B.I.T., and the O.T.T.E.R. section of the Help page. The rest are named
+below, with the pictures.
 
 ---
 
@@ -31,14 +32,14 @@ and dialog still its old self underneath. Measured on every screen walked:
 
 | the promise | what the walk measured | verdict |
 |---|---|---|
-| **One typeface** | About 99,500 characters drawn on screen at each size. All but **8 pieces of text** — one character in each — are Geist or Geist Mono, confirmed by asking the browser which font it actually used. | ✅ with one gap (§4.3) |
+| **One typeface** | About 108,000 characters drawn on screen at each size. All but **8 pieces of text** — one character in each — are Geist or Geist Mono, confirmed by asking the browser which font it actually used. | ✅ with one gap (§4.3) |
 | **One set of sizes** | 0 pieces of text off the seven sizes, on every screen walked, at both window sizes. | ✅ |
-| **One case** | Capitals only on labels — after I fixed ten places that still shouted (§2). Two buttons still use the label style (§4.4). | ✅ nearly |
+| **One case** | Capitals only on labels — after I fixed ten places that still shouted (§2). A few buttons and tabs still use the label style (§4.4). | ✅ nearly |
 | **One border** | True everywhere a shared stylesheet decides. D.O.G., O.T.T.E.R. and R.A.B.B.I.T. still draw some 2–3px frames of their own. | ⚠️ the three tools |
 | **Two corner radii** | Same story: about a dozen hand-set corners, in the tools. | ⚠️ the three tools |
 | **No white** | True everywhere except Budget's **Client View**, which is near-white. | ❓ question 3 |
 | **Two page classes** | Home, Settings and Help on the light orange; the three tools and all six data pages on the dark. Exactly what you ruled. | ✅ |
-| **Dialogs still their old selves** | Confirmed. The four already rebuilt are exactly right; every tool dialog is the old one. All 18 I opened stay on a 1280x700 screen — three of them only by scrolling inside, which is how they were built. | ✅ as expected |
+| **Dialogs still their old selves** | Confirmed. The four already rebuilt are exactly right; every tool dialog is the old one. All 18 I opened stay on a 1280x700 screen — five of them only by scrolling inside, which is how they were built. | ✅ as expected |
 
 ---
 
@@ -50,15 +51,24 @@ which breaks your rule that small text on orange is black or white. It is on
 every R.A.B.B.I.T. screen. The text is now black (4.91 to 1), and the same
 for the row of Budget tabs just under it, so the two match. **This is a
 stopgap, not the finished look**: the design has the selected tab lose the
-orange fill and take an underline instead, and the R.A.B.B.I.T. session that
-starts next does that. Compare `t2-after-rabbit-timeline-1280x700.png` with
+orange fill and take an underline instead — the R.A.B.B.I.T. sessions do
+that, the shell's first (B1, one of the three your W13 starts now) and
+Budget's later (B5). Compare `t2-after-rabbit-timeline-1280x700.png` with
 `v1-rabbit-timeline-1280x700.png`.
+
+**The O.T.T.E.R. section of the Help page** was the one part of Help still
+in the old style: grey text on the orange (4.08 to 1 — your rule allows only
+the dark ink there) and every section title in small capitals. It now looks
+like the rest of Help — the dark ink, and the section titles at the same
+heading size as D.O.G.'s and the others'
+(`v1-help-otter-1280x700.png`).
 
 **Ten places still shouting in capitals.** The title bars of the Settings
 and Help panels in D.O.G., O.T.T.E.R. and R.A.B.B.I.T. said SETTINGS and
-HELP & DOCUMENTATION in spaced capitals; a panel title is sentence case by
-your ruling, so they now read "Settings", "RABBIT Settings" and "Help &
-Documentation", same size, same colour. Budget → Custom's totals row said
+HELP & DOCUMENTATION in spaced capitals. They are no longer in capitals — they
+read "Settings", "RABBIT Settings" and "Help & Documentation", same size, same
+colour. (Your ruling asks for sentence case, "Help & documentation"; changing
+the words themselves is the tool sessions' to do.) Budget → Custom's totals row said
 TOTAL in the typewriter font; it is the small label style now, like the Rate
 Card's. And three warnings on the Timeline ("Read only", "Not saved") that
 only appear in particular states are the small label style too.
@@ -74,22 +84,24 @@ were out of date, and I re-took them.
 
 You asked, when you kept the thinner sign-in bars, to make sure "nothing is
 bleeding from one box to the other" on a small window. **Nothing does,** on
-the four sign-in screens a browser can reach without an account, at
-1280x700:
+the five sign-in screens a browser can reach without an account, at
+1280x700 and again at 1440x900:
 
 | screen | content | clear of each orange bar |
 |---|---|---|
 | company name | 150px | 197px |
 | username and password | 290px | 127px |
 | forgot password | 220px | 162px |
-| the "set a new password" link from an email | 129px | 207px |
+| an invite link, first step | 129px | 207px |
+| a link that has expired or was already used | 192px | 176px |
 
-`v1-auth-credentials-1280x700.png` is the tallest. **Two screens are not
-checked:** the two-factor set-up every admin is sent through, and the
-new-user welcome. Both need a signed-in account. The only measurement of
-them is an estimate from 11 September, taken before the type pass changed
-them, which said they fit with about 15px to spare. Worth a look on a
-short window when you walk the build.
+`v1-auth-credentials-1280x700.png` is the tallest. **Not checked, because
+each needs a real account or a working link:** the new-password form and its
+"done" screen, the two-factor code step at sign-in, the workspace chooser,
+"reset link sent", the two-factor set-up every admin is sent through, and the
+new-user welcome. The only measurement of the last two is an estimate from 11
+September, taken before the type pass changed them, which said they fit with
+about 15px to spare. Worth a look on a short window when you walk the build.
 
 ---
 
@@ -108,9 +120,9 @@ and the table has 1,230. Giving money and status the room they need makes
 names and emails cut off instead. That is a design call, not a tidy-up, so I
 have not made it — question 2.
 
-### 4.2 Light text on orange, in about forty places
+### 4.2 Light text on orange, in 27 places
 
-The tab fix in §2 was the most visible of a family. The walk found **37
+The tab fix in §2 was the most visible of a family. The walk found **27
 places** where light text sits on orange below the size your rule allows —
 D.O.G.'s numbered steps, O.T.T.E.R.'s "+ New" and filter chips
 (`v1-otter-lesson-1280x700.png`, top left), and R.A.B.B.I.T.'s "New task",
@@ -119,8 +131,8 @@ D.O.G.'s numbered steps, O.T.T.E.R.'s "+ New" and filter chips
 Your rulings already decide the fix, so this is not a question: a main
 button moves to the darker orange that carries white text (your Q16), and a
 selected tab or chip loses the orange fill and takes an underline. The
-D.O.G., O.T.T.E.R. and R.A.B.B.I.T. sessions that start now (your W13) are
-rebuilding exactly those surfaces; each has its list.
+D.O.G., O.T.T.E.R. and R.A.B.B.I.T. sessions rebuild exactly those surfaces —
+the first three start now, by your W13 — and each has its list.
 
 ### 4.3 Arrows and ticks are not in the font
 
@@ -152,9 +164,10 @@ known** — finding out means downloading Geist's full release — question 1.
   (`v1-rate-card-1280x700.png`).
 - **Asset and scene details put a button inside a button**, which the
   browser reports as an error.
-- **Two buttons still use the small-capitals label style** — "FILTER" on the
-  Dashboard and "TODAY" on the Timeline. A button is sentence case by your
-  ruling.
+- **Some buttons and tabs still use the small-capitals label style** —
+  "FILTER" on the Dashboard, "TODAY" on the Timeline, Budget's row of tabs,
+  and the "Delete" button that appears when you tick several rows in seven
+  R.A.B.B.I.T. tables. Buttons and tabs are sentence case by your ruling.
 - **About 250 icon-only buttons have no name** — row checkboxes, delete
   buttons, the ✕ that closes several panels. A screen reader says "button"
   and nothing else, and hovering shows no tooltip.
@@ -206,7 +219,7 @@ accessibility's sake.
 
 ## What was walked, and what was not
 
-A script now opens FILL screens in a real browser and proves each one opened
+A script now opens 77 screens in a real browser and proves each one opened
 before measuring it — the proof has to be false before its last click and
 true after, and nothing in the app's frame can satisfy it. That rule exists
 because checks in this project have measured the wrong screen and reported a
@@ -218,9 +231,9 @@ is `scripts/ui-walk.mjs`, and it goes red on anything new.
 **Not walked:** about 40 of the app's pop-ups and panels, R.A.B.B.I.T.'s
 Levels and Experiences tabs (hidden for the sample project's type),
 Timeline's task editor, and anything that needs a signed-in account — the
-two sign-in screens in §3 among them. A second visual pass (V2, your W16)
-runs after the D.O.G., O.T.T.E.R. and R.A.B.B.I.T. sessions, with the same
-script.
+sign-in stages in §3 among them. A second visual pass (V2, your W16)
+runs after the D.O.G., O.T.T.E.R. and R.A.B.B.I.T. sessions, and can use the
+same script.
 
 **To look at it yourself**
 
