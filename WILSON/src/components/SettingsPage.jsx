@@ -971,7 +971,7 @@ export default function SettingsPage({
                 description={'The companion agent can edit, correct, and create lesson content in O.T.T.E.R. when switched to "Work with" mode.'}
               >
                 <Note>
-                  Agent workflows use <strong>Sonnet</strong> and consume tokens faster than companion chat (which uses Haiku). Each edit request costs approximately 3-5x more tokens than a chat message.
+                  Agent workflows use <strong className="font-semibold">Sonnet</strong> and consume tokens faster than companion chat (which uses Haiku). Each edit request costs approximately 3-5x more tokens than a chat message.
                 </Note>
 
                 <div className="mt-4">

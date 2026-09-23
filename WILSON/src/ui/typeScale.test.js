@@ -1324,14 +1324,15 @@ describe('the inline half: every type value reads a token (T3)', () => {
      DECLARATION at all, of any spelling, token-valued or not. 105 of them
      went; a table that styled itself from two consts is why it is worth
      saying out loud. */
-  /* 🚨 SEVEN `lineHeight` DECLARATIONS, AND THE TEST'S OWN TITLE WAS WRONG.
+  /* 🚨 SEVEN `lineHeight` DECLARATIONS (SIX since V1 — see below), AND THE
+     TEST'S OWN TITLE WAS WRONG.
      T2 asserted "no type in a style object at all, of any spelling" while
      sweeping five of the six spellings — `lineHeight` was not among them,
      because the assertion that swept it was written by T3 in the same hour
      and was lost in the three-way merge. Round two caught the omission and
      the merge together.
 
-     The seven are real and they are R.A.B.B.I.T.'s. NOT converted here, and
+     The seven were real and they are R.A.B.B.I.T.'s. NOT converted here, and
      that is a deliberate refusal rather than an oversight: three of them
      (1.5, 1.5, 1.4) are exact scale values and would be a free swap, but
      four are NOT on the scale at all —

@@ -170,12 +170,19 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // table: the rows for 900, 700 and 500 had been measured against an earlier
 // draft's 480px constant and were never re-taken when it became 544 — the
 // prose above says 178px and 1046px, which is 544's arithmetic, while the
-// table said 210 and 110, which is 480's. The live numbers:
+// table said 210 and 110, which is 480's. The bars and wells below are live;
+// the one content height is NOT (see the 700 row):
 //
 //   H=1300 → bar 312px, well 676px   the 24vh cap wins; nothing changed
 //   H=900  → bar 178px, well 544px   38px thinner than a flat 24vh
-//   H=700  → bar  78px, well 544px   the minimum window; the tallest screen
-//                                    (529.19px) has 14.81px of headroom
+//   H=700  → bar  78px, well 544px   the minimum window. The tallest screen
+//                                    was ESTIMATED at 529.19px on 2026-09-11
+//                                    (the clone measurement above), before
+//                                    T0 and T3 edited MfaSection; if it still
+//                                    holds, 14.81px of headroom. Nobody has
+//                                    re-measured the MFA gate or
+//                                    NewUserWelcome since: both need a
+//                                    signed-in session.
 //   H=500  → bar   0px, well 500px   the bars are gone; a web window this
 //                                    short cannot hold the tallest screen
 //   H=420  → bar   0px, well 420px   clamped: the bars vanish rather than
@@ -185,9 +192,10 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 //
 // At 900 the bar is 38px thinner than a flat 24vh — the visible proportion
 // change named above; at 700 it is the difference between a screen that fits
-// and one that clips. V1 also walked the three sign-in screens a browser can
-// reach (company, credentials, forgot password) at 1280x700: content 150,
-// 290 and 220px inside the 544px well, 127px clear of each bar at the
+// and one that clips. V1 also measured the four sign-in screens a browser can
+// reach without an account (company, credentials, forgot password, and the
+// recovery/invite link's first step at #/recovery) at 1280x700: content 150,
+// 290, 220 and 129px inside the 544px well, 127px clear of each bar at the
 // tallest, nothing over the orange (walkthrough 35, Audrey's W7).
 //
 // 🚨 Do NOT solve a future overflow by adding a second set of bars in a child

@@ -42,6 +42,7 @@ import CurrencyDisplay from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
+import { INK_LIGHT } from '../../../ui/tokens.js'
 
 function fmtCurrency(val, currency = 'USD') {
   const n = Number(val) || 0
@@ -216,7 +217,10 @@ export default function BudgetView() {
               onClick={() => setTab(t.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-control transition-colors"
               style={{
-                color: active ? '#fff7ed' : '#a8a29e',
+                /* V1: the same stopgap as ViewTabs directly above it — `#fff7ed`
+                   on the signal was 3.35:1 (C6). The fill is lane B5's to
+                   remove (§3.2: the active tab takes the underline). */
+                color: active ? INK_LIGHT : '#a8a29e',
                 backgroundColor: active ? '#ea580c' : 'transparent',
                 borderBottom: active ? '2px solid #ea580c' : '2px solid transparent',
               }}

@@ -695,7 +695,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
         >
           <Lock className="w-3 h-3 shrink-0" style={{ color: '#78716c' }} />
-          <span className="uppercase tracking-widest shrink-0" style={{ color: '#78716c' }}>Read only</span>
+          <span className="text-label uppercase shrink-0" style={{ color: '#78716c' }}>Read only</span>
           <span className="truncate" title={writeReason}>{writeReason}</span>
         </div>
       )}
@@ -711,7 +711,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #7f1d1d', color: '#fca5a5' }}
         >
           <AlertTriangle className="w-3 h-3 shrink-0" />
-          <span className="uppercase tracking-widest shrink-0">Not saved</span>
+          <span className="text-label uppercase shrink-0">Not saved</span>
           <span className="truncate" title={depError.detail}>{depError.message}</span>
           <button
             type="button"
@@ -4236,7 +4236,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
           >
             <Lock className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#78716c' }} />
             <span>
-              <span className="uppercase tracking-wider" style={{ color: '#78716c' }}>Read only — </span>
+              <span className="text-label uppercase" style={{ color: '#78716c' }}>Read only — </span>
               {writeReason}
             </span>
           </div>
