@@ -4923,56 +4923,50 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             
       </Drawer>
 
-      {/* Help Modal - Higher z-index to appear above settings panel */}
+      {/* Help Modal — the kit's Dialog at the reading width (720). It was
+          850 x 82vh on its own black/70 backdrop at z-100 (review D5), with
+          a prose column about 100 characters wide (D27); at 720 with the
+          200px contents panel the column is about 65 characters, inside
+          D27's 72ch cap. It keeps its fixed height, so changing page does
+          not resize it, and its two columns scroll on their own. A Dialog
+          stacks over the settings Drawer it opens from (70 over 60), and the
+          Drawer stands down on Escape while a Dialog is open. */}
       {showHelpModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/70"
-            onClick={() => setShowHelpModal(false)}
-          />
-          {/* Modal */}
-          <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
-            {/* Modal Header */}
-            <div className="ui-panel-head dog-card-head">
-              <h2 className="ui-panel-title dog-card-title">
-                <HelpCircle className="dog-head-icon" aria-hidden="true" />
-                Help & documentation
-              </h2>
-              <div className="ui-panel-actions">
-                <IconButton size="sm" icon={X} title="Close help" onClick={() => setShowHelpModal(false)} />
-              </div>
+        <Dialog
+          title="Help & documentation"
+          onClose={() => setShowHelpModal(false)}
+          dismissOnBackdrop
+          width="reading"
+          className="dog-help"
+        >
+          {/* Sidebar — Table of Contents. The active page is F2's selected
+              row: the signal tint and a 2px signal edge drawn inside the row,
+              where it was a `border-l-2` that pushed every label 2px in. */}
+          <nav className="dog-help-side wilson-dark-scroll" aria-label="Help contents">
+            <div className="dog-help-list">
+              {DOG_HELP_SIDEBAR_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHelpPage(item.id)}
+                  className="dog-help-nav"
+                  data-active={helpPage === item.id}
+                  aria-current={helpPage === item.id ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-
-            {/* Modal Body — Sidebar + Content */}
-            <div className="flex-1 flex overflow-hidden">
-              {/* Sidebar — Table of Contents */}
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto wilson-dark-scroll py-2 flex flex-col">
-                <div className="flex-1">
-                {DOG_HELP_SIDEBAR_ITEMS.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => setHelpPage(item.id)}
-                    className="dog-help-nav w-full text-left px-3 py-1.5 text-dense transition-colors border-l-2" data-active={helpPage === item.id}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                </div>
-                <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-caption text-stone-500 font-mono">{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v?'}</span>
-                </div>
-              </nav>
-
-              {/* Content Area */}
-              <div className="flex-1 overflow-y-auto p-5 wilson-dark-scroll">
-
-              <DogHelpContent helpPage={helpPage} />
+            <div className="dog-help-version">
+              {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v?'}
             </div>
+          </nav>
 
+          {/* Content Area */}
+          <div className="dog-help-content wilson-dark-scroll">
+            <DogHelpContent helpPage={helpPage} />
           </div>
-        </div>
-        </div>
+        </Dialog>
       )}
 
       {/* Right-Click Context Menu — the kit's Menu (header / divider / item /
