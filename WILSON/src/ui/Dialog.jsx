@@ -121,7 +121,13 @@ export function Dialog({
 
     const key = (e) => {
       if (!isTopModal(id)) return
-      if (e.key === 'Escape') { tryCloseRef.current(); return }
+      // Escape is this dialog's while it is on top, whether or not it closes
+      // (busy, or a guard refused): marked handled, so a layer under it — a
+      // Drawer listening on `window` — stands down. It cannot ask the DOM
+      // instead: React commits the close in a microtask BETWEEN the two
+      // listeners, and the dialog is gone before the drawer looks (A2 review
+      // round 1, measured: one Escape closed Help and Settings together).
+      if (e.key === 'Escape') { e.preventDefault(); tryCloseRef.current(); return }
       if (e.key !== 'Tab' || !node) return
 
       // ── The trap ──

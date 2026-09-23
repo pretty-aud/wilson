@@ -4,7 +4,10 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { useState } from 'react'
+import { flushSync } from 'react-dom'
 import { Drawer } from './Drawer'
+import { Dialog } from './Dialog'
 
 afterEach(cleanup)
 
@@ -43,6 +46,48 @@ describe('Drawer', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
     dialog.remove()
+  })
+
+  it('stands down on an Escape a layer above has already handled', () => {
+    const onClose = vi.fn()
+    render(<Drawer open onClose={onClose} title="H">x</Drawer>)
+    const handled = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    handled.preventDefault()
+    window.dispatchEvent(handled)
+    expect(onClose).not.toHaveBeenCalled()
+    // The control: an Escape nobody handled still closes it.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  /* 🚨 A2 review round 1, measured in the running app: ONE Escape closed
+     both D.O.G.'s Help (a Dialog) and the Settings drawer it was opened
+     from. The Dialog listens on `document`, the Drawer on `window`; in a
+     real browser React commits the Dialog's close in a microtask that runs
+     BETWEEN the two listeners, so by the time the Drawer asked "is a
+     .ui-dialog open?" it was already gone. The test above this one could
+     not see it: a scripted dispatch runs no microtask between listeners.
+     `flushSync` in the Dialog's onClose reproduces the browser's order —
+     the dialog leaves the DOM before the Drawer hears the key — and the fix
+     is that the Dialog marks the key handled and the Drawer honours that. */
+  it('🚨 one Escape closes the Dialog on top and not the Drawer under it, even once the Dialog has left the DOM', () => {
+    const drawerClose = vi.fn()
+    function Harness() {
+      const [help, setHelp] = useState(true)
+      return (
+        <>
+          <Drawer open onClose={drawerClose} title="Settings">x</Drawer>
+          {help && <Dialog title="Help" onClose={() => flushSync(() => setHelp(false))}>body</Dialog>}
+        </>
+      )
+    }
+    render(<Harness />)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.querySelector('.ui-dialog'), 'the Dialog did not close').toBeNull()
+    expect(drawerClose, 'the same Escape closed the Drawer too').not.toHaveBeenCalled()
+    // The next Escape is the Drawer's.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(drawerClose).toHaveBeenCalledTimes(1)
   })
 
   it('has no backdrop unless asked — it is docked chrome, not a modal', () => {
