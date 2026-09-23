@@ -39,7 +39,8 @@ describe('Q10: the Bins footer bar is gone', () => {
     expect(binsView).not.toMatch(/<Kbd>Shift<\/Kbd>/)
     expect(binsView).not.toMatch(/Footer hints/)
     // The one Kbd left is the Clear button's own hint (a control's hint is allowed, plan §4 Kbd).
-    expect((binsView.match(/<Kbd>/g) || []).length).toBe(1)
+    // Any spelling of the tag (round 1: `<Kbd key={k}>` got past a literal `<Kbd>`).
+    expect((binsView.match(/<Kbd\b/g) || []).length).toBe(1)
   })
 })
 

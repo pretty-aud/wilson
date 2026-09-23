@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Layers, FolderTree, Check } from 'lucide-react'
-import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Spinner, Banner } from './binUi'
+import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Loading, Banner } from './binUi'
 import { MEDIA_TYPES, MEDIA_TYPE_META, formatBytes } from '../../bins/binMedia'
 
 function suggestionText(s) {
@@ -78,14 +78,14 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
     <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => { if (!dirty) return true; setAskDiscard(true); return false }} width="workbench" busy={busy} error={error}
       subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
-        {busy && progress && <span className="flex items-center gap-2 text-dense mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
+        {busy && progress && <Loading className="mr-auto" label={progress} />}
         <Btn onClick={guardedCancel} disabled={busy}>Cancel</Btn>
         <Btn primary onClick={confirm} disabled={busy || included.length === 0}><Check className="w-3 h-3" /> Add {included.length} {included.length === 1 ? 'item' : 'items'}</Btn>
       </>}>
       {askDiscard && (
         <Modal title="Discard this batch?" width="confirm" onClose={() => setAskDiscard(false)}
           footer={<>
-            <Btn onClick={() => setAskDiscard(false)}>Keep editing</Btn>
+            <Btn autoFocus onClick={() => setAskDiscard(false)}>Keep editing</Btn>
             <Btn danger onClick={() => { setAskDiscard(false); onCancel() }}>Discard</Btn>
           </>}>
           <p className="text-dense" style={{ color: C.text }}>Your ticks, names and batch fields will be lost.</p>
@@ -99,7 +99,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
 
       <div className="bn-field-grid grid gap-4 mb-3" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
         <Field label="Scene (all)">
-          <Select value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></Field>
+          <Select autoFocus value={batch.scene_id} placeholder="— none —" options={sceneOptions} onChange={v => setBatch(b => ({ ...b, scene_id: v }))} /></Field>
         <Field label="Shoot day (all)">
           <TextInput type="date" value={batch.shoot_day} onChange={v => setBatch(b => ({ ...b, shoot_day: v }))} /></Field>
         <Field label="Camera (all)">

@@ -36,6 +36,15 @@
    A custom property inherits, so this works through INLINE styles, which a
    class could never override.
 
+   🚨 THE DIM (review round 1). Offline, locked (already assigned) and missing
+   rows were faded with `opacity` (0.5–0.8), which took their text to
+   2.35–3.47:1. A dimmed row now takes the kit's disabled ink instead —
+   every ink custom property (`--bn-ink`, `--bn-ink-2`, `--bn-ink-3`,
+   `--bn-signal-ink`) set to ink-3, 5.04:1 on the paper — and a dimmed row
+   that is ALSO hovered or selected takes ink-2, because ink-3 fails there.
+   binUi's `C.bright` / `C.text` / `C.muted` are custom properties too, for
+   exactly this; data colours (a media type's hue, a mark's colour) never dim.
+
    🚨 SELECTORS KEY ON THE VALUE, `[data-x="true"]`, NEVER ON PRESENCE, and
    the JSX emits `x ? 'true' : undefined` (C3b's trap; src/ui/dataState.test.jsx).
    binsCss.test.js fails on a presence selector here.
@@ -59,10 +68,45 @@
   .bn-tile:hover,
   .bn-tile[data-selected="true"],
   .bn-pick-row:hover,
-  .bn-pick-row[data-picked="true"] {
+  .bn-pick-row[data-picked="true"],
+  .bn-take-add:hover {
     --bn-ink-3: var(--color-ink-2);
     --bn-signal-ink: var(--color-ink);
   }
+
+  /* ── The dim: offline, locked, missing (after the lift: same specificity,
+     so on a plain dimmed row the dim wins) ─────────────────────────────── */
+  .bn-trow[data-offline="true"],
+  .bn-tile[data-offline="true"],
+  .bn-pick-row[data-offline="true"],
+  .bn-pick-row[data-locked="true"],
+  .bn-add-row[data-disabled="true"] {
+    --bn-ink: var(--color-ink-3);
+    --bn-ink-2: var(--color-ink-3);
+    --bn-ink-3: var(--color-ink-3);
+    --bn-signal-ink: var(--color-ink-3);
+  }
+  /* …and a dimmed row on a hover or selection ground takes ink-2 (ink-3
+     measures 3.85–4.33 there). */
+  .bn-trow[data-offline="true"]:hover,
+  .bn-trow[data-offline="true"][data-selected="true"],
+  .bn-tile[data-offline="true"]:hover,
+  .bn-tile[data-offline="true"][data-selected="true"],
+  .bn-pick-row[data-offline="true"]:hover,
+  .bn-pick-row[data-offline="true"][data-picked="true"],
+  .bn-pick-row[data-locked="true"]:hover {
+    --bn-ink: var(--color-ink-2);
+    --bn-ink-2: var(--color-ink-2);
+    --bn-ink-3: var(--color-ink-2);
+    --bn-signal-ink: var(--color-ink-2);
+  }
+
+  /* ── Focus rings the scroll containers would clip (review round 1) ──── */
+  /* The global ring sits 1px OUTSIDE the element; inside an overflow box
+     its outer edge is cut. These draw it 2px inside instead. */
+  .bn-focus-inset:focus-visible,
+  .bn-section-head:focus-visible,
+  .bn-th:focus-visible { outline-offset: -2px; }
 
   /* ── binUi's data components (the kit has no counterpart) ───────────── */
   .bn-swatch { border: 1px solid transparent; }
@@ -81,6 +125,19 @@
 
   .bn-flags[data-muted="true"] svg { color: var(--color-ink-3); }
 
+  /* The media-type tag. `--tag-hue` is the type's colour (data). The ground is
+     OPAQUE — the hue at 16% over the recessed paper — so the tag reads the
+     same over a poster frame, a row, a hover or a selection: 5.86–8.54:1
+     for every hue (review round 1 measured the old translucent tag at
+     2.49–3.96 over posters). Always the sans: in a list cell it used to
+     inherit the cell's mono. */
+  .bn-tag {
+    font-family: var(--font-sans);
+    color: var(--tag-hue);
+    background-color: color-mix(in srgb, var(--tag-hue) 16%, var(--color-paper-recessed));
+    border: 1px solid color-mix(in srgb, var(--tag-hue) 35%, transparent);
+  }
+
   /* 🚨 Fields side by side in a GRID. The kit's `.ui-field + .ui-field`
      margin is a vertical-stack rule written as a sibling rule, so it fires
      sideways too: measured, the inspector's Take sat 16px below Slate beside
@@ -97,6 +154,7 @@
   /* The selected edge is an inset shadow, not a 2px border (V1-12: one
      border, the 1px hairline); it takes no width, so text never shifts. */
   .bn-tree-row {
+    min-height: var(--row-dense);
     color: var(--color-ink-2);
     background-color: transparent;
     transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
@@ -116,6 +174,7 @@
   /* ── The list view ──────────────────────────────────────────────────── */
   /* The header is the kit's Label step (11px, 600, upper, +0.06em). */
   .bn-th {
+    min-height: var(--table-head);
     color: var(--color-ink-3);
     font-size: var(--text-label);
     font-weight: 600;
@@ -127,6 +186,7 @@
   .bn-th:hover:not(:disabled):not([data-sorted="true"]) { color: var(--color-ink); }
 
   .bn-trow {
+    min-height: var(--row);
     background-color: transparent;
     border-bottom: 1px solid var(--color-rule);
     transition: background-color var(--duration-state) ease-out;
@@ -134,9 +194,7 @@
   .bn-trow:hover { background-color: var(--color-hover); }
   .bn-trow[data-selected="true"] { background-color: var(--color-signal-tint); }
   .bn-trow[data-current="true"] { box-shadow: inset 2px 0 0 var(--color-signal); }
-  .bn-trow[data-offline="true"] { opacity: 0.75; }
-  .bn-trow-name { color: var(--color-ink); }
-  .bn-trow[data-offline="true"] .bn-trow-name { color: var(--color-ink-3); }
+  .bn-trow-name { color: var(--bn-ink, var(--color-ink)); }
 
   /* ── The frame view ─────────────────────────────────────────────────── */
   /* The hover is the same 6% screen, laid OVER the raised fill as an image so
@@ -156,7 +214,6 @@
     border-color: var(--color-signal);
   }
   .bn-tile[data-current="true"] { box-shadow: 0 0 0 1px var(--color-signal); }
-  .bn-tile[data-offline="true"] { opacity: 0.8; }
 
   /* ── The poster (Bins, and Scenes through ShotTakeChips / ShotTakesPanel) ── */
   .bn-poster {
@@ -178,13 +235,13 @@
   }
   .bn-pick-row:hover { background-color: var(--color-hover); }
   .bn-pick-row[data-picked="true"] { background-color: var(--color-signal-tint); }
-  .bn-pick-row[data-offline="true"] { opacity: 0.75; }
-  /* After offline: the take picker's ternary tested `locked` first. */
-  .bn-pick-row[data-locked="true"] { opacity: 0.6; }
   .bn-group-head { color: var(--color-ink-3); }
   .bn-group-head[data-preferred="true"] { color: var(--color-signal); }
   .bn-take-count { color: var(--bn-ink-3, var(--color-ink-3)); }
   .bn-take-count[data-assigned="true"] { color: var(--bn-signal-ink, var(--color-signal)); }
+
+  /* ── The inspector's section headers: the panel header height ──────── */
+  .bn-section-head { min-height: var(--panel-header); }
 
   /* ── A shot's takes ─────────────────────────────────────────────────── */
   .bn-take-row { background-color: var(--color-paper); }
@@ -193,10 +250,9 @@
   .bn-take-row[data-primary="true"] { background-color: color-mix(in srgb, var(--color-signal) 6%, var(--color-paper)); }
 
   /* ── Add files ──────────────────────────────────────────────────────── */
-  .bn-add-row { opacity: 0.7; }
-  .bn-add-row[data-included="true"] { opacity: 1; }
-  /* After included: the old ternary tested `disabled` first. */
-  .bn-add-row[data-disabled="true"] { opacity: 0.5; }
+  /* A row that will not be added (unticked) keeps its fields editable and
+     shows it in their ink; a missing row is dimmed above. */
+  .bn-add-row:not([data-included="true"]) .ui-input { color: var(--color-ink-3); }
   .bn-add-meta { color: var(--color-ink-3); }
   .bn-add-meta[data-duplicate="true"] { color: var(--color-warning); }
   .bn-add-sug { color: var(--color-ink-3); }

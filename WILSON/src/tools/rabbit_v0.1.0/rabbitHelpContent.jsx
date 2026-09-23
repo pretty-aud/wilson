@@ -69,15 +69,19 @@ const L = {
 };
 
 // Dark-theme style tokens for the in-tool help modal
+// UI overhaul B6 (review round 1): onto the kit's tokens — #fb923c (orange-400)
+// and the stone ramp retired from chrome. The section title keeps the signal
+// (4.91:1 on the paper); a card's title is the H3 step in the ink; emphasis is
+// the ink, not a faded orange; the notes box is the signal tint with the ink.
 const D = {
-  sectionTitle: 'text-label font-semibold text-orange-400 uppercase mb-3',
-  bodyText: 'text-dense text-stone-300 leading-relaxed',
-  card: 'bg-stone-900 p-3 rounded-control border border-stone-700',
-  cardTitle: 'text-dense font-semibold text-orange-400 mb-2',
-  listItem: 'text-dense text-stone-300 leading-relaxed',
-  listBold: 'text-orange-400/80',
-  notesBox: 'bg-orange-500/10 border border-orange-500/30 rounded-control p-3',
-  notesTitle: 'text-label font-semibold text-orange-400 uppercase mb-2',
+  sectionTitle: 'text-label font-semibold text-signal uppercase mb-3',
+  bodyText: 'text-dense text-ink-2 leading-relaxed',
+  card: 'bg-paper-raised p-3 rounded-control border border-rule',
+  cardTitle: 'text-h3 font-semibold text-ink mb-2',
+  listItem: 'text-dense text-ink-2 leading-relaxed',
+  listBold: 'text-ink font-semibold',
+  notesBox: 'bg-signal-tint border border-signal rounded-control p-3',
+  notesTitle: 'text-label font-semibold text-ink uppercase mb-2',
 };
 
 export function RabbitHelpContent({ helpPage, theme }) {

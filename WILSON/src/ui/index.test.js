@@ -122,12 +122,18 @@ describe('every exported component has a caller, or is on the list', () => {
   // or through binUi's re-exports (Bins' callers are real callers).
   const imported = new Set()
   const IMPORT = /import\s*\{([^}]*)\}\s*from\s*'([^']*(?:\/ui(?:\/[A-Za-z]+)?|binUi))'/g
+  // 🚨 binUi's OWN import of the kit is not a caller (B6 review round 1): it
+  // re-exports everything, so it made every name it re-exports "called" — a
+  // Bins file could drop its only Toggle and Switch stayed off the list. A
+  // Bins file importing a binUi alias is the caller, mapped to the kit name.
+  const BINUI_ALIAS = { Btn: 'Button', Toggle: 'Switch', IconBtn: 'IconButton', TextInput: 'Input', Modal: 'Dialog' }
   for (const f of files) {
+    if (f.endsWith('binUi.jsx')) continue
     const src = readFileSync(f, 'utf8')
     for (const m of src.matchAll(IMPORT)) {
       for (const raw of m[1].split(',')) {
         const name = raw.trim().split(/\s+as\s+/)[0].trim()
-        if (name) imported.add(name)
+        if (name) imported.add(m[2].endsWith('binUi') ? (BINUI_ALIAS[name] || name) : name)
       }
     }
   }

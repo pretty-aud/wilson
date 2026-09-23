@@ -1990,14 +1990,36 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     ['src/components/AdminTerminal/adminTerminal.css', '.at-decide-panel'],
     // B1: the intake step strip's current step — the kit Tabs' own underline, on a strip that reads as tabs
     ['src/tools/rabbit_v0.1.0/rabbitShell.css', '.rb-step'],
-    // A1, 2026-09-23 — three indicators, no structural 2px:
-    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row'],   // F2 Row's "highlighted" edge: a page open in a tab
-    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab'],      // the kit's tab underline, on the closable wrapper (KR-1)
-    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-settings-tab'],  // A2's Settings tab underline, as extracted
+    /* A1, 2026-09-23 — three indicators, no structural 2px. EXACT selectors
+       (the third element): `includes` let '.dog-page-tab' excuse the strip
+       '.dog-page-tabs' and every '.dog-history-row …' descendant rule, so a
+       structural 2px border there would have passed (A1 review round 1). */
+    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row', 'exact'],   // F2 Row's "highlighted" edge: a page open in a tab
+    ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab', 'exact'],      // the kit's tab underline, on the closable wrapper (A1-KR-1)
+    ['src/tools/deck-outline-generator_v0.514/dog.css', ".dog-settings-tab[data-active='true']", 'exact'],  // A2's Settings tab underline, as extracted
     // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
     ['src/index.css', '.lesson-content'],
     ['src/index.css', '.companion-chat-md'],
   ];
+  /* The selector of the rule that holds the declaration at `offset`: it sits
+     immediately before the block's opening brace. 🚨 The block is found by
+     searching BACK from the declaration (A1 review round 2). The first draft
+     took the FIRST occurrence of the block's text in the file, so a rule
+     whose body is byte-identical to an earlier rule's was reported under the
+     earlier selector — settings.css's `.s-feedback[data-tone='error']` read as
+     `.s-status[data-state='error']` — and an exact judged entry could excuse a
+     copy of its body pasted under any other selector. */
+  const selectorAt = (src, offset) => {
+    const block = enclosingBlock(src, offset);
+    const before = src.slice(0, src.lastIndexOf(block, offset));
+    return (before.match(/([^{};]+)$/) || [''])[0].trim().replace(/\s+/g, ' ');
+  };
+  it('CONTROL: a rule whose body repeats an earlier rule is named by its OWN selector', () => {
+    const css = '.judged { border-left: 2px solid red; }\n.other { border-left: 2px solid red; }\n';
+    expect(selectorAt(css, css.lastIndexOf('border-left'))).toBe('.other');
+    expect(selectorAt(css, css.indexOf('border-left'))).toBe('.judged');
+  });
+
   it('every 2px border is one of the rules that were judged by hand', () => {
     const row = cssRow('border >= 2px');
     const unjudged = [];
@@ -2012,11 +2034,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
         const lines = src.split('\n');
         const lineStart = lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
         const within = lines[line - 1].indexOf(text.split(/\s+/)[0]);
-        const block = enclosingBlock(src, lineStart + Math.max(0, within));
-        // The selector sits immediately before the block's opening brace.
-        const before = src.slice(0, src.indexOf(block));
-        const selector = (before.match(/([^{};]+)$/) || [''])[0].trim().replace(/\s+/g, ' ');
-        if (!JUDGED_BORDERS.some(([jf, sel]) => jf === f && selector.includes(sel))) {
+        const selector = selectorAt(src, lineStart + Math.max(0, within));
+        if (!JUDGED_BORDERS.some(([jf, sel, exact]) => jf === f && (exact ? selector === sel : selector.includes(sel)))) {
           unjudged.push(`${f}:${line}  ${text}   selector: ${selector.slice(0, 70)}`);
         }
       }

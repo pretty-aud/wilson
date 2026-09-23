@@ -43,8 +43,8 @@ function Section({ title, children, open = true, onToggle, right = null }) {
     <div style={{ borderBottom: `1px solid ${C.line}` }}>
       <div className="flex items-center gap-1.5 pr-2">
         {onToggle
-          ? <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</button>
-          : <div className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</div>}
+          ? <button type="button" onClick={onToggle} aria-expanded={open} className="bn-section-head flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</button>
+          : <div className="bn-section-head flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</div>}
         {right}
       </div>
       {/* The kit's field stack: 16px between fields, and it stands down the
@@ -143,7 +143,7 @@ export default function BinInspector({
             <MarkBtn active={!!circled.value && !circled.mixed} onClick={() => onPatch({ circled: !circled.value })} disabled={!canWrite} Icon={Circle} color={C.accent} label="Circled" hint="C" />
             {(flag.mixed || circled.mixed) && <span className="text-dense" style={{ color: C.amber }}>mixed</span>}
           </div>
-          <Field label="Colour" inline mixed={color.mixed}>
+          <Field label="Colour" mixed={color.mixed}>
             <ColorPicker value={color.mixed ? null : color.value} onChange={c => canWrite && onPatch({ color: c })} />
           </Field>
         </Section>
