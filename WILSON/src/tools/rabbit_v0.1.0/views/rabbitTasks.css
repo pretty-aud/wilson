@@ -516,14 +516,16 @@
     color: var(--color-ink-3);
   }
 
-  /* A value's ink: full when set, grey when empty (NewTaskPopup's Phase and
-     Asset, the template manager's role and dependencies). */
+  /* A value's ink: full when set, grey when empty (the template manager's
+     role and dependencies, until its restyle). */
   .rb-task-cell-value { color: #d6d3d1; }
   .rb-task-cell-value[data-empty="true"] { color: #57534e; }
 
-  /* NewTaskPopup's Assigned-to, until its restyle. */
-  .rb-task-field-value { color: #f4a261; }
-  .rb-task-field-value[data-empty="true"] { color: #57534e; }
+  /* ═══ NewTaskPopup ═══════════════════════════════════════════════════════
+     The kit's Dialog at the form width (560); its fields share the popup's
+     .rb-task-prop / .rb-task-prop-grid / .rb-task-status-select rules. The
+     footer note keeps its place at the left, opposite the two buttons. */
+  .rb-task-new-note { margin-right: auto; font-size: var(--text-caption); color: var(--color-ink-3); }
 
   /* ═══ TaskDetailPopup ═════════════════════════════════════════════════════
      The kit's Dialog: 'reading' (720) alone, 'workbench' (960) with the files
