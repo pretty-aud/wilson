@@ -65,7 +65,7 @@ export default function BinTree({
           onDrop={e => handleDrop(e, null)}
         />
         {rows.length === 0 && (
-          <div className="px-3 py-3 text-dense leading-relaxed" style={{ color: C.dimmer }}>
+          <div className="px-3 py-3 text-caption" style={{ color: C.dimmer }}>
             No bins yet. Make one with +, or drop a folder on the empty page.
           </div>
         )}
@@ -88,8 +88,14 @@ export default function BinTree({
           />
         ))}
       </div>
-      <div className="px-3 py-2 text-dense leading-relaxed flex-shrink-0" style={{ color: C.dimmer, borderTop: `1px solid ${C.line}` }}>
-        Drop files or folders on a bin. Drag a bin onto another to nest it.
+      <div className="px-3 py-2 flex-shrink-0 flex flex-col gap-1" style={{ borderTop: `1px solid ${C.line}` }}>
+        {/* The project count the footer bar used to carry (Q10 removed the bar, C1 keeps the readout). */}
+        <div className="text-caption tabular-nums" style={{ color: C.muted }} data-testid="bins-project-count">
+          {allCount} file{allCount === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{allOffline ? ` · ${allOffline} offline` : ''}
+        </div>
+        <div className="text-caption" style={{ color: C.dimmer }}>
+          Drop files or folders on a bin. Drag a bin onto another to nest it.
+        </div>
       </div>
     </div>
   )
@@ -99,7 +105,7 @@ function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick
   return (
     <div role="treeitem" aria-selected={active}
       onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="bn-tree-row flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense transition-colors"
+      className="bn-tree-row flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense"
       data-active={active ? 'true' : undefined}
       data-drag-over={dragOver ? 'true' : undefined}
       style={{ paddingLeft: 10 + depth * 14 }}>
@@ -125,7 +131,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
       onClick={onSelect} onContextMenu={onContextMenu}
       onDoubleClick={e => { e.stopPropagation(); if (canWrite) onRenameStart?.() }}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="bn-tree-row flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense font-mono tabular-nums transition-colors group"
+      className="bn-tree-row flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense tabular-nums group"
       data-active={active ? 'true' : undefined}
       data-drag-over={dragOver ? 'true' : undefined}
       style={{ paddingLeft: 10 + depth * 14 }}>

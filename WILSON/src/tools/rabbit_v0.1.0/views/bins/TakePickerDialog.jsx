@@ -68,7 +68,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
         <div className="max-h-[52vh] overflow-y-auto">
           {rows.length === 0 && (
-            <div className="px-3 py-6 text-center text-dense font-mono tabular-nums" style={{ color: C.dimmer }}>
+            <div className="px-3 py-6 text-center text-dense" style={{ color: C.dimmer }}>
               {(files || []).length === 0 ? 'No files in any bin yet. Add footage on the Bins tab first.' : sameSceneOnly ? 'Nothing logged to this scene matches. Switch off "same scene only" to see every file.' : 'Nothing matches.'}
             </div>
           )}
@@ -81,7 +81,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
               <div key={file.id}>
                 {header && <div className="bn-group-head px-3 py-1 text-label uppercase" data-preferred={tier === 0 ? 'true' : undefined} style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
                 <label className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !locked ? 'true' : undefined} data-locked={locked ? 'true' : undefined} data-offline={file.online === false ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
-                  <input type="checkbox" className="accent-orange-600" checked={on} disabled={locked || busy} onChange={() => toggle(file.id)} />
+                  <input type="checkbox" className="accent-signal" checked={on} disabled={locked || busy} onChange={() => toggle(file.id)} />
                   <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={64} height={36} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
@@ -100,7 +100,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
           })}
         </div>
       </div>
-      <div className="mt-2 text-dense leading-relaxed" style={{ color: C.dimmer }}>
+      <div className="mt-2 text-caption" style={{ color: C.dimmer }}>
         Files stay in their bins; a take is a link. A file may be assigned to several shots.{!hasPrimary ? ' This shot has no primary yet: its first take becomes the primary whatever role is chosen.' : ''} Roles: {TAKE_ROLES.map(r => `${TAKE_ROLE_META[r].label} — ${TAKE_ROLE_META[r].help}`).join(' ')}
       </div>
     </Modal>

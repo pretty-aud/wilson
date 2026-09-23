@@ -92,7 +92,7 @@ export default function ShotTakesPanel({
             return (
               <div key={take.id} className="bn-take-row flex items-start gap-2.5 px-2.5 py-2"
                 data-primary={isPrimary ? 'true' : undefined}
-                style={{ borderLeft: `3px solid ${meta.color}` }}>
+                style={{ boxShadow: `inset 2px 0 0 ${meta.color}` }}>
                 <span className="text-dense font-mono tabular-nums pt-2 w-4 text-right flex-shrink-0" style={{ color: C.dimmer }}>{i + 1}</span>
                 <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={72} height={41} />
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
