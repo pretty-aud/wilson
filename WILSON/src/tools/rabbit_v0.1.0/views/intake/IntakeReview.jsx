@@ -18,6 +18,7 @@ import {
   Layers, Boxes, ListTodo, AlertTriangle, HelpCircle, DollarSign,
 } from 'lucide-react'
 import { useRabbit } from '../../state/RabbitProvider'
+import '../../rabbitShell.css'
 
 export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
   const ctx = useRabbit()
@@ -66,12 +67,12 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
   const busy = saving || discarding
 
   return (
-    <div className="h-full flex flex-col p-6 gap-4 overflow-auto" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full flex flex-col p-6 gap-4 overflow-auto" style={{ backgroundColor: 'var(--color-paper)' }}>
       <div>
-        <h2 className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
+        <h2 className="text-h3 font-semibold" style={{ color: 'var(--color-ink)' }}>
           Step 5 · Review & save breakdown
         </h2>
-        <p className="text-dense mt-1" style={{ color: '#a8a29e' }}>
+        <p className="text-dense mt-1" style={{ color: 'var(--color-ink-2)' }}>
           The pipeline merged {fileResults.length} source file
           {fileResults.length === 1 ? '' : 's'} into the breakdown
           below. Save it to push phases, assets, and tasks into the
@@ -169,7 +170,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
       {errorMsg && (
         <div
           className="text-dense p-2 rounded-control"
-          style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
+          style={{ backgroundColor: 'var(--color-paper)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
         >
           {errorMsg}
         </div>
@@ -182,7 +183,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
           onClick={onBack}
           disabled={busy}
           className="px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
-          style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
+          style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)', backgroundColor: 'transparent' }}
         >
           ← Back
         </button>
@@ -192,7 +193,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             onClick={handleDiscard}
             disabled={busy}
             className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
-            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
+            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)', backgroundColor: 'transparent' }}
           >
             {discarding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
             Discard
@@ -203,9 +204,9 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             disabled={busy || (phases.length === 0 && assets.length === 0 && tasks.length === 0)}
             className="flex items-center gap-1 px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
             style={{
-              color: '#fff7ed',
-              backgroundColor: '#ea580c',
-              border: '1px solid #c2410c',
+              color: 'var(--color-on-fill)',
+              backgroundColor: 'var(--color-signal-fill)',
+              border: '1px solid var(--color-signal-fill)',
             }}
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -222,12 +223,12 @@ function CountTile({ icon: Icon, label, n }) {
   return (
     <div
       className="flex items-center gap-2 px-3 py-2 rounded-control"
-      style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
+      style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}
     >
-      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
+      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
       <div className="flex flex-col leading-tight">
-        <span className="text-h3 font-semibold" style={{ color: '#d6d3d1' }}>{n}</span>
-        <span className="text-label uppercase" style={{ color: '#a8a29e' }}>{label}</span>
+        <span className="text-h3 font-semibold" style={{ color: 'var(--color-ink)' }}>{n}</span>
+        <span className="text-label uppercase" style={{ color: 'var(--color-ink-2)' }}>{label}</span>
       </div>
     </div>
   )
@@ -237,18 +238,18 @@ function Section({ title, count, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen)
   const Chevron = open ? ChevronDown : ChevronRight
   return (
-    <div className="rounded-control overflow-hidden" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+    <div className="rounded-control overflow-hidden" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-700"
-        style={{ borderBottom: open ? '1px solid #44403c' : 'none', backgroundColor: '#44403c' }}
+        className="rb-review-head w-full flex items-center gap-2 px-3 py-2"
+        data-open={open ? 'true' : undefined}
       >
-        <Chevron className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-        <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
+        <Chevron className="w-3.5 h-3.5" style={{ color: 'var(--color-ink)' }} />
+        <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink)' }}>
           {title}
         </span>
-        <span className="text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>({count})</span>
+        <span className="text-dense font-mono tabular-nums" style={{ color: 'var(--color-ink-2)' }}>({count})</span>
       </button>
       {open && <div className="flex flex-col">{children}</div>}
     </div>
@@ -257,24 +258,24 @@ function Section({ title, count, defaultOpen = false, children }) {
 
 function Row({ title, subtitle, tag, hint }) {
   return (
-    <div className="flex flex-col gap-0.5 px-3 py-2" style={{ borderBottom: '1px solid #1c1917' }}>
+    <div className="flex flex-col gap-0.5 px-3 py-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
       <div className="flex items-start gap-2">
-        <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#fb923c' }} />
-        <span className="flex-1 text-dense" style={{ color: '#d6d3d1' }}>{title}</span>
+        <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
+        <span className="flex-1 text-dense" style={{ color: 'var(--color-ink)' }}>{title}</span>
         {tag && (
           <span
             className="px-1.5 py-0.5 text-label uppercase rounded-control"
-            style={{ backgroundColor: '#1c1917', color: '#fb923c', border: '1px solid #57534e' }}
+            style={{ backgroundColor: 'var(--color-paper)', color: 'var(--color-ink)', border: '1px solid var(--color-rule)' }}
           >
             {tag}
           </span>
         )}
       </div>
       {subtitle && (
-        <div className="ml-5 text-dense" style={{ color: '#a8a29e' }}>{subtitle}</div>
+        <div className="ml-5 text-dense" style={{ color: 'var(--color-ink-2)' }}>{subtitle}</div>
       )}
       {hint && (
-        <div className="ml-5 text-dense italic" style={{ color: '#78716c' }}>{hint}</div>
+        <div className="ml-5 text-dense italic" style={{ color: 'var(--color-ink-3)' }}>{hint}</div>
       )}
     </div>
   )
@@ -282,7 +283,7 @@ function Row({ title, subtitle, tag, hint }) {
 
 function Empty() {
   return (
-    <div className="px-3 py-3 text-dense italic" style={{ color: '#78716c' }}>
+    <div className="px-3 py-3 text-dense italic" style={{ color: 'var(--color-ink-3)' }}>
       (none returned by the pipeline)
     </div>
   )

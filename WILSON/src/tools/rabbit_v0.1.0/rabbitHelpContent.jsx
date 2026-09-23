@@ -3,6 +3,44 @@
 // DOG/OTTER help-modal pattern (light + dark theme tokens).
 
 import React from 'react';
+import { Kbd } from '../../ui';
+
+// The Bins tab's keyboard, as BinsView's document handler binds it (and the
+// preview's Space). UI overhaul Q10 ("no shortcut bar anywhere") removed the
+// footer bar that showed these on the tab; every hint it carried is here, and
+// the controls that act on a selection name their key in their title.
+// `keys` are the caps a person presses together; `or` separates alternatives.
+export const BINS_SHORTCUTS = [
+  { keys: [['↑'], ['↓']], does: 'Move (in the frame view ← and → too)' },
+  { keys: [['Home'], ['End']], does: 'First and last file' },
+  { keys: [['Shift', '↑'], ['Shift', '↓']], does: 'Extend the selection' },
+  { keys: [['Ctrl', 'A']], does: 'Select every file shown' },
+  { keys: [['Esc']], does: 'Clear the selection' },
+  { keys: [['S']], does: 'Select (the review mark)' },
+  { keys: [['R']], does: 'Reject' },
+  { keys: [['U']], does: 'Unflag' },
+  { keys: [['C']], does: 'Circle, or uncircle' },
+  { keys: [['1'], ['8']], range: true, does: 'Colour; 0 clears it' },
+  { keys: [['A']], does: 'Assign to shot' },
+  { keys: [['Space']], does: 'Play or pause the preview' },
+  { keys: [['F2'], ['Enter']], does: 'Rename' },
+  { keys: [['Del'], ['Backspace']], does: 'Remove from the bin (undo in the toast)' },
+  { keys: [['Ctrl', 'Z']], does: 'Undo' },
+  { keys: [['Ctrl', 'Shift', 'Z'], ['Ctrl', 'Y']], does: 'Redo' },
+];
+
+function KeyCombos({ keys, range, surface }) {
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      {keys.map((combo, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span className="text-caption">{range ? '–' : 'or'}</span>}
+          {combo.map((k) => <Kbd key={k} surface={surface}>{k}</Kbd>)}
+        </React.Fragment>
+      ))}
+    </span>
+  );
+}
 
 export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-overview',     label: 'Overview' },
@@ -355,6 +393,20 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• In day view, taller rows + weekend tints make scheduling crew-day-by-crew-day easy.</li>
               <li>• Drag a task's gutter row onto another phase to reparent it.</li>
             </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Bins: the keyboard</h4>
+            <p className={`${T.bodyText} mb-2`}>
+              On the files pane, with a file selected. Click selects one file, Shift-click extends, Ctrl-click adds or removes one.
+            </p>
+            <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
+              {BINS_SHORTCUTS.map((s) => (
+                <React.Fragment key={s.does}>
+                  <dt><KeyCombos keys={s.keys} range={s.range} surface={theme === 'dark' ? 'dark' : 'light'} /></dt>
+                  <dd className={T.listItem}>{s.does}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
           </div>
         </div>
       </section>

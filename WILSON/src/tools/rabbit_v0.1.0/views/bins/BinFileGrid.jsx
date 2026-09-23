@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Clapperboard } from 'lucide-react'
-import { C, MediaTag, FlagMark, ColorDot } from './binUi'
+import { C, MediaTag, FlagMark, ColorDot, EmptyState } from './binUi'
 import BinPoster from './BinPoster'
 import { DND_FILES } from './BinTree'
 import { canHoverScrub, techLine, slateLine, COLOR_HEX } from '../../bins/binMedia'
@@ -24,7 +24,7 @@ export default function BinFileGrid({
   useEffect(() => { currentRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [currentId])
   return (
     <div className="flex-1 min-h-0 overflow-auto p-3" style={{ backgroundColor: C.bg }}>
-      {rows.length === 0 && <div className="px-2 py-6 text-dense" style={{ color: C.dimmer }}>Nothing matches.</div>}
+      {rows.length === 0 && <EmptyState compact title="Nothing matches" body="Clear a filter or the search to see more." />}
       {/* data-bin-grid: the keyboard handler reads the REAL column count from
           this element's computed grid (review round 2: a formula guessed it and
           the cursor drifted diagonally at some pane widths). */}
@@ -82,13 +82,10 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         if (!r || r.width <= 0) return
         setScrubFrac(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)))
       }}
-      className="rounded-control overflow-hidden cursor-default flex flex-col"
-      style={{
-        backgroundColor: selected ? 'rgba(234,88,12,0.14)' : C.panel,
-        border: `1px solid ${selected ? C.accentBorder : C.line}`,
-        boxShadow: current ? `0 0 0 1px ${C.accent}` : 'none',
-        opacity: row.online === false ? 0.8 : 1,
-      }}>
+      className="bn-tile rounded-control overflow-hidden cursor-default flex flex-col"
+      data-selected={selected ? 'true' : undefined}
+      data-current={current ? 'true' : undefined}
+      data-offline={row.online === false ? 'true' : undefined}>
       <div ref={boxRef} className="relative w-full" style={{ aspectRatio: '16 / 9', backgroundColor: C.deep }}>
         <BinPoster row={row} src={thumbUrl} width="100%" height="100%" radius={0} style={{ border: 'none', position: 'absolute', inset: 0 }} iconSize={36} />
         {scrubbing && (
@@ -101,26 +98,26 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         )}
         {hex && <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ backgroundColor: hex }} />}
         {used > 0 && (
-          <div className="absolute top-1 left-1 inline-flex items-center gap-0.5 px-1 rounded-control text-dense font-mono tabular-nums" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.accentText }}
+          <div className="bn-scrim absolute top-1 left-1 inline-flex items-center gap-0.5 px-1 rounded-control text-caption font-mono tabular-nums" style={{ color: C.accent }}
             title={`Used in ${used} shot${used === 1 ? '' : 's'}`}>
             <Clapperboard style={{ width: 9, height: 9 }} /> {used}
           </div>
         )}
-        <div className="absolute top-1 right-1 flex items-center gap-1 px-1 rounded-control" style={{ backgroundColor: 'rgba(12,10,9,0.7)' }}>
+        <div className="bn-scrim absolute top-1 right-1 flex items-center gap-1 px-1 rounded-control">
           <FlagMark flag={row.review_flag} circled={row.circled} size={11} />
         </div>
         <div className="absolute bottom-1 left-1"><MediaTag type={row.media_type} small /></div>
         {row.is_sequence && row.frame_count ? (
-          <div className="absolute bottom-1 right-1 px-1 rounded-control text-dense font-mono tabular-nums" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.muted }}>{row.frame_count} fr</div>
+          <div className="bn-scrim absolute bottom-1 right-1 px-1 rounded-control text-caption font-mono tabular-nums" style={{ color: C.muted }}>{row.frame_count} fr</div>
         ) : null}
       </div>
       <div className="px-2 py-1.5 min-w-0">
-        <div className="truncate text-dense font-mono" style={{ color: C.bright }} title={row.display_name}>{row.display_name || row.original_name}</div>
-        <div className="truncate text-dense" style={{ color: C.accentText, minHeight: 13 }}>{slateLine(row)}</div>
-        <div className="truncate text-dense font-mono" style={{ color: C.dim, minHeight: 13 }} title={row.source_path}>
+        <div className="truncate text-dense font-mono font-semibold" style={{ color: C.bright }} title={row.display_name}>{row.display_name || row.original_name}</div>
+        <div className="truncate text-caption" style={{ color: C.accentText, minHeight: 13 }}>{slateLine(row)}</div>
+        <div className="truncate text-caption font-mono" style={{ color: C.dim, minHeight: 13 }} title={row.source_path}>
           {techLine(row) || row.original_name}
         </div>
-        {binName != null && <div className="truncate text-dense mt-0.5 flex items-center gap-1" style={{ color: C.dimmer }}><ColorDot color={binColor} size={6} />{binName}</div>}
+        {binName != null && <div className="truncate text-caption mt-0.5 flex items-center gap-1" style={{ color: C.dimmer }}><ColorDot color={binColor} size={6} />{binName}</div>}
       </div>
     </div>
   )

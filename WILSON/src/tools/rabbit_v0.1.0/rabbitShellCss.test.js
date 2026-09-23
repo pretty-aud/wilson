@@ -37,7 +37,7 @@ const OWNED = [
   'views/IntakeWizardView.jsx', 'views/intake/IntakePrepare.jsx', 'views/intake/IntakeProgress.jsx',
   'views/intake/IntakeReview.jsx', 'views/ProjectSummaryView.jsx', 'views/TeamView.jsx',
 ]
-const EXTRACTED = ['Rabbit.jsx', 'components/ViewTabs.jsx', 'components/ProjectContextBar.jsx']
+const EXTRACTED = OWNED
 
 describe('rabbitShell.css declares the cascade layer order before it uses a layer', () => {
   const src = cssCode(shellCss)
@@ -47,6 +47,24 @@ describe('rabbitShell.css declares the cascade layer order before it uses a laye
     expect(statement).toBeGreaterThanOrEqual(0)
     expect(firstBlock).toBeGreaterThanOrEqual(0)
     expect(statement).toBeLessThan(firstBlock)
+  })
+})
+
+/* ── the surface writes no colour of its own (C8) ─────────────────────────── */
+describe('rabbitShell.css writes no colour of its own', () => {
+  const src = cssCode(shellCss)
+  const indexCss = cssCode(readFileSync(join(here, '../../index.css'), 'utf8'))
+
+  it('no hex literal anywhere in the rules (@theme is the only place a hex is written)', () => {
+    expect(src.match(/#[0-9a-fA-F]{3,8}\b/g) || []).toEqual([])
+  })
+  it('no rgb()/rgba() literal either — the alpha tokens are in @theme too', () => {
+    expect(src.match(/\brgba?\(/g) || []).toEqual([])
+  })
+  it('every custom property it reads is defined in index.css', () => {
+    const read = [...new Set((src.match(/var\(\s*(--[a-z0-9-]+)/g) || []).map((v) => v.replace(/^var\(\s*/, '')))]
+    expect(read.length).toBeGreaterThan(10)
+    expect(read.filter((p) => !new RegExp(`${p}\\s*:`).test(indexCss))).toEqual([])
   })
 })
 
@@ -65,8 +83,8 @@ describe('every rb- class is both declared and used', () => {
     expect([...used].filter((c) => !declared.has(c))).toEqual([])
   })
   it('CONTROL: the scanners find a real pair and ignore comments', () => {
-    expect(declared.has('rb-viewtab')).toBe(true)
-    expect(used.has('rb-viewtab')).toBe(true)
+    expect(declared.has('rb-viewtabs')).toBe(true)
+    expect(used.has('rb-viewtabs')).toBe(true)
     expect(declaredIn('/* .rb-ghost { } */ .rb-real { }')).toEqual(new Set(['rb-real']))
     expect(usedIn(['{/* className="rb-ghost" */}\n// rb-ghost2\nclassName="rb-real x"'])).toEqual(new Set(['rb-real']))
   })
@@ -97,8 +115,10 @@ export function inlineStateTernaries(src) {
       else if (code[i] === '}' && --depth === 0) break
     }
     const body = code.slice(start, i + 1)
-    // `style={cond ? {…} : {…}}` decides the whole object by state.
-    const whole = /^\{\s*[\w.?!]+\s*\?\s*\{/.test(body)
+    // `style={cond ? {…} : {…}}` decides the whole object by state — any
+    // condition, including a comparison (`tone === 'good' ? {…} : {}` walked
+    // past the first version of this pattern; B1's mutant X7).
+    const whole = /^\{[^{}]*\?[^{}]*\{/.test(body)
     if (whole || STATE_PROP.test(body)) {
       hits.push(`${code.slice(0, m.index).split('\n').length}: ${body.replace(/\s+/g, ' ').slice(0, 90)}`)
     }
@@ -121,6 +141,8 @@ describe('the state extraction holds in every extracted file', () => {
       `<b style={{ opacity: disabled ? 0.3 : 1 }} />`,
       `<b style={{ boxShadow: isActive ? '0 0 0 1px x' : 'none' }} />`,
       `<b style={on ? { color: 'a' } : { color: 'b' }} />`,
+      `<b style={tone === 'good' ? { borderColor: 'a' } : {}} />`,
+      `<b style={isLong ? undefined : { width: 90 }} />`,
       `<b style={{ cursor: disabled ? 'not-allowed' : 'pointer' }} />`,
       `<b style={{ transform: checked ? 'translateX(16px)' : 'none' }} />`,
       '<b className={`text-dense ${on ? \'font-semibold\' : \'\'}`} />',

@@ -1359,9 +1359,15 @@ describe('the inline half: every type value reads a token (T3)', () => {
                                     Dense step. A token read would only
                                     SPELL the mismatch; the fix is either the
                                     leading (1.45) or the step (Body, 14px),
-                                    and which one is lane B1's call. Filed. */
-  const T2_LEADING_RESIDUE = 6;
-  it('R.A.B.B.I.T. declares no type in a style object, except six leadings', () => {
+                                    and which one is lane B1's call. Filed.
+
+     B1 (2026-09-23): ONE. Lane B1 made the call for all five of
+     IntakePrepare's (V1-13): each <p> is Dense prose, so it takes the Dense
+     step's own leading (1.45) and the declaration goes — 1.6 and 1.7 were
+     off the scale, and 1.5 was Body's leading on the Dense step. The one
+     left is TimelineView.jsx's tick label, lane B3's. */
+  const T2_LEADING_RESIDUE = 1;
+  it('R.A.B.B.I.T. declares no type in a style object, except one leading', () => {
     const spellings = [INLINE_SIZE, INLINE_FAMILY, INLINE_TRACKING, INLINE_WEIGHT, INLINE_CASE];
     const hits = spellings.flatMap((re) => sweep(re, ({ file }) => T2_LANE.test(file)));
     expect(hits, `inline type in T2's lane:\n${hits.join('\n')}`).toEqual([]);
@@ -1982,6 +1988,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     ['src/components/settings/settings.css', '.s-feedback'],
     ['src/components/Dashboard/dashboard.css', '.dash-note-row'],
     ['src/components/AdminTerminal/adminTerminal.css', '.at-decide-panel'],
+    // B1: the intake step strip's current step — the kit Tabs' own underline, on a strip that reads as tabs
+    ['src/tools/rabbit_v0.1.0/rabbitShell.css', '.rb-step'],
     // A1, 2026-09-23 — three indicators, no structural 2px:
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row'],   // F2 Row's "highlighted" edge: a page open in a tab
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab'],      // the kit's tab underline, on the closable wrapper (KR-1)
@@ -2090,8 +2098,8 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
     // Every assertion above is an empty-list check, and an empty list is what
     // a scan that opened nothing also returns. These are the denominators.
-    // Six since A1 (2026-09-23): D.O.G.'s dog.css joined the audit.
-    expect(CSS_FILES.length).toBe(6);
+    // 7: B1 added rabbitShell.css and A1 added dog.css (both 2026-09-23).
+    expect(CSS_FILES.length).toBe(7);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
     // anywhere fails here instead of passing everywhere.

@@ -28,7 +28,7 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
       : `Delete bin and remove ${n} file${n === 1 ? '' : 's'}`
 
   return (
-    <Modal title={`Delete "${bin.name}"`} onClose={onCancel} width={520} busy={busy} error={error}
+    <Modal title={`Delete "${bin.name}"`} onClose={onCancel} width="form" busy={busy} error={error}
       subtitle={childBins.length ? `Includes ${childBins.length} nested bin${childBins.length === 1 ? '' : 's'}: ${childBins.map(b => b.name).join(', ')}` : null}
       footer={<>
         <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>
@@ -50,17 +50,17 @@ export default function DeleteBinDialog({ bin, bins, files, onConfirm, onCancel,
                 <span style={{ color: C.dimmer }}> · {binPathLabel(bins, f.bin_id)}</span>
               </div>
             ))}
-            {inside.length > 200 && <div className="px-2 py-1 text-dense font-mono" style={{ color: C.dimmer }}>…and {inside.length - 200} more</div>}
+            {inside.length > 200 && <div className="px-2 py-1 text-dense" style={{ color: C.dimmer }}>…and {inside.length - 200} more</div>}
           </div>
           <label className="flex items-start gap-2 cursor-pointer">
-            <input type="radio" name="delmode" checked={mode === 'move'} onChange={() => setMode('move')} disabled={!targets.length} className="mt-0.5 accent-orange-600" />
+            <input type="radio" name="delmode" checked={mode === 'move'} onChange={() => setMode('move')} disabled={!targets.length} className="mt-0.5 accent-signal" />
             <span className="flex-1 flex flex-col gap-1">
-              <span className="text-dense font-mono flex items-center gap-1.5" style={{ color: targets.length ? C.text : C.dimmer }}><FolderInput className="w-3 h-3" /> Move the files to another bin{targets.length ? '' : ' (no other bin exists)'}</span>
+              <span className="bn-del-move text-dense flex items-center gap-1.5" data-disabled={targets.length ? undefined : 'true'}><FolderInput className="w-3 h-3" /> Move the files to another bin{targets.length ? '' : ' (no other bin exists)'}</span>
               {mode === 'move' && targets.length > 0 && <Select value={target} onChange={setTarget} options={targets} />}
             </span>
           </label>
           <label className="flex items-start gap-2 cursor-pointer">
-            <input type="radio" name="delmode" checked={mode === 'remove'} onChange={() => setMode('remove')} className="mt-0.5 accent-orange-600" />
+            <input type="radio" name="delmode" checked={mode === 'remove'} onChange={() => setMode('remove')} className="mt-0.5 accent-signal" />
             <span className="text-dense flex items-center gap-1.5" style={{ color: C.text }}><Trash2 className="w-3 h-3" /> Remove the files from the project (undo restores them)</span>
           </label>
         </div>

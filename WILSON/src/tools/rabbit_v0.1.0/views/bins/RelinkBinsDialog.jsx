@@ -74,15 +74,15 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
   const applyCount = match ? match.proposals.length + Object.values(choices).filter(Boolean).length : 0
 
   return (
-    <Modal title="Relink offline files" onClose={onClose} width={720} busy={phase === 'applying'}
+    <Modal title="Relink offline files" onClose={onClose} width="reading" busy={phase === 'applying'}
       subtitle={`${offlineRows.length} file${offlineRows.length === 1 ? '' : 's'} cannot be found at ${offlineRows.length === 1 ? 'its' : 'their'} recorded path`}
       footer={<>
-        {error && <span className="text-dense mr-auto flex items-center gap-1.5" style={{ color: '#fca5a5' }}><AlertTriangle className="w-3 h-3" /> {error}</span>}
+        {error && <span className="text-dense mr-auto flex items-center gap-1.5" style={{ color: C.red }}><AlertTriangle className="w-3 h-3" /> {error}</span>}
         <Btn onClick={onClose} disabled={phase === 'applying'}>{phase === 'done' ? 'Close' : 'Cancel'}</Btn>
         {phase !== 'done' && <Btn primary onClick={apply} disabled={phase !== 'review' || applyCount === 0}><Link2 className="w-3 h-3" /> Relink {applyCount || ''}</Btn>}
       </>}>
       {phase === 'done' && result ? (
-        <div className="flex flex-col gap-2 text-dense font-mono" style={{ color: C.text }}>
+        <div className="flex flex-col gap-2 text-dense" style={{ color: C.text }}>
           <div className="flex items-center gap-2" style={{ color: C.green }}><Check className="w-4 h-4" /> {result.updated?.length || 0} file{(result.updated?.length || 0) === 1 ? '' : 's'} relinked{(result.updated?.length || 0) > (result.sent || 0) ? ' (instances included)' : ''}.</div>
           {result.failed?.length > 0 && <div style={{ color: C.amber }}>{result.failed.length} could not be relinked: {result.failed.map(f => f.reason).join(', ')}.</div>}
         </div>
@@ -90,7 +90,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Btn primary onClick={pick} disabled={phase === 'scanning'}><FolderSearch className="w-3 h-3" /> Choose the folder they moved to…</Btn>
-            {phase === 'scanning' && <span className="flex items-center gap-2 text-dense font-mono" style={{ color: C.muted }}><Spinner /> Walking {folder}…</span>}
+            {phase === 'scanning' && <span className="flex items-center gap-2 text-dense" style={{ color: C.muted }}><Spinner /> Walking {folder}…</span>}
           </div>
           {roots?.length > 0 && (
             <div className="rounded-control" style={{ border: `1px solid ${C.line}` }}>
@@ -111,7 +111,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
               return (
                 <div key={r.id} className="px-2 py-1.5 text-dense font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <div className="flex items-center gap-1.5 truncate" style={{ color: C.text }}>
-                    {prop ? <Check className="w-3 h-3 flex-shrink-0" style={{ color: C.green }} /> : amb ? <AlertTriangle className="w-3 h-3 flex-shrink-0" style={{ color: C.amber }} /> : <Unplug className="w-3 h-3 flex-shrink-0" style={{ color: match ? C.dimmer : C.amber }} />}
+                    {prop ? <Check className="w-3 h-3 flex-shrink-0" style={{ color: C.green }} /> : amb ? <AlertTriangle className="w-3 h-3 flex-shrink-0" style={{ color: C.amber }} /> : <Unplug className="bn-relink-state w-3 h-3 flex-shrink-0" data-matched={match ? 'true' : undefined} />}
                     <span className="truncate">{r.display_name || r.original_name}</span>
                     <span className="truncate" style={{ color: C.dimmer }}>· {r.original_name}</span>
                   </div>

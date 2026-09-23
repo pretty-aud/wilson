@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
-import { C, Btn, IconBtn, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
+import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
@@ -47,7 +47,9 @@ function Section({ title, children, open = true, onToggle, right = null }) {
           : <div className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</div>}
         {right}
       </div>
-      {open && <div className="px-3 pb-3 flex flex-col gap-2">{children}</div>}
+      {/* The kit's field stack: 16px between fields, and it stands down the
+          kit's sibling margin so the gap is not paid twice. */}
+      {open && <div className="px-3 pb-3 ui-field-stack">{children}</div>}
     </div>
   )
 }
@@ -122,7 +124,7 @@ export default function BinInspector({
   return (
     <div className="flex-shrink-0 h-full flex flex-col overflow-hidden" style={{ width, borderLeft: `1px solid ${C.line}`, backgroundColor: C.bg }}>
       <div className="px-3 py-2 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="text-label font-mono uppercase flex-1 truncate" style={{ color: C.dim }}>
+        <span className="text-label uppercase flex-1 truncate" style={{ color: C.dim }}>
           {single ? 'Inspector' : `${rows.length} files selected`}
         </span>
         {canWrite && <IconBtn Icon={Trash2} title={single ? 'Remove from bin (Delete)' : `Remove ${rows.length} from bin (Delete)`} onClick={() => onRemove?.(rows.map(r => r.id))} danger size={3} />}
@@ -138,7 +140,7 @@ export default function BinInspector({
           <div className="flex items-center gap-1.5 flex-wrap">
             <MarkBtn active={flag.value === 'select' && !flag.mixed} onClick={() => onPatch({ review_flag: flag.value === 'select' ? 'unflagged' : 'select' })} disabled={!canWrite} Icon={Check} color={C.green} label="Select" hint="S" />
             <MarkBtn active={flag.value === 'reject' && !flag.mixed} onClick={() => onPatch({ review_flag: flag.value === 'reject' ? 'unflagged' : 'reject' })} disabled={!canWrite} Icon={Ban} color={C.red} label="Reject" hint="R" />
-            <MarkBtn active={!!circled.value && !circled.mixed} onClick={() => onPatch({ circled: !circled.value })} disabled={!canWrite} Icon={Circle} color={C.accentText} label="Circled" hint="C" />
+            <MarkBtn active={!!circled.value && !circled.mixed} onClick={() => onPatch({ circled: !circled.value })} disabled={!canWrite} Icon={Circle} color={C.accent} label="Circled" hint="C" />
             {(flag.mixed || circled.mixed) && <span className="text-dense" style={{ color: C.amber }}>mixed</span>}
           </div>
           <Field label="Colour" inline mixed={color.mixed}>
@@ -169,7 +171,7 @@ export default function BinInspector({
                   )
                 })
             ) : (
-              <div className="text-dense font-mono" style={{ color: C.muted }}>
+              <div className="text-dense" style={{ color: C.muted }}>
                 {usedRows === 0 ? 'None of these is assigned to a shot yet.' : `${usedRows} of ${rows.length} are assigned to shots. Select one file to see where.`}
               </div>
             )}
@@ -196,7 +198,7 @@ export default function BinInspector({
           <Field label="Tags" mixed={mv('tags').mixed} hint="comma separated">
             <TextInput value={tags} onChange={setTags} onCommit={commitTags} disabled={!canWrite} placeholder="hero, b-roll, interview" />
           </Field>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="bn-field-grid grid grid-cols-2 gap-4">
             <Field label="Slate" mixed={mv('slate').mixed}>
               <TextInput value={slate} onChange={setSlate} onCommit={() => commit('slate', slate, mv('slate').value)} disabled={!canWrite} placeholder="24A" />
             </Field>
@@ -251,13 +253,13 @@ export default function BinInspector({
   )
 }
 
+// A mark is a toggle carrying its own data colour: the kit's Chip, through
+// binUi's adapter (the colour as a tint and an edge, the ink unchanged).
 function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={`${label} (${hint})`}
-      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40"
-      style={{ color: active ? C.bright : C.muted, backgroundColor: active ? color : 'transparent', border: `1px solid ${active ? color : C.line}` }}>
+    <Chip active={active} onClick={onClick} disabled={disabled} color={color} title={`${label} (${hint})`}>
       <Icon className="w-3 h-3" /> {label}
-    </button>
+    </Chip>
   )
 }
 

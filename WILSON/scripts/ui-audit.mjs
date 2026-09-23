@@ -173,6 +173,10 @@ export const CSS_FILES = [
   'src/components/Dashboard/dashboard.css',
   'src/components/AdminTerminal/adminTerminal.css',
   'src/components/Resources/resources.css',
+  // B1 (2026-09-23): R.A.B.B.I.T.'s shell, Intake, Summary and Team. Added
+  // deliberately, in the commit that took its last hex out, so the audit's
+  // denominator moves by one named file.
+  'src/tools/rabbit_v0.1.0/rabbitShell.css',
   // A1, 2026-09-23 — D.O.G.'s extracted state and its A1 restyle. The A2
   // half still holds the extraction's oklch palette literals (no hex).
   'src/tools/deck-outline-generator_v0.514/dog.css',

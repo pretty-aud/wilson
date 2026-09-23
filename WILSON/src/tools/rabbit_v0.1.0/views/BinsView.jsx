@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, EmptyState, Kbd, Spinner, MediaTag, ColorDot } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select, Banner } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -105,6 +105,7 @@ export default function BinsView() {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
+  const [removeAsk, setRemoveAsk] = useState(null)   // the ids awaiting "remove more than five?" (W9)
   const paneRef = useRef(null)
   const autoRelinkRef = useRef(null)
   const noticeTimer = useRef(null)
@@ -243,12 +244,17 @@ export default function BinsView() {
   }, [ctx, canWrite, say])
   const patchSelection = useCallback((patch) => patchIds([...selection], patch), [patchIds, selection])
 
-  const removeIds = useCallback(async (ids) => {
-    if (!ids.length || !canWrite) return
-    if (ids.length > 5 && !window.confirm(`Remove ${ids.length} files from the bin? The files on disk stay where they are. Undo is in the toast.`)) return
+  const doRemoveIds = useCallback(async (ids) => {
     try { await ctx.removeBinFiles(ids); clearSelection() }
     catch (e) { say(e?.message || String(e), 'error') }
-  }, [ctx, canWrite, clearSelection, say])
+  }, [ctx, clearSelection, say])
+  // W9 (Audrey, "convert"): the kit Dialog in place of window.confirm — the
+  // same threshold (more than five), the same words, Cancel as the way out.
+  const removeIds = useCallback(async (ids) => {
+    if (!ids.length || !canWrite) return
+    if (ids.length > 5) { setRemoveAsk(ids); return }
+    await doRemoveIds(ids)
+  }, [canWrite, doRemoveIds])
   const moveIds = useCallback(async (ids, binId) => {
     if (!ids.length || !canWrite) return
     try { await ctx.moveBinFiles(ids, binId); say(`Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to "${binsById.get(binId)?.name || 'bin'}".`, 'ok', 4000) }
@@ -509,7 +515,7 @@ export default function BinsView() {
   const onKeyDown = useCallback((e) => {
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg) return
+    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk) return
     // The grid's REAL column count, read from its computed tracks (review
     // round 2: a formula guessed it and ↓ walked diagonally at some widths).
     const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
@@ -550,7 +556,7 @@ export default function BinsView() {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
+  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
   // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
   // HIGH): a React onKeyDown on the pane only fired while focus sat inside
   // it, and focus falls to <body> whenever the control just clicked unmounts
@@ -646,17 +652,17 @@ export default function BinsView() {
     <div className="h-full w-full flex flex-col" style={{ backgroundColor: C.bg }}>
       {/* ── Notice ── */}
       {(notice || loadError) && (
-        <div className="flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0"
-          style={{
-            borderBottom: `1px solid ${C.line}`,
-            color: (notice?.kind === 'error' || loadError) ? '#fca5a5' : notice?.kind === 'warn' ? C.amber : notice?.kind === 'ok' ? C.green : C.text,
-            backgroundColor: C.deep,
-          }}>
-          {(notice?.kind === 'error' || loadError) ? <AlertTriangle className="w-3 h-3" /> : notice?.kind === 'ok' ? <Check className="w-3 h-3" /> : null}
-          <span className="flex-1 truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
-          {loadError && <Btn small onClick={load}>Retry</Btn>}
-          <button type="button" onClick={() => { setNotice(null); setLoadError(null) }} className="p-0.5" style={{ color: C.dim }}><X className="w-3 h-3" /></button>
-        </div>
+        // The in-flow strip is the kit's Banner (C8): one tone each, the icon in
+        // the tone, the words in the ink.
+        <Banner className="flex-shrink-0"
+          tone={(notice?.kind === 'error' || loadError) ? 'danger' : notice?.kind === 'warn' ? 'warning' : notice?.kind === 'ok' ? 'success' : 'info'}
+          Icon={(notice?.kind === 'error' || loadError) ? AlertTriangle : notice?.kind === 'ok' ? Check : undefined}
+          action={<>
+            {loadError && <Btn small onClick={load}>Retry</Btn>}
+            <IconBtn Icon={X} title="Dismiss" onClick={() => { setNotice(null); setLoadError(null) }} />
+          </>}>
+          <span className="block truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
+        </Banner>
       )}
 
       <div className="flex-1 min-h-0 flex">
@@ -681,7 +687,7 @@ export default function BinsView() {
                   {currentBin ? currentBin.name : 'All files'}
                   {currentBin && <span className="ml-2 text-dense normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
                 </div>
-                <div className="text-dense font-mono tabular-nums flex items-center gap-2 flex-wrap" style={{ color: C.dim }}>
+                <div className="text-caption tabular-nums flex items-center gap-2 flex-wrap" style={{ color: C.dim }}>
                   <span>{stats.count} file{stats.count === 1 ? '' : 's'}{rows.length !== stats.count ? ` · ${rows.length} shown` : ''}</span>
                   {stats.durationSec > 0 && <span>· {formatDuration(stats.durationSec)}</span>}
                   {stats.sizeBytes > 0 && <span>· {formatBytes(stats.sizeBytes)}</span>}
@@ -703,7 +709,7 @@ export default function BinsView() {
                 <Chip active={includeNested} onClick={() => setIncludeNested(v => !v)} title="Show files of nested bins too">nested</Chip>
               )}
               <div className="relative">
-                <Btn primary disabled={!canWrite} title={canWrite ? 'Add files or a folder' : writeReason || 'Read-only'}
+                <Btn primary small disabled={!canWrite} title={canWrite ? 'Add files or a folder' : writeReason || 'Read-only'}
                   onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom + 4, items: [
                     { label: 'Files…', Icon: FilePlus, onClick: () => pickFiles(currentBinId) },
                     { label: 'Folder… (subfolders become nested bins)', Icon: FolderPlus, onClick: () => pickFolder(currentBinId) },
@@ -714,25 +720,25 @@ export default function BinsView() {
                 </Btn>
               </div>
               <div className="flex items-center rounded-control" style={{ border: `1px solid ${C.line}` }}>
-                <IconBtn Icon={LayoutGrid} title="Frame view" active={view === 'grid'} onClick={() => setView('grid')} style={{ border: 'none' }} />
-                <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} style={{ border: 'none' }} />
+                <IconBtn Icon={LayoutGrid} title="Frame view" active={view === 'grid'} onClick={() => setView('grid')} />
+                <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} />
               </div>
               {view === 'grid' && (
-                <input type="range" min={120} max={360} step={20} value={tileWidth} onChange={e => setTileWidth(Number(e.target.value))} title="Tile size" className="w-20 accent-orange-600" />
+                <input type="range" min={120} max={360} step={20} value={tileWidth} onChange={e => setTileWidth(Number(e.target.value))} title="Tile size" aria-label="Tile size" className="w-20 accent-signal" />
               )}
               <IconBtn Icon={Filter} title="Filters" active={showFilters || filterCount > 0} onClick={() => setShowFilters(v => !v)} />
               <div className="relative">
                 <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
+                {/* A native field in the kit's input class, not the kit Input:
+                    Escape here CLEARS the search, where the kit Input's Escape
+                    reverts to the value at focus (C1: the key keeps its job). */}
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
-                  className="pl-6 pr-6 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500 w-56"
-                  style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
+                  className="ui-input pl-6 pr-6 w-56" data-size="sm" aria-label="Search files"
                   onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() } e.stopPropagation() }} />
-                {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
+                {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
               </div>
-              <select value={sort.field} onChange={e => setSort(s => ({ ...s, field: e.target.value }))} title="Sort by"
-                className="py-1.5 px-2 text-dense rounded-control" style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}>
-                {SORT_FIELDS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-              </select>
+              <Select value={sort.field} onChange={v => v && setSort(s => ({ ...s, field: v }))} title="Sort by" aria-label="Sort by" className="!w-auto"
+                options={SORT_FIELDS.map(f => ({ value: f.id, label: f.label }))} />
               <IconBtn Icon={sort.dir === 'desc' ? ArrowDown : ArrowUp} title={sort.dir === 'desc' ? 'Descending' : 'Ascending'} onClick={() => setSort(s => ({ ...s, dir: s.dir === 'desc' ? 'asc' : 'desc' }))} />
             </div>
           </div>
@@ -753,7 +759,7 @@ export default function BinsView() {
               {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)} count={countWhere(f => f.shoot_day === d)}>{d}</Chip>)}
               {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)} count={countWhere(f => f.scene_id === s)}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
               {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)} count={countWhere(f => (f.tags || []).includes(t))}>#{t}</Chip>)}
-              {filterCount > 0 && <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-dense ml-2 hover:underline" style={{ color: C.accentText }}>clear {filterCount}</button>}
+              {filterCount > 0 && <Btn variant="ghost" small className="ml-2" onClick={() => setFilters(EMPTY_FILTERS)}>Clear {filterCount}</Btn>}
               {filterValues.types.length === 0 && <span className="text-dense" style={{ color: C.dimmer }}>Nothing to filter yet.</span>}
             </div>
           )}
@@ -761,8 +767,8 @@ export default function BinsView() {
           {/* ── Body ── */}
           <div className="flex-1 min-h-0 flex flex-col relative">
             {dragOver && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" style={{ backgroundColor: 'rgba(234,88,12,0.12)', border: `2px dashed ${C.accent}` }}>
-                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accentBorder}` }}>
+              <div className="bn-drop absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                <div className="px-4 py-2 rounded-control text-label uppercase" style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.accent}` }}>
                   Drop to add to {currentBin ? `"${currentBin.name}"` : 'a new bin'}
                 </div>
               </div>
@@ -811,7 +817,7 @@ export default function BinsView() {
             {/* ── Selection bar ── */}
             {selection.size > 0 && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 flex-shrink-0 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, backgroundColor: C.deep }}>
-                <span className="text-dense font-mono tabular-nums mr-1" style={{ color: C.bright }}>{selection.size} selected</span>
+                <span className="text-dense tabular-nums mr-1" style={{ color: C.bright }}>{selection.size} selected</span>
                 {shownStats && selection.size > 1 && <span className="text-dense font-mono tabular-nums" style={{ color: C.dim }}>{formatDuration(binStats(selectedRows).durationSec)} {formatBytes(binStats(selectedRows).sizeBytes)}</span>}
                 {canWrite && <>
                   <Btn small onClick={() => patchSelection({ review_flag: 'select' })} title="Select (S)"><Check className="w-3 h-3" style={{ color: C.green }} /> Select</Btn>
@@ -819,12 +825,12 @@ export default function BinsView() {
                   <Btn small onClick={() => patchSelection({ review_flag: 'unflagged' })} title="Unflag (U)">Unflag</Btn>
                   <Btn small onClick={() => patchSelection({ circled: !selectedRows.every(r => r.circled) })} title="Circle (C)"><Circle className="w-3 h-3" style={{ color: C.accentText }} /> Circle</Btn>
                   <Btn small onClick={() => openAssign([...selection])} title={shots.length ? 'Assign the selection to a shot (A)' : 'Add shots on the Scenes tab first'} disabled={!shots.length}><Clapperboard className="w-3 h-3" style={{ color: C.accentText }} /> Assign to shot</Btn>
-                  <span className="inline-flex items-center gap-1 px-1">{COLORS.map(c => <ColorDot key={c} color={c} size={10} onClick={() => patchSelection({ color: c })} title={`Colour ${c}`} />)}<ColorDot color={null} size={10} onClick={() => patchSelection({ color: null })} title="No colour" /></span>
+                  <span className="inline-flex items-center gap-1 px-1">{COLORS.map((c, i) => <ColorDot key={c} color={c} size={10} onClick={() => patchSelection({ color: c })} title={`Colour ${c} (${i + 1})`} />)}<ColorDot color={null} size={10} onClick={() => patchSelection({ color: null })} title="No colour (0)" /></span>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Move to' }, ...binTargets().map(t => ({ label: t.label, Icon: FolderInput, ColorDot: t.color || undefined, onClick: () => moveIds([...selection], t.id) }))] })} disabled={bins.length < 2}><FolderInput className="w-3 h-3" /> Move to</Btn>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Copy to (as an instance)' }, ...binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds([...selection], t.id) }))] })}><Copy className="w-3 h-3" /> Copy to</Btn>
                   <Btn small danger onClick={() => removeIds([...selection])} title="Remove from bin (Delete)"><Trash2 className="w-3 h-3" /> Remove</Btn>
                 </>}
-                <button type="button" onClick={clearSelection} className="ml-auto text-dense hover:underline" style={{ color: C.dim }}>clear <Kbd>Esc</Kbd></button>
+                <Btn variant="ghost" small className="ml-auto" onClick={clearSelection}>Clear <Kbd>Esc</Kbd></Btn>
               </div>
             )}
           </div>
@@ -836,18 +842,22 @@ export default function BinsView() {
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} />
       </div>
 
-      {/* ── Footer hints ── */}
-      {/* Rabbit.jsx draws the adapter status dot at left 10 / bottom 18 (10px)
-          and the presence pill at left 26 / bottom 13, over whatever view is
-          open. The bar is tall enough to hold the dot and the keys start to
-          its right, so the light reads as part of the bar (Audrey, 2026-09-10). */}
-      <div className="flex items-center gap-3 pr-3 text-dense font-mono flex-shrink-0 flex-wrap"
-        style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep, minHeight: 34, paddingLeft: 30 }}>
-        <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>A</Kbd> assign to shot</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
-        <span className="ml-auto">{files.length} file{files.length === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{offlineAll.length ? ` · ${offlineAll.length} offline` : ''}</span>
-      </div>
+      {/* No footer bar (UI overhaul Q10, "no shortcut bar anywhere"). Its keys
+          are in Help → Shortcuts & Tips (rabbitHelpContent's BINS_SHORTCUTS)
+          and in the titles of the controls that act on a selection; its
+          project count is the bin tree's footer; the adapter dot and the
+          presence pill it made room for live in ProjectContextBar (B1). */}
 
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {removeAsk && (
+        <Modal title={`Remove ${removeAsk.length} files from the bin?`} width="confirm" onClose={() => setRemoveAsk(null)}
+          footer={<>
+            <Btn onClick={() => setRemoveAsk(null)}>Cancel</Btn>
+            <Btn danger onClick={() => { const ids = removeAsk; setRemoveAsk(null); doRemoveIds(ids) }}><Trash2 className="w-3 h-3" /> Remove {removeAsk.length} files</Btn>
+          </>}>
+          <p className="text-dense" style={{ color: C.text }}>The files on disk stay where they are. Undo is in the toast.</p>
+        </Modal>
+      )}
       {addDlg && <AddFilesDialog bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }} />}
       {deleteDlg && <DeleteBinDialog bin={deleteDlg} bins={bins} files={files} busy={deleteBusy} error={deleteError} onConfirm={confirmDelete} onCancel={() => { if (!deleteBusy) { setDeleteDlg(null); setDeleteError(null) } }} />}
       {relinkOpen && (
@@ -870,13 +880,12 @@ function RenameBar({ row, onCommit, onCancel }) {
   const [v, setV] = useState(row?.display_name || '')
   if (!row) return null
   return (
-    <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-control shadow-2xl" style={{ backgroundColor: C.panel, border: `1px solid ${C.accentBorder}` }}>
+    <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-float shadow-float" style={{ backgroundColor: C.panel, border: `1px solid ${C.accent}` }}>
       <Edit3 className="w-3 h-3" style={{ color: C.accentText }} />
       <span className="text-label uppercase" style={{ color: C.dim }}>Rename</span>
-      <input autoFocus value={v} onChange={e => setV(e.target.value)}
+      <input autoFocus value={v} onChange={e => setV(e.target.value)} aria-label="New name"
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { const t = v.trim(); if (t) onCommit(t); else onCancel() } if (e.key === 'Escape') onCancel() }}
-        className="flex-1 px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-        style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.line}` }} />
+        className="ui-input flex-1" data-size="sm" />
       <span className="text-dense font-mono truncate" style={{ color: C.dimmer, maxWidth: 240 }}>{row.original_name}</span>
       <Btn small primary onClick={() => { const t = v.trim(); if (t) onCommit(t); else onCancel() }}>Save</Btn>
       <Btn small onClick={onCancel}>Cancel</Btn>

@@ -1,0 +1,218 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. — Bins: the surface's own state, on the tokens
+   UI overhaul B6, 2026-09-23
+
+   Three commits wrote this file, in the order plan §5 requires.
+
+   1. THE STATE EXTRACTION (a2ccf0a). Every hover / selected / active /
+      current / drag-over / offline / disabled branch on the Bins tab moved
+      out of an inline `style` ternary into a `data-*` attribute resolved
+      here, values transcribed unchanged. An inline style beats every class
+      written beside it, so a restyle next to a surviving ternary drops the
+      state silently (plan §1, risk 4). That commit fixed the review's B01:
+      no Bins button had ever hovered, because each declared a hover class
+      and set its fill inline.
+   2. THE SWAP (d380631). Btn, IconBtn, Chip, Toggle, Field, Menu and the
+      inspector's marks became the kit's components, whose states live in
+      src/index.css; their transitional rules left this file.
+   3. THE RESTYLE (this state). Every value is a token from `@theme`; no hex
+      is written here (C8). And three review findings close:
+        B02  every row the cursor can land on has one hover fill, the kit's
+             `--color-hover` (a 6% screen of the ink): tree rows, list rows,
+             frame tiles, the two pick lists.
+        B04  the five-ink ladder is the kit's three (binUi's `C`): the two
+             failing inks (#57534e 2.29:1, #78716c 3.64:1) are ink-3, 5.04:1.
+        B13  selection is ONE tint (`--color-signal-tint`, 16%) everywhere a
+             thing is selected, active or picked; a drop target is the one
+             stronger mix (28%). Six alphas were in use.
+
+   🚨 THE LIFT. ink-3 and the signal pass on the three grounds at rest
+   (5.04 / 4.66 / 5.70 and 4.91 / 4.54 / 5.55) and FAIL on the hover and
+   selection grounds laid over them: ink-3 3.85–4.33, the signal 3.75–4.22
+   (measured with src/ui/contrast.js). So binUi's `C.dim` / `C.dimmer` /
+   `C.accentText` are custom properties with the token as their fallback —
+   `var(--bn-ink-3, var(--color-ink-3))` — and every row state below lifts
+   them one step for its own descendants: ink-3 → ink-2, the signal → ink.
+   A custom property inherits, so this works through INLINE styles, which a
+   class could never override.
+
+   🚨 SELECTORS KEY ON THE VALUE, `[data-x="true"]`, NEVER ON PRESENCE, and
+   the JSX emits `x ? 'true' : undefined` (C3b's trap; src/ui/dataState.test.jsx).
+   binsCss.test.js fails on a presence selector here.
+
+   `@layer components`, exactly as src/ui's rules are. 🚨 The layer statement
+   is the FIRST rule: this sheet is imported from a component and the bundler
+   may emit it before index.css, and a layer's cascade position is fixed where
+   it is first NAMED (settings.css and dashboardCss.test.js carry the story).
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ── The lift: a hovered, selected, active or picked row ────────────── */
+  .bn-tree-row:hover,
+  .bn-tree-row[data-active="true"],
+  .bn-tree-row[data-drag-over="true"],
+  .bn-trow:hover,
+  .bn-trow[data-selected="true"],
+  .bn-tile:hover,
+  .bn-tile[data-selected="true"],
+  .bn-pick-row:hover,
+  .bn-pick-row[data-picked="true"] {
+    --bn-ink-3: var(--color-ink-2);
+    --bn-signal-ink: var(--color-ink);
+  }
+
+  /* ── binUi's data components (the kit has no counterpart) ───────────── */
+  .bn-swatch { border: 1px solid transparent; }
+  .bn-swatch[data-selected="true"] { border-color: var(--color-ink); }
+
+  /* `--dot-color` is the label colour (data). */
+  .bn-dot {
+    background-color: var(--dot-color);
+    border: 1.5px solid var(--dot-color);
+  }
+  .bn-dot[data-hollow="true"] { background-color: transparent; }
+  .bn-dot[data-empty="true"] {
+    background-color: transparent;
+    border: 1px dashed var(--color-ink-3);
+  }
+
+  .bn-flags[data-muted="true"] svg { color: var(--color-ink-3); }
+
+  /* 🚨 Fields side by side in a GRID. The kit's `.ui-field + .ui-field`
+     margin is a vertical-stack rule written as a sibling rule, so it fires
+     sideways too: measured, the inspector's Take sat 16px below Slate beside
+     it and Slate stretched 16px to cover the gap. The kit resets it for a
+     flex row (`.ui-field-row`) and a stack (`.ui-field-stack`) but has no
+     grid container; this is that reset, and a kit request in the B6 hand-off.
+     The grid's own gap does the spacing. */
+  .bn-field-grid > .ui-field + .ui-field { margin-top: 0; }
+
+  /* A dark scrim under a label laid over a poster frame. */
+  .bn-scrim { background-color: color-mix(in srgb, var(--color-paper-recessed) 75%, transparent); }
+
+  /* ── The bin tree ───────────────────────────────────────────────────── */
+  /* The selected edge is an inset shadow, not a 2px border (V1-12: one
+     border, the 1px hairline); it takes no width, so text never shifts. */
+  .bn-tree-row {
+    color: var(--color-ink-2);
+    background-color: transparent;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .bn-tree-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .bn-tree-row[data-active="true"] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 var(--color-signal);
+  }
+  /* After the active rule: the old ternary tested `dragOver` first. */
+  .bn-tree-row[data-drag-over="true"] { background-color: color-mix(in srgb, var(--color-signal) 28%, transparent); }
+  .bn-tree-icon { color: var(--color-ink-3); }
+  .bn-tree-row:hover .bn-tree-icon { color: var(--color-ink-2); }
+  .bn-tree-row[data-active="true"] .bn-tree-icon { color: var(--color-signal); }
+
+  /* ── The list view ──────────────────────────────────────────────────── */
+  /* The header is the kit's Label step (11px, 600, upper, +0.06em). */
+  .bn-th {
+    color: var(--color-ink-3);
+    font-size: var(--text-label);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: color var(--duration-state) ease-out;
+  }
+  .bn-th[data-sorted="true"] { color: var(--color-signal); }
+  .bn-th:hover:not(:disabled):not([data-sorted="true"]) { color: var(--color-ink); }
+
+  .bn-trow {
+    background-color: transparent;
+    border-bottom: 1px solid var(--color-rule);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .bn-trow:hover { background-color: var(--color-hover); }
+  .bn-trow[data-selected="true"] { background-color: var(--color-signal-tint); }
+  .bn-trow[data-current="true"] { box-shadow: inset 2px 0 0 var(--color-signal); }
+  .bn-trow[data-offline="true"] { opacity: 0.75; }
+  .bn-trow-name { color: var(--color-ink); }
+  .bn-trow[data-offline="true"] .bn-trow-name { color: var(--color-ink-3); }
+
+  /* ── The frame view ─────────────────────────────────────────────────── */
+  /* The hover is the same 6% screen, laid OVER the raised fill as an image so
+     the tile keeps its own ground underneath. */
+  .bn-tile {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .bn-tile:hover {
+    background-image: linear-gradient(var(--color-hover), var(--color-hover));
+    border-color: color-mix(in srgb, var(--color-ink) 28%, transparent);
+  }
+  .bn-tile[data-selected="true"] {
+    background-color: var(--color-paper);
+    background-image: linear-gradient(var(--color-signal-tint), var(--color-signal-tint));
+    border-color: var(--color-signal);
+  }
+  .bn-tile[data-current="true"] { box-shadow: 0 0 0 1px var(--color-signal); }
+  .bn-tile[data-offline="true"] { opacity: 0.8; }
+
+  /* ── The poster (Bins, and Scenes through ShotTakeChips / ShotTakesPanel) ── */
+  .bn-poster {
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+  }
+  .bn-poster[data-primary="true"] {
+    border-color: var(--color-signal);
+    box-shadow: 0 0 0 1px var(--color-signal);
+  }
+  /* `--poster-icon` is the media type's colour (data). */
+  .bn-poster-icon { color: var(--poster-icon); opacity: 0.9; }
+  .bn-poster[data-offline="true"] .bn-poster-icon { color: var(--color-ink-3); opacity: 0.6; }
+
+  /* ── Pick lists: assign to shot, the take picker ────────────────────── */
+  .bn-pick-row {
+    background-color: transparent;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .bn-pick-row:hover { background-color: var(--color-hover); }
+  .bn-pick-row[data-picked="true"] { background-color: var(--color-signal-tint); }
+  .bn-pick-row[data-offline="true"] { opacity: 0.75; }
+  /* After offline: the take picker's ternary tested `locked` first. */
+  .bn-pick-row[data-locked="true"] { opacity: 0.6; }
+  .bn-group-head { color: var(--color-ink-3); }
+  .bn-group-head[data-preferred="true"] { color: var(--color-signal); }
+  .bn-take-count { color: var(--bn-ink-3, var(--color-ink-3)); }
+  .bn-take-count[data-assigned="true"] { color: var(--bn-signal-ink, var(--color-signal)); }
+
+  /* ── A shot's takes ─────────────────────────────────────────────────── */
+  .bn-take-row { background-color: var(--color-paper); }
+  /* The divider between takes, not under the last (was an index ternary). */
+  .bn-take-row:not(:last-child) { border-bottom: 1px solid var(--color-rule); }
+  .bn-take-row[data-primary="true"] { background-color: color-mix(in srgb, var(--color-signal) 6%, var(--color-paper)); }
+
+  /* ── Add files ──────────────────────────────────────────────────────── */
+  .bn-add-row { opacity: 0.7; }
+  .bn-add-row[data-included="true"] { opacity: 1; }
+  /* After included: the old ternary tested `disabled` first. */
+  .bn-add-row[data-disabled="true"] { opacity: 0.5; }
+  .bn-add-meta { color: var(--color-ink-3); }
+  .bn-add-meta[data-duplicate="true"] { color: var(--color-warning); }
+  .bn-add-sug { color: var(--color-ink-3); }
+  .bn-add-sug[data-apply="true"] { color: var(--color-signal); }
+
+  /* ── Delete a bin ───────────────────────────────────────────────────── */
+  .bn-del-move { color: var(--color-ink-2); }
+  .bn-del-move[data-disabled="true"] { color: var(--color-ink-3); }
+
+  /* ── Relink: an offline file with no match yet is amber; one matched is quiet ── */
+  .bn-relink-state { color: var(--color-warning); }
+  .bn-relink-state[data-matched="true"] { color: var(--color-ink-3); }
+
+  /* ── The files pane's drop target ───────────────────────────────────── */
+  .bn-drop {
+    background-color: var(--color-signal-tint);
+    border: 1px dashed var(--color-signal);
+  }
+}
