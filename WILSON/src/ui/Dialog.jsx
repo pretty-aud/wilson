@@ -31,7 +31,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
-import { pushModal, isTopModal, focusableWithin, menuOpen } from './overlay'
+import { pushModal, isTopModal, focusableWithin } from './overlay'
 
 export const DIALOG_WIDTHS = Object.freeze({ confirm: 400, form: 560, reading: 720, workbench: 960 })
 
@@ -128,14 +128,17 @@ export function Dialog({
       //    same Escape in its capture-phase listener and marks it handled; a
       //    handled Escape is not this dialog's (the template editor's
       //    dependency picker: one key closed the picker and the editor). The
-      //    open-menu count stays as a second reason; alone it was inert in a
-      //    browser, and jsdom, which runs no microtask there, passed it.
+      //    first cut checked overlay.js's open-menu COUNT instead, which was
+      //    inert in a browser (the count is already down by the time this
+      //    runs) and was then kept as "a second reason" that decided nothing
+      //    — B2's round-one review removed it and passed every test without
+      //    it. The mark is the whole rule.
       //  · A2: Escape is this dialog's while it is on top, whether or not it
       //    closes (busy, or a guard refused): it marks it handled, so a layer
       //    under it — a Drawer listening on `window` — stands down (A2 review
       //    round 1, measured: one Escape closed Help and Settings together).
       if (e.key === 'Escape') {
-        if (e.defaultPrevented || menuOpen()) return
+        if (e.defaultPrevented) return
         e.preventDefault(); tryCloseRef.current(); return
       }
       if (e.key !== 'Tab' || !node) return
@@ -202,7 +205,22 @@ export function Dialog({
   return (
     <div
       className="ui-dialog-backdrop"
-      onMouseDown={(e) => { if (dismissOnBackdrop && e.target === e.currentTarget) tryClose() }}
+      onMouseDown={(e) => {
+        if (!dismissOnBackdrop || e.target !== e.currentTarget) return
+        // K5 (lane B2): a press on the backdrop closes BEFORE the browser
+        // moves focus, so a field that saves on blur — every inline editor in
+        // the task popup and the template manager — was unmounted with its
+        // edit still in it, and the edit was gone (B2 review round one,
+        // measured: a description typed and then dismissed by a click
+        // outside was not saved; the hand-rolled overlays these replace
+        // closed on the click, after the blur). Blur whatever has focus
+        // inside this dialog first: its onBlur runs now, synchronously, and
+        // then the dialog closes on the same press it always did.
+        const node = surfaceRef.current
+        const active = typeof document !== 'undefined' ? document.activeElement : null
+        if (node && active && node.contains(active) && typeof active.blur === 'function') active.blur()
+        tryClose()
+      }}
     >
       <div
         {...rest}

@@ -449,6 +449,48 @@ describe('Dialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('marks the Escape it handles, so a layer under it stands down (A2) — and K4 reads that mark', () => {
+    render(<Dialog title="Top" onClose={() => {}}>body</Dialog>)
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+  })
+
+  // K5 (lane B2): a backdrop dismissal must not throw away an edit that
+  // saves on blur. The press closes the dialog before the browser moves focus,
+  // so the dialog blurs the field itself first.
+  it('blurs the focused field before a backdrop press closes it, so a save-on-blur edit is kept (K5)', () => {
+    const saved = vi.fn()
+    const onClose = vi.fn(() => { order.push('close') })
+    const order = []
+    function Editor() {
+      const [v, setV] = useState('')
+      return <input aria-label="Notes" value={v} onChange={(e) => setV(e.target.value)} onBlur={() => { order.push('blur'); saved(v) }} />
+    }
+    render(<Dialog title="Edit" onClose={onClose} dismissOnBackdrop><Editor /></Dialog>)
+    const input = screen.getByLabelText('Notes')
+    input.focus()
+    fireEvent.change(input, { target: { value: 'typed, not yet saved' } })
+    fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+    expect(saved).toHaveBeenCalledWith('typed, not yet saved')
+    expect(order).toEqual(['blur', 'close'])
+  })
+
+  it('K5 blurs only what is inside it: a backdrop press leaves focus elsewhere alone', () => {
+    const outside = document.createElement('input')
+    document.body.appendChild(outside)
+    try {
+      render(<Dialog title="Edit" onClose={() => {}} dismissOnBackdrop>body</Dialog>)
+      outside.focus()
+      const blurred = vi.fn()
+      outside.addEventListener('blur', blurred)
+      fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+      expect(blurred).not.toHaveBeenCalled()
+    } finally {
+      outside.remove()
+    }
+  })
+
   it('the kit Menu marks its Escape handled', () => {
     const onClose = vi.fn()
     render(<Menu x={0} y={0} onClose={onClose} items={[{ label: 'Rig' }]} />)
