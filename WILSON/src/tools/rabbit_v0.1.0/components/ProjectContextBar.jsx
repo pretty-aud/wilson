@@ -8,15 +8,38 @@
 //   • Project icon + title + status pill
 //   • A "switch project" dropdown listing every project in the
 //     workspace, with the active one marked
+//   • Two named slots, `presenceSlot` and `adapterSlot` (below)
 // Reads from RabbitProvider.
+//
+// ── The two named slots (Q10; B1, 2026-09-23) ───────────────────────────────
+// Audrey ruled "no shortcut bar anywhere" (Q10). The Bins footer bar goes in
+// B6, and the two things that sat on it — the storage adapter's status dot
+// and the realtime presence pill, both drawn by Rabbit.jsx as corner overlays
+// — dock HERE instead, so they sit on a surface on every view rather than
+// over content (V1-08).
+//
+//   presenceSlot  any node; rendered first. Rabbit.jsx passes the LIVE / SYNC
+//                 pill plus the avatars of who else has the project open. It
+//                 renders nothing while realtime is off (Local Server mode).
+//   adapterSlot   any node; rendered after presence, before Switch. Rabbit.jsx
+//                 passes the adapter dot (online / offline / unconfigured,
+//                 with its mode in the tooltip).
+//
+// Both render inside `[data-slot="status"]`, each in its own
+// `[data-slot="presence"]` / `[data-slot="adapter"]` wrapper. The wrappers
+// are `display: contents`, so an empty slot takes no room and adds no gap.
+// Omit both and the bar renders exactly as it did without them. The bar is
+// drawn on every view except Summary; on Summary Rabbit.jsx docks the same two
+// nodes at the tab bar's right end (see its comment).
 
 import { useState, useRef, useEffect } from 'react'
 import {
   Folder, ChevronDown, Check, Circle,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import '../rabbitShell.css'
 
-export default function ProjectContextBar() {
+export default function ProjectContextBar({ presenceSlot = null, adapterSlot = null } = {}) {
   const ctx = useRabbit()
   const project = ctx?.project
   const projectsIndex = ctx?.projectsIndex || {}
@@ -43,11 +66,6 @@ export default function ProjectContextBar() {
   })
 
   const status = project?.status || (activeProjectId ? 'draft' : null)
-  const statusColor =
-    status === 'active'   ? '#15803d' :
-    status === 'archived' ? '#57534e' :
-    status === 'wrapped'  ? '#15803d' :
-    '#ea580c'
 
   return (
     <div
@@ -60,22 +78,26 @@ export default function ProjectContextBar() {
         <span className="text-label uppercase" style={{ color: '#78716c' }}>
           Project
         </span>
-        <span className="text-dense font-semibold truncate" style={{ color: project ? '#d6d3d1' : '#78716c' }}>
+        <span className="rb-ctx-title text-dense font-semibold truncate" data-empty={project ? undefined : 'true'}>
           {project?.title || (activeProjectId ? 'Loading…' : 'No project selected')}
         </span>
         {status && (
           <span
-            className="px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
-            style={{
-              color: '#fff7ed',
-              backgroundColor: statusColor,
-              border: `1px solid ${statusColor}`,
-            }}
+            className="rb-ctx-status px-1.5 py-0.5 text-label uppercase rounded-control flex-shrink-0"
+            data-status={status}
           >
             {status}
           </span>
         )}
       </div>
+
+      {/* The two named slots (Q10): presence, then the adapter dot. */}
+      {(presenceSlot || adapterSlot) && (
+        <div className="flex items-center gap-2 flex-shrink-0" data-slot="status">
+          <span className="contents" data-slot="presence">{presenceSlot}</span>
+          <span className="contents" data-slot="adapter">{adapterSlot}</span>
+        </div>
+      )}
 
       {/* Switcher dropdown */}
       <div ref={wrapperRef} className="relative">
@@ -118,11 +140,8 @@ export default function ProjectContextBar() {
                         setActiveProject?.(p.id)
                         setOpen(false)
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-stone-700 transition-colors"
-                      style={{
-                        borderBottom: '1px solid #1c1917',
-                        color: isActive ? '#fb923c' : '#d6d3d1',
-                      }}
+                      className="rb-ctx-option w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-stone-700 transition-colors"
+                      data-active={isActive ? 'true' : undefined}
                     >
                       {isActive
                         ? <Check className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
@@ -130,12 +149,8 @@ export default function ProjectContextBar() {
                       <span className="flex-1 truncate text-dense">{p.title || 'Untitled'}</span>
                       {p.status && (
                         <span className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{
-                            backgroundColor: p.status === 'active' ? '#15803d' : p.status === 'archived' ? '#57534e' : p.status === 'wrapped' ? '#15803d' : '#ea580c',
-                          }} />
-                          <span className="text-label uppercase" style={{
-                            color: p.status === 'active' ? '#4ade80' : p.status === 'archived' ? '#78716c' : p.status === 'wrapped' ? '#4ade80' : '#fb923c',
-                          }}>
+                          <span className="rb-ctx-option-dot w-1.5 h-1.5 rounded-full flex-shrink-0" data-status={p.status} />
+                          <span className="rb-ctx-option-status text-label uppercase" data-status={p.status}>
                             {p.status}
                           </span>
                         </span>
