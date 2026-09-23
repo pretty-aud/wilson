@@ -254,8 +254,9 @@ export default function BinInspector({
 function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={`${label} (${hint})`}
-      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40"
-      style={{ color: active ? C.bright : C.muted, backgroundColor: active ? color : 'transparent', border: `1px solid ${active ? color : C.line}` }}>
+      data-active={active ? 'true' : undefined}
+      className="bn-mark inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors disabled:opacity-40"
+      style={{ '--mark-color': color }}>
       <Icon className="w-3 h-3" /> {label}
     </button>
   )

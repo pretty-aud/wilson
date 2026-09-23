@@ -80,8 +80,8 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
             const on = locked || picked.has(file.id)
             return (
               <div key={file.id}>
-                {header && <div className="px-3 py-1 text-label uppercase" style={{ color: tier === 0 ? C.accentText : C.dim, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
-                <label className="flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" style={{ borderBottom: `1px solid ${C.faint}`, backgroundColor: on && !locked ? 'rgba(234,88,12,0.12)' : 'transparent', opacity: locked ? 0.6 : file.online === false ? 0.75 : 1 }}>
+                {header && <div className="bn-group-head px-3 py-1 text-label uppercase" data-preferred={tier === 0 ? 'true' : undefined} style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
+                <label className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !locked ? 'true' : undefined} data-locked={locked ? 'true' : undefined} data-offline={file.online === false ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <input type="checkbox" className="accent-orange-600" checked={on} disabled={locked || busy} onChange={() => toggle(file.id)} />
                   <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={64} height={36} />
                   <div className="flex-1 min-w-0">

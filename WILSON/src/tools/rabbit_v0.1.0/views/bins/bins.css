@@ -1,0 +1,220 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. — Bins: the extracted state
+   UI overhaul B6, 2026-09-23
+
+   THE STATE EXTRACTION (plan §5: "every session's first commit on any file
+   it restyles"). Every hover / selected / active / current / drag-over /
+   offline / disabled / tone branch on the Bins tab moved out of an inline
+   `style` ternary and into a `data-*` attribute resolved here, the values
+   transcribed unchanged. An inline style beats every class written beside
+   it, so a class-based restyle next to a surviving inline ternary drops the
+   state silently (plan §1, risk 4; review part 5, risk 4).
+
+   The one visible change is B01, and it is the point: Btn, IconBtn, Chip and
+   the inspector's mark buttons declared `hover:bg-stone-700` in a class and
+   set `backgroundColor` inline on the same element, so no Bins button ever
+   hovered. With the fill declared here, the hover declared beside it wins.
+   The table's sortable headers had the same shape (`hover:text-stone-200`
+   under an inline `color`) and hover now too.
+
+   🚨 SELECTORS KEY ON THE VALUE, `[data-x="true"]`, NEVER ON PRESENCE, and
+   the JSX emits `x ? 'true' : undefined`. C3b's trap (src/ui/dataState.test.jsx):
+   a presence selector paints `data-x="false"` too. binsCss.test.js fails on a
+   presence selector here.
+
+   `@layer components`, exactly as src/ui's rules are: layered, a Tailwind
+   utility on the same element still wins for layout and this file still wins
+   for state. 🚨 The layer statement is the FIRST rule because this sheet is
+   imported from a component and the bundler may emit it before index.css; a
+   layer's cascade position is fixed where it is first NAMED (settings.css and
+   dashboardCss.test.js carry the full story).
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ── binUi's primitives ─────────────────────────────────────────────── */
+  .bn-btn {
+    color: #d6d3d1;
+    background-color: transparent;
+    border: 1px solid #44403c;
+  }
+  .bn-btn:hover:not(:disabled) { background-color: #44403c; }
+  .bn-btn[data-variant="primary"] {
+    color: #fff7ed;
+    background-color: #ea580c;
+    border-color: #c2410c;
+  }
+  /* The primary's hover is its own darker fill — never the grey (review B01:
+     "it must not stay flat and must not turn stone-700 grey"). */
+  .bn-btn[data-variant="primary"]:hover:not(:disabled) { background-color: #c2410c; }
+  .bn-btn[data-variant="danger"] { color: #fca5a5; border-color: #7f1d1d; }
+
+  .bn-iconbtn {
+    color: #a8a29e;
+    background-color: transparent;
+    border: 1px solid #44403c;
+  }
+  .bn-iconbtn:hover:not(:disabled):not([data-active="true"]) { background-color: #44403c; }
+  .bn-iconbtn[data-active="true"] {
+    color: #fff7ed;
+    background-color: #ea580c;
+    border-color: #c2410c;
+  }
+  /* After the active rule: the old ternary tested `danger` first. */
+  .bn-iconbtn[data-danger="true"] { color: #fca5a5; }
+
+  /* `--chip-color` is a DATA colour (a media type's, a mark's), never the state. */
+  .bn-chip {
+    color: #a8a29e;
+    background-color: transparent;
+    border: 1px solid #44403c;
+  }
+  .bn-chip:hover:not([data-active="true"]) { background-color: #44403c; }
+  .bn-chip[data-active="true"] {
+    color: #fff7ed;
+    background-color: var(--chip-color, #ea580c);
+    border-color: var(--chip-color, #c2410c);
+  }
+
+  .bn-swatch { border: 1px solid transparent; }
+  .bn-swatch[data-selected="true"] { border-color: #fff7ed; }
+
+  /* `--dot-color` is the label colour (data). */
+  .bn-dot {
+    background-color: var(--dot-color);
+    border: 1.5px solid var(--dot-color);
+  }
+  .bn-dot[data-hollow="true"] { background-color: transparent; }
+  .bn-dot[data-empty="true"] {
+    background-color: transparent;
+    border: 1px dashed #57534e;
+  }
+
+  .bn-flags[data-muted="true"] svg { color: #78716c; }
+
+  .bn-toggle-track { background-color: #44403c; }
+  .bn-toggle-track[data-checked="true"] { background-color: #ea580c; }
+  .bn-toggle-knob { left: 2px; }
+  .bn-toggle-track[data-checked="true"] .bn-toggle-knob { left: 14px; }
+
+  .bn-field-label { color: #78716c; }
+  .bn-field-label[data-mixed="true"] { color: #f59e0b; }
+
+  .bn-menu-item { color: #d6d3d1; }
+  .bn-menu-item[data-danger="true"] { color: #fca5a5; }
+  .bn-menu-icon { color: #fb923c; }
+  .bn-menu-item[data-danger="true"] .bn-menu-icon { color: #fca5a5; }
+
+  /* ── The bin tree ───────────────────────────────────────────────────── */
+  .bn-tree-row {
+    color: #d6d3d1;
+    background-color: transparent;
+    border-left: 2px solid transparent;
+  }
+  .bn-tree-row[data-active="true"] {
+    color: #fff7ed;
+    background-color: rgba(234, 88, 12, 0.18);
+    border-left-color: #ea580c;
+  }
+  /* After the active rule: the old ternary tested `dragOver` first. */
+  .bn-tree-row[data-drag-over="true"] { background-color: rgba(234, 88, 12, 0.25); }
+  .bn-tree-icon { color: #78716c; }
+  .bn-tree-row[data-active="true"] .bn-tree-icon { color: #fb923c; }
+
+  /* ── The list view ──────────────────────────────────────────────────── */
+  .bn-th { color: #78716c; }
+  .bn-th[data-sorted="true"] { color: #fb923c; }
+  .bn-th:hover:not(:disabled):not([data-sorted="true"]) { color: #e7e5e4; }
+
+  .bn-trow {
+    background-color: transparent;
+    border-bottom: 1px solid #292524;
+  }
+  .bn-trow[data-selected="true"] { background-color: rgba(234, 88, 12, 0.16); }
+  .bn-trow[data-current="true"] { box-shadow: inset 2px 0 0 #ea580c; }
+  .bn-trow[data-offline="true"] { opacity: 0.75; }
+  .bn-trow-name { color: #fff7ed; }
+  .bn-trow[data-offline="true"] .bn-trow-name { color: #78716c; }
+
+  /* ── The frame view ─────────────────────────────────────────────────── */
+  .bn-tile {
+    background-color: #292524;
+    border: 1px solid #44403c;
+  }
+  .bn-tile[data-selected="true"] {
+    background-color: rgba(234, 88, 12, 0.14);
+    border-color: #c2410c;
+  }
+  .bn-tile[data-current="true"] { box-shadow: 0 0 0 1px #ea580c; }
+  .bn-tile[data-offline="true"] { opacity: 0.8; }
+
+  /* ── The poster (Bins, and Scenes through ShotTakeChips / ShotTakesPanel) ── */
+  .bn-poster {
+    background-color: #0c0a09;
+    border: 1px solid #44403c;
+  }
+  .bn-poster[data-primary="true"] {
+    border-color: #ea580c;
+    box-shadow: 0 0 0 1px #ea580c;
+  }
+  /* `--poster-icon` is the media type's colour (data). */
+  .bn-poster-icon { color: var(--poster-icon); opacity: 0.9; }
+  .bn-poster[data-offline="true"] .bn-poster-icon { color: #57534e; opacity: 0.6; }
+
+  /* ── The inspector's marks ──────────────────────────────────────────── */
+  /* `--mark-color` is the mark's own colour (data). */
+  .bn-mark {
+    color: #a8a29e;
+    background-color: transparent;
+    border: 1px solid #44403c;
+  }
+  .bn-mark:hover:not(:disabled):not([data-active="true"]) { background-color: #44403c; }
+  .bn-mark[data-active="true"] {
+    color: #fff7ed;
+    background-color: var(--mark-color);
+    border-color: var(--mark-color);
+  }
+
+  /* ── Pick lists: assign to shot, the take picker ────────────────────── */
+  .bn-pick-row { background-color: transparent; }
+  .bn-pick-row[data-picked="true"] { background-color: rgba(234, 88, 12, 0.12); }
+  .bn-pick-row[data-offline="true"] { opacity: 0.75; }
+  /* After offline: the take picker's ternary tested `locked` first. */
+  .bn-pick-row[data-locked="true"] { opacity: 0.6; }
+  .bn-group-head { color: #78716c; }
+  .bn-group-head[data-preferred="true"] { color: #fb923c; }
+  .bn-take-count { color: #57534e; }
+  .bn-take-count[data-assigned="true"] { color: #fb923c; }
+
+  /* ── A shot's takes ─────────────────────────────────────────────────── */
+  .bn-take-row { background-color: #1c1917; }
+  /* The divider between takes, not under the last (was an index ternary). */
+  .bn-take-row:not(:last-child) { border-bottom: 1px solid #292524; }
+  .bn-take-row[data-primary="true"] { background-color: rgba(234, 88, 12, 0.06); }
+
+  /* ── Add files ──────────────────────────────────────────────────────── */
+  .bn-add-row { opacity: 0.7; }
+  .bn-add-row[data-included="true"] { opacity: 1; }
+  /* After included: the old ternary tested `disabled` first. */
+  .bn-add-row[data-disabled="true"] { opacity: 0.5; }
+  .bn-add-meta { color: #57534e; }
+  .bn-add-meta[data-duplicate="true"] { color: #f59e0b; }
+  .bn-add-sug { color: #78716c; }
+  .bn-add-sug[data-apply="true"] { color: #fb923c; }
+
+  /* ── Delete a bin ───────────────────────────────────────────────────── */
+  .bn-del-move { color: #d6d3d1; }
+  .bn-del-move[data-disabled="true"] { color: #57534e; }
+
+  /* ── Relink: an offline file with no match yet is amber; one matched is quiet ── */
+  .bn-relink-state { color: #f59e0b; }
+  .bn-relink-state[data-matched="true"] { color: #57534e; }
+
+  /* ── The notice strip ───────────────────────────────────────────────── */
+  .bn-notice { color: #d6d3d1; }
+  .bn-notice[data-tone="ok"] { color: #22c55e; }
+  .bn-notice[data-tone="warn"] { color: #f59e0b; }
+  .bn-notice[data-tone="error"] { color: #fca5a5; }
+}

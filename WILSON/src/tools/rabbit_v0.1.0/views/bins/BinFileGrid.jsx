@@ -82,13 +82,10 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
         if (!r || r.width <= 0) return
         setScrubFrac(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)))
       }}
-      className="rounded-control overflow-hidden cursor-default flex flex-col"
-      style={{
-        backgroundColor: selected ? 'rgba(234,88,12,0.14)' : C.panel,
-        border: `1px solid ${selected ? C.accentBorder : C.line}`,
-        boxShadow: current ? `0 0 0 1px ${C.accent}` : 'none',
-        opacity: row.online === false ? 0.8 : 1,
-      }}>
+      className="bn-tile rounded-control overflow-hidden cursor-default flex flex-col"
+      data-selected={selected ? 'true' : undefined}
+      data-current={current ? 'true' : undefined}
+      data-offline={row.online === false ? 'true' : undefined}>
       <div ref={boxRef} className="relative w-full" style={{ aspectRatio: '16 / 9', backgroundColor: C.deep }}>
         <BinPoster row={row} src={thumbUrl} width="100%" height="100%" radius={0} style={{ border: 'none', position: 'absolute', inset: 0 }} iconSize={36} />
         {scrubbing && (

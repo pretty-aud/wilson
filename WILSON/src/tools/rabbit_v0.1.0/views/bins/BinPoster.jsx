@@ -26,7 +26,7 @@ export function mediaIconFor(type) {
   }
 }
 
-export default function BinPoster({ row, src, width = 32, height = null, radius = 2, className = '', style = {}, iconSize = null }) {
+export default function BinPoster({ row, src, width = 32, height = null, radius = 2, className = '', style = {}, iconSize = null, primary = false }) {
   const [erroredSrc, setErroredSrc] = useState(null)
   const h = height ?? width
   const Icon = mediaIconFor(row?.media_type)
@@ -34,14 +34,16 @@ export default function BinPoster({ row, src, width = 32, height = null, radius 
   const offline = row?.online === false
   const showImg = !!src && erroredSrc !== src && !offline
   return (
-    <div className={`relative overflow-hidden flex items-center justify-center flex-shrink-0 ${className}`}
-      style={{ width, height: h, borderRadius: radius, backgroundColor: C.deep, border: `1px solid ${C.line}`, ...style }}>
+    <div className={`bn-poster relative overflow-hidden flex items-center justify-center flex-shrink-0 ${className}`}
+      data-offline={offline ? 'true' : undefined}
+      data-primary={primary ? 'true' : undefined}
+      style={{ width, height: h, borderRadius: radius, ...style }}>
       {showImg ? (
         <img key={src} src={src} alt="" loading="lazy" draggable={false}
           onError={() => setErroredSrc(src)}
           className="object-cover" style={{ width: '100%', height: '100%' }} />
       ) : (
-        <Icon style={{ width: iconSize || Math.max(12, Math.min(40, width / 3)), height: iconSize || Math.max(12, Math.min(40, width / 3)), color: offline ? C.dimmer : meta.color, opacity: offline ? 0.6 : 0.9 }} />
+        <Icon className="bn-poster-icon" style={{ width: iconSize || Math.max(12, Math.min(40, width / 3)), height: iconSize || Math.max(12, Math.min(40, width / 3)), '--poster-icon': meta.color }} />
       )}
       {offline && (
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1" style={{ backgroundColor: 'rgba(12,10,9,0.8)' }}>

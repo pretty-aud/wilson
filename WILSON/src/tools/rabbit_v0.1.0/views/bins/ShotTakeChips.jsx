@@ -34,8 +34,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
       className="inline-flex items-center gap-1 rounded-control px-0.5 hover:bg-stone-700/60 transition-colors" style={{ height: height + 4 }}>
       {shown.map(({ take, file }) => (
         <span key={take.id} className="relative inline-block flex-shrink-0" title={`${file.display_name || file.original_name} · ${TAKE_ROLE_META[take.role]?.label || take.role}`}>
-          <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={w} height={height} radius={2}
-            style={{ border: `1px solid ${take.role === 'primary' ? C.accent : C.line}`, boxShadow: take.role === 'primary' ? `0 0 0 1px ${C.accent}` : 'none' }} />
+          <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={w} height={height} radius={2} primary={take.role === 'primary'} />
           {take.role === 'primary' && (
             <Star style={{ width: 8, height: 8, position: 'absolute', top: 1, left: 1, color: C.accentText, fill: C.accentText }} />
           )}

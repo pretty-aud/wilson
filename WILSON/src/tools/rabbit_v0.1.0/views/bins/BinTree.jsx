@@ -102,15 +102,12 @@ function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick
   return (
     <div role="treeitem" aria-selected={active}
       onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense transition-colors"
-      style={{
-        paddingLeft: 10 + depth * 14,
-        color: active ? C.bright : C.text,
-        backgroundColor: dragOver ? 'rgba(234,88,12,0.25)' : active ? 'rgba(234,88,12,0.18)' : 'transparent',
-        borderLeft: `2px solid ${active ? C.accent : 'transparent'}`,
-      }}>
+      className="bn-tree-row flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense transition-colors"
+      data-active={active ? 'true' : undefined}
+      data-drag-over={dragOver ? 'true' : undefined}
+      style={{ paddingLeft: 10 + depth * 14 }}>
       <span style={{ width: 12 }} />
-      <Icon className="w-3 h-3 flex-shrink-0" style={{ color: active ? C.accentText : C.dim }} />
+      <Icon className="bn-tree-icon w-3 h-3 flex-shrink-0" />
       <span className="flex-1 truncate">{label}</span>
       {offline > 0 && <span title={`${offline} offline`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
       <span className="text-dense tabular-nums" style={{ color: C.dimmer }}>{count}</span>
@@ -131,18 +128,15 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
       onClick={onSelect} onContextMenu={onContextMenu}
       onDoubleClick={e => { e.stopPropagation(); if (canWrite) onRenameStart?.() }}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-      className="flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense font-mono tabular-nums transition-colors group"
-      style={{
-        paddingLeft: 10 + depth * 14,
-        color: active ? C.bright : C.text,
-        backgroundColor: dragOver ? 'rgba(234,88,12,0.25)' : active ? 'rgba(234,88,12,0.18)' : 'transparent',
-        borderLeft: `2px solid ${active ? C.accent : 'transparent'}`,
-      }}>
+      className="bn-tree-row flex items-center gap-1.5 pr-2 py-1 cursor-pointer text-dense font-mono tabular-nums transition-colors group"
+      data-active={active ? 'true' : undefined}
+      data-drag-over={dragOver ? 'true' : undefined}
+      style={{ paddingLeft: 10 + depth * 14 }}>
       <span className="flex-shrink-0 flex items-center justify-center" style={{ width: 12 }}
         onClick={e => { e.stopPropagation(); if (hasChildren) onToggle() }}>
         {hasChildren && (isExpanded ? <ChevronDown className="w-3 h-3" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3" style={{ color: C.dim }} />)}
       </span>
-      {hex ? <ColorDot color={bin.color} size={8} /> : <FolderOpen className="w-3 h-3 flex-shrink-0" style={{ color: active ? C.accentText : C.dim }} />}
+      {hex ? <ColorDot color={bin.color} size={8} /> : <FolderOpen className="bn-tree-icon w-3 h-3 flex-shrink-0" />}
       {renaming ? (
         <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)}
           onClick={e => e.stopPropagation()}

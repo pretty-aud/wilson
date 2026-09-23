@@ -646,12 +646,9 @@ export default function BinsView() {
     <div className="h-full w-full flex flex-col" style={{ backgroundColor: C.bg }}>
       {/* ── Notice ── */}
       {(notice || loadError) && (
-        <div className="flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0"
-          style={{
-            borderBottom: `1px solid ${C.line}`,
-            color: (notice?.kind === 'error' || loadError) ? '#fca5a5' : notice?.kind === 'warn' ? C.amber : notice?.kind === 'ok' ? C.green : C.text,
-            backgroundColor: C.deep,
-          }}>
+        <div className="bn-notice flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0"
+          data-tone={(notice?.kind === 'error' || loadError) ? 'error' : notice?.kind === 'warn' ? 'warn' : notice?.kind === 'ok' ? 'ok' : undefined}
+          style={{ borderBottom: `1px solid ${C.line}`, backgroundColor: C.deep }}>
           {(notice?.kind === 'error' || loadError) ? <AlertTriangle className="w-3 h-3" /> : notice?.kind === 'ok' ? <Check className="w-3 h-3" /> : null}
           <span className="flex-1 truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
           {loadError && <Btn small onClick={load}>Retry</Btn>}

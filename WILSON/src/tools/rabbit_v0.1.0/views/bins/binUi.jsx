@@ -20,6 +20,8 @@
 import { useEffect, useRef } from 'react'
 import { X, Check, Ban, Circle, AlertTriangle } from 'lucide-react'
 import { MEDIA_TYPE_META, COLOR_HEX, COLORS } from '../../bins/binMedia'
+// Every Bins file imports this module, so the extracted state lands with it.
+import './bins.css'
 
 export const C = {
   bg: '#1c1917', panel: '#292524', deep: '#0c0a09', line: '#44403c', faint: '#292524',
@@ -29,19 +31,15 @@ export const C = {
 }
 
 export function Btn({ children, onClick, primary = false, danger = false, disabled = false, title, small = false, className = '', style = {}, type = 'button', ...rest }) {
-  const base = primary
-    ? { color: C.bright, backgroundColor: C.accent, border: `1px solid ${C.accentBorder}` }
-    : danger
-      ? { color: '#fca5a5', backgroundColor: 'transparent', border: '1px solid #7f1d1d' }
-      : { color: C.text, backgroundColor: 'transparent', border: `1px solid ${C.line}` }
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 ${small ? 'px-2 py-1 text-dense' : 'px-3 py-1.5 text-dense'} rounded-control transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${className}`}
-      style={{ ...base, ...style }}
+      data-variant={primary ? 'primary' : danger ? 'danger' : 'secondary'}
+      className={`bn-btn inline-flex items-center gap-1.5 ${small ? 'px-2 py-1 text-dense' : 'px-3 py-1.5 text-dense'} rounded-control transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${className}`}
+      style={style}
       {...rest}
     >
       {children}
@@ -57,13 +55,10 @@ export function IconBtn({ Icon, title, onClick, active = false, disabled = false
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
-      className={`p-1.5 rounded-control transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed ${className}`}
-      style={{
-        color: danger ? '#fca5a5' : active ? C.bright : C.muted,
-        backgroundColor: active ? C.accent : 'transparent',
-        border: `1px solid ${active ? C.accentBorder : C.line}`,
-        ...style,
-      }}
+      data-active={active ? 'true' : undefined}
+      data-danger={danger ? 'true' : undefined}
+      className={`bn-iconbtn p-1.5 rounded-control transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${className}`}
+      style={style}
     >
       <Icon className={`w-${size} h-${size}`} style={{ width: `${size * 4}px`, height: `${size * 4}px` }} />
     </button>
@@ -90,12 +85,10 @@ export function ColorDot({ color, size = 10, onClick, title, hollow = false }) {
     <span
       onClick={onClick}
       title={title || (color ? color : 'no colour')}
-      className={`inline-block rounded-full flex-shrink-0 ${onClick ? 'cursor-pointer' : ''}`}
-      style={{
-        width: size, height: size,
-        backgroundColor: hex && !hollow ? hex : 'transparent',
-        border: hex ? `1.5px solid ${hex}` : `1px dashed ${C.dimmer}`,
-      }}
+      className={`bn-dot inline-block rounded-full flex-shrink-0 ${onClick ? 'cursor-pointer' : ''}`}
+      data-hollow={hollow ? 'true' : undefined}
+      data-empty={hex ? undefined : 'true'}
+      style={{ width: size, height: size, '--dot-color': hex || 'transparent' }}
     />
   )
 }
@@ -106,8 +99,9 @@ export function ColorPicker({ value, onChange, size = 12 }) {
       <ColorDot color={null} size={size} onClick={() => onChange(null)} title="No colour" />
       {COLORS.map(c => (
         <span key={c} onClick={() => onChange(c)} title={c}
-          className="inline-flex items-center justify-center rounded-full cursor-pointer"
-          style={{ width: size + 6, height: size + 6, border: value === c ? `1px solid ${C.bright}` : '1px solid transparent' }}>
+          className="bn-swatch inline-flex items-center justify-center rounded-full cursor-pointer"
+          data-selected={value === c ? 'true' : undefined}
+          style={{ width: size + 6, height: size + 6 }}>
           <ColorDot color={c} size={size} />
         </span>
       ))}
@@ -119,10 +113,10 @@ export function ColorPicker({ value, onChange, size = 12 }) {
 export function FlagMark({ flag, circled, size = 12, muted = false }) {
   const s = { width: size, height: size }
   return (
-    <span className="inline-flex items-center gap-0.5 flex-shrink-0">
-      {flag === 'select' && <Check style={{ ...s, color: muted ? C.dim : C.green }} />}
-      {flag === 'reject' && <Ban style={{ ...s, color: muted ? C.dim : C.red }} />}
-      {circled && <Circle style={{ ...s, color: muted ? C.dim : C.accentText }} strokeWidth={2.5} />}
+    <span className="bn-flags inline-flex items-center gap-0.5 flex-shrink-0" data-muted={muted ? 'true' : undefined}>
+      {flag === 'select' && <Check style={{ ...s, color: C.green }} />}
+      {flag === 'reject' && <Ban style={{ ...s, color: C.red }} />}
+      {circled && <Circle style={{ ...s, color: C.accentText }} strokeWidth={2.5} />}
     </span>
   )
 }
@@ -130,12 +124,9 @@ export function FlagMark({ flag, circled, size = 12, muted = false }) {
 export function Chip({ active = false, onClick, children, title, color = null, count = null }) {
   return (
     <button type="button" onClick={onClick} title={title}
-      className="inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-700 whitespace-nowrap"
-      style={{
-        color: active ? C.bright : C.muted,
-        backgroundColor: active ? (color || C.accent) : 'transparent',
-        border: `1px solid ${active ? (color || C.accentBorder) : C.line}`,
-      }}>
+      data-active={active ? 'true' : undefined}
+      className="bn-chip inline-flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors whitespace-nowrap"
+      style={color ? { '--chip-color': color } : undefined}>
       {children}
       {count != null && <span className="opacity-70">{count}</span>}
     </button>
@@ -187,9 +178,9 @@ export function Menu({ x, y, items, onClose, minWidth = 200 }) {
           : (
             <button key={i} type="button" disabled={it.disabled}
               onClick={() => { if (it.disabled) return; it.onClick?.(); if (!it.keepOpen) onClose?.() }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-dense hover:bg-stone-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ color: it.danger ? '#fca5a5' : C.text }}>
-              {it.Icon && <it.Icon className="w-3 h-3 flex-shrink-0" style={{ color: it.danger ? '#fca5a5' : C.accentText }} />}
+              data-danger={it.danger ? 'true' : undefined}
+              className="bn-menu-item w-full flex items-center gap-2 px-3 py-1.5 text-left text-dense hover:bg-stone-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              {it.Icon && <it.Icon className="bn-menu-icon w-3 h-3 flex-shrink-0" />}
               {it.ColorDot && <ColorDot color={it.ColorDot} size={9} />}
               <span className="flex-1 truncate">{it.label}</span>
               {it.hint && <span className="text-dense ml-3 flex-shrink-0" style={{ color: C.dimmer }}>{it.hint}</span>}
@@ -252,7 +243,7 @@ export function Modal({ title, children, footer, onClose, width = 640, subtitle 
 export function Field({ label, children, hint, inline = false, mixed = false }) {
   return (
     <label className={`flex ${inline ? 'items-center gap-3' : 'flex-col gap-1'} min-w-0`}>
-      <span className="text-label uppercase flex-shrink-0" style={{ color: mixed ? C.amber : C.dim, minWidth: inline ? 88 : undefined }}>
+      <span className="bn-field-label text-label uppercase flex-shrink-0" data-mixed={mixed ? 'true' : undefined} style={{ minWidth: inline ? 88 : undefined }}>
         {label}{mixed ? ' · mixed' : ''}
       </span>
       <span className="flex-1 min-w-0">{children}</span>
@@ -334,9 +325,9 @@ export function Spinner({ size = 12 }) {
 export function Toggle({ checked, onChange, label }) {
   return (
     <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-      <span className="relative inline-block rounded-full transition-colors" style={{ width: 28, height: 16, backgroundColor: checked ? C.accent : C.line }}
+      <span className="bn-toggle-track relative inline-block rounded-full transition-colors" data-checked={checked ? 'true' : undefined} style={{ width: 28, height: 16 }}
         onClick={() => onChange(!checked)}>
-        <span className="absolute top-[2px] rounded-full transition-[left]" style={{ width: 12, height: 12, left: checked ? 14 : 2, backgroundColor: C.bright }} />
+        <span className="bn-toggle-knob absolute top-[2px] rounded-full transition-[left]" style={{ width: 12, height: 12, backgroundColor: C.bright }} />
       </span>
       {label && <span className="text-dense" style={{ color: C.text }}>{label}</span>}
     </label>

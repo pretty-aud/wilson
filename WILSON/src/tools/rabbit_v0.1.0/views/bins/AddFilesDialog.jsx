@@ -121,11 +121,11 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
             const disabled = it.status !== 'ok'
             const sug = suggestionText(it.suggestions)
             return (
-              <div key={it.source_path} className="grid items-center px-2" style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', borderBottom: `1px solid ${C.faint}`, opacity: disabled ? 0.5 : it.include ? 1 : 0.7, minHeight: 34 }}>
+              <div key={it.source_path} className="bn-add-row grid items-center px-2" data-disabled={disabled ? 'true' : undefined} data-included={it.include ? 'true' : undefined} style={{ gridTemplateColumns: '24px minmax(200px,2fr) 96px 90px minmax(150px,1.4fr) 110px', borderBottom: `1px solid ${C.faint}`, minHeight: 34 }}>
                 <input type="checkbox" checked={!!it.include} disabled={disabled} onChange={e => set(idx, { include: e.target.checked })} className="accent-orange-600" />
                 <div className="px-1 py-1 min-w-0">
                   <TextInput value={it.display_name} onChange={v => set(idx, { display_name: v })} disabled={disabled} className="!py-0.5" />
-                  <div className="truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" style={{ color: it.duplicate ? C.amber : C.dimmer }} title={it.source_path}>
+                  <div className="bn-add-meta truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" data-duplicate={it.duplicate ? 'true' : undefined} title={it.source_path}>
                     {it.kind === 'sequence' && <Layers className="w-2.5 h-2.5" />}
                     {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
                     {disabled && ' · missing on disk'}
@@ -140,7 +140,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                   {sug ? (
                     <label className="flex items-center gap-1.5 cursor-pointer min-w-0">
                       <input type="checkbox" checked={!!it.apply} disabled={disabled} onChange={e => set(idx, { apply: e.target.checked })} className="accent-orange-600" />
-                      <span className="truncate text-dense" style={{ color: it.apply ? C.accentText : C.dim }} title={sug}>{sug}</span>
+                      <span className="bn-add-sug truncate text-dense" data-apply={it.apply ? 'true' : undefined} title={sug}>{sug}</span>
                     </label>
                   ) : <span className="text-dense" style={{ color: C.dimmer }}>—</span>}
                 </div>
