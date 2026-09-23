@@ -1996,7 +1996,6 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
        structural 2px border there would have passed (A1 review round 1). */
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row', 'exact'],   // F2 Row's "highlighted" edge: a page open in a tab
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab', 'exact'],      // the kit's tab underline, on the closable wrapper (A1-KR-1)
-    ['src/tools/deck-outline-generator_v0.514/dog.css', ".dog-settings-tab[data-active='true']", 'exact'],  // A2's Settings tab underline, as extracted
     // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
     ['src/index.css', '.lesson-content'],
     ['src/index.css', '.companion-chat-md'],

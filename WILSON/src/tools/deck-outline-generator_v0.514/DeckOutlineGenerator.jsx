@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -4511,330 +4511,338 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         onExportAll={handleExportAll}
       />
       
-      {/* Settings Slide-Out Panel */}
-      {showSettingsMenu && (
-        <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/50 transition-opacity"
-            onClick={() => setShowSettingsMenu(false)}
-          />
-          {/* Slide-out Panel */}
-          <div
-            className="absolute top-0 right-0 h-full bg-stone-800 border-l border-stone-600 shadow-2xl flex flex-col animate-slide-in-right"
-            style={{
-              width: '40%',
-              minWidth: '400px',
-              paddingTop: window.electronAPI ? '32px' : '0px',
-              animation: 'slideInRight 0.3s ease-out'
-            }}
-          >
-            {/* Panel Header */}
-            <div className="ui-panel-head dog-card-head">
-              <h2 className="ui-panel-title dog-card-title">
-                <Settings className="dog-head-icon" aria-hidden="true" />
-                Settings
-              </h2>
-              <div className="ui-panel-actions">
-                <IconButton size="sm" icon={X} title="Close settings" onClick={() => setShowSettingsMenu(false)} />
-              </div>
-            </div>
-            
-            {/* Tabs */}
-            <div className="flex border-b border-stone-600 flex-shrink-0">
-              <button
-                onClick={() => setSettingsTab('prompts')}
-                className="dog-settings-tab flex-1 py-2 px-4 text-body transition-colors" data-active={settingsTab === 'prompts'}
-              >
-                System Prompts
-              </button>
-              <button
-                onClick={() => setSettingsTab('format')}
-                className="dog-settings-tab flex-1 py-2 px-4 text-body transition-colors" data-active={settingsTab === 'format'}
-              >
-                Output Format
-              </button>
-            </div>
+      {/* Settings Slide-Out Panel — the kit's Drawer, its first caller (plan
+          §4; F2's hand-off §8 left it waiting for this one). It was an
+          absolute panel inside its own fixed overlay: a black/50 backdrop,
+          `shadow-2xl`, a hand-set 32px paddingTop under Electron's title
+          bar, and its entrance declared three times (review D24: a dead
+          `animate-slide-in-right`, an inline `slideInRight 0.3s` and a
+          third copy of the keyframes injected below it). The Drawer owns
+          the title-bar offset, the one entrance, the backdrop (opt-in; this
+          panel had one, and a click on it still closes) and Escape.
 
-            {/* Lock Switch Bar */}
-            {(
-            <div className="dog-lock-bar bg-stone-900 px-4 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0" data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}>
-              <div className="flex items-center gap-2">
-                {settingsTab === 'prompts' ? (
-                  promptsTabLocked ? (
-                    <Lock className="w-4 h-4 text-stone-500" />
-                  ) : (
-                    <Unlock className="w-4 h-4 text-orange-400" />
-                  )
-                ) : (
-                  formatTabLocked ? (
-                    <Lock className="w-4 h-4 text-stone-500" />
-                  ) : (
-                    <Unlock className="w-4 h-4 text-orange-400" />
-                  )
-                )}
-                <span className="dog-lock-label text-label font-semibold uppercase">
-                  {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Locked' : 'Unlocked'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="dog-lock-mode text-label uppercase">
-                  {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Read Only' : 'Editable'}
-                </span>
-                <button
-                  onClick={() => {
-                    if (settingsTab === 'prompts') {
-                      setPromptsTabLocked(!promptsTabLocked);
-                    } else {
-                      setFormatTabLocked(!formatTabLocked);
-                    }
-                  }}
-                  className="dog-switch relative w-11 h-6 rounded-full transition-colors" data-on={(settingsTab === 'prompts' ? !promptsTabLocked : !formatTabLocked)}
-                >
-                  <span
-                    className="dog-switch-knob absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform"
+          Its width is NOT the kit's: 40% of the window, never under 400px,
+          as it was — sixteen prompt editors at the kit's widest (300) is a
+          different panel (C1). Kit request A2-KR-2. The header wears the
+          kit's drawer head with the Settings icon and A1's ink-2 title, one
+          treatment with the other five panel headers (review D4, A1-KR-3). */}
+      <Drawer
+        open={showSettingsMenu}
+        onClose={() => setShowSettingsMenu(false)}
+        backdrop
+        side="right"
+        width="lg"
+        label="Settings"
+        className="dog-settings-drawer"
+        title={(
+          <>
+            <Settings className="dog-head-icon" aria-hidden="true" />
+            Settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={() => setShowSettingsMenu(false)} />}
+        footer={(
+          <div className="dog-settings-foot">
+            <p className="dog-settings-foot-note">
+              Changes are applied immediately. Use "Reset to default" to restore original settings.
+            </p>
+            <IconButton size="sm" Icon={HelpCircle} title="Help & Documentation" onClick={() => setShowHelpModal(true)} />
+          </div>
+        )}
+      >
+            {/* Tabs — the kit's Tabs (review D21: a stone-700 fill and a
+                2px orange underline with a -4px overlap). */}
+            <Tabs
+              items={[{ id: 'prompts', label: 'System Prompts' }, { id: 'format', label: 'Output Format' }]}
+              value={settingsTab}
+              onChange={setSettingsTab}
+              label="Settings sections"
+              panelId="dog-settings-panel"
+              className="dog-settings-tabs"
+            />
+
+            {/* Lock Switch Bar — the kit's Toolbar and Switch (the last
+                hand-rolled switch on the tool: a 44 x 24 pill with a grey
+                knob in both states, review D26). "Editable" is the switch's
+                name and its state is the switch's; the words beside it are
+                unchanged. */}
+            <Toolbar
+              className="dog-toolbar dog-lock-bar"
+              data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}
+              right={(
+                <>
+                  <span className="dog-lock-mode">
+                    {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Read Only' : 'Editable'}
+                  </span>
+                  <Switch
+                    checked={!(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)}
+                    onChange={() => {
+                      if (settingsTab === 'prompts') {
+                        setPromptsTabLocked(!promptsTabLocked);
+                      } else {
+                        setFormatTabLocked(!formatTabLocked);
+                      }
+                    }}
+                    aria-label="Editable"
                   />
-                </button>
-              </div>
-            </div>
-            )}
-            
-            {/* Tab Content */}
-            <div className="dog-settings-body flex-1 overflow-y-auto wilson-dark-scroll" data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}>
+                </>
+              )}
+            >
+              {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? (
+                <Lock className="dog-lock-icon" aria-hidden="true" />
+              ) : (
+                <Unlock className="dog-lock-icon" aria-hidden="true" />
+              )}
+              <span className="dog-lock-label">
+                {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Locked' : 'Unlocked'}
+              </span>
+            </Toolbar>
+
+            {/* Tab Content — the lock is the disabled token now (ink at 52
+                percent, not-allowed), where it was the whole panel at
+                opacity 50% (the walk measured 39 lines of it at 1.77:1). */}
+            <div
+              id="dog-settings-panel"
+              role="tabpanel"
+              className="dog-settings-body wilson-dark-scroll"
+              data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}
+            >
               {settingsTab === 'prompts' ? (
                 <>
                   {/* Page Generation Prompts Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-label font-semibold text-stone-500 uppercase">Page Generation Prompts</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">Page Generation Prompts</span>
                   </div>
                   
                   {/* Single Page System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Single Page - API System Message</span>
-                        <p className="text-dense text-stone-500">Core instruction sent as system message for single page generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as system message for single page generation</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.sp_sys} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_sys} />
                     </button>
                     {!settingsCollapsed.sp_sys && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
-                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Single Page Instructions */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Single Page - Generation Rules</span>
-                        <p className="text-dense text-stone-500">Formatting rules and constraints for single page output</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page - Generation Rules</span>
+                        <p className="dog-acc-desc">Formatting rules and constraints for single page output</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.sp_rules} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_rules} />
                     </button>
                     {!settingsCollapsed.sp_rules && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Full Deck - API System Message</span>
-                        <p className="text-dense text-stone-500">Core instruction sent as system message for full deck generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as system message for full deck generation</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.fd_sys} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_sys} />
                     </button>
                     {!settingsCollapsed.fd_sys && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
-                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck Instructions */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Full Deck - Generation Rules</span>
-                        <p className="text-dense text-stone-500">Formatting rules and constraints for full deck output</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck - Generation Rules</span>
+                        <p className="dog-acc-desc">Formatting rules and constraints for full deck output</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.fd_rules} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_rules} />
                     </button>
                     {!settingsCollapsed.fd_rules && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Visual Assets System Prompt Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-label font-semibold text-stone-500 uppercase">Visual Assets System Prompt</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">Visual Assets System Prompt</span>
                   </div>
 
                   {/* Theme Color Generation Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Theme Color Generation</span>
-                        <p className="text-dense text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Theme Color Generation</span>
+                        <p className="dog-acc-desc">System prompt sent to Haiku for AI theme color generation</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.theme_prompt} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.theme_prompt} />
                     </button>
                     {!settingsCollapsed.theme_prompt && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
-                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Shared Image Prompt Rules (All Models) */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Shared Rules (All Models)</span>
-                        <p className="text-dense text-stone-500">Common formatting and structure rules applied to all image generation models</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Shared Rules (All Models)</span>
+                        <p className="dog-acc-desc">Common formatting and structure rules applied to all image generation models</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_shared} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_shared} />
                     </button>
                     {!settingsCollapsed.img_shared && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Midjourney System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Midjourney Prompt</span>
-                        <p className="text-dense text-stone-500">Model-specific rules for Midjourney v6</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Midjourney Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Midjourney v6</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_midjourney} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_midjourney} />
                     </button>
                     {!settingsCollapsed.img_midjourney && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Flux System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Flux Prompt</span>
-                        <p className="text-dense text-stone-500">Model-specific rules for Flux</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Flux Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Flux</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_flux} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_flux} />
                     </button>
                     {!settingsCollapsed.img_flux && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Nano Banana System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Nano Banana Prompt</span>
-                        <p className="text-dense text-stone-500">Model-specific rules for Nano Banana</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Nano Banana Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Nano Banana</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_nanobanana} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_nanobanana} />
                     </button>
                     {!settingsCollapsed.img_nanobanana && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Chat GPT / DALL-E System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Chat GPT / DALL-E Prompt</span>
-                        <p className="text-dense text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Chat GPT / DALL-E Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for ChatGPT / DALL-E 3</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_chatgpt} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_chatgpt} />
                     </button>
                     {!settingsCollapsed.img_chatgpt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Image Prompt - API System Message */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Image Prompt - API System Message</span>
-                        <p className="text-dense text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Image Prompt - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as the API system message for image prompt generation</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_api_sys} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_api_sys} />
                     </button>
                     {!settingsCollapsed.img_api_sys && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
-                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className="dog-acc-textarea w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* AI Rewrite Prompts Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-label font-semibold text-stone-500 uppercase">AI Rewrite Prompts</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">AI Rewrite Prompts</span>
                   </div>
                   
                   {Object.entries(REWRITE_LABELS).map(([mode, label]) => {
                     const collapseKey = `rw_${mode}`;
                     return (
-                      <div key={mode} className="border-b border-stone-700 overflow-hidden">
-                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                          <div className="text-left">
-                            <span className="dog-acc-label text-label font-semibold uppercase">{label}</span>
-                            <p className="text-dense text-stone-500">Rewrite prompt for "{label}" mode</p>
+                      <div key={mode} className="dog-acc">
+                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head">
+                          <div className="dog-acc-text">
+                            <span className="dog-acc-label">{label}</span>
+                            <p className="dog-acc-desc">Rewrite prompt for "{label}" mode</p>
                           </div>
-                          <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed[collapseKey]} />
+                          <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed[collapseKey]} />
                         </button>
                         {!settingsCollapsed[collapseKey] && (
-                          <div className="px-3 pb-3 pt-2">
+                          <div className="dog-acc-body">
                             <textarea
                               value={rewritePrompts[mode]}
                               onChange={(e) => setRewritePrompts(prev => ({ ...prev, [mode]: e.target.value }))}
                               disabled={promptsTabLocked}
-                              className="dog-acc-textarea w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-y wilson-dark-scroll"
+                              className="ui-input dog-acc-textarea h-32 resize-y wilson-dark-scroll" data-surface="dark"
                             />
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => setRewritePrompts(prev => ({ ...prev, [mode]: DEFAULT_REWRITE_PROMPTS[mode] }))}
                               disabled={promptsTabLocked}
-                              className="dog-acc-reset mt-1 text-dense"
+                              className="dog-acc-reset"
                             >
                               Reset to default
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -4844,68 +4852,68 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               ) : (
                 <>
                   {/* Single Page Output Format */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Single Page Export Schema</span>
-                        <p className="text-dense text-stone-500">Markdown structure for individual slide exports</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for individual slide exports</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.sp_fmt} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_fmt} />
                     </button>
                     {!settingsCollapsed.sp_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className="dog-acc-textarea w-full h-80 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck Output Format */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Full Deck Export Schema</span>
-                        <p className="text-dense text-stone-500">Markdown structure for complete deck exports</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for complete deck exports</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.fd_fmt} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_fmt} />
                     </button>
                     {!settingsCollapsed.fd_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className="dog-acc-textarea w-full h-96 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-96 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Visual Deck Export Schema */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Visual Deck Export Schema</span>
-                        <p className="text-dense text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Visual Deck Export Schema</span>
+                        <p className="dog-acc-desc">Extended export format with theme colors and deck summary. This schema is read-only.</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.vis_fmt} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.vis_fmt} />
                     </button>
                     {!settingsCollapsed.vis_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-stone-400 text-dense resize-none wilson-dark-scroll cursor-not-allowed" />
+                      <div className="dog-acc-body">
+                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" data-readonly="true" />
                       </div>
                     )}
                   </div>
 
                   {/* Image Prompt Export Schema */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head flex items-center justify-between w-full px-3 py-2 transition-colors">
-                      <div className="text-left">
-                        <span className="dog-acc-label text-label font-semibold uppercase">Image Prompt Export Schema</span>
-                        <p className="text-dense text-stone-500">Markdown structure for generated image prompts file</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Image Prompt Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for generated image prompts file</p>
                       </div>
-                      <ChevronRight className="dog-acc-chevron w-4 h-4 text-stone-500 transition-transform flex-shrink-0" data-open={!settingsCollapsed.img_fmt} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_fmt} />
                     </button>
                     {!settingsCollapsed.img_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className="dog-acc-textarea w-full h-80 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll" />
-                        <button onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset mt-1 text-dense">Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
@@ -4913,35 +4921,8 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               )}
             </div>
             
-            {/* Panel Footer */}
-            <div className="px-4 py-3 border-t border-stone-600 flex-shrink-0 flex items-center justify-between">
-              <p className="text-dense text-stone-500 flex-1">
-                Changes are applied immediately. Use "Reset to default" to restore original settings.
-              </p>
-              <button
-                onClick={() => setShowHelpModal(true)}
-                className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-control transition-colors"
-                title="Help & Documentation"
-              >
-                <HelpCircle className="w-4 h-4 text-orange-400" />
-              </button>
-            </div>
-          </div>
-          
-          {/* CSS Animation and Scrollbar Styles */}
-          <style>{`
-            @keyframes slideInRight {
-              from {
-                transform: translateX(100%);
-              }
-              to {
-                transform: translateX(0);
-              }
-            }
-          `}</style>
-        </div>
-      )}
-      
+      </Drawer>
+
       {/* Help Modal - Higher z-index to appear above settings panel */}
       {showHelpModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">

@@ -314,10 +314,9 @@ const KNOWN = {
      the strip over /dog, so its four were D.O.G.'s — A1 named them and
      deleted the lines (2026-09-23), as it did the page's share of the
      dog-history and dog-settings counts; A2 put History import/export on
-     the kit's Dialog, Tabs and named checkboxes and deleted its three lines
-     (2026-09-23). */
+     the kit's Dialog, Tabs and named checkboxes, and the Settings lock on
+     the kit's Switch, and deleted the last four (2026-09-23). */
   anon: [
-    { key: 'dog-settings', text: 'no-icon', n: 1 },
     { key: 'otter-quiz', text: 'lucide-chevron-down', n: 1 },
     { key: 'otter-search', text: 'lucide-x', n: 1 },
     { key: 'otter-settings', text: 'lucide-x', n: 1 },

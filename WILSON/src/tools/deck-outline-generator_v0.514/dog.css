@@ -897,69 +897,148 @@
     border-radius: var(--radius-control);
   }
 
+  /* ── Settings — the kit's Drawer (its first caller) ─────────────────────
+        🚨 THE WIDTH IS D.O.G.'S, NOT THE KIT'S. The Drawer's widths are the
+        panel tokens (200 / 240 / 300); this panel was 40% of the window and
+        never under 400px, and it holds sixteen prompt editors up to 384px
+        tall, so the kit's widest would be a different panel (C1). Kit
+        request A2-KR-2 (a working-drawer width). Three classes, because
+        `.ui-drawer[data-width="lg"]` is two and a tie is a loss. */
+  .ui-drawer.dog-settings-drawer[data-width] { width: 40%; min-width: 400px; }
+  .dog-settings-drawer .ui-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* A1-KR-3: a header dimmer than the labels under it inverts the order;
+       the six D.O.G. panel headers take ink-2 until the kit settles it. */
+    color: var(--color-ink-2);
+  }
+  /* The tabs and the lock bar stay put while the prompts scroll, as they
+     did: the drawer's body is a column here and only the tab panel scrolls. */
+  .dog-settings-drawer .ui-drawer-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+  .ui-tabs.dog-settings-tabs {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-settings-body { flex: 1; min-height: 0; overflow-y: auto; }
+  .dog-settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .dog-settings-foot-note {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* The lock bar. `data-locked` is the CURRENT tab's lock. Unlocked is the
+     one active state — the signal on the icon only, never under text. */
+  .dog-lock-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
+  .dog-lock-label,
+  .dog-lock-mode {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .dog-lock-label { font-weight: var(--text-label--font-weight); color: var(--color-ink-2); }
+  .dog-lock-mode { font-weight: var(--text-label--font-weight); color: var(--color-ink-3); }
+  .dog-lock-bar[data-locked='true'] .dog-lock-icon,
+  .dog-lock-bar[data-locked='true'] .dog-lock-label { color: var(--color-ink-3); }
+
+  /* The three group titles. */
+  .dog-settings-section {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-settings-section-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  /* The sixteen accordions. Review D3 (A1's): the headers declared a hover
+     step Tailwind does not have; they take the kit's one hover fill, over no
+     resting fill (the stone-800 ground went with the panel's). Review D18:
+     one disclosure idiom — this panel's rotating chevron, which A1 left as
+     the tool's. */
+  .dog-acc { border-bottom: 1px solid var(--color-rule); overflow: hidden; }
+  .dog-acc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  @media (hover: hover) {
+    .dog-acc-head:hover { background-color: var(--color-hover); }
+  }
+  .dog-acc-text { min-width: 0; }
+  .dog-acc-label {
+    display: block;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    /* Was orange-400, the accent as a label ink (review D9). */
+    color: var(--color-ink-2);
+  }
+  .dog-acc-desc {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-acc-chevron {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    flex-shrink: 0;
+    color: var(--color-ink-3);
+    transition: rotate var(--duration-response) var(--ease-response);
+  }
+  .dog-acc-chevron[data-open='true'] { rotate: 90deg; }
+  .dog-acc-body { padding: 8px 12px 12px; }
+  /* Reset to default is the kit's ghost sm Button; its label lines up with
+     the editor's edge above it, so the button starts one padding (the sm
+     button's 10px) to the left of it and its hover fill runs into the
+     gutter rather than the text stepping in. */
+  .dog-acc-body > .ui-btn.dog-acc-reset { margin-top: 4px; margin-left: -10px; }
+  /* The one read-only schema reads as text you cannot edit: ink-2 and the
+     not-allowed cursor it always had. */
+  .ui-input.dog-acc-textarea[data-readonly='true'] { color: var(--color-ink-2); cursor: not-allowed; }
+
+  /* 🚨 THE LOCK IS THE DISABLED TOKEN, NOT AN OPACITY. The whole tab panel
+     used to go to opacity 50% (§3.1 bans the spelling; the walk measured
+     the result at 1.77:1 on 39 lines). The textareas and Reset buttons are
+     `disabled` and take the kit's disabled ink and cursor; the headers stay
+     live (they still open and close) and their labels step down to ink-3,
+     as they stepped from orange to stone-500 before. */
+  .dog-settings-body[data-locked='true'] .dog-acc-label { color: var(--color-ink-3); }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-acc-head,
+    .dog-acc-chevron { transition: none; }
+  }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
      tokens with the surfaces it restyles. */
-
-  /* Review D3 (A1's): sixteen Settings accordion headers declared
-     `hover:bg-stone-750`, a step Tailwind does not have, so the densest
-     panel in the tool gave no response to the pointer. The hover is the
-     kit's one hover fill laid OVER the resting ground, so it survives A2
-     re-surfacing the slide-out; the resting ground is the extraction's
-     stone-800 and A2's to move. */
-  .dog-acc-head { background-color: oklch(26.8% 0.007 34.298); /* stone-800 */ }
-  @media (hover: hover) {
-    .dog-acc-head:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
-  }
-
-  /* The Settings lock switch (the Full Deck switch is now the kit's Switch).
-     `data-on` is "unlocked". */
-  .dog-switch { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
-  .dog-switch[data-on='true'] { background-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
-  .dog-switch-knob { left: 0.25rem; /* left-1 */ }
-  .dog-switch[data-on='true'] .dog-switch-knob { left: 1.5rem; /* left-6 */ }
-
-  /* ── Settings slide-out (A2's surface) ───────────────────────────────── */
-
-  .dog-settings-tab { background-color: oklch(37.4% 0.01 67.558); /* stone-700 */ color: oklch(70.9% 0.01 56.259); /* stone-400 */ }
-  @media (hover: hover) {
-    .dog-settings-tab:not([data-active='true']):hover { color: oklch(86.9% 0.005 56.366); /* stone-300 */ }
-  }
-  .dog-settings-tab[data-active='true'] {
-    background-color: oklch(21.6% 0.006 56.043); /* stone-900 */
-    color: oklch(75% 0.183 55.934);              /* orange-400 */
-    border-bottom-style: solid;
-    border-bottom-width: 2px;
-    border-color: oklch(70.5% 0.213 47.604);     /* orange-500 */
-    margin-bottom: -0.25rem;                     /* -mb-1 */
-  }
-
-  /* The lock bar and the body carry the CURRENT tab's lock; each tab's
-     accordions render only while their tab is showing, so the body's lock
-     is the lock every ternary below read. */
-  .dog-lock-label { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  .dog-lock-bar[data-locked='true'] .dog-lock-label { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-  .dog-lock-mode { color: oklch(70.9% 0.01 56.259); /* stone-400 */ }
-  .dog-lock-bar[data-locked='true'] .dog-lock-mode { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-
-  .dog-settings-body[data-locked='true'] { opacity: 50%; }
-
-  .dog-acc-label { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  .dog-settings-body[data-locked='true'] .dog-acc-label { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-
-  .dog-acc-chevron[data-open='true'] { rotate: 90deg; /* rotate-90 */ }
-
-  .dog-settings-body[data-locked='true'] .dog-acc-textarea { cursor: not-allowed; }
-
-  .dog-acc-reset { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  @media (hover: hover) {
-    .dog-acc-reset:hover { color: oklch(83.7% 0.128 66.29); /* orange-300 */ }
-  }
-  .dog-settings-body[data-locked='true'] .dog-acc-reset {
-    color: oklch(44.4% 0.011 73.639); /* stone-600 */
-    cursor: not-allowed;
-  }
 
   /* ── Help modal (A2's surface) ───────────────────────────────────────── */
 
