@@ -36,7 +36,7 @@ const FILES = {
   templates: '../../../components/TaskTemplates/TaskTemplateManager.jsx',
 }
 /** The files whose state extraction has landed (one commit per component). */
-const EXTRACTED = ['tasks', 'detail']
+const EXTRACTED = ['tasks', 'detail', 'create']
 
 const source = Object.fromEntries(Object.entries(FILES).map(([k, f]) => [k, read(f)]))
 const jsx = Object.values(source).map(jsCode).join('\n')

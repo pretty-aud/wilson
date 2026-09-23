@@ -25,6 +25,7 @@
 // =============================================================================
 
 import { useState } from 'react'
+import '../views/rabbitTasks.css'
 
 const TASK_STATUSES = [
   'waiting_to_start', 'in_progress', 'pending_review', 'needs_revisions',
@@ -94,7 +95,10 @@ export default function NewTaskPopup({
 
   const labelCls = 'text-label uppercase mb-1 block'
   const fieldCls = 'w-full px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500'
-  const fieldStyle = { backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }
+  // The three selects whose ink says "chosen" or "not yet" take only the
+  // frame inline; their ink is `.rb-task-cell-value` / `.rb-task-field-value`.
+  const fieldFrame = { backgroundColor: '#1c1917', border: '1px solid #44403c' }
+  const fieldStyle = { ...fieldFrame, color: '#d6d3d1' }
 
   return (
     <>
@@ -139,8 +143,9 @@ export default function NewTaskPopup({
             <select
               value={draft.phase_id}
               onChange={e => patch({ phase_id: e.target.value })}
-              className={fieldCls}
-              style={{ ...fieldStyle, color: draft.phase_id ? '#d6d3d1' : '#57534e' }}
+              className={`rb-task-cell-value ${fieldCls}`}
+              data-empty={draft.phase_id ? 'false' : 'true'}
+              style={fieldFrame}
             >
               <option value="">(no phase)</option>
               {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -154,8 +159,9 @@ export default function NewTaskPopup({
             <select
               value={draft.asset_id}
               onChange={e => patch({ asset_id: e.target.value })}
-              className={fieldCls}
-              style={{ ...fieldStyle, color: draft.asset_id ? '#d6d3d1' : '#57534e' }}
+              className={`rb-task-cell-value ${fieldCls}`}
+              data-empty={draft.asset_id ? 'false' : 'true'}
+              style={fieldFrame}
             >
               <option value="">(no asset &mdash; task lives directly under the phase)</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -189,8 +195,9 @@ export default function NewTaskPopup({
               <select
                 value={draft.assignee_id}
                 onChange={e => patch({ assignee_id: e.target.value })}
-                className={fieldCls}
-                style={{ ...fieldStyle, color: draft.assignee_id ? '#f4a261' : '#57534e' }}
+                className={`rb-task-field-value ${fieldCls}`}
+                data-empty={draft.assignee_id ? 'false' : 'true'}
+                style={fieldFrame}
               >
                 <option value="">-- unassigned --</option>
                 {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
