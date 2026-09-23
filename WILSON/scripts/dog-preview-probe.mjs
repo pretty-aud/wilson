@@ -289,7 +289,11 @@ async function run(browser, W, H) {
   const resolver = await measureResolver(page);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, `dog-preview-resolver-${W}x${H}.png`) });
   // Cancel it — the resolver's own close control — so nothing is written.
+  // Since A2 the resolver is the kit's Dialog (its named Close); before, it
+  // was an 894px box whose first button was the close.
   await page.evaluate(() => {
+    const dialog = [...document.querySelectorAll('.ui-dialog')].find((d) => d.textContent.includes('Resolve duplicate'));
+    if (dialog) { dialog.querySelector('button[aria-label="Close"]')?.click(); return; }
     const frame = [...document.querySelectorAll('div')].find((d) => d.style.width === '894px');
     frame?.querySelector('button')?.click();
   });

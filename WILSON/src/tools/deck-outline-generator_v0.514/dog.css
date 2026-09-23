@@ -716,6 +716,136 @@
   .ui-btn.dog-history-upload { width: 100%; }
   .ui-input.dog-history-paste { height: 160px; resize: none; }
 
+  /* ── The duplicate resolver — the kit's Dialog at the workbench width
+        (960; review D5: a hard-coded 894 x 349 box on its own backdrop,
+        and D7: nine inline font sizes). The options stay side by side, one
+        per duplicate, each a button; selecting one is the kit's one
+        selection — the signal edge and tint — and its text brightens a step
+        as it always did (it went from stone to orange; now ink-3 / ink-2 to
+        ink-2 / ink, every step legal where #57534e was 1.99:1). ────────── */
+  .dog-resolver-options { display: flex; gap: 8px; }
+  .dog-resolver-option {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  @media (hover: hover) {
+    .dog-resolver-option:not([data-selected='true']):hover {
+      border-color: color-mix(in srgb, var(--color-ink) 28%, transparent);
+    }
+  }
+  .dog-resolver-option[data-selected='true'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .dog-resolver-option-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .dog-resolver-option-name {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink-2);
+  }
+  /* The hover-intent countdown label (review D25 asks to drop it with the
+     500ms delay; the delay is an interaction, so both stay, recorded). */
+  .dog-resolver-hold {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-resolver-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+  }
+  .dog-resolver-title,
+  .dog-resolver-sub,
+  .dog-resolver-line {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dog-resolver-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink-2);
+  }
+  .dog-resolver-sub {
+    margin-bottom: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-resolver-copy {
+    display: block;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .dog-resolver-line {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-resolver-option-name,
+  .dog-resolver-title { transition: color var(--duration-state) ease-out; }
+  .dog-resolver-option[data-selected='true'] :is(.dog-resolver-option-name, .dog-resolver-title) { color: var(--color-ink); }
+  .dog-resolver-option[data-selected='true'] :is(.dog-resolver-sub, .dog-resolver-line) { color: var(--color-ink-2); }
+  .dog-resolver-selected {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .dog-resolver-selected > svg {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    flex-shrink: 0;
+    color: var(--color-signal);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-resolver-option,
+    .dog-resolver-option-name,
+    .dog-resolver-title { transition: none; }
+  }
+
+  /* 🚨 C4 — the resolver's slide preview. COLOUR ONLY: every length that
+     places the pinned 714 x 402 frame (740 wide, 12px padding, a 1px edge,
+     the header row's two steps and 8px under it) is a utility or an inline
+     style on the element and did not change; this block sets no length.
+     The float surface: paper-raised, the hairline, the one shadow, 6px (a
+     radius places nothing). The accent edge and label (D9) go. */
+  .dog-resolver-preview {
+    border-color: var(--color-rule);
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+  }
+  .dog-resolver-preview-label { color: var(--color-ink-2); }
+  .dog-resolver-preview-meta { color: var(--color-ink-3); }
+  .dog-resolver-frame { border-color: var(--color-rule); }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the

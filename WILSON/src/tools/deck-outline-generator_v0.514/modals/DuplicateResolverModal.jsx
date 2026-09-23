@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check } from 'lucide-react';
+import { Dialog, Button } from '../../../ui';
 import LayoutVisualizer from '../LayoutVisualizer';
 import { parseSlideContent } from '../parser';
 
@@ -83,100 +84,88 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
   };
   
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div 
-        className="bg-stone-800 border border-stone-600 rounded-control flex flex-col shadow-xl relative"
-        style={{ width: '894px', height: '349px' }}
-      >
-        <div className="bg-stone-700 px-3 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h3 className="text-h2 text-orange-400">Resolve Duplicate</h3>
-            <p className="text-body text-stone-400">
-              Page #{pageNum} • {currentIndex + 1}/{duplicates.length} conflicts
-            </p>
-          </div>
-          <button onClick={onCancel} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-            <X className="w-5 h-5 text-stone-400" />
-          </button>
-        </div>
-        
-        <div className="flex-1 flex gap-2 p-2 overflow-hidden">
-          {items.map((item, idx) => (
+    <Dialog
+      title="Resolve duplicate"
+      subtitle={`Page #${pageNum} • ${currentIndex + 1}/${duplicates.length} conflicts`}
+      onClose={onCancel}
+      width="workbench"
+      className="dog-resolver"
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onExportAll}>
+            Export all
+          </Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={!selectedId}>
+            Continue
+          </Button>
+        </>
+      )}
+    >
+      <div className="dog-resolver-options">
+        {items.map((item, idx) => {
+          const selected = selectedId === item.id;
+          const parsed = parseSlideContent(item.output);
+          return (
             <button
+              type="button"
               key={item.id}
               onClick={() => setSelectedId(item.id)}
               onMouseEnter={() => handleMouseEnter(item)}
               onMouseLeave={handleMouseLeave}
-              className={`flex-1 text-left p-3 rounded-control transition-colors flex flex-col overflow-hidden ${
-                selectedId === item.id 
-                  ? 'bg-orange-500/20 border border-orange-500 ring-1 ring-orange-500/30' 
-                  : 'bg-stone-900 border border-stone-600 hover:border-stone-500'
-              }`}
+              className="dog-resolver-option"
+              data-selected={selected}
+              aria-pressed={selected}
             >
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-dense font-semibold ${selectedId === item.id ? 'text-orange-400' : 'text-stone-400'}`}>
+              <span className="dog-resolver-option-head">
+                <span className="dog-resolver-option-name">
                   Option {idx + 1} • {item.layout}
                 </span>
                 {hoveredId === item.id && !showPreview && (
-                  <span className="text-caption text-stone-500">Hold...</span>
+                  <span className="dog-resolver-hold">Hold...</span>
                 )}
-              </div>
-              
-              <div className="flex-1 bg-stone-950 p-2 rounded-control border border-stone-700 overflow-hidden flex flex-col">
+              </span>
+
+              <span className="dog-resolver-card">
                 {/* Title styled like visualizer */}
-                <p className={`text-h3 truncate ${selectedId === item.id ? 'text-orange-300' : 'text-orange-400/70'}`}>
-                  {item.title}
-                </p>
+                <span className="dog-resolver-title">{item.title}</span>
                 {/* Subtitle styled like visualizer */}
-                {(() => {
-                  const parsed = parseSlideContent(item.output);
-                  return parsed.subtitle && (
-                    <p className="text-dense truncate mb-1" style={{ color: selectedId === item.id ? '#a8a29e' : '#78716c' }}>
-                      {parsed.subtitle}
-                    </p>
-                  );
-                })()}
+                {parsed.subtitle && (
+                  <span className="dog-resolver-sub">{parsed.subtitle}</span>
+                )}
                 {/* Copy content preview */}
-                <div className="mt-1 pt-1 border-t border-stone-800">
+                <span className="dog-resolver-copy">
                   {extractCopyContent(item.output).split('\n').slice(0, 2).map((line, i) => (
-                    <p key={i} className="text-dense truncate" style={{ color: selectedId === item.id ? '#a8a29e' : '#57534e' }}>
+                    <span key={i} className="dog-resolver-line">
                       • {line.replace(/:/g, '')}
-                    </p>
+                    </span>
                   ))}
-                </div>
-              </div>
-              
-              {selectedId === item.id && (
-                <div className="mt-1 flex items-center gap-1 text-orange-400 flex-shrink-0">
-                  <Check className="w-4 h-4" />
-                  <span className="text-dense">Selected</span>
-                </div>
+                </span>
+              </span>
+
+              {selected && (
+                <span className="dog-resolver-selected">
+                  <Check aria-hidden="true" />
+                  <span>Selected</span>
+                </span>
               )}
             </button>
-          ))}
-        </div>
-        
-        <div className="px-3 py-2 border-t border-stone-600 flex items-center justify-end gap-2 flex-shrink-0">
-          <button
-            onClick={onExportAll}
-            className="px-4 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-control text-stone-300 transition-colors text-body"
-          >
-            Export All
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!selectedId}
-            className="px-5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border border-stone-600 rounded-control text-white disabled:text-stone-400 font-semibold transition-colors text-body"
-          >
-            Continue
-          </button>
-        </div>
+          );
+        })}
       </div>
-      
-      {/* Slide Preview Popup - centered */}
+
+      {/* Slide Preview Popup - centered.
+          🚨 C4: this popup and the 714 x 402 frame inside it are pinned by
+          scripts/dog-preview-probe.mjs (`resolver.*`). Its geometry is the
+          extraction's, byte for byte: fixed at the viewport's centre, 740
+          wide, 12px padding, a 1px edge, the header row at the Label and
+          Caption steps, the frame's inline 714 x 402 and its `overflow-hidden
+          rounded-control border` utilities (the probe finds the frame by
+          them). Only colours moved to tokens. It renders INSIDE the Dialog
+          so it stacks over the dialog's backdrop; nothing between it and the
+          viewport transforms, so `fixed` is still the viewport. */}
       {showPreview && previewItem && (
-        <div 
-          className="fixed bg-stone-900 border border-orange-500 rounded-control shadow-2xl z-[60] p-3 pointer-events-none"
+        <div
+          className="dog-resolver-preview fixed border z-[60] p-3 pointer-events-none"
           style={{
             left: '50%',
             top: '50%',
@@ -185,17 +174,17 @@ const DuplicateResolverModal = ({ isOpen, duplicates, currentIndex, onSelect, on
           }}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-label font-semibold text-orange-400 uppercase">Preview</span>
-            <span className="text-caption text-stone-500">#{previewItem.pageNum} • {previewItem.layout}</span>
+            <span className="dog-resolver-preview-label text-label uppercase">Preview</span>
+            <span className="dog-resolver-preview-meta text-caption">#{previewItem.pageNum} • {previewItem.layout}</span>
           </div>
-          <div className="overflow-hidden rounded-control border border-stone-700" style={{ width: '714px', height: '402px' }}>
+          <div className="dog-resolver-frame overflow-hidden rounded-control border" style={{ width: '714px', height: '402px' }}>
             <div style={{ width: '714px', height: '402px' }}>
               <LayoutVisualizer content={previewItem.output} compact />
             </div>
           </div>
         </div>
       )}
-    </div>
+    </Dialog>
   );
 };
 
