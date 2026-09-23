@@ -11,7 +11,7 @@
 // columns. Relation dropdowns for scene/shot/level/experience
 // only appear when the corresponding database is toggled on.
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Trash2, DollarSign,
   ChevronDown, ChevronRight, Film, Clapperboard,
@@ -130,6 +130,27 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
   // Collapsible left-column sections
   const [collapsed, setCollapsed] = useState({})
+
+  // The files column holds FileManager (lane B4's), which is not on the kit's
+  // modal stack. Two of its layers used to lose to this dialog's Escape:
+  // its VideoPreview, a fixed overlay (one Escape closed the preview AND
+  // this popup; before B2 Escape did nothing there), and its notes editor,
+  // whose Escape cancels the note without stopping the key (W2: revert
+  // first, close on the second press). Round-one review, both.
+  const filesRef = useRef(null)
+  function filesLayerOpen() {
+    const col = filesRef.current
+    if (!col) return false
+    for (const el of col.querySelectorAll('*')) {
+      if (getComputedStyle(el).position === 'fixed') return true
+    }
+    return false
+  }
+  function markFilesEscape(e) {
+    // A textarea in the files column (FileManager's notes) has had its
+    // Escape: mark it handled so the Dialog stands down (K4's mark).
+    if (e.key === 'Escape' && e.target?.tagName === 'TEXTAREA') e.preventDefault()
+  }
   function toggleCollapse(key) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
   }
@@ -168,6 +189,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
       // The backdrop closed it before, and still does. Escape now closes it
       // too (Q17), after an open editor's own Escape has reverted (W2).
       dismissOnBackdrop
+      onBeforeClose={() => !filesLayerOpen()}
       onClose={onClose}
       className="rb-task-detail"
       footer={(
@@ -194,7 +216,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
         {/* ── LEFT COLUMN — files & relations ── */}
         {hasLeftColumn && (
-          <div className="rb-task-detail-files">
+          <div className="rb-task-detail-files" ref={filesRef} onKeyDown={markFilesEscape}>
             {/* Asset files */}
             {linkedAsset && (
               <CollapsibleSection
@@ -346,7 +368,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
                   className="ui-input rb-task-prop"
                   data-empty={task.asset_id ? 'false' : 'true'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
                 </select>
               )}
@@ -355,7 +377,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
                 className="ui-input rb-task-prop"
                 data-empty={task.phase_id ? 'false' : 'true'}>
-                <option value="">--</option>
+                <option value="">—</option>
                 {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
               </select>
             </Field>
@@ -370,7 +392,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 }}
                   className="ui-input rb-task-prop"
                   data-empty={task.scene_id ? 'false' : 'true'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                 </select>
               </Field>
@@ -380,7 +402,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <select value={task.shot_id || ''} onChange={e => handleUpdate({ shot_id: e.target.value || null })}
                   className="ui-input rb-task-prop"
                   data-empty={task.shot_id ? 'false' : 'true'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                 </select>
               </Field>
@@ -390,7 +412,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <select value={task.level_id || ''} onChange={e => handleUpdate({ level_id: e.target.value || null })}
                   className="ui-input rb-task-prop"
                   data-empty={task.level_id ? 'false' : 'true'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
                 </select>
               </Field>
@@ -400,7 +422,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <select value={task.experience_id || ''} onChange={e => handleUpdate({ experience_id: e.target.value || null })}
                   className="ui-input rb-task-prop"
                   data-empty={task.experience_id ? 'false' : 'true'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
                 </select>
               </Field>
@@ -412,7 +434,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
                 className="ui-input rb-task-prop"
                 data-empty={task.assignee_id ? 'false' : 'true'}>
-                <option value="">--</option>
+                <option value="">—</option>
                 {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </Field>
@@ -420,7 +442,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
                 className="ui-input rb-task-prop"
                 data-empty={task.reviewer_id ? 'false' : 'true'}>
-                <option value="">--</option>
+                <option value="">—</option>
                 {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </Field>
@@ -442,7 +464,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 }}
                 className="ui-input rb-task-prop"
                 data-empty={task.assigned_role_slug ? 'false' : 'true'}>
-                <option value="">--</option>
+                <option value="">—</option>
                 {roleEntries.map(r => (
                   <option key={r.role_slug} value={r.role_slug}>
                     {r.role_label}{r.day_rate != null ? ` ($${Number(r.day_rate).toLocaleString()}/day)` : ''}
@@ -509,7 +531,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 className="rb-task-textblock"
                 data-size="lg"
                 data-empty={task.description ? 'false' : 'true'}>
-                {task.description || 'Click to add a description...'}
+                {task.description || 'Click to add a description…'}
               </button>
             )}
           </TextField>
@@ -535,7 +557,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 className="rb-task-textblock"
                 data-size="md"
                 data-empty={task.notes ? 'false' : 'true'}>
-                {task.notes || 'Click to add notes...'}
+                {task.notes || 'Click to add notes…'}
               </button>
             )}
           </TextField>
@@ -550,7 +572,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 function PropertyGroup({ title, children }) {
   return (
     <section className="rb-task-prop-group" aria-label={title}>
-      <h3 className="rb-task-prop-group-title text-label uppercase">{title}</h3>
+      <h3 className="rb-task-prop-group-title">{title}</h3>
       <div className="rb-task-prop-grid">{children}</div>
     </section>
   )

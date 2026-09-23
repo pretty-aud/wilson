@@ -121,8 +121,8 @@ export default function NewTaskPopup({
           <Button variant="primary" onClick={handleConfirm}
             disabled={!draft.title.trim()}
             loading={creating}
-            loadingLabel="Creating...">
-            Confirm & Create
+            loadingLabel="Creating…">
+            Confirm & create
           </Button>
         </>
       )}
@@ -184,7 +184,7 @@ export default function NewTaskPopup({
               onChange={e => patch({ bid_days: e.target.value })}
               className="ui-input rb-task-prop-number" />
           </Field>
-          <Field label="Assigned to">
+          <Field label="Assignee">
             <select
               value={draft.assignee_id}
               onChange={e => patch({ assignee_id: e.target.value })}

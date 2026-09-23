@@ -128,6 +128,16 @@ function optionLabel(field, value) {
 
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
+// A stored date (YYYY-MM-DD) as the date inputs beside it show one: the
+// system's short date. A key date used to print its raw ISO string in the
+// mono next to task dates reading 08/03/2026 (review round one).
+function showDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
+  if (!m) return iso || '—'
+  return new Date(+m[1], +m[2] - 1, +m[3])
+    .toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
 // ─────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────
@@ -310,10 +320,10 @@ export default function ProjectTasksView() {
   const allMilestones = useMemo(() => {
     const list = [...milestones]
     if (project?.start_date) {
-      list.push({ id: '__project_start__', title: 'Project Start', date: project.start_date, color: 'var(--color-success)', isProjectBound: true })
+      list.push({ id: '__project_start__', title: 'Project start', date: project.start_date, color: 'var(--color-success)', isProjectBound: true })
     }
     if (project?.end_date) {
-      list.push({ id: '__project_end__', title: 'Project End', date: project.end_date, color: 'var(--color-danger)', isProjectBound: true })
+      list.push({ id: '__project_end__', title: 'Project end', date: project.end_date, color: 'var(--color-danger)', isProjectBound: true })
     }
     return list
   }, [milestones, project?.start_date, project?.end_date])
@@ -690,6 +700,7 @@ export default function ProjectTasksView() {
         {viewMode === 'table' ? (
           <TaskTable
             tasks={processed}
+            hasAnyTask={tasks.length > 0}
             groups={groups}
             groupBy={groupBy}
             assets={assets}
@@ -836,11 +847,11 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              aria-label="Field" className="ui-input rb-task-tool" data-size="sm">
+              aria-label="Field" className="ui-input rb-task-filter-field" data-size="sm">
               {FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              aria-label="Condition" className="ui-input rb-task-tool" data-size="sm">
+              aria-label="Condition" className="ui-input rb-task-filter-op" data-size="sm">
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
@@ -927,20 +938,20 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // The header and the cells share one grid, so the header labels sit over
 // their columns again: the flex version put rows 12px (24px when grouped)
 // right of their own headers (review R05). Widths are px for the columns
-// whose content has a known width (992px with the checkbox) and the title
-// takes the rest, never less than 220px: below 1212px of table the view
+// whose content has a known width (1080px with the checkbox) and the title
+// takes the rest, never less than 160px: below 1240px of table the view
 // scrolls sideways (only at Electron's 1024px floor) rather than wrapping a
 // date mid-token (V1-06) or starving the title.
-function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
+function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title' },
     { key: 'status',      label: 'Status',   width: 148 },
     { key: 'priority',    label: 'Priority', width: 88 },
-    { key: 'asset_id',    label: 'Asset',    width: 120 },
-    { key: 'phase_id',    label: 'Phase',    width: 112 },
-    { key: 'assignee_id', label: 'Assignee', width: 120 },
-    { key: 'start_date',  label: 'Start',    width: 116 },
-    { key: 'end_date',    label: 'End',      width: 116 },
+    { key: 'asset_id',    label: 'Asset',    width: 148 },
+    { key: 'phase_id',    label: 'Phase',    width: 136 },
+    { key: 'assignee_id', label: 'Assignee', width: 132 },
+    { key: 'start_date',  label: 'Start',    width: 128 },
+    { key: 'end_date',    label: 'End',      width: 128 },
     { key: 'bid_days',    label: 'Bid',      width: 64, numeric: true },
     { key: '_actions',    label: '',         width: onHistoryClick ? 72 : 44 },
   ]
@@ -985,11 +996,19 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
 
   if (tasks.length === 0 && (!groups || groups.length === 0)) {
     return (
-      <EmptyState
-        Icon={ListChecks}
-        title="No tasks yet"
-        body="Create a task to get started"
-      />
+      hasAnyTask ? (
+        <EmptyState
+          Icon={ListChecks}
+          title="No tasks match these filters"
+          body="Clear the search or a filter to see them again"
+        />
+      ) : (
+        <EmptyState
+          Icon={ListChecks}
+          title="No tasks yet"
+          body="Create a task to get started"
+        />
+      )
     )
   }
 
@@ -1228,7 +1247,7 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
 
   return (
     <>
-      <Row className="rb-task-group-row rb-task-drop" {...drop.handlers}
+      <Row className="rb-task-group-row" {...drop.handlers}
         data-drag-over={dragOver ? 'true' : 'false'}>
         <Td colSpan={span} className="rb-task-group-cell">
           <div className="rb-task-group-head">
@@ -1248,7 +1267,7 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
                   onCommit={(name) => { if (canWrite) ctx?.updatePhase?.(phase.id, { name }) }}
                   readOnly={!canWrite}
                 />
-                <label className="rb-task-phase-date">
+                <span className="rb-task-phase-date">
                   <span className="text-label uppercase">Start</span>
                   <input
                     type="date"
@@ -1260,8 +1279,8 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
                     data-size="sm"
                     data-empty={phase.start_date ? 'false' : 'true'}
                   />
-                </label>
-                <label className="rb-task-phase-date">
+                </span>
+                <span className="rb-task-phase-date">
                   <span className="text-label uppercase">End</span>
                   <input
                     type="date"
@@ -1273,15 +1292,15 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
                     data-size="sm"
                     data-empty={phase.end_date ? 'false' : 'true'}
                   />
-                </label>
-                <Badge className="rb-task-count-badge">{group.tasks.length}</Badge>
+                </span>
+                <span className="rb-task-group-count">{group.tasks.length}</span>
               </div>
             ) : (
               /* ── Standard group header ── */
               <button type="button" onClick={onToggle} className="rb-task-group-toggle">
                 {groupBy === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
                 <span className="rb-task-group-label">{group.label}</span>
-                <Badge className="rb-task-count-badge">{group.tasks.length}</Badge>
+                <span className="rb-task-group-count">{group.tasks.length}</span>
               </button>
             )}
           </div>
@@ -1390,10 +1409,11 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
                   <span
                     className="rb-task-ms-name"
                     data-bound={isProjectBound ? 'true' : 'false'}
+                    data-empty={milestone.title ? 'false' : 'true'}
                     onClick={() => !isProjectBound && setEditTitle(true)}
                     title={milestone.description || milestone.title}
                   >
-                    {milestone.title}
+                    {milestone.title || 'Untitled key date'}
                   </span>
                 )}
                 {isProjectBound && <Badge>Bound</Badge>}
@@ -1420,7 +1440,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
                     data-bound={isProjectBound ? 'true' : 'false'}
                     onClick={() => !isProjectBound && setEditDate(true)}
                   >
-                    {milestone.date || '—'}
+                    {showDate(milestone.date)}
                   </span>
                 )
               ) : (
@@ -1442,7 +1462,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
         }
         // Empty cell for other columns
         return (
-          <Td key={c.key}>
+          <Td key={c.key} numeric={c.numeric}>
             <span className="rb-task-none">—</span>
           </Td>
         )
@@ -1525,7 +1545,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
               aria-label="Asset"
               className="rb-task-cell-select"
               data-empty={task.asset_id ? 'false' : 'true'}>
-              <option value="">--</option>
+              <option value="">—</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
             </select>
           </span>
@@ -1538,7 +1558,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
               aria-label="Phase"
               className="rb-task-cell-select"
               data-empty={task.phase_id ? 'false' : 'true'}>
-              <option value="">--</option>
+              <option value="">—</option>
               {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
             </select>
           </span>
@@ -1551,7 +1571,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
               aria-label="Assignee"
               className="rb-task-cell-select"
               data-empty={task.assignee_id ? 'false' : 'true'}>
-              <option value="">--</option>
+              <option value="">—</option>
               {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </span>
@@ -1585,14 +1605,14 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
 
   return (
     <Row
-      className="rb-task-row rb-task-drop"
+      className="rb-task-row"
       selected={isSelected}
+      data-ticked={isSelected ? 'true' : 'false'}
       data-draggable={canWrite ? 'true' : 'false'}
       draggable={canWrite}
       onDragStart={handleDragStart}
       title={canWrite ? undefined : (writeReason || undefined)}
       {...(drop?.handlers || {})}
-      data-drag-over={drop?.over ? 'true' : 'false'}
     >
       {/* Checkbox */}
       <Td className="rb-task-check-cell">
@@ -1618,8 +1638,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
 // ── Add row: "New task" at the foot of the table and of every group ──
 function AddRow({ span, canWrite, onAdd, drop }) {
   return (
-    <Row className="rb-task-drop" {...(drop?.handlers || {})}
-      data-drag-over={drop?.over ? 'true' : 'false'}>
+    <Row {...(drop?.handlers || {})}>
       <Td colSpan={span} className="rb-task-add-cell">
         <GatedAction allowed={canWrite} display="block">
           <button type="button" onClick={onAdd} className="rb-task-add">
@@ -1707,7 +1726,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
         <div className="rb-task-col-title">
           {kanbanGroup === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
           <span className="rb-task-group-label">{group.label}</span>
-          <Badge className="rb-task-count-badge">{group.tasks.length}</Badge>
+          <span className="rb-task-group-count">{group.tasks.length}</span>
         </div>
         <GatedAction allowed={canWrite}>
           <IconButton size="sm" Icon={Plus} title={`New task in ${group.label}`} onClick={() => onAddTask(groupDefaults())} />
@@ -1730,7 +1749,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
             state. */}
         <GatedAction allowed={canWrite} display="block">
           <input ref={inputRef} type="text" value={addTitle} onChange={e => setAddTitle(e.target.value)}
-            placeholder="+ Add task..."
+            placeholder="+ Add task…"
             aria-label={`Add a task to ${group.label}`}
             onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
             onBlur={commitAdd}

@@ -16,6 +16,7 @@
 // - Doherty Threshold — smooth 200ms transitions
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { menuOpened } from '../../ui/overlay'
 import { v4 as uuidv4 } from 'uuid'
 import {
   Plus, Trash2, ChevronDown, Check,
@@ -26,7 +27,7 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canWriteTaskTemplate } from '../../permissions/projectRoleMatrix'
 import {
-  Dialog, Button, IconButton, Table, Th, Td, Row, Banner, Loading, EmptyState, HoverActions, Menu,
+  Dialog, Button, IconButton, Table, Th, Td, Row, Banner, Loading, EmptyState, HoverActions,
 } from '../../ui'
 import '../../tools/rabbit_v0.1.0/views/rabbitTasks.css'
 
@@ -84,7 +85,7 @@ export default function TaskTemplateManager({ onClose }) {
   // ── Create new template ──
   async function handleCreate() {
     const created = await tt.addTemplate({
-      name: 'New Template',
+      name: 'New template',
       description: '',
       project_id: newTemplateProjectId,
       tasks: [],
@@ -175,6 +176,7 @@ export default function TaskTemplateManager({ onClose }) {
             />
           ) : (
             <Table
+              className="rb-tpl-table"
               head={(
                 <Row>
                   <Th width="30%">Name</Th>
@@ -361,7 +363,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
               className="rb-task-textblock"
               data-size="sm"
               data-empty={template.description ? 'false' : 'true'}>
-              {template.description || (readOnly ? '—' : 'Click to add description...')}
+              {template.description || (readOnly ? '—' : 'Click to add description…')}
             </button>
           )}
         </div>
@@ -391,9 +393,9 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
             className="rb-tpl-task-table"
             head={(
               <Row>
-                <Th width="38%">Task name</Th>
+                <Th width="36%">Task name</Th>
                 <Th width="22%">Role</Th>
-                <Th width="10%" numeric>Days</Th>
+                <Th width="12%" numeric>Days</Th>
                 <Th width="24%">Depends on</Th>
                 <Th width="6%"><span className="sr-only">Delete</span></Th>
               </Row>
@@ -440,7 +442,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
       <Td className="rb-tpl-cell">
         <EditableText
           value={task.name || ''}
-          placeholder="Task name..."
+          placeholder="Task name…"
           readOnly={readOnly}
           onCommit={(name) => onUpdate({ name })}
         />
@@ -501,13 +503,25 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
 
 
 // ─────────────────────────────────────────────────────
-// DEPENDENCY PICKER — multi-select, on the kit's Menu
+// DEPENDENCY PICKER — multi-select popover
 // ─────────────────────────────────────────────────────
-// The list is the kit's Menu (fixed to the trigger, so a table cell cannot
-// clip it; each option stays open for the next tick, as before). A click
-// outside closes it, as before; Escape now does too, and only it (K4).
+// Fixed to its trigger (a table cell would clip an absolute list), over a
+// transparent scrim that takes the click which dismisses it — as the old
+// list's overlay did, so nothing under the pointer is activated by that
+// click, and a second click on the trigger closes it. Each option stays
+// open for the next tick, as before. Escape closes the list and only the
+// list: it is marked handled, which is what the kit Dialog stands down on
+// (K4). Registered with overlay.js while open, as the kit Menu is.
 function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, readOnly = false }) {
   const [at, setAt] = useState(null)
+
+  useEffect(() => {
+    if (!at) return undefined
+    const unregister = menuOpened()
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); setAt(null) } }
+    document.addEventListener('keydown', key, true)
+    return () => { document.removeEventListener('keydown', key, true); unregister() }
+  }, [at])
 
   if (availableDeps.length === 0) {
     return <span className="rb-task-none rb-tpl-deps-none">--</span>
@@ -537,26 +551,27 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
       </button>
 
       {at && (
-        <Menu
-          x={at.x}
-          y={at.y}
-          minWidth={200}
-          onClose={() => setAt(null)}
-          items={availableDeps.map(dep => {
-            const checked = currentDeps.includes(dep.id)
-            return {
-              label: dep.name || 'Untitled',
-              leading: (
-                <span className="rb-tpl-check" data-checked={checked ? 'true' : 'false'} aria-hidden="true">
-                  {checked && <Check />}
-                </span>
-              ),
-              hint: dep.bid_days > 0 ? `${dep.bid_days}d` : undefined,
-              keepOpen: true,
-              onClick: () => onToggle(dep.id),
-            }
-          })}
-        />
+        <>
+          <div className="rb-tpl-scrim" aria-hidden="true" onClick={() => setAt(null)} />
+          <div className="rb-task-menu rb-tpl-deps-menu" role="group" aria-label="Depends on"
+            style={{ left: at.x, top: at.y }}>
+            {availableDeps.map(dep => {
+              const checked = currentDeps.includes(dep.id)
+              return (
+                <button key={dep.id} type="button" className="rb-task-menu-item" aria-pressed={checked}
+                  onClick={() => onToggle(dep.id)}>
+                  <span className="rb-tpl-check" data-checked={checked ? 'true' : 'false'} aria-hidden="true">
+                    {checked && <Check />}
+                  </span>
+                  <span className="rb-task-menu-label">{dep.name || 'Untitled'}</span>
+                  {dep.bid_days > 0 && (
+                    <span className="rb-tpl-deps-days">{dep.bid_days}d</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </>
       )}
     </>
   )

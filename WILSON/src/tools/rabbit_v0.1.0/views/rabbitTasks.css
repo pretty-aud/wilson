@@ -80,20 +80,25 @@
   .rb-task-divider { width: 1px; height: 16px; flex-shrink: 0; background-color: var(--color-rule); }
   .rb-task-sort { display: inline-flex; align-items: center; gap: 4px; }
   /* Filter, Sort and Group while they are doing something: the signal edge,
-     the kit's one active treatment (it used to be orange text). */
-  .ui-btn.rb-task-tool[data-active="true"],
-  .ui-input.rb-task-tool[data-active="true"] { border-color: var(--color-signal); }
+     the kit's one active treatment (it used to be orange text). (0,5,0): the
+     kit's hover rules — `.ui-btn[data-variant]:hover:not(:disabled)` (0,4,0),
+     `.ui-input:hover:not(:disabled)` (0,3,0) — repainted the edge under the
+     pointer at (0,3,0) (review round one, measured). */
+  .rb-task-toolbar .ui-toolbar-slot .ui-btn.rb-task-tool[data-active="true"],
+  .rb-task-toolbar .ui-toolbar-slot .ui-input.rb-task-tool[data-active="true"] { border-color: var(--color-signal); }
   /* A select sized to its content, not the kit's full-width field. */
   .ui-input.rb-task-tool { width: auto; }
 
-  /* 180px, not "grow to 240": a wrapping toolbar breaks its line at each
-     slot's max-content width, and 240 put the row 33px over at 1280 wide. */
+  /* 140px, not "grow to 240": a wrapping toolbar breaks its line at each
+     slot's max-content width. 240 put the row 33px over at 1280 wide, and
+     180 still broke it once a sort was chosen (its direction button is 32px
+     more; review round one). */
   .rb-task-search {
     position: relative;
     display: inline-flex;
     align-items: center;
-    flex: 0 1 180px;
-    width: 180px;
+    flex: 0 1 140px;
+    width: 140px;
     min-width: 120px;
   }
   .rb-task-search-icon {
@@ -121,6 +126,8 @@
   .rb-task-filter-row { display: flex; align-items: center; gap: 8px; }
   .rb-task-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
   .ui-input.rb-task-filter-text { width: 144px; }
+  .ui-input.rb-task-filter-field { width: 128px; }
+  .ui-input.rb-task-filter-op { width: 160px; }
   .rb-task-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
   /* Saved views: on the kit's floating tokens (the kit Menu has no item with
@@ -131,6 +138,7 @@
     top: calc(100% + 4px);
     z-index: 30;
     min-width: 224px;
+    max-width: 320px;
     padding: 4px 0;
     background-color: var(--color-paper-raised);
     border: 1px solid var(--color-rule);
@@ -163,10 +171,10 @@
   /* The scroller insets the table so the checkbox sits on the gutter line
      the toolbar's first button starts on. */
   .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; }
-  /* 992px of fixed columns + a 220px title: below this the table scrolls
+  /* 1080px of fixed columns + a 160px title: below this the table scrolls
      sideways instead of wrapping a date mid-token (V1-06). It fits a 1280
      window; only Electron's 1024px floor scrolls. */
-  .rb-task-table { min-width: 1212px; }
+  .rb-task-table { min-width: 1240px; }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
   .rb-task-bulk {
@@ -191,8 +199,10 @@
     color: var(--color-ink);
   }
 
-  /* Dense rows hold 28px controls: 2px above and below them, not the kit's 6. */
-  .rb-task-table-wrap .ui-table.rb-task-table .ui-td { padding-top: 2px; padding-bottom: 2px; }
+  /* Dense rows hold 28px controls: 2px above and 1px below them, not the
+     kit's 6, so a row with a control and a row without are both 32px (they
+     were 33 and 32; review round one). */
+  .rb-task-table-wrap .ui-table.rb-task-table .ui-td { padding-top: 2px; padding-bottom: 1px; }
   /* A cell whose control pads itself 6px: the cell pads 6 more, so its text
      starts 12px in, under the header's label. */
   .rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding-left: 6px; padding-right: 6px; }
@@ -207,11 +217,20 @@
      attribute out of the scanner's sight. */
   .rb-task-table-wrap .ui-table.rb-task-table .ui-th:nth-last-child(2) { padding-right: 27px; }
 
-  /* Hover and drop. (0,3,0): the kit's selected row is (0,4,0) and wins. */
+  /* Hover. (0,3,0): the kit's selected row is (0,4,0) and wins. */
   .rb-task-row:hover > .ui-td,
   .rb-task-ms:hover > .ui-td { background-color: var(--color-hover); }
-  .rb-task-drop[data-drag-over="true"] > .ui-td { background-color: var(--color-signal-tint); }
-  .rb-task-drop[data-drag-over="true"] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-signal); }
+  /* A hovered or ticked row lifts its quiet ink: ink-3 measured 4.34:1 on
+     the hover fill and 4.17:1 on the selected tint (review round one); ink-2
+     clears both. B6's rule for the Bins rows. */
+  .rb-task-row:hover .rb-task-none,
+  .rb-task-ms:hover .rb-task-none,
+  .rb-task-ms:hover .rb-task-ms-name[data-empty="true"],
+  .rb-task-row[data-ticked="true"] .rb-task-none,
+  .rb-task-row:hover .rb-task-cell-select[data-empty="true"],
+  .rb-task-row[data-ticked="true"] .rb-task-cell-select[data-empty="true"],
+  .rb-task-row:hover .rb-task-cell-text[data-empty="true"],
+  .rb-task-row[data-ticked="true"] .rb-task-cell-text[data-empty="true"] { color: var(--color-ink-2); }
   .rb-task-row[data-draggable="true"],
   .rb-task-card[data-draggable="true"] { cursor: grab; }
   .rb-task-row[data-draggable="true"]:active,
@@ -243,9 +262,19 @@
   .rb-task-row:focus-within .rb-task-check { opacity: 1; }
 
   /* A group: one band on the raised surface, a status dot when grouped by
-     status (review R32: the 3px status rule becomes the kit's dot). */
+     status (review R32: the 3px status rule becomes the kit's dot), a hover
+     like a row's, and, while a task is dragged over any of its rows, the one
+     drop mark — a tint and a 1px ring on this header alone (the tint and 2px
+     edge on every row read as a multi-selection; review round one). */
   .rb-task-group-row > .ui-td { background-color: var(--color-paper-raised); }
-  .rb-task-group-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-task-group-row:hover > .ui-td { background-color: var(--color-hover); }
+  .rb-task-group-row[data-drag-over="true"] > .ui-td {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 0 0 0 1px var(--color-signal);
+  }
+  /* The chevron sits in the checkbox column; what follows it starts on the
+     title line (12 + 36 + 12 = 60px), as the Dashboard's group rows do. */
+  .rb-task-group-head { display: flex; align-items: center; gap: 16px; min-width: 0; }
   .rb-task-group-toggle {
     display: inline-flex;
     align-items: center;
@@ -261,6 +290,11 @@
     cursor: pointer;
   }
   .rb-task-group-body { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+  /* The phase name keeps its own width and pushes its dates and count to the
+     row's right end, so they sit on the same x in every group. */
+  .rb-task-group-body > :first-child { margin-right: auto; }
+  /* The editable name's text on the title line (the button pads itself 6px). */
+  .rb-task-group-body > .rb-task-cell-text { margin-left: -6px; }
   .rb-task-group-label {
     min-width: 0;
     overflow: hidden;
@@ -270,8 +304,15 @@
     font-weight: 600;
     color: var(--color-ink);
   }
-  .rb-task-count-badge { font-variant-numeric: tabular-nums; }
-  .rb-task-phase-date { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--color-ink-3); }
+  /* The count, plain, as the Dashboard shows it. */
+  .rb-task-group-count {
+    min-width: 24px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-task-phase-date { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; color: var(--color-ink-3); }
   .ui-input.rb-task-date-input { width: 132px; color-scheme: dark; font-variant-numeric: tabular-nums; }
   .ui-input.rb-task-date-input[data-empty="true"] { color: var(--color-ink-3); }
   .ui-input.rb-task-phase-input { width: 200px; font-weight: 600; }
@@ -329,7 +370,7 @@
      from its own priorityTone()). */
   .rb-task-cell-select[data-tone="danger"] { color: var(--color-danger); }
   .rb-task-cell-select[data-tone="warning"] { color: var(--color-warning); }
-  .rb-task-status-cell { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 6px; }
+  .rb-task-status-cell { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 6px; }
   .rb-task-status-cell .rb-task-cell-select { padding-left: 0; }
 
   /* The caret: drawn by the wrapper and shown only while the row is under
@@ -413,14 +454,13 @@
   }
   .rb-task-ms-date {
     padding: 0 6px;
-    font-family: var(--font-mono);
-    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-2);
     cursor: pointer;
   }
   .rb-task-ms-name[data-bound="true"],
   .rb-task-ms-date[data-bound="true"] { cursor: default; }
+  .rb-task-ms-name[data-empty="true"] { font-weight: 400; color: var(--color-ink-3); }
 
   /* ── The board ─────────────────────────────────────────────────────────── */
   .rb-task-board {
@@ -452,7 +492,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    min-height: 40px;
+    min-height: var(--panel-header);
     padding: 0 4px 0 12px;
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
@@ -472,8 +512,8 @@
   .rb-task-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
+    gap: 4px;
+    padding: 12px;
     background-color: var(--color-paper);
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
@@ -483,13 +523,13 @@
   .rb-task-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .rb-task-card-title {
     min-width: 0;
-    padding-top: 5px;
+    padding-top: 4px;
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
     overflow-wrap: anywhere;
     color: var(--color-ink);
   }
-  .rb-task-card-meta { display: flex; align-items: center; gap: 6px; font-size: var(--text-caption); color: var(--color-ink-2); }
+  .rb-task-card-meta { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-ink-2); }
   .rb-task-card-priority { color: var(--color-ink-2); }
   .rb-task-card-priority[data-tone="danger"] { color: var(--color-danger); }
   .rb-task-card-priority[data-tone="warning"] { color: var(--color-warning); }
@@ -498,7 +538,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding-top: 6px;
+    padding-top: 8px;
     border-top: 1px solid var(--color-rule);
     font-size: var(--text-caption);
     color: var(--color-ink-2);
@@ -548,7 +588,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 24px;
     padding: 16px 24px 24px;
     overflow-y: auto;
   }
@@ -557,7 +597,13 @@
      heading, two columns. The kit's stacked-field margin stands down in the
      grid (index.css's own note on `+` firing sideways). */
   .rb-task-prop-group { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
-  .rb-task-prop-group-title { margin: 0; color: var(--color-ink-3); }
+  .rb-task-prop-group-title {
+    margin: 0;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
   .rb-task-prop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
   .rb-task-prop-grid > .ui-field + .ui-field { margin-top: 0; }
 
@@ -584,7 +630,7 @@
   .rb-task-readout {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     height: var(--control-md);
     padding: 0 12px;
     overflow: hidden;
@@ -604,7 +650,7 @@
   .rb-task-readout-figure[data-empty="true"] { color: var(--color-ink-3); }
   .rb-task-readout-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   .rb-task-hint-danger { color: var(--color-danger); }
-  .rb-task-hint-figure { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-ink-3); }
+  .rb-task-hint-figure { font-variant-numeric: tabular-nums; color: var(--color-ink-3); }
 
   /* A field whose control is an editor at rest (the kit Field is a <label>,
      which would forward a click on the caption to the button; K3). */
@@ -640,7 +686,7 @@
   }
   .rb-task-textblock[data-size="lg"] { min-height: 64px; }
   .rb-task-textblock[data-size="md"] { min-height: 52px; }
-  .rb-task-textblock[data-size="sm"] { min-height: var(--control-sm); padding: 4px 8px; }
+  .rb-task-textblock[data-size="sm"] { min-height: var(--control-sm); padding: 3px 8px; }
   .ui-input.rb-task-title-input { font-size: var(--text-body); }
   .ui-input.rb-task-textarea { line-height: var(--text-dense--line-height); }
 
@@ -664,7 +710,7 @@
   .rb-task-section-chevron { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   .rb-task-section-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
   .rb-task-section-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-dense); font-weight: 600; }
-  .rb-task-section-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+  .rb-task-section-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow-x: auto; }
 
   /* ═══ TaskTemplateManager ═════════════════════════════════════════════════
      (components/TaskTemplates/; opened from Settings > Storage and from the
@@ -678,7 +724,10 @@
   /* Cells whose editor pads itself 6px: text lands under the header's 12px.
      (0,4,0) against the kit's (0,1,0) / dense (0,3,0). */
   .rb-tpl-body .ui-table .ui-td.rb-tpl-cell { padding-left: 6px; padding-right: 6px; }
-  .rb-tpl-body .ui-table.rb-tpl-task-table .ui-td { padding-top: 2px; padding-bottom: 2px; }
+  .rb-tpl-body .ui-table.rb-tpl-task-table .ui-td { padding-top: 2px; padding-bottom: 1px; }
+  /* The templates list: a 28px button in each row; 3px above and below makes
+     the kit's 36px row (it was 45; review round one). */
+  .rb-tpl-body .ui-table.rb-tpl-table .ui-td { padding-top: 3px; padding-bottom: 3px; }
   /* Days: the number spinner's reserved 15px, as on the Tasks table's Bid.
      Third column; the kit's `numeric` prop sets its attribute out of the
      scanner's sight. */
@@ -692,7 +741,7 @@
   /* Scope, and the dependency picker's options: one hand-drawn box, checked
      as the kit's one active treatment (tint + signal edge, no fill under a
      glyph — the ✓ was white on the signal, and a character Geist does not draw). */
-  .rb-tpl-scope { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-tpl-scope { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 6px; }
   .rb-tpl-check {
     display: inline-flex;
     align-items: center;
@@ -714,15 +763,31 @@
   .rb-tpl-deps-label { display: inline-flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rb-tpl-deps-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   .rb-tpl-deps-none { padding: 0 6px; }
-
-  .rb-tpl-tasks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .rb-tpl-tasks-title { color: var(--color-ink-3); }
-  .rb-tpl-total {
-    margin-right: auto;
+  .rb-tpl-scrim { position: fixed; inset: 0; z-index: 79; }
+  .rb-task-menu.rb-tpl-deps-menu {
+    position: fixed;
+    right: auto;
+    z-index: 80;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .rb-tpl-deps-days {
+    flex-shrink: 0;
+    padding: 0 8px 0 12px;
     font-family: var(--font-mono);
-    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
   }
-  .rb-tpl-total-figure { font-weight: 600; color: var(--color-ink); }
+
+  .rb-tpl-tasks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rb-tpl-tasks-title { color: var(--color-ink-3); }
+  .rb-tpl-total { margin-right: auto; font-size: var(--text-dense); color: var(--color-ink-3); }
+  .rb-tpl-total-figure {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
 }
