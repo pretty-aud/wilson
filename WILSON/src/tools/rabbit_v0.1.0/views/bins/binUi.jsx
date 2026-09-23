@@ -62,6 +62,7 @@ export const C = {
 // Toggle → Switch: `checked`, `onChange`, `label` unchanged. Difference: the
 //   track is a real <button role="switch"> (focusable, Space / Enter), 36x20.
 export { Kbd, Field, TextArea, EmptyState, Spinner, Loading, Banner, StatusBadge, overlayOpen }
+// visibleOverlayOpen (below) is what the Bins keys and the preview's Space ask.
 export { Button as Btn, Switch as Toggle }
 
 // ── Adapters ───────────────────────────────────────────────────────────────
@@ -89,11 +90,12 @@ export function Select({ size = 'sm', ...props }) {
  *  type's, a mark's). The kit fills an active chip with that colour under
  *  near-white 11px text — 1.9:1 on the selects green, which fails §3.2. Here
  *  the colour becomes the kit's own active treatment instead: a 16% tint of
- *  it with a full-strength 1px edge, the ink unchanged. */
-const chipTint = (c) => (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c) ? `${c.slice(0, 7)}29` : c)
+ *  it with a full-strength 1px edge, the ink unchanged. The tint is a
+ *  color-mix, so it works for ANY colour string (round 2: a var() slipped in
+ *  used to pass through untinted and fill the chip solid, 3.15:1). */
 const chipEdge = (c) => (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c) ? c.slice(0, 7) : c)
 export function Chip({ color = null, style, ...props }) {
-  const vars = color ? { '--chip-color': chipTint(color), '--chip-edge': chipEdge(color) } : null
+  const vars = color ? { '--chip-color': `color-mix(in srgb, ${chipEdge(color)} 16%, transparent)`, '--chip-edge': chipEdge(color) } : null
   return <KitChip style={vars || style ? { ...vars, ...style } : undefined} {...props} />
 }
 
@@ -123,28 +125,76 @@ export function Menu({ items, ...props }) {
  *  the opener. This keeps exactly that: unless the last thing pressed was
  *  Escape, or another dialog is still open (a question stacked over the add
  *  dialog hands focus back inside it), the returned focus is let go. */
-export function Modal({ width = 'form', ...props }) {
+//  🚨 AND THE CAUSE IS TAKEN WHEN THE KIT CLOSES IT (review round 2). The first
+//  version asked "was the LAST KEY Escape?" at unmount — so an Escape the
+//  busy lock ignored during a long add, followed by the add finishing and the
+//  view closing the dialog in code, kept focus on "Add files…", and Space
+//  re-opened the picker. Now "closed by Escape" is recorded only at the moment
+//  the kit calls `onClose` with Escape the last key; a dialog that unmounts any
+//  other way — a footer button, a finished job, a parent's state — lets go.
+//
+//  🚨 AND AN ESCAPE KEEPS THE OPENER ONLY IF FOCUS NEVER ENTERED THE DIALOG
+//  (review round 2, measured in the app). The old modal never took focus, so
+//  whether Escape left focus on the opener depended on where focus WAS: on the
+//  opener if nothing inside had it; on the page if a field inside had it — the
+//  assign dialog and the take picker autofocus their search, so Escape there
+//  dropped focus to the page and Space played the preview. The kit always lands
+//  focus inside; its default landing is the header's close button. So focus
+//  counts as having entered when a child took it at open (an `autoFocus`) or
+//  when anything inside took it after (Tab, a click on a field).
+export function Modal({ width = 'form', onClose, ...props }) {
   const openerRef = useRef(undefined)
   if (openerRef.current === undefined) openerRef.current = typeof document === 'undefined' ? null : document.activeElement
   const lastInputRef = useRef(null)
+  const closedByEscapeRef = useRef(false)
+  const enteredRef = useRef(false)
   useEffect(() => {
     const onKey = (e) => { lastInputRef.current = e.key }
     const onPointer = () => { lastInputRef.current = 'pointer' }
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('pointerdown', onPointer, true)
+    // The kit's effect (a child's) has run: focus is inside, on the header's
+    // close button unless a child asked for it first.
+    const active = document.activeElement
+    const surface = active?.closest?.('[role="dialog"]') || null
+    enteredRef.current = !!(surface && !active.matches('.ui-dialog-head > button'))
+    const onFocusIn = () => { enteredRef.current = true }
+    surface?.addEventListener('focusin', onFocusIn)
     return () => {
       document.removeEventListener('keydown', onKey, true)
       document.removeEventListener('pointerdown', onPointer, true)
+      surface?.removeEventListener('focusin', onFocusIn)
       const opener = openerRef.current
-      const byEscape = lastInputRef.current === 'Escape'
+      const keepOnOpener = closedByEscapeRef.current && !enteredRef.current
       // After every cleanup of this commit — the kit's focus return included.
       setTimeout(() => {
-        if (byEscape || modalDepth() > 0) return
+        if (keepOnOpener || visibleOverlayOpen({ dialogsOnly: true })) return
         if (opener && opener !== document.body && document.activeElement === opener) opener.blur()
       }, 0)
     }
   }, [])
-  return <Dialog width={width} dismissOnBackdrop {...props} />
+  const close = () => {
+    closedByEscapeRef.current = lastInputRef.current === 'Escape'
+    onClose?.()
+  }
+  return <Dialog width={width} dismissOnBackdrop onClose={close} {...props} />
+}
+
+/** Is a kit dialog (or menu) actually ON SCREEN? The kit's stack counts every
+ *  open one — including one left open on a page the web build has hidden: every
+ *  page stays mounted under `display: none`, and the browser's back / forward
+ *  does not close dialogs. Review round 2 reproduced it: a Settings dialog left
+ *  open behind a Forward to /rabbit held every Bins key dead, and the next Escape
+ *  closed the invisible dialog. The desktop app cannot reach that state (the
+ *  backdrop covers the nav), but the question the Bins keys ask is "is
+ *  something in front of me?", and this is that question. */
+export function visibleOverlayOpen({ dialogsOnly = false } = {}) {
+  if (dialogsOnly ? modalDepth() === 0 : !overlayOpen()) return false
+  if (typeof document === 'undefined') return true
+  for (const n of document.querySelectorAll(dialogsOnly ? '.ui-dialog-backdrop' : '.ui-dialog-backdrop, .ui-menu')) {
+    if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
+  }
+  return false
 }
 
 // ── Bins-specific data components ──────────────────────────────────────────

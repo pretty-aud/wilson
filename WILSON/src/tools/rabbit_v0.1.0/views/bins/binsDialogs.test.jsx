@@ -217,6 +217,76 @@ describe('🚨 C1: where focus ends after a Bins dialog closes (review round 1)'
     expect(document.activeElement).toBe(opener)
   })
 
+  it('🚨 an Escape the busy lock ignored does not count: closed later in code, focus is let go (round 2)', async () => {
+    // The first version asked "was the last key Escape?" at unmount, so this
+    // exact sequence — Escape during a long add, then the add finishing and the
+    // view closing the dialog — kept focus on the opener, and Space re-opened it.
+    function Busy({ open, busy }) {
+      return (
+        <>
+          <button type="button">Add files</button>
+          {open && <Modal title="Adding" busy={busy} onClose={() => {}}><p>working</p></Modal>}
+        </>
+      )
+    }
+    const { rerender } = render(<Busy open={false} busy={false} />)
+    const opener = screen.getByRole('button', { name: 'Add files' })
+    opener.focus()
+    rerender(<Busy open busy={false} />)          // opens: the kit lands on its close button
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Close')
+    rerender(<Busy open busy />)                  // the job starts
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeTruthy() // the busy lock held
+    rerender(<Busy open={false} busy={false} />)  // the job finished; the view closes it
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('🚨 Escape from a dialog whose field took focus at open lets go too — as the old modal did (round 2, in the app)', async () => {
+    // The assign dialog and the take picker autofocus their search. With the
+    // old modal, Escape removed that focused field and focus fell to the page,
+    // so Space played the preview. The first fix kept focus on the opener for
+    // every Escape, and Space re-opened the dialog.
+    function Search({ open }) {
+      return (<><button type="button">Assign to shot</button>{open && (
+        <Modal title="Assign" onClose={() => {}}><input autoFocus aria-label="Search shots" /></Modal>
+      )}</>)
+    }
+    const { rerender } = render(<Search open={false} />)
+    const opener = screen.getByRole('button', { name: 'Assign to shot' })
+    opener.focus()
+    rerender(<Search open />)
+    expect(document.activeElement).toBe(screen.getByLabelText('Search shots'))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    rerender(<Search open={false} />) // the parent closes it, as onClose would
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('…and so does Escape after the user moved focus inside (Tab, a click on a field)', async () => {
+    render(<Opener />)
+    open()
+    // The kit landed on its header close; the user then moves to a control inside.
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Close')
+    screen.getByRole('button', { name: 'Ask' }).focus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await tick()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('closed in code with no input at all: let go', async () => {
+    function Plain({ open }) {
+      return (<><button type="button">Opener</button>{open && <Modal title="P" onClose={() => {}}><p>p</p></Modal>}</>)
+    }
+    const { rerender } = render(<Plain open={false} />)
+    screen.getByRole('button', { name: 'Opener' }).focus()
+    rerender(<Plain open />)
+    rerender(<Plain open={false} />)
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('an inner question closed with the pointer hands focus back INSIDE the outer dialog', async () => {
     render(<Opener nested />)
     open()

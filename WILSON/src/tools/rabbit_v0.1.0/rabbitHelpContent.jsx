@@ -34,7 +34,7 @@ function KeyCombos({ keys, range, surface }) {
     <span className="inline-flex items-center gap-1 flex-wrap">
       {keys.map((combo, i) => (
         <React.Fragment key={i}>
-          {i > 0 && <span className="text-caption">{range ? '–' : 'or'}</span>}
+          {i > 0 && <span className={`text-caption ${surface === 'light' ? 'text-ink-light' : 'text-ink-3'}`}>{range ? '–' : 'or'}</span>}
           {combo.map((k) => <Kbd key={k} surface={surface}>{k}</Kbd>)}
         </React.Fragment>
       ))}
@@ -70,11 +70,13 @@ const L = {
 
 // Dark-theme style tokens for the in-tool help modal
 // UI overhaul B6 (review round 1): onto the kit's tokens — #fb923c (orange-400)
-// and the stone ramp retired from chrome. The section title keeps the signal
-// (4.91:1 on the paper); a card's title is the H3 step in the ink; emphasis is
-// the ink, not a faded orange; the notes box is the signal tint with the ink.
+// and the stone ramp retired from chrome. A card's title is the H3 step in the
+// ink; emphasis is the ink, not a faded orange; the notes box is the signal
+// tint with the ink. The section title is the ink too (round 2): the Help
+// modal's own ground is #292524 (TimelineView's, B3's), where the signal
+// measures 4.26:1 at 11px — round one had measured it on the paper.
 const D = {
-  sectionTitle: 'text-label font-semibold text-signal uppercase mb-3',
+  sectionTitle: 'text-label font-semibold text-ink uppercase mb-3',
   bodyText: 'text-dense text-ink-2 leading-relaxed',
   card: 'bg-paper-raised p-3 rounded-control border border-rule',
   cardTitle: 'text-h3 font-semibold text-ink mb-2',

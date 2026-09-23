@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, overlayOpen } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -521,9 +521,11 @@ export default function BinsView() {
   const onKeyDown = useCallback((e) => {
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-    // …and while ANY kit dialog or menu is up, not only the ones this view
-    // tracks (review round 1): the shell's dialogs join as they move onto the kit.
-    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk || overlayOpen()) return
+    // …and while ANY kit dialog or menu is ON SCREEN, not only the ones this
+    // view tracks (review round 1): the shell's dialogs join as they move onto
+    // the kit. On screen, not merely open (round 2: one left open on a hidden
+    // page held every Bins key dead in the web build).
+    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk || visibleOverlayOpen()) return
     // The grid's REAL column count, read from its computed tracks (review
     // round 2: a formula guessed it and ↓ walked diagonally at some widths).
     const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
@@ -684,7 +686,7 @@ export default function BinsView() {
           allCount={files.length} allOffline={offlineAll.length} canWrite={canWrite}
         />
 
-        <div className="bn-focus-inset flex-1 min-w-0 flex flex-col" ref={paneRef} tabIndex={0}
+        <div className="bn-pane flex-1 min-w-0 flex flex-col" ref={paneRef} tabIndex={0}
           onDragOver={onDragOverPane} onDragLeave={() => setDragOver(false)} onDrop={onDropPane}>
           {/* ── Toolbar ── */}
           <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0 flex-wrap" style={{ borderBottom: `1px solid ${C.line}` }}>

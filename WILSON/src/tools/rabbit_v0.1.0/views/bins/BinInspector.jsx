@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
-import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
+import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, visibleOverlayOpen } from './binUi'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
@@ -310,7 +310,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (t && typeof t.closest === 'function' && t.closest('button, a, [role="button"], [role="menuitem"], summary')) return
-      if (overlayOpen()) return
+      if (visibleOverlayOpen()) return
       const m = mediaRef.current
       if (!m) return
       e.preventDefault()

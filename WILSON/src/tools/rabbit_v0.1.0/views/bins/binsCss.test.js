@@ -24,9 +24,10 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { C } from './binUi'
-import { INK, INK_2, INK_3, SIGNAL, THEME } from '../../../../ui/tokens'
+import { INK, INK_2, INK_3, SIGNAL, PAPER, THEME } from '../../../../ui/tokens'
+import { contrast, screen } from '../../../../ui/contrast'
 import {
-  binsJsx, stripJs, stripCss, stateLeaks, rules, paintsSelector, paintedStates,
+  binsJsx, stripJs, stripCss, stateLeaks, utilityLeaks, rules, paintsSelector, paintedStates,
   liftRule, coveredBy, afterLayer,
 } from './binsGuards'
 
@@ -67,9 +68,11 @@ const PAINTED = [
   '.bn-tree-row:hover', '.bn-tree-row[data-active="true"]', '.bn-tree-row[data-drag-over="true"]',
   '.bn-trow:hover', '.bn-trow[data-selected="true"]',
 ]
-// Measured and signed off, with the ratio: a painted state that needs no lift.
+// A painted state that needs no lift, with the ground it paints over: the
+// ratio is COMPUTED from the rule's own mix (round 2: a comment string let a
+// 12% mix — ink-3 4.39, the signal 4.27 — pass).
 const NO_LIFT_NEEDED = {
-  '.bn-take-row[data-primary="true"]': 'ink-3 4.74, the signal 4.62 on the 6% mix over the paper',
+  '.bn-take-row[data-primary="true"]': { mixOf: 'signal', over: PAPER },
 }
 // A quiet ink written straight into a descendant of a liftable row — allowed
 // only where it is an ICON (3:1 is its rule, and the signal clears it).
@@ -126,6 +129,15 @@ describe('the extracted state', () => {
     expect(found).toEqual({})
   })
 
+  it('🚨 no colour or opacity reaches a Bins element by utility class, however it is spelled (round 2)', () => {
+    const found = {}
+    for (const [f, src] of Object.entries(JSX)) {
+      const hits = utilityLeaks(src)
+      if (hits.length) found[f] = hits
+    }
+    expect(found).toEqual({})
+  })
+
   it('the scan read every rendering file, BinsView included (a control on the loop above)', () => {
     expect(Object.keys(JSX)).toEqual(expect.arrayContaining(['BinsView.jsx', 'binUi.jsx', 'BinTree.jsx', 'BinFileTable.jsx', 'BinFileGrid.jsx', 'BinInspector.jsx']))
     expect(Object.keys(JSX).length).toBeGreaterThanOrEqual(14)
@@ -135,16 +147,23 @@ describe('the extracted state', () => {
     expect([...code.matchAll(/\[data-[a-z-]+\]/g)].map(m => m[0])).toEqual([])
   })
 
-  it('a boolean state is emitted as \'true\' or not at all — never String(x) or a bare boolean', () => {
+  it('a boolean state is emitted as exactly \'true\' or not at all — `x ? \'true\' : undefined` and nothing else', () => {
+    // Round 2: `disabled ? 'ture' : undefined` passed the first version, and the
+    // missing add rows lost their dim. The ONLY accepted shapes are the two
+    // orders of `'true'` / `undefined`.
     const bad = []
+    let seen = 0
     for (const [f, src] of Object.entries(JSX_CODE)) {
       for (const m of src.matchAll(/\bdata-([a-z-]+)=\{([^}]*)\}/g)) {
         if (NOT_STATE.has(m[1])) continue
-        const v = m[2].trim()
-        if (/^String\(/.test(v) || /^[\w.?!]+$/.test(v)) bad.push(`${f}: data-${m[1]}={${v}}`)
+        seen++
+        const v = m[2].replace(/\s+/g, ' ').trim()
+        if (!/^[\s\S]+\? (?:'true' : undefined|undefined : 'true')$/.test(v)) bad.push(`${f}: data-${m[1]}={${v}}`)
       }
+      for (const m of src.matchAll(/\bdata-([a-z-]+)="([^"]*)"/g)) if (!NOT_STATE.has(m[1])) bad.push(`${f}: data-${m[1]}="${m[2]}" (a literal state)`)
     }
     expect(bad).toEqual([])
+    expect(seen).toBeGreaterThan(20)
   })
 
   it('every bn- class the JSX writes is declared, and every declared class is written (no dead rule)', () => {
@@ -194,9 +213,9 @@ describe('the restyle: tokens only (C8, B04)', () => {
   })
 
   it('🚨 nothing appends an alpha to a C colour, however it is spelled (a var() cannot take one)', () => {
-    // Hex-only sources: a data table's hex (TAKE_ROLE_META), and the Chip
-    // adapter's tint, which appends only after testing the value IS a hex.
-    const HEX_SOURCES = new Set(['meta.color', 'c.slice(0, 7)'])
+    // Hex-only sources: a data table's hex (TAKE_ROLE_META). (The Chip adapter
+    // tints with color-mix since round 2, so it appends to nothing.)
+    const HEX_SOURCES = new Set(['meta.color'])
     const bad = []
     for (const [f, src] of Object.entries(JSX_CODE)) {
       const aliases = new Set()
@@ -218,9 +237,20 @@ describe('the lift (B02 / B04): every painted row lifts its quiet inks', () => {
     for (const s of PAINTED) expect(paintsSelector(code, s), `no rule paints ${s}`).toBe(true)
   })
 
-  it('every painted state is lifted, or signed off with its ratio', () => {
+  it('every painted state is lifted, or signed off', () => {
     const lift = liftRule(code).selectors
     expect(paintedStates(code).filter(s => !coveredBy(s, lift) && !(s in NO_LIFT_NEEDED))).toEqual([])
+  })
+
+  it('…and a sign-off holds: ink-3 and the signal clear 4.5:1 on the ground the rule actually mixes', () => {
+    for (const [s, { mixOf, over }] of Object.entries(NO_LIFT_NEEDED)) {
+      const r = rules(code).find(x => x.selectors.includes(s))
+      const pct = Number(new RegExp(`color-mix\\(in srgb, var\\(--color-${mixOf}\\) (\\d+(?:\\.\\d+)?)%`).exec(r.body)?.[1])
+      expect(pct, `${s} no longer mixes the ${mixOf}`).toBeGreaterThan(0)
+      const ground = screen(THEME[`color-${mixOf}`], pct, over)
+      expect(contrast(INK_3, ground), `ink-3 on ${s}`).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(SIGNAL, ground), `the signal on ${s}`).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   it('the lift LIFTS: ink-3 → ink-2, the signal → ink', () => {
@@ -249,6 +279,31 @@ describe('the dim (round 1): never an opacity on a row', () => {
     const r = ruleFor(DIMMED_PAINTED)
     expect(r, 'the painted-dim rule is missing or lost a selector').toBeTruthy()
     for (const p of INK_PROPS) expect(r.body).toMatch(new RegExp(`${p}\\s*:\\s*var\\(--color-ink-2\\)`))
+  })
+
+  it('only the two dim rules set --bn-ink, and no other rule sets a --bn- ink on a dimmed row (round 2)', () => {
+    const isDim = (r) => [DIMMED, DIMMED_PAINTED].some(sels => sels.every(s => r.selectors.includes(s)) && INK_PROPS.every(p => new RegExp(`${p}\\s*:`).test(r.body)))
+    const others = rules(code).filter(r => !isDim(r))
+    expect(others.filter(r => /--bn-ink\s*:/.test(r.body)).flatMap(r => r.selectors)).toEqual([])
+    const undo = others.filter(r => /--bn-[a-z0-9-]+\s*:/.test(r.body) && r.selectors.some(s => DIMMED.some(d => s.startsWith(d))))
+    expect(undo.flatMap(r => r.selectors)).toEqual([])
+  })
+
+  it('the rules that colour row text READ the ink properties (drop the link and the dim cannot reach them)', () => {
+    const body = (s) => rules(code).find(r => r.selectors.includes(s))?.body || ''
+    expect(body('.bn-trow-name')).toMatch(/color\s*:\s*var\(--bn-ink, var\(--color-ink\)\)/)
+    expect(body('.bn-take-count')).toMatch(/var\(--bn-ink-3, var\(--color-ink-3\)\)/)
+    expect(body('.bn-take-count[data-assigned="true"]')).toMatch(/var\(--bn-signal-ink, var\(--color-signal\)\)/)
+  })
+
+  it('the files pane draws its ring as an overlay ABOVE its children (round 2: they painted over an outline)', () => {
+    const r = rules(code).find(x => x.selectors.includes('.bn-pane:focus-visible::after'))
+    expect(r, 'the pane ring overlay is missing').toBeTruthy()
+    expect(r.body).toMatch(/position\s*:\s*absolute/)
+    expect(r.body).toMatch(/outline\s*:\s*2px solid var\(--color-focus\)/)
+    expect(r.body).toMatch(/pointer-events\s*:\s*none/)
+    expect(Number(/z-index\s*:\s*(\d+)/.exec(r.body)?.[1])).toBeGreaterThan(30) // above the rename bar (30) and the drop target (20)
+    expect(rules(code).find(x => x.selectors.includes('.bn-pane'))?.body).toMatch(/position\s*:\s*relative/)
   })
 
   it('no row state fades with opacity (it took the text to 2.35–3.47:1)', () => {
@@ -294,6 +349,26 @@ describe('the guards themselves (mutants run through the SAME predicates)', () =
     expect(paintedStates(extra).filter(s => !coveredBy(s, liftRule(extra).selectors) && !(s in NO_LIFT_NEEDED))).toEqual(['.bn-trow[data-flash="true"]'])
     const noop = code.replace(/--bn-ink-3:\s*var\(--color-ink-2\);/, '--bn-ink-3: var(--color-ink-3);')
     expect(liftRule(noop).body).not.toMatch(/--bn-ink-3\s*:\s*var\(--color-ink-2\)/)
+  })
+
+  it('the utility scan catches the round-two spellings', () => {
+    for (const s of [
+      `<div className={['bn-trow', off && 'opacity-50'].filter(Boolean).join(' ')} />`,
+      `const fade = off ? "opacity-50" : ""`,
+      `<div className={'bn-tile ' + (selected ? ' bg-signal-tint border-signal' : '')} />`,
+      `useEffect(() => { el.style.opacity = off ? '0.5' : '' })`,
+      `<div className="truncate text-caption text-ink-3" />`,
+      `<div className="hover:text-signal" />`,
+    ]) expect(utilityLeaks(s).length, s).toBeGreaterThan(0)
+    expect(utilityLeaks(`<div className="bn-trow text-caption hover:bg-hover accent-signal" /> const a = x ? 'text-right' : ''`)).toEqual([])
+  })
+
+  it('an inset spread shadow and a pseudo-element background count as painting a ground', () => {
+    const shadow = code.replace(/\}\s*$/, '  .bn-trow[data-current="true"] { box-shadow: inset 0 0 0 100vmax var(--color-signal-tint); }\n}')
+    const before = code.replace(/\}\s*$/, '  .bn-trow[data-current="true"]::before { background-color: var(--color-hover); }\n}')
+    expect(paintedStates(shadow)).toContain('.bn-trow[data-current="true"]')
+    expect(paintedStates(before)).toContain('.bn-trow[data-current="true"]::before')
+    expect(paintedStates(code)).not.toContain('.bn-trow[data-current="true"]') // the 2px edge is not a ground
   })
 
   it('an unlayered rule appended after the block is seen', () => {

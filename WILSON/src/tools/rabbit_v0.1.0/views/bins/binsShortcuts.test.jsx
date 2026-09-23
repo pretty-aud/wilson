@@ -17,6 +17,8 @@ import { render, cleanup, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { RabbitHelpContent, BINS_SHORTCUTS } from '../../rabbitHelpContent'
+import { INK, INK_2, INK_3, SIGNAL, PAPER_RAISED } from '../../../../ui/tokens'
+import { contrast } from '../../../../ui/contrast'
 import BinTree from './BinTree'
 
 afterEach(cleanup)
@@ -58,6 +60,25 @@ describe('every hint the bar carried is in Help', () => {
     for (const { keys, word } of BAR) {
       const hit = rows.find(r => keys.every(k => r.caps.includes(k)) && r.does.startsWith(word.split(' ')[0]))
       expect(hit, `Help has no row for "${keys.join('+')} ${word}"`).toBeTruthy()
+    }
+  })
+
+  it('Help\'s text clears 4.5:1 on its real grounds — the modal\'s #292524 and a card\'s paper-raised (round 2)', () => {
+    // The Help modal is TimelineView's (B3) and its ground is bg-stone-800,
+    // #292524, measured by pixel in round two. Round one had measured the
+    // section title on the paper and set it in the signal: 4.26:1 here.
+    const MODAL = '#292524'
+    const INKS = { 'text-ink': INK, 'text-ink-2': INK_2, 'text-ink-3': INK_3, 'text-signal': SIGNAL }
+    const inkOf = (el) => {
+      const c = [...el.classList].find(x => x in INKS)
+      expect(c, `${el.tagName} "${el.textContent.slice(0, 30)}" has no token ink`).toBeTruthy()
+      return INKS[c]
+    }
+    render(<RabbitHelpContent helpPage="rabbit-shortcuts" theme="dark" />)
+    const section = document.querySelector('h3')
+    expect(contrast(inkOf(section), MODAL), 'the section title on the modal').toBeGreaterThanOrEqual(4.5)
+    for (const el of document.querySelectorAll('h4, dd, span.text-caption')) {
+      expect(contrast(inkOf(el), PAPER_RAISED), `"${el.textContent.slice(0, 30)}" on a card`).toBeGreaterThanOrEqual(4.5)
     }
   })
 

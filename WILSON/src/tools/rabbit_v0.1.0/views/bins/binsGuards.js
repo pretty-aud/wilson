@@ -104,6 +104,28 @@ export function stateLeaks(raw) {
   return hits
 }
 
+// ── Colour by utility class, however it is spelled (round 2) ──────────────
+// The scanner above reads style objects and className TEMPLATES. Round two got
+// the opacity dim and a state colour back through the other spellings — an
+// array join, a string concatenation, a helper const, a ref's style — and a
+// static quiet-ink utility skipped the lift. So, in any Bins JSX:
+//   · no `opacity-N` utility at all (a row state fades by ink, not opacity);
+//   · no ink-3 / signal colour utility at all (a quiet ink goes through C or
+//     bins.css, where the lift and the dim can reach it);
+//   · no colour utility in a string chosen by a condition (`? 'x'`, `: 'x'`, `&& 'x'`);
+//   · no visual write to an element's style through a ref.
+const QUIET_UTIL = /(?<![\w-])(?:[a-z-]+:)*(?:text|bg|border|ring|fill|stroke|outline|decoration)-(?:ink-3|signal(?:-tint|-fill)?)(?![\w-])/
+export function utilityLeaks(raw) {
+  const src = stripJs(raw), hits = []
+  for (const m of src.matchAll(/(?<![\w-])opacity-\d+(?![\w-])/g)) hits.push(`utility ${m[0]}`)
+  for (const m of src.matchAll(new RegExp(QUIET_UTIL.source, 'g'))) hits.push(`quiet-ink utility ${m[0]}`)
+  for (const m of src.matchAll(/(?:\?|&&|\|\||:)\s*(['"`])((?:(?!\1)[^\n])*)\1/g)) {
+    if (COLOUR_UTIL.test(m[2])) hits.push(`conditional class '${m[2].slice(0, 60)}'`)
+  }
+  for (const m of src.matchAll(/\.style\.(?:opacity|color|background\w*|border\w*|boxShadow|filter|outline\w*)\s*=|\.style\.setProperty\(\s*['"](?:opacity|color|background[a-z-]*|border[a-z-]*|box-shadow|filter)['"]/g)) hits.push(`style write ${m[0]}`)
+  return hits
+}
+
 // ── bins.css ───────────────────────────────────────────────────────────────
 /** The rules inside `@layer components { … }`, as { selectors, body }. */
 export function rules(code) {
@@ -123,8 +145,13 @@ export function paintsSelector(code, s) {
     && r.body.split(';').map(d => d.trim()).some(d => /^[a-z-]+\s*:/.test(d) && (!d.startsWith('--') || /^--bn-ink\s*:/.test(d))))
 }
 
+// A ground is painted by a background, OR by an inset shadow with a spread wide
+// enough to fill the box (round 2: `inset 0 0 0 100vmax …` got past the first
+// version; the 2px selected EDGE, `inset 2px 0 0`, has no spread and is not a
+// ground). A pseudo-element's background counts for the state it hangs off.
 const paintsGround = (b) => /(?:^|[;{\s])background(?:-color|-image)?\s*:(?!\s*(?:transparent|none)\s*(?:;|$))/.test(b)
-const STATE = /^\.bn-[a-z-]+(?::[a-z-]+(?:\([^)]*\))?|\[data-[a-z-]+="true"\])+$/
+  || /(?:^|[;{\s])box-shadow\s*:\s*inset\s+0\s+0\s+0\s+(?:[3-9]|\d{2,})/.test(b)
+const STATE = /^\.bn-[a-z-]+(?::[a-z-]+(?:\([^)]*\))?|\[data-[a-z-]+="true"\])+(?:::(?:before|after))?$/
 /** Every state selector that paints a ground (the hover fill, the selection tint, the drop mix). */
 export const paintedStates = (code) => rules(code).filter(r => paintsGround(r.body)).flatMap(r => r.selectors.filter(s => STATE.test(s)))
 /** The lift rule's selectors — the rule that sets BOTH quiet-ink properties. */

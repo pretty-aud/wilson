@@ -104,9 +104,24 @@
   /* ── Focus rings the scroll containers would clip (review round 1) ──── */
   /* The global ring sits 1px OUTSIDE the element; inside an overflow box
      its outer edge is cut. These draw it 2px inside instead. */
-  .bn-focus-inset:focus-visible,
   .bn-section-head:focus-visible,
   .bn-th:focus-visible { outline-offset: -2px; }
+  /* The files pane is a tab stop (the Bins keys act on it) whose children — the
+     scrolling grid and list, the sticky header, a positioned body — paint over
+     any outline of its own: round 2 measured an inset ring that showed only
+     across the top. So its ring is an overlay drawn ABOVE them (the drop
+     target is 20, the rename bar 30), and it never takes a click. */
+  .bn-pane { position: relative; }
+  .bn-pane:focus-visible { outline: none; }
+  .bn-pane:focus-visible::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    outline: 2px solid var(--color-focus);
+    outline-offset: -2px;
+  }
 
   /* ── binUi's data components (the kit has no counterpart) ───────────── */
   .bn-swatch { border: 1px solid transparent; }
@@ -127,9 +142,10 @@
 
   /* The media-type tag. `--tag-hue` is the type's colour (data). The ground is
      OPAQUE — the hue at 16% over the recessed paper — so the tag reads the
-     same over a poster frame, a row, a hover or a selection: 5.86–8.54:1
-     for every hue (review round 1 measured the old translucent tag at
-     2.49–3.96 over posters). Always the sans: in a list cell it used to
+     same over a poster frame, a row, a hover or a selection: 4.77–8.54:1
+     (the low end is "other", which takes ink-3; round 2 corrected round one's
+     "5.86"). Round one measured the old translucent tag at 2.49–3.96 over
+     posters. Always the sans: in a list cell it used to
      inherit the cell's mono. */
   .bn-tag {
     font-family: var(--font-sans);

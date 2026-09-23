@@ -91,7 +91,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
                 const t = takesPerShot.get(shot.id)
                 const allIn = t && t.ofThese === nFiles
                 return (
-                  <label key={shot.id} className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on ? 'true' : undefined} data-locked={allIn ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
+                  <label key={shot.id} className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !allIn ? 'true' : undefined} data-locked={allIn ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
                     <input type="checkbox" className="accent-signal" checked={on} disabled={busy || allIn} onChange={() => toggle(shot.id)} />
                     <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: C.dimmer }} />
                     <span className="w-8 text-dense font-mono tabular-nums text-right flex-shrink-0" style={{ color: C.dim }}>#{shot.shot_number ?? '—'}</span>
