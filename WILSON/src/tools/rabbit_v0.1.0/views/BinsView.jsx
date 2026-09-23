@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select, Banner } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select, Banner } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -105,6 +105,7 @@ export default function BinsView() {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
+  const [removeAsk, setRemoveAsk] = useState(null)   // the ids awaiting "remove more than five?" (W9)
   const paneRef = useRef(null)
   const autoRelinkRef = useRef(null)
   const noticeTimer = useRef(null)
@@ -243,12 +244,17 @@ export default function BinsView() {
   }, [ctx, canWrite, say])
   const patchSelection = useCallback((patch) => patchIds([...selection], patch), [patchIds, selection])
 
-  const removeIds = useCallback(async (ids) => {
-    if (!ids.length || !canWrite) return
-    if (ids.length > 5 && !window.confirm(`Remove ${ids.length} files from the bin? The files on disk stay where they are. Undo is in the toast.`)) return
+  const doRemoveIds = useCallback(async (ids) => {
     try { await ctx.removeBinFiles(ids); clearSelection() }
     catch (e) { say(e?.message || String(e), 'error') }
-  }, [ctx, canWrite, clearSelection, say])
+  }, [ctx, clearSelection, say])
+  // W9 (Audrey, "convert"): the kit Dialog in place of window.confirm — the
+  // same threshold (more than five), the same words, Cancel as the way out.
+  const removeIds = useCallback(async (ids) => {
+    if (!ids.length || !canWrite) return
+    if (ids.length > 5) { setRemoveAsk(ids); return }
+    await doRemoveIds(ids)
+  }, [canWrite, doRemoveIds])
   const moveIds = useCallback(async (ids, binId) => {
     if (!ids.length || !canWrite) return
     try { await ctx.moveBinFiles(ids, binId); say(`Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to "${binsById.get(binId)?.name || 'bin'}".`, 'ok', 4000) }
@@ -509,7 +515,7 @@ export default function BinsView() {
   const onKeyDown = useCallback((e) => {
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg) return
+    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk) return
     // The grid's REAL column count, read from its computed tracks (review
     // round 2: a formula guessed it and ↓ walked diagonally at some widths).
     const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
@@ -550,7 +556,7 @@ export default function BinsView() {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
+  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
   // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
   // HIGH): a React onKeyDown on the pane only fired while focus sat inside
   // it, and focus falls to <body> whenever the control just clicked unmounts
@@ -843,6 +849,15 @@ export default function BinsView() {
           presence pill it made room for live in ProjectContextBar (B1). */}
 
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {removeAsk && (
+        <Modal title={`Remove ${removeAsk.length} files from the bin?`} width="confirm" onClose={() => setRemoveAsk(null)}
+          footer={<>
+            <Btn onClick={() => setRemoveAsk(null)}>Cancel</Btn>
+            <Btn danger onClick={() => { const ids = removeAsk; setRemoveAsk(null); doRemoveIds(ids) }}><Trash2 className="w-3 h-3" /> Remove {removeAsk.length} files</Btn>
+          </>}>
+          <p className="text-dense" style={{ color: C.text }}>The files on disk stay where they are. Undo is in the toast.</p>
+        </Modal>
+      )}
       {addDlg && <AddFilesDialog bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }} />}
       {deleteDlg && <DeleteBinDialog bin={deleteDlg} bins={bins} files={files} busy={deleteBusy} error={deleteError} onConfirm={confirmDelete} onCancel={() => { if (!deleteBusy) { setDeleteDlg(null); setDeleteError(null) } }} />}
       {relinkOpen && (

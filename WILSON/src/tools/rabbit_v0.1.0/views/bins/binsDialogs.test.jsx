@@ -17,6 +17,8 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { overlayOpen, Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner, C } from './binUi'
 import { overlayOpen as kitOverlayOpen, Dialog, Switch } from '../../../../ui'
 import BinInspector from './BinInspector'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import AddFilesDialog from './AddFilesDialog'
 import AssignToShotDialog from './AssignToShotDialog'
 import DeleteBinDialog from './DeleteBinDialog'
@@ -100,6 +102,47 @@ describe('the Bins dialogs on the kit', () => {
     fireEvent.keyDown(i, { key: 'Escape' })
     expect(onChange).toHaveBeenLastCalledWith('was')
     expect(onCancel).not.toHaveBeenCalled()
+  })
+})
+
+describe('W9: no native confirm on the Bins tab — the kit Dialog asks', () => {
+  const code = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  it('no Bins file calls window.confirm (comments may still name it)', () => {
+    for (const f of ['../BinsView.jsx', './AddFilesDialog.jsx', './DeleteBinDialog.jsx', './RelinkBinsDialog.jsx', './AssignToShotDialog.jsx', './TakePickerDialog.jsx', './ShotTakesPanel.jsx', './BinInspector.jsx']) {
+      expect(code(f), f).not.toMatch(/window\.confirm|\bconfirm\(/)
+    }
+  })
+
+  it('the Bins keys stand down while "remove more than five?" is up', () => {
+    const src = code('../BinsView.jsx')
+    expect(src).toMatch(/if \(menu \|\| addDlg \|\| deleteDlg \|\| relinkOpen \|\| assignDlg \|\| removeAsk\) return/)
+    expect(src).toMatch(/if \(ids\.length > 5\) \{ setRemoveAsk\(ids\); return \}/)
+  })
+
+  it('a worked-on batch asks before it is discarded; Escape closes the question, not the batch', () => {
+    const onCancel = vi.fn()
+    const plan = { items: [{ source_path: 'C:/a.mov', original_name: 'a.mov', display_name: 'a', media_type: 'video', status: 'ok', include: true, size_bytes: 1 }] }
+    render(<AddFilesDialog bin={bins[0]} plan={plan} scenes={[scene]} onConfirm={() => {}} onCancel={onCancel} busy={false} progress={null} />)
+    fireEvent.change(screen.getByLabelText('Camera (all)'), { target: { value: 'B' } })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Discard this batch?' })).toBeTruthy()
+    expect(onCancel).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Discard this batch?' })).toBeNull()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(onCancel).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('an untouched batch closes straight away', () => {
+    const onCancel = vi.fn()
+    render(<AddFilesDialog bin={bins[0]} plan={{ items: [] }} scenes={[scene]} onConfirm={() => {}} onCancel={onCancel} busy={false} progress={null} />)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
 

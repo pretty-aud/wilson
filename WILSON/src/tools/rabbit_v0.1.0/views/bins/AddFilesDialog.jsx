@@ -46,7 +46,10 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   // A batch she has worked on (ticks, names, batch fields) is not thrown away
   // by a stray Escape or a click beside the dialog (review round 2).
   const dirty = items !== initial || !!(batch.scene_id || batch.shoot_day || batch.camera || batch.roll || batch.tags) || !createSubBins
-  const guardedCancel = () => { if (busy) return; if (!dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')) onCancel() }
+  // W9: the kit Dialog in place of window.confirm, stacked over this one (the
+  // kit's topmost-only Escape closes the question, not the batch).
+  const [askDiscard, setAskDiscard] = useState(false)
+  const guardedCancel = () => { if (busy) return; if (!dirty) onCancel(); else setAskDiscard(true) }
   const included = items.filter(i => i.include && i.status === 'ok')
   const dupes = items.filter(i => i.duplicate).length
   const missing = items.filter(i => i.status !== 'ok').length
@@ -72,13 +75,22 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   }
 
   return (
-    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => !dirty || window.confirm('Discard this batch? Your ticks, names and batch fields will be lost.')} width="workbench" busy={busy} error={error}
+    <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => { if (!dirty) return true; setAskDiscard(true); return false }} width="workbench" busy={busy} error={error}
       subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
         {busy && progress && <span className="flex items-center gap-2 text-dense mr-auto" style={{ color: C.muted }}><Spinner /> {progress}</span>}
         <Btn onClick={guardedCancel} disabled={busy}>Cancel</Btn>
         <Btn primary onClick={confirm} disabled={busy || included.length === 0}><Check className="w-3 h-3" /> Add {included.length} {included.length === 1 ? 'item' : 'items'}</Btn>
       </>}>
+      {askDiscard && (
+        <Modal title="Discard this batch?" width="confirm" onClose={() => setAskDiscard(false)}
+          footer={<>
+            <Btn onClick={() => setAskDiscard(false)}>Keep editing</Btn>
+            <Btn danger onClick={() => { setAskDiscard(false); onCancel() }}>Discard</Btn>
+          </>}>
+          <p className="text-dense" style={{ color: C.text }}>Your ticks, names and batch fields will be lost.</p>
+        </Modal>
+      )}
       {plan?.truncated && (
         <Banner tone="warning" Icon={AlertTriangle} className="mb-3 rounded-control">
           The folder was too large to walk completely; add the rest in a second pass.
