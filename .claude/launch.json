@@ -76,6 +76,18 @@
         "--strictPort"
       ],
       "port": 5244
+    },
+    {
+      "name": "v1-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/quirky-dewdney-93d080/WILSON",
+        "--port",
+        "5245",
+        "--strictPort"
+      ],
+      "port": 5245
     }
   ]
 }
