@@ -113,20 +113,52 @@ describe('every rb- class is both declared and used', () => {
   })
 })
 
-/** For each [data-x="v"] a rule matches: is `data-x` ever set, and can it be `v`? */
+/** Every JSX opening tag in the source, walked to its closing `>` at brace depth 0. */
+function jsxTags(source) {
+  const tags = []
+  const re = /<[A-Za-z][\w.]*/g
+  let m
+  while ((m = re.exec(source))) {
+    let depth = 0, i = m.index
+    for (; i < source.length; i++) {
+      const c = source[i]
+      if (c === '{') depth++
+      else if (c === '}') depth--
+      else if (c === '>' && depth === 0) break
+    }
+    tags.push(source.slice(m.index, i + 1))
+  }
+  return tags
+}
+
+/** For each [data-x="v"] a rule matches: is `data-x` ever set on an element of
+    that rule's own class, and can it be `v`? Scoped by class, because three
+    unrelated elements share `data-state` here (the adapter dot's is dynamic,
+    and that let a typo on the step strip's walk past — B1 mutant G1). */
 export function unreachableAttributeValues(css, source) {
   const bad = []
-  const pairs = [...new Set([...cssCode(css).matchAll(/\[(data-[a-z-]+)="([^"]+)"\]/g)].map((m) => `${m[1]}=${m[2]}`))]
-  for (const pair of pairs) {
+  const tags = jsxTags(source)
+  const pairs = new Set()
+  for (const { sel } of rulesOf(css)) {
+    for (const compound of sel.split(/[\s,>+~]+/)) {
+      const cls = (compound.match(/\.rb-[a-z0-9-]+/) || [null])[0]
+      for (const a of compound.matchAll(/\[(data-[a-z-]+)="([^"]+)"\]/g)) pairs.add(`${cls || ''}|${a[1]}=${a[2]}`)
+    }
+  }
+  for (const key of pairs) {
+    const [cls, pair] = key.split('|')
     const [name, value] = pair.split('=')
-    const sets = [...source.matchAll(new RegExp(`${name}=(\\{[^}]*\\}|"[^"]*")`, 'g'))].map((m) => m[1])
-    if (sets.length === 0) { bad.push(`${pair}: never set`); continue }
+    const scope = cls
+      ? tags.filter((t) => new RegExp(`className=["{\`][^>]*\\b${cls.slice(1)}(?![a-z0-9-])`).test(t)).join('\n')
+      : source
+    const sets = [...scope.matchAll(new RegExp(`${name}=(\\{[^}]*\\}|"[^"]*")`, 'g'))].map((m) => m[1])
+    if (sets.length === 0) { bad.push(`${cls ? cls + ' ' : ''}${pair}: never set`); continue }
     // An assignment that is not a string literal or a ternary of literals is
     // dynamic (data-status={status}), and any value may arrive.
     const literalOnly = (s) => /^"[^"]*"$/.test(s) || /^\{[^{}]*\?\s*['"][^'"]*['"]\s*:\s*(undefined|['"][^'"]*['"]|[^{}]*\?[^{}]*)\s*\}$/.test(s)
     if (!sets.every(literalOnly)) continue
     const literals = sets.flatMap((s) => [...s.matchAll(/'([^']*)'|"([^"]*)"/g)].map((m) => m[1] ?? m[2]))
-    if (!literals.includes(value)) bad.push(`${pair}: the JSX only ever sets ${[...new Set(literals)].join(', ')}`)
+    if (!literals.includes(value)) bad.push(`${cls ? cls + ' ' : ''}${pair}: the JSX only ever sets ${[...new Set(literals)].join(', ')}`)
   }
   return bad
 }
@@ -136,12 +168,17 @@ describe('every attribute value a rule matches is one the JSX can produce (R1 fi
     expect(unreachableAttributeValues(shellCss, jsx)).toEqual([])
   })
   it('CONTROL: catches a never-set attribute and a value outside a literal ternary; lets a dynamic one through', () => {
-    const css = '.a[data-open="true"]{} .b[data-state="gone"]{} .c[data-status="x"]{} .d[data-ghost="1"]{}'
-    const src = `<i data-open={o ? 'true' : undefined} /> <i data-state={a ? 'on' : b ? 'off' : 'disabled'} /> <i data-status={status} />`
+    const css = '.rb-a[data-open="true"]{} .rb-b[data-state="gone"]{} .rb-c[data-status="x"]{} .rb-d[data-ghost="1"]{}'
+    const src = `<i className="rb-a" data-open={o ? 'true' : undefined} /> <i className="rb-b" data-state={a ? 'on' : b ? 'off' : 'disabled'} /> <i className="rb-c" data-status={status} /> <i className="rb-d" />`
     expect(unreachableAttributeValues(css, src)).toEqual([
-      'data-state=gone: the JSX only ever sets on, off, disabled',
-      'data-ghost=1: never set',
+      '.rb-b data-state=gone: the JSX only ever sets on, off, disabled',
+      '.rb-d data-ghost=1: never set',
     ])
+  })
+  it('CONTROL: scoped by class — a dynamic data-state on another element does not excuse a typo on this one', () => {
+    const css = '.rb-step[data-state="finished"]{}'
+    const src = `<i className="rb-dot" data-state={state} /> <div className="rb-step x" data-state={active ? 'active' : done ? 'done' : 'future'} />`
+    expect(unreachableAttributeValues(css, src)).toEqual(['.rb-step data-state=finished: the JSX only ever sets active, done, future'])
   })
 })
 
