@@ -343,9 +343,12 @@
   }
   /* CORE / REFERENCE — the kit's Chip, a two-state toggle (aria-pressed,
      the one active treatment: the signal tint and edge, ink text). It was
-     #fff7ed on a #ea580c fill at 13px (C6) and hand-rolled (C8). The width
-     keeps the names in one column whichever state a row is in. */
-  .dog-role-chip { min-width: 52px; justify-content: center; }
+     #fff7ed on a #ea580c fill at 13px (C6) and hand-rolled (C8). A FIXED
+     width keeps the names in one column whichever state a row is in: at the
+     Label step "CORE" measures 55.45px, so a 52px min-width let Core rows sit
+     3.45px right of Ref rows (review round 2). Its pressed state is not
+     announced, because its label already flips (Core / Ref). */
+  .dog-role-chip { width: 56px; justify-content: center; }
 
   .dog-upload-hint {
     font-size: var(--text-caption);

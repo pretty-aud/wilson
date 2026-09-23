@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -3763,25 +3763,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         {/* Main Content */}
         <main className="dog-main flex-1 min-h-0 overflow-y-auto">
           {error && (
-            <div className="p-3 bg-red-900/50 border border-red-600 rounded-control text-red-300 text-body">
-              {error}
-            </div>
+            <Banner tone="danger">{error}</Banner>
           )}
 
           {/* Amber, not red: the deck itself survived and the preset colours
               are applied, so this is a partial failure and should not read as
               a dead generation. Dismissable because it is non-blocking. */}
           {themeError && (
-            <div className="p-3 bg-amber-900/50 border border-amber-600 rounded-control text-amber-200 text-body flex items-start justify-between gap-3">
-              <span>{themeError}</span>
-              <button
-                onClick={() => setThemeError('')}
-                className="shrink-0 text-amber-300 hover:text-amber-100"
-                aria-label="Dismiss theme generator message"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <Banner
+              tone="warning"
+              action={<IconButton size="sm" icon={X} title="Dismiss theme generator message" onClick={() => setThemeError('')} />}
+            >
+              {themeError}
+            </Banner>
           )}
 
           {/* Section 1: Document & Context Input */}
@@ -3867,6 +3861,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                               <div key={doc.id} className="flex items-center gap-1.5">
                                 <Chip
                                   active={isCore}
+                                  aria-pressed={undefined}
                                   onClick={() => toggleProjectFileCore('documents', doc.id)}
                                   className="dog-role-chip"
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
@@ -3883,6 +3878,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                               <div key={asset.id} className="flex items-center gap-1.5">
                                 <Chip
                                   active={isCore}
+                                  aria-pressed={undefined}
                                   onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
                                   className="dog-role-chip"
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
