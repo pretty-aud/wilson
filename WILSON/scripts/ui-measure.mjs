@@ -102,8 +102,16 @@ export function typeCensus(scope) {
     if (r.width === 0 || r.height === 0) continue;
     el.setAttribute('data-v1p', String(i++));
     const cls = (typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(Boolean).slice(0, 3).join('.');
+    const tag = el.tagName.toLowerCase();
     rows.push({
-      tag: el.tagName.toLowerCase(), cls, text: own.replace(/\s+/g, ' ').trim().slice(0, 40),
+      tag, cls, text: own.replace(/\s+/g, ' ').trim().slice(0, 40),
+      /* A form field draws its text inside the browser's own shadow DOM, not
+         through the text-node child tagged here, so the platform-font query
+         returns NOTHING for it (V1 found two <textarea>s in Settings → Agent
+         that way). `renderedFaces` skips these and the walker checks their
+         DECLARED family instead — which cannot see a fallback glyph typed
+         into a field. Stated, not hidden. */
+      form: tag === 'textarea' || tag === 'select' || tag === 'option',
       family: cs.fontFamily.split(',')[0].replace(/["']/g, '').trim(),
       px: Math.round(parseFloat(cs.fontSize) * 10) / 10,
       weight: cs.fontWeight, transform: cs.textTransform,
@@ -146,16 +154,19 @@ export async function renderedFaces(cdp, rows, allowed = /^Geist( Mono)?$/) {
     try { return { idx, fonts: (await cdp.send('CSS.getPlatformFontsForNode', { nodeId })).fonts }; }
     catch { return { idx, fonts: [] }; }
   };
+  const missed = [];
+  let formRows = 0;
   for (let i = 0; i < nodeIds.length; i += 50) {
     for (const { idx, fonts } of await Promise.all(nodeIds.slice(i, i + 50).map(one))) {
-      if (!fonts.length) { unmeasured++; continue; }
+      if (rows[idx]?.form) { formRows++; continue; }
+      if (!fonts.length) { unmeasured++; missed.push(rows[idx]); continue; }
       for (const f of fonts) {
         tally[f.familyName] = (tally[f.familyName] || 0) + f.glyphCount;
         if (!allowed.test(f.familyName)) off.push({ ...rows[idx], used: f.familyName, glyphs: f.glyphCount });
       }
     }
   }
-  return { tally, off, unmeasured, probed: nodeIds.length };
+  return { tally, off, unmeasured, missed, formRows, probed: nodeIds.length };
 }
 
 /**
@@ -169,10 +180,19 @@ export async function renderedFaces(cdp, rows, allowed = /^Geist( Mono)?$/) {
  */
 export function typeRules(rows, { homeCaps = false } = {}) {
   const homeCap = (r) => homeCaps && r.px === 16 && r.transform === 'uppercase' && r.weight === '600';
+  /* Tracking is checked against the RULE, not merely allowed at a size
+     (round one: "any tracking at 11px" let +0.2em pass as a Label). §3.1:
+     +0.06em at the Label step, +0.01em at H1, 0 everywhere else; Home's
+     W4 capitals carry +0.06em. Half a thousandth of an em either way. */
+  const em = (r) => r.tracking / r.px;
+  const trackingOk = (r) => r.tracking === 0
+    || (r.px === 11 && Math.abs(em(r) - 0.06) <= 0.005)
+    || (r.px === 20 && Math.abs(em(r) - 0.01) <= 0.005)
+    || (homeCap(r) && Math.abs(em(r) - 0.06) <= 0.005);
   return {
     weight: rows.filter((r) => r.weight !== '400' && r.weight !== '600'),
     upper: rows.filter((r) => r.transform === 'uppercase' && r.px !== 11 && !homeCap(r)),
-    tracking: rows.filter((r) => r.tracking !== 0 && r.px !== 11 && r.px !== 20 && !homeCap(r)),
+    tracking: rows.filter((r) => !trackingOk(r)),
   };
 }
 
@@ -262,10 +282,22 @@ export function openDialog() {
   const hex = bg ? '#' + bg.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('') : cs.backgroundColor;
   const title = [...panel.querySelectorAll('.ui-dialog-title,h1,h2,h3,h4,[class*="text-h2"],[class*="text-h3"]')].find(vis);
   const tcs = title ? getComputedStyle(title) : null;
+  /* ⚠️ `fits` alone cannot fail for a panel CAPPED at a share of the viewport
+     (TaskDetailPopup is `maxHeight: 85vh`, and three dialogs measured exactly
+     0.85 x 700 = 595 tall): the box always fits because its body scrolls.
+     Round one caught V1 reporting "the task pop-up now fits" as news. So
+     `scrolls` names every scroll container inside the panel whose content is
+     taller than its box — a dialog that fits AND scrolls is a dialog whose
+     content does not fit the window. */
+  const scrolls = [panel, ...panel.querySelectorAll('*')].filter((e) => {
+    const s = getComputedStyle(e);
+    return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1 && e.clientHeight > 0;
+  }).map((e) => `${e.clientHeight}/${e.scrollHeight}`);
   return {
     kind, bg: hex, radius: cs.borderRadius, border: `${cs.borderTopWidth} ${cs.borderTopStyle}`,
     box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
     fits: r.top >= -0.5 && r.left >= -0.5 && r.bottom <= innerHeight + 0.5 && r.right <= innerWidth + 0.5,
+    scrolls,
     title: title ? { text: title.textContent.trim().slice(0, 40), px: parseFloat(tcs.fontSize), weight: tcs.fontWeight, color: tcs.color, transform: tcs.textTransform } : null,
   };
 }
@@ -409,11 +441,42 @@ export function unnamedControls() {
  * selection state can.
  */
 export function selectedControl(label) {
+  /* Round one of V1's review, three holes, all closed here:
+       - PREFIX matching: "Agent" is a prefix of Settings' "Agent Skills". The
+         label must match EXACTLY, allowing only a trailing count ("Shared
+         with me1", "Requests 2") — digits, nothing else.
+       - `aria-current="false"` is what React writes for `aria-current={false}`,
+         and `hasAttribute` counted it as selected.
+       - the SHELL: the nav strip's "O.T.T.E.R." carries aria-current on the
+         page it names, so a click that wrongly navigated there proved itself.
+         Nothing inside `.wilson-chrome` or the dev badge can answer. */
+  const outside = (el) => !el.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
   const vis = (el) => el.offsetParent !== null && el.getBoundingClientRect().width > 0;
-  return [...document.querySelectorAll('button, [role="tab"], a')].some((el) => vis(el)
-    && (el.textContent || '').replace(/\s+/g, ' ').trim().startsWith(label)
+  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const named = new RegExp(`^${esc}\\s*\\d*$`);
+  const current = (v) => v !== null && v !== 'false';
+  return [...document.querySelectorAll('button, [role="tab"], a')].some((el) => vis(el) && outside(el)
+    && named.test((el.textContent || '').replace(/\s+/g, ' ').trim())
     && (el.getAttribute('aria-selected') === 'true' || el.getAttribute('data-active') === 'true'
-      || el.hasAttribute('aria-current') || el.getAttribute('aria-pressed') === 'true'));
+      || current(el.getAttribute('aria-current')) || el.getAttribute('aria-pressed') === 'true'));
+}
+
+/**
+ * Visible text-owning elements OUTSIDE the shell and the dev badge. The
+ * "did this page render?" floor used `pageCensus().measured`, which counts
+ * the shell too — and the shell and the badge alone produce 18 text nodes,
+ * so a page whose body rendered NOTHING cleared a floor of 10 (round one).
+ */
+export function bodyTextCount() {
+  let n = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]')) continue;
+    if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+    if (![...el.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) n++;
+  }
+  return n;
 }
 
 /**
@@ -504,13 +567,14 @@ export function stopPointCensus() {
     for (let i = layers.length - 1; i >= 0; i--) base = over(layers[i], base);
     return base;
   };
-  const faded = (el) => {
-    for (let e = el; e; e = e.parentElement) {
-      if (Number(getComputedStyle(e).opacity) < 1) return true;
-      if (e.matches?.('button:disabled, [aria-disabled="true"], input:disabled, select:disabled, fieldset:disabled')) return true;
-    }
-    return false;
-  };
+  /* WCAG 1.4.3 exempts INACTIVE components — disabled ones — and nothing
+     else. The first draft also skipped anything under an opacity below 1,
+     which round one showed hid live text: the LIVE pill (.85), the task
+     popup (.85), the edit-history drawer (.9), struck-through paths (.7),
+     Timeline labels (.4-.7), dimmed nav items (.35). Opacity is now
+     multiplied into the ink instead (`opacityOf`), which is how it paints. */
+  const faded = (el) => !!el.closest('button:disabled, [aria-disabled="true"], input:disabled, select:disabled, fieldset:disabled');
+  const opacityOf = (el) => { let o = 1; for (let e = el; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return o; };
 
   /* A single token broken across lines. V1 found R.A.B.B.I.T.'s Tasks table
      printing its start dates as "2026-11-" over "06": the type pass took the
@@ -528,14 +592,31 @@ export function stopPointCensus() {
     return tops.size > 1;
   };
 
-  const out = { border: [], radius: [], white: [], contrast: [], broken: [], faded: 0, unknown: 0 };
+  /* Capitals TYPED into the text, which `text-transform` cannot see —
+     round one found "NO RATE CARD YET." at the Dense step. Two or more
+     words, six or more letters, no lower-case letter, not the Label step.
+     Dotted names (D.O.G.) and short codes (USD, PDF) mostly fall under the
+     letter floor; what is left is reported, not failed, because an acronym
+     is legitimately all capitals. */
+  const typedCaps = (own, px) => {
+    if (px === 11) return false;
+    const words = own.split(/\s+/).filter((w) => /[A-Za-z]/.test(w) && !/^([A-Z]\.)+$/.test(w));
+    const letters = words.join('').replace(/[^A-Za-z]/g, '');
+    return words.length >= 2 && letters.length >= 6 && letters === letters.toUpperCase();
+  };
+
+  const out = { border: [], radius: [], white: [], contrast: [], broken: [], typedCaps: [], faded: 0, unknown: 0 };
   for (const el of document.querySelectorAll('body *')) {
     if (badge && badge.contains(el)) continue;
     if (!vis(el)) continue;
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
 
-    const sides = ['Top', 'Right', 'Bottom', 'Left'].filter((s) => cs[`border${s}Style`] !== 'none' && parseFloat(cs[`border${s}Width`]) >= 1.5);
+    /* A TRANSPARENT side is not a border anyone sees: every inactive
+       R.A.B.B.I.T. tab reserves `2px solid transparent` for its underline,
+       and round one showed each screen's b2 was just its tab count. */
+    const sides = ['Top', 'Right', 'Bottom', 'Left'].filter((s) => cs[`border${s}Style`] !== 'none' && parseFloat(cs[`border${s}Width`]) >= 1.5
+      && (parse(cs[`border${s}Color`])?.a ?? 0) > 0);
     if (sides.length) out.border.push(`${name(el)} ${sides.map((s) => s[0] + parseFloat(cs[`border${s}Width`])).join(' ')} ${cs[`border${sides[0]}Style`]}`);
 
     const radii = ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map((k) => parseFloat(cs[`border${k}Radius`]) || 0);
@@ -549,12 +630,15 @@ export function stopPointCensus() {
     const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent).join('').trim();
     if (!own) continue;
     if (brokenToken(el, own)) out.broken.push(`<${name(el)}> "${own.slice(0, 24)}" ${parseFloat(cs.fontSize)}px ${cs.fontFamily.split(',')[0].replace(/["']/g, '')} in ${Math.round(r.width)}px`);
+    if (typedCaps(own, parseFloat(cs.fontSize))) out.typedCaps.push(`<${name(el)}> "${own.replace(/\s+/g, ' ').slice(0, 30)}" ${parseFloat(cs.fontSize)}px`);
     if (faded(el)) { out.faded++; continue; }
     const g = ground(el);
     if (!g) { out.unknown++; continue; }
     const fg0 = parse(cs.color);
     if (!fg0) continue;
-    const fg = fg0.a < 1 ? over(fg0, g) : fg0;
+    // The layer's opacity paints the ink THROUGH to what is under it.
+    const alpha = fg0.a * opacityOf(el);
+    const fg = alpha < 1 ? over({ ...fg0, a: alpha }, g) : fg0;
     const px = parseFloat(cs.fontSize);
     const large = px >= 24 || (px >= 19 && Number(cs.fontWeight) >= 600);
     const cr = ratio(fg, g);

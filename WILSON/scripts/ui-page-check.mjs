@@ -36,7 +36,7 @@
  *   node scripts/ui-page-check.mjs 5243 1280 700 --tabs
  */
 import { chromium } from '@playwright/test';
-import { pageCensus, selectedControl } from './ui-measure.mjs';
+import { pageCensus, selectedControl, bodyTextCount } from './ui-measure.mjs';
 
 const PORT = process.argv[2] || '5241';
 const BASE = `http://localhost:${PORT}`;
@@ -70,9 +70,16 @@ async function measure(label) {
      reading a table — and a page that loaded but rendered nothing printed
      exactly the same three zeros as a page that is perfect. An empty result
      is not a pass. 10 is well under the 60-plus every real page measures and
-     well over anything a blank shell produces. */
-  const thin = info.measured < 10;
-  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}  clipped=${String(info.clipped).padEnd(3)} ${sizes}${thin ? '   ! ONLY ' + info.measured + ' TEXT NODES — did this page render?' : ''}`);
+     well over anything a blank shell produces.
+     ⚠️ V1: "well over anything a blank shell produces" was not true — the
+     shell and the dev-fixtures badge alone are 18 text nodes, so a page
+     whose BODY rendered nothing cleared the floor. It counts outside the
+     shell now (`bodyTextCount`), which prints nothing new on a real page —
+     at a floor of 3, because Files' own empty state is four text nodes and
+     a body that rendered nothing is 0. */
+  const body = await page.evaluate(bodyTextCount);
+  const thin = body < 3;
+  console.log(`${label.padEnd(20)} err=${errors.length}  hOverflow=${info.overflow}  offScale=${info.offScale}  clipped=${String(info.clipped).padEnd(3)} ${sizes}${thin ? '   ! ONLY ' + body + ' TEXT NODES OUTSIDE THE SHELL — did this page render?' : ''}`);
   for (const e of errors.slice(0, 2)) console.log(`      ! ${e}`);
   if (errors.length || info.overflow || info.offScale || thin) FAILED.push(label.trim());
   return info;

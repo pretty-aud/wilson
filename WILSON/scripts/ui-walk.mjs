@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * UI overhaul — V1's walk of every page AND every sub-view a URL cannot reach.
+ * UI overhaul — V1's walk of every page AND the sub-views a URL cannot reach.
  *
  *   node scripts/ui-walk.mjs <port> [W] [H] [--only a,b] [--shots <dir>] [--json <file>] [--fast] [-v]
  *
@@ -8,41 +8,46 @@
  * 1440x900 and 1280x700, check the chosen face at every step, the alignment
  * of every table and toolbar, the two page classes".
  *
- * `ui-page-check.mjs` walks twelve URLs, and T1 and T2 each found the hard way
- * that twelve URLs is not twelve screens: the lesson surface needs two clicks,
- * every R.A.B.B.I.T. tab needs a project. V1 counted what else a URL cannot
- * reach — Settings' seven tabs, the Admin Terminal's seven sections, Budget's
- * ten views, O.T.T.E.R.'s nine, and about sixty dialogs — and NONE of it had
- * been measured by anything. This is the registry for all of it.
+ * `ui-page-check.mjs` walks twelve URLs and, with --tabs, R.A.B.B.I.T.'s nine
+ * tabs. T1 and T2 each found the hard way that URLs are not screens. This
+ * registry adds Settings' tabs, the Admin Terminal's sections, Budget's
+ * views, O.T.T.E.R.'s tools and lesson, Help's sections, the shell's nav and
+ * quit dialog, and 18 of the app's roughly sixty dialogs — 80 screens.
+ * NOT walked, and named so nobody reads "every screen": the other ~40
+ * dialogs, R.A.B.B.I.T.'s Levels and Experiences tabs (hidden for this
+ * project type), Timeline's TaskEditor, and anything behind a real session.
  *
- * Every entry names the step that opens it AND a proof that it opened. A
- * drive that silently misses screenshots the page underneath and measures it
- * clean (T0 trap 16, T1 trap 2, T2 trap 3 — three sessions, one lesson), so a
- * sub-view whose proof fails is a FAILURE here, never a pass.
+ * Every entry names the step that opens it AND a proof that it opened, and a
+ * proof must go from FALSE to TRUE across its last step — V1's review round
+ * one found four text proofs that were already true on the page underneath
+ * (the shell's nav, the dev badge, a scene title visible before its dialog)
+ * and one entry (`help-otter`) that clicked the SHELL's "O.T.T.E.R." and
+ * measured the tool page. Nothing inside `.wilson-chrome` or the dev badge
+ * can satisfy a proof now, and the click prefers the page to the shell.
  *
- * Per screen it measures, through `ui-measure.mjs` (one implementation, shared
- * with the page check):
- *   err / ovf / off / clip   — exactly what ui-page-check reports
- *   face    glyphs Chrome actually drew in a face that is not Geist or Geist
- *           Mono (the DevTools protocol's platform-font report — not CSS)
+ * Per screen, through `ui-measure.mjs` (one implementation, shared with the
+ * page check):
+ *   err / ovf / off / clip   — ui-page-check's census, verbatim
+ *   face    text Chrome actually DREW in a face that is not Geist or Geist
+ *           Mono (the DevTools protocol's platform-font report — not CSS);
+ *           a text node the protocol could not answer for FAILS the screen
  *   wt / up / trk            — §3.1: weight off 400/600, capitals off the
- *           Label step, tracking off Label and H1
+ *           Label step, tracking off +0.06em (Label) / +0.01em (H1) / 0
  *   anon    visible buttons with no text, aria-label, title or labelledby
  *   ground  which page class the field is on (Q1)
- *   dlg     the open dialog's surface, radius, title and whether every edge
- *           is on screen (§3.3's 1280x700 question)
- *   align   header-vs-column alignment in real tables; centre-line spread in
- *           toolbars (reported, not failed — see the functions' comments)
- *   b2 / rad / white / cr   stop point 1's other claims — one border, two
- *           radii, no white — and contrast (`stopPointCensus`). REPORTED,
- *           NOT FAILED: lanes A, B and C have not run, and every one of
- *           these is expected on their unconverted surfaces. De-duplicated
- *           across screens at the end, and saved whole by --json.
+ *   dlg     the open dialog's surface, radius, title, whether every edge is
+ *           on screen, and which parts of it scroll (a capped panel "fits"
+ *           because its body scrolls — that is not the same thing)
+ *   align   header-vs-column alignment in real tables; toolbar centre lines
+ *   b2 / rad / white / cr / brk / caps   stop point 1's other claims — one
+ *           border, two radii, no white — plus contrast, tokens broken across
+ *           lines and capitals typed into the text. REPORTED, NOT FAILED:
+ *           lanes A and B have not run, and most of it is their planned
+ *           colour work. De-duplicated at the end; saved whole by --json.
  *
- * It exits 1 on anything new. Findings V1 FILED rather than fixed are listed
- * in KNOWN below with their filing id, print as `known`, and do not fail, so
- * the walk stays a gate: the next session learns about a NEW defect and is
- * not trained to ignore a red run.
+ * It exits 1 on anything new. Findings V1 FILED rather than fixed are in
+ * KNOWN below, keyed on screen AND element (and, for unnamed controls, on the
+ * exact icon and a COUNT), so a new defect of a known kind still fails.
  *
  * Needs the worktree's own dev server with VITE_DEV_AUTOLOGIN=tester and
  * VITE_DEV_FIXTURES=1 (see ui-shots.mjs). Nothing in the registry deletes,
@@ -53,7 +58,10 @@
 import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pageCensus, typeCensus, renderedFaces, typeRules, pageGround, openDialog, tableAlignment, toolbarAlignment, unnamedControls, selectedControl, styledActive, stopPointCensus } from './ui-measure.mjs';
+import {
+  pageCensus, typeCensus, renderedFaces, typeRules, pageGround, openDialog, tableAlignment, toolbarAlignment,
+  unnamedControls, selectedControl, styledActive, stopPointCensus, bodyTextCount,
+} from './ui-measure.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
@@ -62,42 +70,48 @@ const PORT = positional[0] || '5245';
 const W = Number(positional[1] || 1280);
 const H = Number(positional[2] || 700);
 const BASE = `http://localhost:${PORT}`;
-const ONLY = flag('--only')?.split(',');
+const ONLY = flag('--only')?.split(',').map((s) => s.trim()).filter(Boolean);
 const SHOTS = flag('--shots');
 const JSON_OUT = flag('--json');
 const VERBOSE = args.includes('-v');
-/* --fast skips the rendered-face query, the one slow measurement (a DevTools
-   round trip per text node, ~30s a screen on a dense table). Use it for a
-   census rerun; never for a claim about the face. */
+/* --fast skips the rendered-face query, the one slow measurement. Use it for
+   a census rerun; never for a claim about the face — and the closing line
+   says so rather than printing "every glyph in Geist" over a run that never
+   asked (round one). */
 const FAST = args.includes('--fast');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ─────────────────────────────── the registry ──────────────────────────────
    step strings:  a visible control's text, aria-label or title (exact first,
-                  then prefix); '@proj' opens the Salt Hours fixture project;
-                  '@files' picks the first project on Files; '@row:<text>'
-                  clicks a visible table row; '@lesson' opens a lesson;
-                  '@quit' fires the Electron close request (see `stub`).
+                  then prefix; the page before the shell); '@proj' opens the
+                  Salt Hours fixture project; '@files' picks the first project
+                  on Files; '@row:<text>' clicks a visible table row; '@lesson'
+                  opens a lesson; '@quit' fires the Electron close request.
    expect:        { dialog: true } | { text } | { selector } | { expanded }
+                  | { expandedText } — a page button whose text starts with it
+                    has aria-expanded="true" (Help's sections)
+                  | { active } — the named tab is now SELECTED (aria-selected,
+                    data-active, aria-current or aria-pressed; exact label)
                   | { styled } — the named button is the one sibling styled
-                  differently: for tab bars with NO selection state (Budget)
-                  | { active } — the named tab is now the SELECTED one
-                  (aria-selected, data-active, aria-current or aria-pressed).
-                  A tab's label is visible whichever tab is showing, so a
-                  text proof cannot tell them apart.                          */
+                    differently, for tab bars with NO selection state (Budget)
+                  A tab's label is visible whichever tab is showing, so a text
+                  proof cannot tell tabs apart. `active` and `styled` may be
+                  true before their step (a default tab); every other proof
+                  must be FALSE before the last step and TRUE after it.       */
 const P = (key, path, extra = {}) => ({ key, path, steps: [], ...extra });
 const REGISTRY = [
-  // The twelve URLs, as ui-page-check walks them.
+  // The twelve URLs, as ui-page-check walks them. Proofs are page text, never
+  // the shell's (excluded) — "R.A.B.B.I.T." here is Home's own button.
   P('home', '/', { homeCaps: true, expect: { text: 'R.A.B.B.I.T.' } }),
   P('dog', '/dog', { expect: { text: 'Generate Page Outline' } }),
   P('otter', '/otter', { expect: { text: 'New Course' } }),
   P('rabbit', '/rabbit', { expect: { text: 'Salt Hours' } }),
-  P('settings', '/settings', { expect: { text: 'General' } }),
+  P('settings', '/settings', { expect: { text: 'Version and updates' } }),
   P('projects', '/project-manager', { expect: { text: 'Salt Hours' } }),
   P('rate-card', '/rate-card', { expect: { text: 'Add a role' } }),
   P('team-members', '/team-members', { expect: { text: 'Invite user' } }),
-  P('files', '/project-files', { expect: { text: 'Columns' } }),
-  P('dashboard', '/dashboard', { expect: { text: 'My tasks' } }),
+  P('files', '/project-files', { expect: { text: 'No project chosen' } }),
+  P('dashboard', '/dashboard', { expect: { text: 'Café location agreement' } }),
   P('admin-terminal', '/admin-terminal', { expect: { text: 'Add people' } }),
   P('help', '/help', { expect: { text: 'Basic Workflow' } }),
 
@@ -130,15 +144,16 @@ const REGISTRY = [
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
   P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: true } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),
-  ...['By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>
+  ...['By Phase', 'By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>
     P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { styled: t } })),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
   P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details'], expect: { dialog: true } }),
-  P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { text: 'Lighthouse, dawn' } }),
+  // "Lighthouse, dawn" is on the Scenes table before the dialog opens.
+  P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: true } }),
 
   // Settings' seven tabs (General is the page itself) and its one dialog.
   ...['Profile', 'Models', 'Storage', 'Teams', 'Agent', 'Agent Skills'].map((t) =>
-    P(`settings-${t.toLowerCase().replace(/\s+/g, '-')}`, '/settings', { steps: [t], expect: { text: { Profile: 'Two-factor authentication', Models: 'AI models', Storage: 'Storage backend', Teams: 'Departments', Agent: 'Agent settings', 'Agent Skills': 'Agent skills' }[t] } })),
+    P(`settings-${t.toLowerCase().replace(/\s+/g, '-')}`, '/settings', { steps: [t], expect: { active: t } })),
   P('settings-reset-dialog', '/settings', { steps: ['Reset history'], expect: { dialog: true } }),
 
   // The resource pages' sub-views.
@@ -150,28 +165,25 @@ const REGISTRY = [
   P('files-project', '/project-files', { steps: ['@files', 'Table'], expect: { selector: 'table tbody tr' } }),
   P('dashboard-profile', '/dashboard', { steps: ['Profile'], expect: { active: 'Profile' } }),
   P('dashboard-notes', '/dashboard', { steps: ['Notes'], expect: { active: 'Notes' } }),
-  ...['Company', 'Models', 'Storage', 'Logs', 'Diagnostics'].map((t) =>
+  ...['Company', 'Models', 'Storage', 'Requests', 'Logs', 'Diagnostics'].map((t) =>
     P(`admin-${t.toLowerCase()}`, '/admin-terminal', { steps: [t], expect: { active: t } })),
   ...['O.T.T.E.R.', 'Project Manager', 'Wilson'].map((t) =>
-    P(`help-${t.toLowerCase().replace(/[^a-z]+/g, '')}`, '/help', { steps: [t], expect: { text: { 'O.T.T.E.R.': 'Course Library', 'Project Manager': 'Project Manager Overview', Wilson: 'About Wilson' }[t] } })),
+    P(`help-${t.toLowerCase().replace(/[^a-z]+/g, '')}`, '/help', { steps: [t], expect: { expandedText: t } })),
 ];
 
 /* ─────────────────────────── known, filed findings ─────────────────────────
    Each entry is a finding V1 FILED rather than fixed, keyed on the screen
-   AND on what it is (the element's own text, or the unnamed control's icon),
-   never on the screen alone — so a NEW defect of a known kind on a known
-   screen still fails. The ids are the filings in
-   docs/sessions/handoffs/ui-v1-2026-09-23.md §4; generated from both walks'
+   AND on what it is — never on the screen alone, so a new defect of a known
+   kind on a known screen still fails. The ids are the filings in
+   docs/sessions/handoffs/ui-v1-2026-09-23.md §4, generated from both walks'
    --json at 1280x700 and 1440x900, not typed. When a lane fixes one, delete
-   its line: an entry that no longer matches anything is harmless, but it is
-   a claim, and a stale claim is how the next session gets misled.
+   its line: a stale entry is a claim, and a stale claim misleads.
 
-   Empty on purpose: weight, upper, tracking, dialogFit. V1 FIXED every case
-   of those it found (0223dbf), so any one of them is new. */
+   Empty on purpose: weight, upper, tracking, dialogFit. V1 fixed every one
+   of those it found, so any one of them is new. */
 const KNOWN = {
   /* V1-01 — glyphs fontsource's Latin subset of Geist does not ship, drawn
-     by Windows in Segoe UI instead. A font decision, not a per-site one: the
-     lesson prose is generated content no icon swap can reach. */
+     by Windows in Segoe UI instead. Matched on the element's own text. */
   face: [
     { key: 'otter-lesson', text: 'Project Settings → M' },
     { key: 'otter-lesson', text: 'The is fixed the mom' },
@@ -194,96 +206,131 @@ const KNOWN = {
        there. Neither can happen to a signed-in user in the desktop app. */
     { key: 'admin-logs', text: 'status of 401' },
     { key: 'admin-storage', text: 'status of 401' },
+    { key: 'admin-requests', text: 'status of 401' },
     { key: 'shell-quit', text: 'status of 404' },
-    /* V1-09 — a <button> nested inside a <button> (React's own warning,
-       element names captured from the console arguments). B4 and B5. */
-    { key: 'rabbit-asset-detail', text: 'cannot be a descendant' },
-    { key: 'rabbit-asset-detail', text: 'cannot contain a nested' },
-    { key: 'rabbit-scene-detail', text: 'cannot be a descendant' },
+    /* V1-09 — a <button> nested inside a <button>. React's warning, with its
+       %s placeholders filled from the console arguments so the ELEMENTS are
+       part of what is excused, not just the kind of warning. B4 and B5. */
+    { key: 'rabbit-asset-detail', text: 'In HTML, <button> cannot be a descendant of <button>' },
+    { key: 'rabbit-asset-detail', text: '<button> cannot contain a nested <button>' },
+    { key: 'rabbit-scene-detail', text: 'In HTML, <button> cannot be a descendant of <button>' },
   ],
   /* V1-05 — icon-only controls with no text, aria-label, title or
-     labelledby (§3.3). By screen and icon; `no-icon` is a control with
-     neither a name nor a lucide glyph. The Tasks table alone carries 43 row
-     checkboxes and 42 delete buttons like this; the `lucide-x` rows are
-     dialog CLOSE buttons. Owners: A1/A2 (dog*), A3/A4 (otter*), B1-B6
-     (rabbit*), C1 (projects-detail), and the shell: the Electron title
-     bar's three window controls, seen only under the quit stub. `shell-nav`
-     opens the strip over /dog, so its four are D.O.G.'s — the strip itself
-     adds none. */
+     labelledby (§3.3). Keyed on the EXACT icon class (`lucide-x` no longer
+     excuses `lucide-x-circle`) with the COUNT seen, the larger of the two
+     window sizes: one more of the same kind on the same screen fails. The
+     dialog screens repeat the table underneath them, which is why their
+     counts match the tab's. `no-icon` is a control with neither a name nor a
+     lucide glyph. Owners: A1/A2 (dog*), A3/A4 (otter*), B1-B6 (rabbit*), P1
+     (projects-detail — lane C is finished), and the Electron title bar's
+     three window controls, seen only under the quit stub. `shell-nav` opens
+     the strip over /dog, so its four are D.O.G.'s. */
   anon: [
-    { key: 'dog', text: 'lucide-check' },
-    { key: 'dog', text: 'no-icon' },
-    { key: 'dog-history', text: 'lucide-check' },
-    { key: 'dog-history', text: 'lucide-x' },
-    { key: 'dog-history', text: 'no-icon' },
-    { key: 'dog-settings', text: 'lucide-check' },
-    { key: 'dog-settings', text: 'lucide-x' },
-    { key: 'dog-settings', text: 'no-icon' },
-    { key: 'otter-quiz', text: 'lucide-chevron-down' },
-    { key: 'otter-search', text: 'lucide-x' },
-    { key: 'otter-settings', text: 'lucide-x' },
-    { key: 'otter-settings', text: 'no-icon' },
-    { key: 'projects-detail', text: 'lucide-trash2' },
-    { key: 'rabbit-asset-detail', text: 'lucide-square' },
-    { key: 'rabbit-asset-detail', text: 'lucide-trash2' },
-    { key: 'rabbit-asset-detail', text: 'lucide-x' },
-    { key: 'rabbit-asset-new', text: 'lucide-square' },
-    { key: 'rabbit-asset-new', text: 'lucide-trash2' },
-    { key: 'rabbit-asset-new', text: 'lucide-x' },
-    { key: 'rabbit-assets', text: 'lucide-square' },
-    { key: 'rabbit-assets', text: 'lucide-trash2' },
-    { key: 'rabbit-budget', text: 'no-icon' },
-    { key: 'rabbit-control-panel', text: 'lucide-trash2' },
-    { key: 'rabbit-control-panel', text: 'no-icon' },
-    { key: 'rabbit-help', text: 'lucide-x' },
-    { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down' },
-    { key: 'rabbit-scene-detail', text: 'lucide-chevron-right' },
-    { key: 'rabbit-scene-detail', text: 'lucide-trash2' },
-    { key: 'rabbit-scene-detail', text: 'lucide-x' },
-    { key: 'rabbit-scenes', text: 'lucide-arrow-up-down' },
-    { key: 'rabbit-scenes', text: 'lucide-chevron-right' },
-    { key: 'rabbit-settings', text: 'lucide-check' },
-    { key: 'rabbit-settings', text: 'lucide-x' },
-    { key: 'rabbit-settings', text: 'no-icon' },
-    { key: 'rabbit-task-detail', text: 'lucide-square' },
-    { key: 'rabbit-task-detail', text: 'lucide-trash2' },
-    { key: 'rabbit-task-detail', text: 'lucide-x' },
-    { key: 'rabbit-task-history', text: 'lucide-square' },
-    { key: 'rabbit-task-history', text: 'lucide-trash2' },
-    { key: 'rabbit-task-new', text: 'lucide-square' },
-    { key: 'rabbit-task-new', text: 'lucide-trash2' },
-    { key: 'rabbit-tasks', text: 'lucide-square' },
-    { key: 'rabbit-tasks', text: 'lucide-trash2' },
-    { key: 'shell-nav', text: 'lucide-check' },
-    { key: 'shell-nav', text: 'no-icon' },
-    { key: 'shell-quit', text: 'no-icon' },
+    { key: 'dog', text: 'lucide-check', n: 1 },
+    { key: 'dog', text: 'no-icon', n: 3 },
+    { key: 'dog-history', text: 'lucide-check', n: 1 },
+    { key: 'dog-history', text: 'lucide-x', n: 1 },
+    { key: 'dog-history', text: 'no-icon', n: 5 },
+    { key: 'dog-settings', text: 'lucide-check', n: 1 },
+    { key: 'dog-settings', text: 'lucide-x', n: 1 },
+    { key: 'dog-settings', text: 'no-icon', n: 4 },
+    { key: 'otter-quiz', text: 'lucide-chevron-down', n: 1 },
+    { key: 'otter-search', text: 'lucide-x', n: 1 },
+    { key: 'otter-settings', text: 'lucide-x', n: 1 },
+    { key: 'otter-settings', text: 'no-icon', n: 1 },
+    { key: 'projects-detail', text: 'lucide-trash2', n: 30 },
+    { key: 'rabbit-asset-detail', text: 'lucide-square', n: 16 },
+    { key: 'rabbit-asset-detail', text: 'lucide-trash2', n: 15 },
+    { key: 'rabbit-asset-detail', text: 'lucide-x', n: 1 },
+    { key: 'rabbit-asset-new', text: 'lucide-square', n: 16 },
+    { key: 'rabbit-asset-new', text: 'lucide-trash2', n: 15 },
+    { key: 'rabbit-asset-new', text: 'lucide-x', n: 1 },
+    { key: 'rabbit-assets', text: 'lucide-square', n: 16 },
+    { key: 'rabbit-assets', text: 'lucide-trash2', n: 15 },
+    { key: 'rabbit-budget', text: 'no-icon', n: 1 },
+    { key: 'rabbit-control-panel', text: 'lucide-trash2', n: 32 },
+    { key: 'rabbit-control-panel', text: 'no-icon', n: 5 },
+    { key: 'rabbit-help', text: 'lucide-x', n: 1 },
+    { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
+    { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },
+    { key: 'rabbit-scene-detail', text: 'lucide-trash2', n: 3 },
+    { key: 'rabbit-scene-detail', text: 'lucide-x', n: 1 },
+    { key: 'rabbit-scenes', text: 'lucide-arrow-up-down', n: 1 },
+    { key: 'rabbit-scenes', text: 'lucide-chevron-right', n: 6 },
+    { key: 'rabbit-settings', text: 'lucide-check', n: 11 },
+    { key: 'rabbit-settings', text: 'lucide-x', n: 1 },
+    { key: 'rabbit-settings', text: 'no-icon', n: 27 },
+    { key: 'rabbit-task-detail', text: 'lucide-square', n: 43 },
+    { key: 'rabbit-task-detail', text: 'lucide-trash2', n: 42 },
+    { key: 'rabbit-task-detail', text: 'lucide-x', n: 1 },
+    { key: 'rabbit-task-history', text: 'lucide-square', n: 43 },
+    { key: 'rabbit-task-history', text: 'lucide-trash2', n: 42 },
+    { key: 'rabbit-task-new', text: 'lucide-square', n: 43 },
+    { key: 'rabbit-task-new', text: 'lucide-trash2', n: 42 },
+    { key: 'rabbit-tasks', text: 'lucide-square', n: 43 },
+    { key: 'rabbit-tasks', text: 'lucide-trash2', n: 42 },
+    { key: 'shell-nav', text: 'lucide-check', n: 1 },
+    { key: 'shell-nav', text: 'no-icon', n: 3 },
+    { key: 'shell-quit', text: 'no-icon', n: 3 },
   ],
 };
-/* `text` is REQUIRED on every entry: a key-only entry would excuse
-   everything of its kind on that screen, which is the silent-green shape
-   every session in this lane has hit once. */
+/* `text` is REQUIRED: a key-only entry would excuse everything of its kind on
+   the screen, which is the silent-green shape this lane keeps hitting. */
 const isKnown = (kind, key, text) => KNOWN[kind].some((k) => k.key === key && typeof k.text === 'string' && (text || '').includes(k.text));
+/* Unnamed controls, per icon: known only if the EXACT icon is listed for this
+   screen and the count has not grown. Returns the ones that are new. */
+function newAnon(key, anon) {
+  const byIcon = {};
+  for (const a of anon) (byIcon[a.split(' ')[0]] ||= []).push(a);
+  return Object.entries(byIcon).flatMap(([icon, list]) => {
+    const k = KNOWN.anon.find((x) => x.key === key && x.text === icon);
+    return k && list.length <= k.n ? [] : list;
+  });
+}
 
 /* ───────────────────────────────── driving ───────────────────────────────── */
+/* The PAGE before the shell: `help-otter` used to click the nav strip's
+   "O.T.T.E.R." (an exact-text match) instead of Help's own entry (whose text
+   carries a subtitle) and so measured the tool page. The shell is searched
+   only when the page has no match — `shell-nav`'s hamburger lives there. */
 async function click(page, label) {
   return page.evaluate((label) => {
     const vis = (e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0;
-    const els = [...document.querySelectorAll('button, [role="button"], [role="tab"], a')].filter(vis);
+    const inShell = (e) => !!e.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
+    const all = [...document.querySelectorAll('button, [role="button"], [role="tab"], a')].filter(vis);
     const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
     const named = (e) => [e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean);
-    const hit = els.find((e) => norm(e.textContent) === label)
+    const find = (els) => els.find((e) => norm(e.textContent) === label)
       || els.find((e) => named(e).some((n) => n === label))
       || els.find((e) => named(e).some((n) => n.startsWith(label)))
       || els.find((e) => norm(e.textContent).startsWith(label));
+    const hit = find(all.filter((e) => !inShell(e))) || find(all.filter(inShell));
     if (!hit) return false;
     hit.click();
     return true;
   }, label);
 }
 
+/* A step LOOKS for its target a few times before it gives up: the walk's
+   second full run failed `rabbit-intake` because the project list had not
+   rendered five seconds after load, `@proj` found no "Salt Hours" and
+   returned false once — and a failed step correctly forbids the retry. */
 async function step(page, s) {
+  // Compound or one-shot steps are not repeated: a second '@lesson' would
+  // click the course again and could collapse it.
+  if (s === '@lesson' || s === '@quit') return stepOnce(page, s);
+  for (let i = 0; i < 5; i++) {
+    const ok = await stepOnce(page, s);
+    if (ok) return true;
+    await sleep(800);
+  }
+  return false;
+}
+
+async function stepOnce(page, s) {
   if (s === '@proj') return page.evaluate(() => {
-    const x = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Salt Hours') && b.offsetParent !== null);
+    const x = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Salt Hours') && b.offsetParent !== null
+      && !b.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]'));
     if (x) { x.click(); return true; } return false;
   });
   if (s === '@files') return page.evaluate(() => {
@@ -317,12 +364,17 @@ async function opened(page, expect) {
   if (expect.active) return page.evaluate(selectedControl, expect.active);
   if (expect.styled) return page.evaluate(styledActive, expect.styled);
   return page.evaluate((e) => {
+    const inShell = (el) => !!el.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
     const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && (el.offsetParent !== null || cs.position === 'fixed'); };
-    if (e.selector) return [...document.querySelectorAll(e.selector)].some(vis);
+    if (e.selector) return [...document.querySelectorAll(e.selector)].some((el) => vis(el) && !inShell(el));
     if (e.expanded) return !!document.querySelector(`[title="${e.expanded}"][aria-expanded="true"], [aria-label="${e.expanded}"][aria-expanded="true"]`);
-    return [...document.querySelectorAll('body *')].some((el) => vis(el) && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.includes(e.text)));
+    if (e.expandedText) return [...document.querySelectorAll('button[aria-expanded="true"]')].some((b) => vis(b) && !inShell(b)
+      && (b.textContent || '').replace(/\s+/g, ' ').trim().startsWith(e.expandedText));
+    return [...document.querySelectorAll('body *')].some((el) => vis(el) && !inShell(el) && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.includes(e.text)));
   }, expect);
 }
+/* A proof that may already hold before its step: a tab bar's default tab. */
+const mayPreexist = (expect) => !!(expect && (expect.active || expect.styled));
 
 /* ──────────────────────────────── measuring ──────────────────────────────── */
 const FAILED = [];
@@ -334,33 +386,50 @@ async function visit(ctx, entry) {
   await cdp.send('DOM.enable');
   await cdp.send('CSS.enable');
   const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 110)); });
+  /* React writes its warnings as a format string ("%s cannot be a descendant
+     of <%s>") with the elements as arguments; `text()` returns the format.
+     The arguments are filled in so a KNOWN entry can name the elements. */
+  page.on('console', async (m) => {
+    if (m.type() !== 'error') return;
+    let t = m.text();
+    if (t.includes('%s')) {
+      const vals = await Promise.all(m.args().slice(1).map((a) => a.jsonValue().then(String).catch(() => '?')));
+      let i = 0; t = t.replace(/%s/g, () => (i < vals.length ? vals[i++] : '%s'));
+    }
+    errors.push(t.replace(/\s+/g, ' ').slice(0, 160));
+  });
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + String(e).slice(0, 110)));
 
   await page.goto(BASE + entry.path, { waitUntil: 'domcontentloaded' });
   await sleep(5000);
   let drove = true;
-  for (const s of entry.steps) {
-    drove = (await step(page, s)) && drove;
-    await sleep(s === '@proj' ? 4000 : 3000);
+  let preexisting = false;
+  const last = entry.steps.length - 1;
+  for (let i = 0; i < entry.steps.length; i++) {
+    if (i === last && !mayPreexist(entry.expect)) preexisting = await opened(page, entry.expect);
+    drove = (await step(page, entry.steps[i])) && drove;
+    await sleep(entry.steps[i] === '@proj' ? 4000 : 3000);
   }
-  let isOpen = drove && await opened(page, entry.expect);
-  /* One more try at the LAST step, then the proof again. V1's gate run
-     caught `rabbit-intake` measuring Summary — the Intake click landed while
-     Summary was still settling and was swallowed; every earlier run opened
-     it. The proof is what caught it (the page check would have printed that
-     row as a clean Intake), and a second failed proof is still a miss. */
-  if (!isOpen && entry.steps.length) {
+  let isOpen = drove && !preexisting && await opened(page, entry.expect);
+  /* One more try at the LAST step, then the proof again — only when every
+     step up to it drove and the retry's own click lands. The gate caught
+     `rabbit-intake` measuring Summary: the Intake click landed while Summary
+     was still settling and was swallowed. A second failure is still a miss. */
+  if (!isOpen && drove && !preexisting && entry.steps.length) {
     await sleep(2500);
-    await step(page, entry.steps[entry.steps.length - 1]);
+    const again = await step(page, entry.steps[last]);
     await sleep(3500);
-    isOpen = await opened(page, entry.expect);
-    if (isOpen) console.log(`  ~ ${entry.key}: opened on the second try of "${entry.steps[entry.steps.length - 1]}"`);
+    isOpen = again && await opened(page, entry.expect);
+    if (isOpen) console.log(`  ~ ${entry.key}: opened on the second try of "${entry.steps[last]}"`);
   }
 
+  /* Fonts laid out before the font query: an empty platform-font answer
+     means "not laid out yet" (trap 4), and one is now a failure. */
+  await page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))));
   const info = await page.evaluate(pageCensus);
+  const body = await page.evaluate(bodyTextCount);
   const rows = await page.evaluate(typeCensus);
-  const faces = FAST ? { tally: {}, off: [], unmeasured: 0, probed: 0 } : await renderedFaces(cdp, rows);
+  const faces = FAST ? { tally: {}, off: [], unmeasured: 0, probed: rows.length } : await renderedFaces(cdp, rows);
   const rules = typeRules(rows, { homeCaps: !!entry.homeCaps });
   const ground = await page.evaluate(pageGround);
   const dlg = await page.evaluate(openDialog);
@@ -368,6 +437,9 @@ async function visit(ctx, entry) {
   const bars = await page.evaluate(toolbarAlignment);
   const anon = await page.evaluate(unnamedControls);
   const census = await page.evaluate(stopPointCensus);
+  /* The proof AGAIN, after ~13s of measuring: a reload or a popup closing
+     itself mid-measurement would otherwise report the fresh page. */
+  const stillOpen = await opened(page, entry.expect);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, `${entry.key}-${W}x${H}.png`), animations: 'disabled' });
 
   const k = entry.key;
@@ -377,25 +449,40 @@ async function visit(ctx, entry) {
     upper: rules.upper.filter((r) => !isKnown('upper', k, r.text)),
     tracking: rules.tracking.filter((r) => !isKnown('tracking', k, r.text)),
     errors: errors.filter((e) => !isKnown('errors', k, e)),
-    anon: anon.filter((a) => !isKnown('anon', k, a)),
+    anon: newAnon(k, anon),
   };
-  const dlgBad = dlg && !dlg.fits && !isKnown('dialogFit', k);
-  const thin = info.measured < 10;
-  const bad = !isOpen || thin || info.overflow || info.offScale || dlgBad
+  const faceGap = !FAST && (faces.unmeasured > 0 || faces.probed !== rows.length);
+  // Form fields cannot be asked which font drew them (see typeCensus); their
+  // DECLARED family is checked instead.
+  const formFace = rows.filter((r) => r.form && !/^Geist( Mono)?$/.test(r.family));
+  const dlgBad = dlg && !dlg.fits && !isKnown('dialogFit', k, 'fits');
+  /* "Did this page render?", counted OUTSIDE the shell: the shell and the
+     dev badge alone are 18 text nodes, so the old floor of 10 could not
+     trip while they were on screen (round one). */
+  /* 3, not 10: Files' own empty state ("No project chosen") is four text
+     nodes, and a body that rendered nothing is 0. */
+  const thin = body < 3;
+  const open = isOpen && stillOpen;
+  const bad = !open || thin || faceGap || formFace.length || info.overflow || info.offScale || dlgBad
     || news.face.length || news.weight.length || news.upper.length || news.tracking.length || news.errors.length || news.anon.length;
 
   const knownN = (faces.off.length - news.face.length) + (rules.weight.length - news.weight.length)
     + (rules.upper.length - news.upper.length) + (rules.tracking.length - news.tracking.length) + (anon.length - news.anon.length);
-  const dl = dlg ? ` dlg=${dlg.kind}:${dlg.bg}/r${dlg.radius}/${dlg.box[2]}x${dlg.box[3]}${dlg.fits ? '' : ' OFF-SCREEN'}` : '';
+  const dl = dlg ? ` dlg=${dlg.kind}:${dlg.bg}/r${dlg.radius}/${dlg.box[2]}x${dlg.box[3]}${dlg.fits ? '' : ' OFF-SCREEN'}${dlg.scrolls.length ? ' scrolls' : ''}` : '';
   const gr = dlg ? '(under a dialog)' : ground.join('/');
-  console.log(`${(isOpen ? '' : '✗ ') + k}`.padEnd(30)
+  const why = !open ? (preexisting ? '   ← PROOF TRUE BEFORE ITS STEP' : !isOpen ? '   ← DID NOT OPEN' : '   ← CLOSED WHILE MEASURED') : '';
+  console.log(`${(open ? '' : '✗ ') + k}`.padEnd(30)
     + ` err=${errors.length} ovf=${info.overflow ? 'Y' : 'n'} off=${info.offScale} clip=${String(info.clipped).padEnd(3)}`
-    + ` face=${faces.off.length} wt=${rules.weight.length} up=${rules.upper.length} trk=${rules.tracking.length} anon=${anon.length}`
-    + (knownN ? ` (known ${knownN})` : '') + ` b2=${census.border.length} rad=${census.radius.length} white=${census.white.length} cr=${census.contrast.length} brk=${census.broken.length}`
-    + ` ground=${gr}${dl}`
-    + (isOpen ? '' : '   ← DID NOT OPEN') + (thin ? `   ← ONLY ${info.measured} TEXT NODES` : ''));
+    + ` face=${FAST ? '-' : faces.off.length} wt=${rules.weight.length} up=${rules.upper.length} trk=${rules.tracking.length} anon=${anon.length}`
+    + (knownN ? ` (known ${knownN})` : '')
+    + ` b2=${census.border.length} rad=${census.radius.length} white=${census.white.length} cr=${census.contrast.length} brk=${census.broken.length} caps=${census.typedCaps.length}`
+    + ` ground=${gr}${dl}${why}`
+    + (thin ? `   ← ONLY ${body} TEXT NODES OUTSIDE THE SHELL` : '')
+    + (faceGap ? `   ← FACE UNMEASURED ${faces.unmeasured}, PROBED ${faces.probed} OF ${rows.length}` : ''));
   const show = (label, arr, f) => { for (const r of arr.slice(0, VERBOSE ? 50 : 4)) console.log(`      ${label} ${f(r)}`); if (!VERBOSE && arr.length > 4) console.log(`      ${label} … +${arr.length - 4}`); };
   show('face', news.face, (r) => `${r.used} x${r.glyphs} <${r.tag}> "${r.text}"`);
+  show('form', formFace, (r) => `declares ${r.family} <${r.tag}> "${r.text}"`);
+  if (faceGap) show('gap ', faces.missed || [], (r) => `no answer for <${r.tag}.${r.cls}> "${r.text}"`);
   show('wt  ', news.weight, (r) => `${r.weight} ${r.px}px <${r.tag}.${r.cls}> "${r.text}"`);
   show('up  ', news.upper, (r) => `${r.px}px ${r.weight} <${r.tag}.${r.cls}> "${r.text}"`);
   show('trk ', news.tracking, (r) => `${r.tracking}px ${r.px}px <${r.tag}.${r.cls}> "${r.text}"`);
@@ -408,16 +495,25 @@ async function visit(ctx, entry) {
     if (tables.alignMismatch.length || tables.offset.length) console.log(`      tbl  ${tables.tables} tables/${tables.columns} cols  align: ${tables.alignMismatch.join('; ') || '-'}  offset: ${tables.offset.join('; ') || '-'}`);
     for (const b of bars.slice(0, 3)) console.log(`      bar  spread ${b.spread}px  h ${b.heights}  ${b.labels}`);
   }
-  REPORT.push({ key: k, ground: dlg ? ['(dialog)'] : ground, dlg, tables, bars, faces: faces.tally, clipped: info.clipped, anon, census,
-    face: faces.off, rules, errors });
+  REPORT.push({ key: k, open, ground: dlg ? ['(dialog)'] : ground, dlg, tables, bars, faces: faces.tally,
+    faceProbe: { probed: faces.probed, rows: rows.length, unmeasured: faces.unmeasured },
+    clipped: info.clipped, body, anon, census, face: faces.off, rules, errors });
   if (bad) FAILED.push(k);
   await page.close();
 }
 
+/* A mistyped --only key used to run fewer screens — or none — and print a
+   pass (round one ran `--only help_otter`: "✓ 0 screens"). */
+if (ONLY) {
+  const unknown = ONLY.filter((k) => !REGISTRY.some((e) => e.key === k));
+  if (unknown.length) { console.error(`unknown --only key(s): ${unknown.join(', ')}`); process.exit(1); }
+}
+const entries = REGISTRY.filter((e) => !ONLY || ONLY.includes(e.key));
+if (!entries.length) { console.error('no screens to walk'); process.exit(1); }
+
 const browser = await chromium.launch();
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
-const entries = REGISTRY.filter((e) => !ONLY || ONLY.includes(e.key));
-console.log(`# ui-walk — ${entries.length} screens at ${W}x${H}, port ${PORT}\n`);
+console.log(`# ui-walk — ${entries.length} screens at ${W}x${H}, port ${PORT}${FAST ? ' (--fast: face NOT checked)' : ''}\n`);
 
 /* Two contexts. The quit dialog only opens through
    `window.electronAPI.onCloseRequested`, so its entry runs in a context whose
@@ -462,21 +558,23 @@ for (const [g, keys] of Object.entries(classes)) console.log(`  ${g.padEnd(28)} 
 /* Stop point 1's census, de-duplicated: one line per distinct offender,
    with how many screens it appears on. A table row repeats per row and a
    shell element repeats per page; neither should read as many findings. */
-for (const kind of ['contrast', 'broken', 'white', 'border', 'radius']) {
+for (const kind of ['contrast', 'broken', 'typedCaps', 'white', 'border', 'radius']) {
   const seen = new Map();
   for (const r of REPORT) for (const d of new Set(r.census[kind])) { if (!seen.has(d)) seen.set(d, new Set()); seen.get(d).add(r.key); }
-  console.log(`
-— ${kind}: ${seen.size} distinct —`);
+  console.log(`\n— ${kind}: ${seen.size} distinct —`);
   for (const [d, keys] of [...seen].sort((a, b) => b[1].size - a[1].size).slice(0, VERBOSE ? 400 : 12)) console.log(`  ${String(keys.size).padStart(3)}× ${d}   [${[...keys].slice(0, 4).join(', ')}${keys.size > 4 ? ', …' : ''}]`);
 }
-if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ W, H, report: REPORT }, null, 1));
+if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ W, H, fast: FAST, report: REPORT }, null, 1));
 
 const faceTotal = {};
 for (const r of REPORT) for (const [f, n] of Object.entries(r.faces)) faceTotal[f] = (faceTotal[f] || 0) + n;
-console.log(`\n— glyphs drawn, all screens — ${Object.entries(faceTotal).map(([f, n]) => `${f} ${n}`).join(' · ')}`);
+if (!FAST) console.log(`\n— glyphs drawn, all screens — ${Object.entries(faceTotal).map(([f, n]) => `${f} ${n}`).join(' · ')}`);
 
 if (FAILED.length) {
   console.log(`\n🚨 ${FAILED.length} of ${entries.length} screens did not come back clean: ${FAILED.join(', ')}`);
   process.exit(1);
 }
-console.log(`\n✓ ${entries.length} screens: every one opened, 0 errors, 0 overflow, 0 off-scale, every glyph in Geist, every rule of §3.1 held`);
+const knownFace = REPORT.reduce((a, r) => a + r.face.length, 0);
+console.log(`\n✓ ${entries.length} screens: every one opened and stayed open, 0 new errors, 0 overflow, 0 off-scale, `
+  + (FAST ? 'face NOT checked (--fast), ' : `every text node's face measured — ${knownFace} in a fallback face, all filed (V1-01), `)
+  + 'no new break of §3.1\'s weight, case or tracking, no new unnamed control');

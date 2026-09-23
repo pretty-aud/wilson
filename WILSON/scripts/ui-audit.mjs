@@ -94,6 +94,12 @@ export const PATTERNS = [
      (§4 Tabs) and a selected row's 2px edge (§3.2). So it is a census to
      read, not a row that must reach zero. */
   ['border-[side]-2 (one side)',     /\bborder-[tblrxy]-2\b/g],
+  /* V1, round one of its review: and neither row above sees a border set in
+     a STYLE OBJECT — `border: '2px solid …'`, `borderBottom: \`2px …\``,
+     `borderWidth: 2` — which is how R.A.B.B.I.T.'s popups draw their 2px
+     frames. The width must follow the colon or the quote directly, so a
+     `12px` cannot match on its `2`. A census, like the row above. */
+  ['border 2px+ (inline style)',     /\bborder(?:Top|Right|Bottom|Left)?(?:Width)?\s*:\s*['"`]?\s*[2-9](?:\.\d+)?(?:px)?\b/g],
   ['rounded-sm/md/lg/xl/2xl',        /\brounded-(?:sm|md|lg|xl|2xl)\b/g],
   /* Added by T0 after pass 3: the bare `rounded` is Tailwind's 4px, which
      §3.3 deletes along with 2, 5, 8 and 10. It was missing from the first
