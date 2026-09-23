@@ -476,6 +476,30 @@ describe('Dialog', () => {
     expect(order).toEqual(['blur', 'close'])
   })
 
+  // K5, B2 review round two: the blur belongs to the DISMISSING press only.
+  // Moving it above the backdrop check (every mousedown that bubbles to the
+  // backdrop handler, i.e. every press inside the dialog) or running it on a
+  // dialog that does not dismiss on backdrop both survived the suite.
+  it('K5 does not blur on a press inside the dialog: clicking into another field keeps the first one\'s edit going', () => {
+    const onClose = vi.fn()
+    render(<Dialog title="Edit" onClose={onClose} dismissOnBackdrop><input aria-label="Notes" /><p>Body text</p></Dialog>)
+    const input = screen.getByLabelText('Notes')
+    input.focus()
+    fireEvent.mouseDown(screen.getByText('Body text'))
+    expect(document.activeElement).toBe(input)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('K5 does not blur on a backdrop press of a dialog that does not dismiss on backdrop', () => {
+    const onClose = vi.fn()
+    render(<Dialog title="Edit" onClose={onClose}><input aria-label="Notes" /></Dialog>)
+    const input = screen.getByLabelText('Notes')
+    input.focus()
+    fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+    expect(document.activeElement).toBe(input)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it('K5 blurs only what is inside it: a backdrop press leaves focus elsewhere alone', () => {
     const outside = document.createElement('input')
     document.body.appendChild(outside)

@@ -75,16 +75,32 @@ describe('Stat', () => {
   })
 
   it('has a stylesheet rule for every value tone, and the light surface keeps its one ink', () => {
-    // Comments out, whole rules matched (B2 round one: a `toContain` passed
-    // with the rule commented out, with the success tone painting danger, and
-    // with the rule made heavier than the light surface's).
+    // Comments out; EVERY rule whose target is a toned value, in any spelling
+    // (B2 round one: a `toContain` passed with the rule commented out, with
+    // the success tone painting danger, and with the rule made heavier than
+    // the light surface's; round two: a LATER rule painting success danger,
+    // and a `.ui-stat > .ui-stat-value[…]` spelling that ties the light rule
+    // and wins by order, both passed a check that matched one exact text).
     const code = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    const rules = [...code.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .flatMap(([, sel, body]) => sel.split(',').map((s) => ({ sel: s.trim(), body })))
+      .filter(({ sel }) => !sel.startsWith('@'))
+    const target = (sel) => sel.split(/[\s>+~]+/).pop()
+    const weight = (sel) => (sel.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) || []).length
+    const colours = (body) => [...body.matchAll(/(?:^|;)\s*color\s*:\s*([^;]+)/g)].map((m) => m[1].trim())
+    const LIGHT = '.ui-stat[data-surface="light"] .ui-stat-value'
+    const light = rules.filter((r) => r.sel === LIGHT)
+    expect(light.length).toBeGreaterThan(0)
+    for (const r of light) expect(colours(r.body)).toEqual(['var(--color-ink-light)'])
     for (const tone of ['signal', 'success', 'warning', 'danger']) {
-      expect(code, tone).toMatch(new RegExp(`(^|[\\s}])\\.ui-stat-value\\[data-tone="${tone}"\\]\\s*\\{\\s*color:\\s*var\\(--color-${tone}\\);?\\s*\\}`))
+      const toned = rules.filter(({ sel }) => /\.ui-stat-value(?![\w-])/.test(target(sel)) && target(sel).includes(`[data-tone="${tone}"]`))
+      expect(toned.length, tone).toBeGreaterThan(0)
+      for (const r of toned) {
+        // every colour any rule for this tone writes is the tone …
+        for (const c of colours(r.body)) expect(c, r.sel).toBe(`var(--color-${tone})`)
+        // … and no spelling of it reaches the light rule's weight.
+        expect(weight(r.sel), r.sel).toBeLessThan(weight(LIGHT))
+      }
     }
-    // (0,3,0) against the tones' (0,2,0): on light the value is the one ink,
-    // and no heavier spelling of a tone rule exists to beat it.
-    expect(code).toMatch(/\.ui-stat\[data-surface="light"\] \.ui-stat-value\s*\{\s*color:\s*var\(--color-ink-light\)/)
-    expect(code).not.toMatch(/\.ui-stat[^{}\s]*\s+\.ui-stat-value\[data-tone/)
   })
 })
