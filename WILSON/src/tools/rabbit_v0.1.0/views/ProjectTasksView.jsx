@@ -43,6 +43,7 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 import NewTaskPopup from '../components/NewTaskPopup'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
+import './rabbitTasks.css'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -99,32 +100,10 @@ const FILTER_OPS = {
 
 const SAVED_VIEWS_KEY = 'rabbit_task_saved_views'
 
-// ── Color system ──
-// Direct status → accent color. Used for card left-borders,
-// column header accents, inline select text, and kanban badges.
-function statusColor(status) {
-  switch (status) {
-    case 'in_progress':    return '#fb923c'
-    case 'pending_review': return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':       return '#4ade80'
-    case 'final':          return '#22c55e'
-    case 'blocked':        return '#ef4444'
-    case 'on_hold':        return '#fcd34d'
-    case 'omitted':        return '#57534e'
-    default:               return '#a8a29e'  // waiting_to_start
-  }
-}
-
-function priorityColor(p) {
-  switch (p) {
-    case 'urgent': return '#ef4444'
-    case 'high':   return '#fb923c'
-    case 'medium': return '#fbbf24'
-    case 'low':    return '#78716c'
-    default:       return '#a8a29e'
-  }
-}
+// ── Colour ──
+// Status and priority colours live in rabbitTasks.css (`.rb-task-status`,
+// `.rb-task-priority`): an element carries `data-status` / `data-priority`
+// and reads the colour from the sheet, never from an inline style.
 
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
@@ -542,8 +521,9 @@ export default function ProjectTasksView() {
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          className="rb-task-tool flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
+          data-active={filters.length > 0 ? 'true' : 'false'}
+          style={{ border: '1px solid #44403c' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
@@ -551,15 +531,16 @@ export default function ProjectTasksView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+            className="rb-task-tool px-2 py-1.5 text-dense rounded-control cursor-pointer"
+            data-active={sortField ? 'true' : 'false'}
+            style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
           {sortField && (
             <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
               className="p-1.5 rounded-control hover:bg-stone-700 transition-colors"
-              style={{ color: sortField ? '#fb923c' : '#57534e' }}>
+              style={{ color: '#fb923c' }}>
               <ArrowUpDown className="w-3.5 h-3.5" />
             </button>
           )}
@@ -571,8 +552,9 @@ export default function ProjectTasksView() {
         {/* Group */}
         <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
           onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-          style={{ backgroundColor: '#292524', color: (viewMode === 'kanban' ? kanbanGroup : groupBy) ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          className="rb-task-tool px-2 py-1.5 text-dense rounded-control cursor-pointer"
+          data-active={(viewMode === 'kanban' ? kanbanGroup : groupBy) ? 'true' : 'false'}
+          style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
@@ -581,19 +563,13 @@ export default function ProjectTasksView() {
         {/* View mode toggle — segmented control */}
         <div className="flex rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
-            style={{
-              backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
-              color: viewMode === 'table' ? '#fff7ed' : '#78716c',
-            }}>
+            className="rb-task-mode flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
+            data-active={viewMode === 'table' ? 'true' : 'false'}>
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('kanban')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
-            style={{
-              backgroundColor: viewMode === 'kanban' ? '#ea580c' : 'transparent',
-              color: viewMode === 'kanban' ? '#fff7ed' : '#78716c',
-            }}>
+            className="rb-task-mode flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
+            data-active={viewMode === 'kanban' ? 'true' : 'false'}>
             <Columns3 className="w-3 h-3" /> Board
           </button>
         </div>
@@ -1196,8 +1172,9 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
     ctx.updateTask(taskId, patch)
   }
 
-  // Resolve accent color — use status color if grouped by status, otherwise orange
-  const groupAccent = groupBy === 'status' ? statusColor(group.key) : '#fb923c'
+  // The accent (rabbitTasks.css): the status's colour when grouped by status,
+  // orange otherwise — the header's left rule, its label and the phase name.
+  const groupAccent = groupBy === 'status' ? 'status' : 'signal'
 
   // Phase data for editable header
   const isPhaseGroup = groupBy === 'phase' && group.key !== '__none__'
@@ -1205,17 +1182,15 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
 
   return (
     <div onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-      style={{
-        boxShadow: dragOver ? 'inset 3px 0 0 #ea580c' : 'none',
-        backgroundColor: dragOver ? 'rgba(234, 88, 12, 0.04)' : 'transparent',
-        transition: 'box-shadow 200ms ease, background-color 200ms ease',
-      }}>
+      className="rb-task-group"
+      data-drag-over={dragOver ? 'true' : 'false'}>
       <div
-        className="flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-stone-800/50 transition-colors"
+        className="rb-task-group-head rb-task-accent rb-task-status flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-stone-800/50 transition-colors"
+        data-accent={groupAccent}
+        data-status={group.key}
         style={{
           backgroundColor: '#1c1917',
           borderBottom: '1px solid #44403c',
-          borderLeft: `3px solid ${groupAccent}`,
         }}>
         <button type="button" onClick={onToggle} className="flex items-center gap-2.5 flex-shrink-0">
           {collapsed
@@ -1232,7 +1207,6 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
             <PhaseInlineEdit
               value={phase.name || ''}
               onCommit={(name) => { if (canWrite) ctx?.updatePhase?.(phase.id, { name }) }}
-              accent={groupAccent}
               readOnly={!canWrite}
             />
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -1243,8 +1217,9 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 onChange={e => ctx?.updatePhase?.(phase.id, { start_date: e.target.value || null })}
                 onClick={e => e.stopPropagation()}
                 readOnly={!canWrite} disabled={!canWrite}
-                className="px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ backgroundColor: '#292524', color: phase.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
+                className="rb-task-phase-date px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                data-empty={phase.start_date ? 'false' : 'true'}
+                style={{ backgroundColor: '#292524', border: '1px solid #44403c', width: 120 }}
               />
               <span className="text-label uppercase" style={{ color: '#78716c' }}>End</span>
               <input
@@ -1253,8 +1228,9 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 onChange={e => ctx?.updatePhase?.(phase.id, { end_date: e.target.value || null })}
                 readOnly={!canWrite} disabled={!canWrite}
                 onClick={e => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#292524', color: phase.end_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
+                className="rb-task-phase-date px-1.5 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
+                data-empty={phase.end_date ? 'false' : 'true'}
+                style={{ backgroundColor: '#292524', border: '1px solid #44403c', width: 120 }}
               />
             </div>
             <span className="text-dense font-mono px-1.5 py-0.5 rounded-control flex-shrink-0"
@@ -1265,8 +1241,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         ) : (
           /* ── Standard group header ── */
           <button type="button" onClick={onToggle} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
-            <span className="text-label uppercase font-semibold"
-              style={{ color: groupAccent }}>
+            <span className="rb-task-accent-ink text-label uppercase font-semibold">
               {group.label}
             </span>
             <span className="text-dense font-mono px-1.5 py-0.5 rounded-control"
@@ -1296,7 +1271,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
 }
 
 // ── Inline phase name editor (for group headers) ──
-function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
+function PhaseInlineEdit({ value, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
@@ -1306,8 +1281,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
   }
   if (readOnly) {
     return (
-      <span className="text-label uppercase font-semibold truncate"
-        style={{ color: accent }}>
+      <span className="rb-task-accent-ink text-label uppercase font-semibold truncate">
         {value || 'Untitled phase'}
       </span>
     )
@@ -1321,16 +1295,15 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
         onBlur={commit}
         onClick={e => e.stopPropagation()}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="px-1.5 py-0.5 text-dense font-semibold rounded-control focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: '#292524', color: accent, border: '1px solid #44403c', minWidth: 80 }}
+        className="rb-task-accent-ink px-1.5 py-0.5 text-dense font-semibold rounded-control focus:ring-2 focus:ring-orange-500"
+        style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 80 }}
       />
     )
   }
   return (
     <button type="button"
       onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true) }}
-      className="text-dense font-semibold hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors truncate"
-      style={{ color: accent }}
+      className="rb-task-accent-ink text-dense font-semibold hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors truncate"
       title="Click to rename phase">
       {value || 'Untitled'}
     </button>
@@ -1340,7 +1313,6 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
 
 // ── Milestone row — visually distinct with diamond icon + amber accent ──
 function MilestoneRow({ milestone, columns, ctx, canWrite }) {
-  const [hovered, setHovered] = useState(false)
   const [editTitle, setEditTitle] = useState(false)
   const [localTitle, setLocalTitle] = useState(milestone.title)
   const [editDate, setEditDate] = useState(false)
@@ -1371,25 +1343,18 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 
   return (
     <div
-      className="flex items-center transition-colors"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        border: '1px solid #44403c',
-        borderRadius: 4,
-        backgroundColor: hovered ? 'rgba(245, 158, 11, 0.08)' : 'rgba(245, 158, 11, 0.04)',
-        borderLeft: `3px solid ${milestone.color || '#f59e0b'}`,
-      }}
+      className="rb-task-ms flex items-center transition-colors"
+      style={{ '--rb-ms': milestone.color }}
     >
       {/* Checkbox spacer */}
       <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
-        <Diamond className="w-3.5 h-3.5" style={{ color: milestone.color || '#f59e0b' }} />
+        <Diamond className="rb-task-ms-icon w-3.5 h-3.5" />
       </div>
       {columns.map(c => {
         if (c.key === 'title') {
           return (
             <div key={c.key} className="flex items-center gap-2 px-3.5 py-2" style={{ flex: c.flex, minWidth: 0 }}>
-              <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: milestone.color || '#f59e0b', fill: milestone.color || '#f59e0b' }} />
+              <Diamond className="rb-task-ms-icon w-3 h-3 flex-shrink-0" data-filled="true" />
               {editTitle && !isProjectBound ? (
                 <input type="text" value={localTitle} autoFocus
                   onChange={e => setLocalTitle(e.target.value)}
@@ -1444,9 +1409,10 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
         if (c.key === '_actions') {
           return (
             <div key={c.key} className="flex items-center justify-center px-2" style={{ flex: c.flex, minWidth: 0 }}>
-              {canWrite && !isProjectBound && hovered && (
+              {canWrite && !isProjectBound && (
                 <button type="button" onClick={handleDelete}
-                  className="p-1 rounded-control hover:bg-red-900/40 transition-colors" style={{ color: '#78716c' }}>
+                  aria-label="Delete key date"
+                  className="rb-task-ms-del p-1 rounded-control hover:bg-red-900/40 transition-colors" style={{ color: '#78716c' }}>
                   <Trash2 className="w-3 h-3" />
                 </button>
               )}
@@ -1466,7 +1432,6 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 
 // ── Single task row ──
 function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect }) {
-  const [hovered, setHovered] = useState(false)
   const writeReason = useWriteReason()
 
   // 🚨 Session 29 — this funnel was UNGATED, and it is not a create affordance
@@ -1489,15 +1454,10 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
     ctx?.deleteTask?.(task.id)
   }
 
-  // Borderless select — transparent until hover/focus
-  // ⚠️ `cursor` is set INLINE here, so it beats the `disabled:cursor-not-allowed`
-  // class on the selects below — Tailwind's variant cannot win against a style
-  // attribute. It has to be conditional at the source or a read-only row keeps
-  // promising, cursor-first, that its dropdowns are live.
-  const flatSelect = {
-    backgroundColor: 'transparent', border: '1px solid transparent',
-    outline: 'none', cursor: canWrite ? 'pointer' : 'not-allowed',
-  }
+  // Borderless select — transparent until hover/focus: `.rb-task-cell-select`.
+  // Its cursor used to be set INLINE from canWrite, which beat the
+  // `disabled:cursor-not-allowed` class beside it; every one of these selects
+  // is `disabled={!canWrite}`, so the stylesheet keys the cursor on :disabled.
 
   function renderCell(col) {
     switch (col.key) {
@@ -1508,41 +1468,37 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
               <CellInlineText value={task.title || ''} placeholder="Untitled task" onCommit={v => handleUpdate({ title: v })} readOnly={!canWrite} />
             </div>
             <button type="button" onClick={onDetailClick}
-              className="p-1 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0"
+              className="rb-task-reveal p-1 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0"
               title="View task details"
-              style={{ color: '#fb923c', opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+              style={{ color: '#fb923c' }}>
               <FileText className="w-3.5 h-3.5" />
             </button>
           </div>
         )
-      case 'status': {
-        const sc = statusColor(task.status)
+      case 'status':
         return (
           <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-            style={{ ...flatSelect, color: sc }}>
-            {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
+            className="rb-task-cell-select rb-task-status rb-task-status-ink px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            data-status={task.status}>
+            {TASK_STATUSES.map(s => <option key={s} value={s} className="rb-task-status rb-task-status-ink" data-status={s}>{fmt(s)}</option>)}
           </select>
         )
-      }
-      case 'priority': {
-        const pc = priorityColor(task.priority)
+      case 'priority':
         return (
           <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-            style={{ ...flatSelect, color: pc }}>
-            {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
+            className="rb-task-cell-select rb-task-priority rb-task-priority-ink px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            data-priority={task.priority}>
+            {PRIORITIES.map(p => <option key={p} value={p} className="rb-task-priority rb-task-priority-ink" data-priority={p}>{fmt(p)}</option>)}
           </select>
         )
-      }
       case 'asset_id':
         return (
           <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-            style={{ ...flatSelect, color: task.asset_id ? '#d6d3d1' : '#57534e' }}>
+            className="rb-task-cell-select rb-task-cell-value px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            data-empty={task.asset_id ? 'false' : 'true'}>
             <option value="">--</option>
             {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
           </select>
@@ -1551,8 +1507,8 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-            style={{ ...flatSelect, color: task.phase_id ? '#d6d3d1' : '#57534e' }}>
+            className="rb-task-cell-select rb-task-cell-value px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            data-empty={task.phase_id ? 'false' : 'true'}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
           </select>
@@ -1561,8 +1517,8 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
             disabled={!canWrite}
-            className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-            style={{ ...flatSelect, color: task.assignee_id ? '#d6d3d1' : '#57534e' }}>
+            className="rb-task-cell-select rb-task-cell-value px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            data-empty={task.assignee_id ? 'false' : 'true'}>
             <option value="">--</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
@@ -1575,8 +1531,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return <CellNumberInput value={task.bid_days} onCommit={v => handleUpdate({ bid_days: v })} readOnly={!canWrite} />
       case '_actions':
         return (
-          <div className="flex items-center"
-            style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+          <div className="rb-task-reveal flex items-center">
             {onHistoryClick && (
               <button type="button" onClick={onHistoryClick}
                 className="p-1 rounded-control hover:bg-stone-700 transition-colors"
@@ -1605,22 +1560,16 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   }
 
   return (
-    <div className={`flex ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''}${!isSelected && !hovered ? ' hover:bg-stone-800' : ''}`}
+    <div className="rb-task-row flex"
+      data-selected={isSelected ? 'true' : 'false'}
+      data-draggable={canWrite ? 'true' : 'false'}
       draggable={canWrite}
       onDragStart={handleDragStart}
-      title={canWrite ? undefined : (writeReason || undefined)}
-      style={{
-        border: isSelected ? '1px solid #ea580c' : '1px solid #44403c',
-        borderRadius: 4,
-        backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
-        transition: 'background-color 150ms ease, border-color 150ms ease',
-      }}
-      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      title={canWrite ? undefined : (writeReason || undefined)}>
       {/* Checkbox */}
       <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
         <button type="button" onClick={e => { e.stopPropagation(); onToggleSelect?.() }}
-          className="p-0.5 rounded-control hover:bg-stone-700 transition-colors"
-          style={{ opacity: isSelected || hovered ? 1 : 0, transition: 'opacity 150ms ease' }}>
+          className="rb-task-check p-0.5 rounded-control hover:bg-stone-700 transition-colors">
           {isSelected
             ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
             : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
@@ -1712,30 +1661,21 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
     ctx.updateTask(taskId, patch)
   }
 
-  // Column accent color — status-mapped when grouped by status, orange otherwise
-  const headerAccent = kanbanGroup === 'status' ? statusColor(group.key) : '#fb923c'
+  // Column accent (rabbitTasks.css) — status-mapped when grouped by status, orange otherwise
+  const headerAccent = kanbanGroup === 'status' ? 'status' : 'signal'
 
   return (
-    <div className="flex flex-col flex-shrink-0"
-      onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-      style={{
-        width: 280,
-        backgroundColor: dragOver ? 'rgba(234, 88, 12, 0.06)' : '#292524',
-        border: '1px solid #44403c',
-        borderRadius: 6,
-        // inset box-shadow for drag highlight — no layout shift, all sides uniform
-        boxShadow: dragOver
-          ? 'inset 0 0 0 2px #ea580c, 0 0 20px rgba(234, 88, 12, 0.15)'
-          : 'none',
-        transition: 'background-color 200ms ease, box-shadow 200ms ease',
-      }}>
+    <div className="rb-task-col flex flex-col flex-shrink-0"
+      data-drag-over={dragOver ? 'true' : 'false'}
+      onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
 
       {/* ── Column header ── */}
-      <div className="px-3.5 py-3 flex items-center justify-between"
-        style={{ borderBottom: `3px solid ${headerAccent}`, flexShrink: 0 }}>
+      <div className="rb-task-col-head rb-task-accent rb-task-status px-3.5 py-3 flex items-center justify-between"
+        data-accent={headerAccent}
+        data-status={group.key}
+        style={{ flexShrink: 0 }}>
         <div className="flex items-center gap-2.5">
-          <span className="text-label uppercase font-semibold"
-            style={{ color: headerAccent }}>
+          <span className="rb-task-accent-ink text-label uppercase font-semibold">
             {group.label}
           </span>
           <span className="text-dense font-mono px-2 py-0.5 rounded-control"
@@ -1784,9 +1724,6 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
 }
 
 function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onDetailClick }) {
-  const [hovered, setHovered] = useState(false)
-  const sc = statusColor(task.status)
-  const pc = priorityColor(task.priority)
   const assignee = task.assignee_id ? memberById[task.assignee_id] : null
   const asset    = task.asset_id    ? assetById[task.asset_id]     : null
 
@@ -1796,26 +1733,17 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
   }
 
   return (
-    <div className={`flex flex-col gap-1.5 ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''}`}
-      draggable={canWrite} onDragStart={handleDragStart}
-      style={{
-        backgroundColor: '#1c1917',
-        border: `1px solid ${hovered ? '#57534e' : '#44403c'}`,
-        borderLeft: `3px solid ${sc}`,
-        borderRadius: 6,
-        padding: '10px 12px',
-        transition: 'border-color 150ms ease, box-shadow 150ms ease',
-        boxShadow: hovered ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
-      }}
-      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div className="rb-task-card rb-task-status flex flex-col gap-1.5"
+      data-status={task.status}
+      data-draggable={canWrite ? 'true' : 'false'}
+      draggable={canWrite} onDragStart={handleDragStart}>
 
       {/* Title + actions */}
       <div className="flex items-start justify-between gap-2">
         <span className="text-dense leading-snug" style={{ color: '#e7e5e4' }}>
           {task.title || 'Untitled task'}
         </span>
-        <div className="flex items-center gap-0.5 flex-shrink-0"
-          style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+        <div className="rb-task-reveal flex items-center gap-0.5 flex-shrink-0">
           <button type="button" onClick={onDetailClick}
             className="p-0.5 rounded-control hover:bg-stone-600 transition-colors"
             title="View task details"
@@ -1835,11 +1763,11 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
 
       {/* Status + Priority */}
       <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-label font-mono uppercase font-semibold" style={{ color: sc }}>
+        <span className="rb-task-status-ink text-label font-mono uppercase font-semibold">
           {fmt(task.status || 'waiting_to_start')}
         </span>
         <span style={{ color: '#44403c' }}>&middot;</span>
-        <span className="text-label font-mono uppercase" style={{ color: pc }}>
+        <span className="rb-task-priority rb-task-priority-ink text-label font-mono uppercase" data-priority={task.priority}>
           {fmt(task.priority || 'medium')}
         </span>
       </div>
@@ -1892,8 +1820,8 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
 
   if (readOnly) {
     return (
-      <span className="block text-dense text-left w-full truncate px-1.5 py-1"
-        style={{ color: value ? '#d6d3d1' : '#57534e' }}>
+      <span className="rb-task-cell-value block text-dense text-left w-full truncate px-1.5 py-1"
+        data-empty={value ? 'false' : 'true'}>
         {value || placeholder || '—'}
       </span>
     )
@@ -1910,8 +1838,8 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded-control transition-colors"
-      style={{ color: value ? '#d6d3d1' : '#57534e' }}>
+      className="rb-task-cell-value text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded-control transition-colors"
+      data-empty={value ? 'false' : 'true'}>
       {value || placeholder || '\u2014'}
     </button>
   )
@@ -1921,8 +1849,9 @@ function CellDateInput({ value, onCommit, readOnly = false }) {
   return (
     <input type="date" value={value || ''} onChange={e => onCommit(e.target.value)}
       readOnly={readOnly} disabled={readOnly}
-      className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-      style={{ backgroundColor: 'transparent', color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none', colorScheme: 'dark' }} />
+      className="rb-task-cell-value px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+      data-empty={value ? 'false' : 'true'}
+      style={{ backgroundColor: 'transparent', border: '1px solid transparent', outline: 'none', colorScheme: 'dark' }} />
   )
 }
 
@@ -1934,8 +1863,9 @@ function CellNumberInput({ value, onCommit, readOnly = false }) {
       onBlur={() => { const n = parseFloat(draft); onCommit(isNaN(n) ? null : n) }}
       onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
       readOnly={readOnly} disabled={readOnly}
-      className="px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
-      style={{ backgroundColor: 'transparent', color: (value != null && value !== '') ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none' }}
+      className="rb-task-cell-value px-1.5 py-1 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+      data-empty={(value != null && value !== '') ? 'false' : 'true'}
+      style={{ backgroundColor: 'transparent', border: '1px solid transparent', outline: 'none' }}
       min={0} step={0.5} />
   )
 }
