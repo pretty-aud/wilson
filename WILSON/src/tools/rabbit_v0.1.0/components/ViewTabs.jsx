@@ -14,6 +14,7 @@ import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
   Film, Gamepad2, Clapperboard,
 } from 'lucide-react'
+import { INK_LIGHT } from '../../../ui/tokens.js'
 
 export const RABBIT_VIEWS = [
   { id: 'intake',      label: 'Intake',       Icon: Sparkles   },
@@ -42,15 +43,32 @@ export default function ViewTabs({ activeView, onChange, disabled, rightSlot, hi
     >
       {RABBIT_VIEWS.filter(v => !hiddenTabs || !(hiddenTabs instanceof Set ? hiddenTabs.has(v.id) : Array.isArray(hiddenTabs) && hiddenTabs.includes(v.id))).map(({ id, label, Icon }) => {
         const active = id === activeView
+        /* 🚨 C6, and it was live on every R.A.B.B.I.T. screen (V1,
+           2026-09-23). The active tab painted `#fff7ed` on the signal
+           `#ea580c` at the Dense step — 3.35:1, under 4.5, and neither of the
+           two inks C6 allows on orange (white only at 19px bold and above,
+           `#1c1917` below it). tokens.test.js already names this exact pair
+           "the most-copied wrong fix"; the tab bar was still shipping it.
+
+           The ink is the only thing that changed: `ink-light` on the same
+           fill is 4.91:1. The FILL is still §3.2's open item — "the active
+           R.A.B.B.I.T. tab stops borrowing the frame's colour and takes the
+           underline" — and that restyle is lane B1's; this is the smallest
+           change that stops the tab bar breaking a hard constraint in the
+           meantime. `aria-current` is the same step's other half: the active
+           view was expressed ONLY as an inline colour, so neither a screen
+           reader nor ui-page-check's tab proof could tell which view was
+           showing. */
         return (
           <button
             key={id}
             type="button"
+            aria-current={active ? 'page' : undefined}
             onClick={() => onChange(id)}
             disabled={disabled}
             className="flex items-center gap-1.5 px-3 py-2 text-dense transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
-              color: active ? '#fff7ed' : '#a8a29e',
+              color: active ? INK_LIGHT : '#a8a29e',
               backgroundColor: active ? '#ea580c' : 'transparent',
               borderLeft: '1px solid transparent',
               borderRight: '1px solid transparent',
