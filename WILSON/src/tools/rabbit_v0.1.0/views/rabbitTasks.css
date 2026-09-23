@@ -212,4 +212,32 @@
   .rb-task-title-value[data-empty="true"] { color: #57534e; }
   /* A files section's accent (a per-section constant, passed as --rb-section). */
   .rb-task-section-ink { color: var(--rb-section, #fb923c); }
+
+  /* ═══ TaskTemplateManager ═════════════════════════════════════════════════
+     (components/TaskTemplates/; opened from Settings > Storage and from the
+     Timeline's settings panel.) Its task cells reuse `.rb-task-cell-value`:
+     the same two inks as the Tasks table's cells. */
+  /* The template being edited is tinted. The row's `hover:bg-stone-800/40`
+     lost to its inline fill in both states and never painted. */
+  .rb-tpl-row[data-editing="true"] { background-color: rgba(234, 88, 12, 0.08); }
+  .rb-tpl-edit { color: #fb923c; background-color: transparent; }
+  .rb-tpl-edit[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
+  /* Read-only buttons were `disabled={readOnly}` with an inline cursor from
+     the same flag: `:disabled` is that condition. */
+  .rb-tpl-desc { color: #d6d3d1; cursor: pointer; }
+  .rb-tpl-desc[data-empty="true"] { color: #78716c; }
+  .rb-tpl-desc:disabled { cursor: default; }
+  .rb-tpl-editable { color: #e7e5e4; cursor: pointer; }
+  .rb-tpl-editable[data-empty="true"] { color: #57534e; }
+  .rb-tpl-editable:disabled { cursor: default; }
+  /* A template's task row, and its delete button's reveal. */
+  .rb-tpl-task-row { background-color: transparent; transition: background-color 150ms ease; }
+  .rb-tpl-task-row:hover { background-color: rgba(41, 37, 36, 0.5); }
+  .rb-tpl-reveal { opacity: 0; pointer-events: none; transition: opacity 150ms ease; }
+  .rb-tpl-task-row:hover .rb-tpl-reveal { opacity: 1; pointer-events: auto; }
+  /* The dependency picker's options and the two hand-drawn checkboxes. */
+  .rb-tpl-dep { color: #d6d3d1; }
+  .rb-tpl-dep[data-checked="true"] { color: #fb923c; }
+  .rb-tpl-check { background-color: transparent; border: 1px solid #44403c; }
+  .rb-tpl-check[data-checked="true"] { background-color: #ea580c; border-color: #ea580c; }
 }

@@ -36,7 +36,7 @@ const FILES = {
   templates: '../../../components/TaskTemplates/TaskTemplateManager.jsx',
 }
 /** The files whose state extraction has landed (one commit per component). */
-const EXTRACTED = ['tasks', 'detail', 'create']
+const EXTRACTED = ['tasks', 'detail', 'create', 'templates']
 
 const source = Object.fromEntries(Object.entries(FILES).map(([k, f]) => [k, read(f)]))
 const jsx = Object.values(source).map(jsCode).join('\n')
@@ -118,6 +118,18 @@ describe('the state extraction holds in every extracted B2 file', () => {
     ]
     for (const m of mutants) {
       expect(m).not.toBe(source.detail)
+      expect(inlineStateTernaries(m)).not.toEqual([])
+    }
+  })
+  it('CONTROL: …and on the shapes the template manager shipped', () => {
+    const mutants = [
+      // the scope checkbox's fill, as it was
+      source.templates.replace("data-checked={isProjectSpecific ? 'true' : 'false'}", "style={{ backgroundColor: isProjectSpecific ? '#ea580c' : 'transparent' }}"),
+      // the read-only cursor, as it was
+      source.templates.replace("data-empty={value ? 'false' : 'true'}>", "style={{ cursor: readOnly ? 'default' : 'pointer' }}>"),
+    ]
+    for (const m of mutants) {
+      expect(m).not.toBe(source.templates)
       expect(inlineStateTernaries(m)).not.toEqual([])
     }
   })

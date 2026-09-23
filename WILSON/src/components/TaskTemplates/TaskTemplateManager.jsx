@@ -23,6 +23,7 @@ import { useTaskTemplates } from './useTaskTemplates'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canWriteTaskTemplate } from '../../permissions/projectRoleMatrix'
+import '../../tools/rabbit_v0.1.0/views/rabbitTasks.css'
 
 const DEFAULT_ROLES = [
   'modeler', 'rigger', 'animator', 'texture_artist', 'lighter',
@@ -214,11 +215,9 @@ export default function TaskTemplateManager({ onClose }) {
                   const rowWritable = canWriteRow(tmpl)
                   return (
                     <tr key={tmpl.id}
-                      style={{
-                        borderBottom: '1px solid #292524',
-                        backgroundColor: isEditing ? 'rgba(234, 88, 12, 0.08)' : 'transparent',
-                      }}
-                      className="hover:bg-stone-800/40 transition-colors">
+                      style={{ borderBottom: '1px solid #292524' }}
+                      className="rb-tpl-row transition-colors"
+                      data-editing={isEditing ? 'true' : 'false'}>
                       <Td>
                         <TemplateName template={tmpl} readOnly={!rowWritable}
                           onUpdate={(name) => tt.updateTemplate(tmpl.id, { name })} />
@@ -250,12 +249,9 @@ export default function TaskTemplateManager({ onClose }) {
                       <Td style={{ textAlign: 'right' }}>
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" onClick={() => setEditingId(isEditing ? null : tmpl.id)}
-                            className="px-2 py-1 text-dense rounded-control transition-colors"
-                            style={{
-                              color: isEditing ? '#fff7ed' : '#fb923c',
-                              backgroundColor: isEditing ? '#ea580c' : 'transparent',
-                              border: '1px solid #44403c',
-                            }}>
+                            className="rb-tpl-edit px-2 py-1 text-dense rounded-control transition-colors"
+                            data-active={isEditing ? 'true' : 'false'}
+                            style={{ border: '1px solid #44403c' }}>
                             {isEditing ? 'Close' : (rowWritable ? 'Edit' : 'View')}
                           </button>
                           {/* Duplicate WRITES a new template, so it needs the
@@ -419,8 +415,8 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
           ) : (
             <button type="button" disabled={readOnly}
               onClick={() => { setDescDraft(template.description || ''); setEditingDesc(true) }}
-              className="text-dense text-left w-full hover:bg-stone-800 px-2 py-1 rounded-control min-h-[28px]"
-              style={{ color: template.description ? '#d6d3d1' : '#78716c', cursor: readOnly ? 'default' : 'pointer' }}>
+              className="rb-tpl-desc text-dense text-left w-full hover:bg-stone-800 px-2 py-1 rounded-control min-h-[28px]"
+              data-empty={template.description ? 'false' : 'true'}>
               {template.description || (readOnly ? '—' : 'Click to add description...')}
             </button>
           )}
@@ -501,7 +497,6 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
 // TEMPLATE TASK ROW
 // ─────────────────────────────────────────────────────
 function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnly = false }) {
-  const [hovered, setHovered] = useState(false)
 
   // Dependency selector
   const availableDeps = allTasks.filter(t => t.id !== task.id)
@@ -515,14 +510,8 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
   }
 
   return (
-    <div className="flex gap-1 px-1 items-center"
-      style={{
-        borderBottom: '1px solid #292524',
-        backgroundColor: hovered ? 'rgba(41, 37, 36, 0.5)' : 'transparent',
-        transition: 'background-color 150ms ease',
-        minHeight: 36,
-      }}
-      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div className="rb-tpl-task-row flex gap-1 px-1 items-center"
+      style={{ borderBottom: '1px solid #292524', minHeight: 36 }}>
 
       {/* Name */}
       <div style={{ flex: 3 }}>
@@ -540,8 +529,9 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
           value={task.role_slug || ''}
           disabled={readOnly}
           onChange={e => onUpdate({ role_slug: e.target.value || '' })}
-          className="w-full px-1 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
-          style={{ backgroundColor: 'transparent', color: task.role_slug ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
+          className="rb-task-cell-value w-full px-1 py-0.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
+          data-empty={task.role_slug ? 'false' : 'true'}
+          style={{ backgroundColor: 'transparent', border: '1px solid transparent' }}>
           <option value="">--</option>
           {DEFAULT_ROLES.map(r => <option key={r} value={r}>{fmt(r)}</option>)}
         </select>
@@ -576,8 +566,8 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
       <div style={{ width: 28 }}>
         {!readOnly && (
           <button type="button" onClick={onDelete}
-            className="p-1 rounded-control hover:bg-stone-700 transition-colors"
-            style={{ color: '#fca5a5', opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+            className="rb-tpl-reveal p-1 rounded-control hover:bg-stone-700 transition-colors"
+            style={{ color: '#fca5a5' }}>
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
@@ -600,8 +590,9 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
   return (
     <div className="relative">
       <button type="button" disabled={readOnly} onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 w-full px-1 py-0.5 text-dense rounded-control hover:bg-stone-700/40 transition-colors text-left"
-        style={{ color: currentDeps.length ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
+        className="rb-task-cell-value flex items-center gap-1 w-full px-1 py-0.5 text-dense rounded-control hover:bg-stone-700/40 transition-colors text-left"
+        data-empty={currentDeps.length ? 'false' : 'true'}
+        style={{ border: '1px solid transparent' }}>
         {currentDeps.length === 0 ? (
           <span className="flex items-center gap-1">
             <Link2 className="w-3 h-3" style={{ color: '#57534e' }} />
@@ -625,13 +616,10 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, read
               return (
                 <button key={dep.id} type="button"
                   onClick={() => onToggle(dep.id)}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-stone-700/50 transition-colors"
-                  style={{ color: checked ? '#fb923c' : '#d6d3d1' }}>
-                  <span className="w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
-                    style={{
-                      backgroundColor: checked ? '#ea580c' : 'transparent',
-                      border: `1px solid ${checked ? '#ea580c' : '#44403c'}`,
-                    }}>
+                  className="rb-tpl-dep w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-stone-700/50 transition-colors"
+                  data-checked={checked ? 'true' : 'false'}>
+                  <span className="rb-tpl-check w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
+                    data-checked={checked ? 'true' : 'false'}>
                     {checked && <span className="text-dense text-white font-semibold">{'\u2713'}</span>}
                   </span>
                   <span className="text-dense truncate">
@@ -663,11 +651,8 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
     <div className="flex items-center gap-1.5">
       <button type="button" disabled={readOnly}
         onClick={() => onUpdate({ project_id: isProjectSpecific ? null : (projects[0]?.id || null) })}
-        className="w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
-        style={{
-          backgroundColor: isProjectSpecific ? '#ea580c' : 'transparent',
-          border: `1px solid ${isProjectSpecific ? '#ea580c' : '#44403c'}`,
-        }}
+        className="rb-tpl-check w-3 h-3 rounded-control flex items-center justify-center flex-shrink-0"
+        data-checked={isProjectSpecific ? 'true' : 'false'}
         title={isProjectSpecific ? 'Project-specific' : 'Global (all projects)'}>
         {isProjectSpecific && <span className="text-dense text-white font-semibold">{'\u2713'}</span>}
       </button>
@@ -717,8 +702,8 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(template.name || ''); setEditing(true) }}
-      className="text-dense font-semibold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
-      style={{ color: '#e7e5e4', cursor: readOnly ? 'default' : 'pointer' }}>
+      className="rb-tpl-editable text-dense font-semibold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
+      data-empty="false">
       {template.name || 'Untitled'}
     </button>
   )
@@ -750,8 +735,8 @@ function EditableText({ value, placeholder, onCommit, readOnly = false }) {
   return (
     <button type="button" disabled={readOnly}
       onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
-      style={{ color: value ? '#e7e5e4' : '#57534e', cursor: readOnly ? 'default' : 'pointer' }}>
+      className="rb-tpl-editable text-dense text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded-control transition-colors"
+      data-empty={value ? 'false' : 'true'}>
       {value || (readOnly ? '\u2014' : placeholder || '\u2014')}
     </button>
   )
