@@ -4,6 +4,7 @@ import { StrictMode, useState } from 'react'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Dialog, DIALOG_WIDTHS } from './Dialog'
 import { Input } from './Input'
+import { Menu } from './Menu'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -407,6 +408,54 @@ describe('Dialog', () => {
     document.body.removeChild(trigger)          // the row went with the delete
     expect(() => unmount()).not.toThrow()
     expect(document.activeElement).toBe(document.body)
+  })
+
+  // K4 (lane B2): Escape in a Menu inside a Dialog closes the menu only.
+  it('stands down its Escape while a kit Menu inside it is open (K4)', () => {
+    const onClose = vi.fn()
+    function Picker() {
+      const [open, setOpen] = useState(true)
+      return (
+        <Dialog title="Edit template" onClose={onClose}>
+          {open && <Menu x={10} y={10} onClose={() => setOpen(false)} items={[{ label: 'Rig' }]} />}
+          <span>{open ? 'menu open' : 'menu closed'}</span>
+        </Dialog>
+      )
+    }
+    render(<Picker />)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByText('menu closed')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+    // …and the next Escape is the dialog's own.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  // The browser's order, which jsdom does not reproduce: the menu has ALREADY
+  // unmounted (its count is back to 0) when the Dialog's listener runs, and
+  // all that is left is the handled mark on the event.
+  it('stands down on an Escape something else already handled (K4, the browser order)', () => {
+    const onClose = vi.fn()
+    render(<Dialog title="Edit template" onClose={onClose}>body</Dialog>)
+    const handled = (e) => { if (e.key === 'Escape') e.preventDefault() }
+    document.addEventListener('keydown', handled, true)
+    try {
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', handled, true)
+    }
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('the kit Menu marks its Escape handled', () => {
+    const onClose = vi.fn()
+    render(<Menu x={0} y={0} onClose={onClose} items={[{ label: 'Rig' }]} />)
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.dispatchEvent(ev)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(ev.defaultPrevented).toBe(true)
   })
 })
 

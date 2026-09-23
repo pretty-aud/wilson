@@ -31,7 +31,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
-import { pushModal, isTopModal, focusableWithin } from './overlay'
+import { pushModal, isTopModal, focusableWithin, menuOpen } from './overlay'
 
 export const DIALOG_WIDTHS = Object.freeze({ confirm: 400, form: 560, reading: 720, workbench: 960 })
 
@@ -121,13 +121,23 @@ export function Dialog({
 
     const key = (e) => {
       if (!isTopModal(id)) return
-      // Escape is this dialog's while it is on top, whether or not it closes
-      // (busy, or a guard refused): marked handled, so a layer under it — a
-      // Drawer listening on `window` — stands down. It cannot ask the DOM
-      // instead: React commits the close in a microtask BETWEEN the two
-      // listeners, and the dialog is gone before the drawer looks (A2 review
-      // round 1, measured: one Escape closed Help and Settings together).
-      if (e.key === 'Escape') { e.preventDefault(); tryCloseRef.current(); return }
+      // Two rules meet here, and both need the event's handled mark, because
+      // React commits a close in a microtask that runs BETWEEN two document
+      // listeners — whatever a listener could ask the DOM is already gone.
+      //  · K4 (lane B2): a kit Menu open INSIDE this dialog closes on this
+      //    same Escape in its capture-phase listener and marks it handled; a
+      //    handled Escape is not this dialog's (the template editor's
+      //    dependency picker: one key closed the picker and the editor). The
+      //    open-menu count stays as a second reason; alone it was inert in a
+      //    browser, and jsdom, which runs no microtask there, passed it.
+      //  · A2: Escape is this dialog's while it is on top, whether or not it
+      //    closes (busy, or a guard refused): it marks it handled, so a layer
+      //    under it — a Drawer listening on `window` — stands down (A2 review
+      //    round 1, measured: one Escape closed Help and Settings together).
+      if (e.key === 'Escape') {
+        if (e.defaultPrevented || menuOpen()) return
+        e.preventDefault(); tryCloseRef.current(); return
+      }
       if (e.key !== 'Tab' || !node) return
 
       // ── The trap ──

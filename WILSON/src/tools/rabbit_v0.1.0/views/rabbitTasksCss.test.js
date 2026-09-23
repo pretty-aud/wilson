@@ -21,12 +21,39 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   cssCode, jsCode, unreachableAttributeValues, weakAgainstKit, utilityConflicts, inlineStateTernaries,
+  signalGrounds, indexCss,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
 
 const sheet = read('rabbitTasks.css')
+
+// The restyle's end state (B2 stage 2): every value a token. The sheet joined
+// scripts/ui-audit.mjs's stylesheet list in the commit that took its last hex
+// out, as B1's did.
+describe('rabbitTasks.css writes no colour of its own, and paints no orange ground', () => {
+  const code = cssCode(sheet)
+  it('no hex literal anywhere in the rules (@theme is the only place a hex is written)', () => {
+    expect(code.match(/#[0-9a-fA-F]{3,8}\b/g) || []).toEqual([])
+  })
+  it('no rgb()/rgba() literal either — the alpha tokens are in @theme too', () => {
+    expect(code.match(/\brgba?\(/g) || []).toEqual([])
+  })
+  it('every custom property it reads is defined in index.css, or is its own (--rb-*, set by the JSX)', () => {
+    const read = [...new Set([...code.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
+    expect(read.filter((p) => !p.startsWith('--rb-') && !new RegExp(`${p}\\s*:`).test(cssCode(indexCss)))).toEqual([])
+  })
+  it('C6: no rule paints a signal or signal-fill ground (the tint is allowed; the kit Button owns the one fill)', () => {
+    expect(signalGrounds(sheet)).toEqual([])
+  })
+  it('CONTROL: the colour guards fire on the spellings the stage-1 sheet used', () => {
+    expect('.a { color: #fb923c; }'.match(/#[0-9a-fA-F]{3,8}\b/g)).not.toBeNull()
+    expect(cssCode('.a { background-color: rgba(234, 88, 12, 0.08); }').match(/\brgba?\(/g)).not.toBeNull()
+    expect(signalGrounds('.rb-tpl-edit[data-active="true"] { background-color: var(--color-signal); }')).toHaveLength(1)
+    expect(signalGrounds('.rb-tpl-check[data-checked="true"] { background-color: var(--color-signal-tint); }')).toEqual([])
+  })
+})
 
 /** B2's four files, relative to this directory. */
 const FILES = {
@@ -94,12 +121,12 @@ describe('the state extraction holds in every extracted B2 file', () => {
   }
   it('CONTROL: the scanner still fires on the shapes ProjectTasksView shipped (one line put back)', () => {
     const mutants = [
-      // the row's selected border, as it was
-      source.tasks.replace('data-selected={isSelected ? \'true\' : \'false\'}', "style={{ border: isSelected ? '1px solid #ea580c' : '1px solid #44403c' }}"),
-      // the row's hover reveal, as it was
-      source.tasks.replace('className="rb-task-reveal flex items-center">', "className=\"flex items-center\" style={{ opacity: hovered ? 1 : 0 }}>"),
+      // the checkbox's reveal, as an inline ternary
+      source.tasks.replace("data-checked={isSelected ? 'all' : 'none'}", "style={{ opacity: isSelected ? 1 : 0 }}"),
+      // a group's drop highlight, as it was
+      source.tasks.replace("data-drag-over={dragOver ? 'true' : 'false'}>", "style={{ boxShadow: dragOver ? 'inset 3px 0 0 #ea580c' : 'none' }}>"),
       // the draggable cursor, as a template literal
-      source.tasks.replace('className="rb-task-row flex"', "className={`flex ${canWrite ? 'cursor-grab' : ''}`}"),
+      source.tasks.replace('className="rb-task-row rb-task-drop"', "className={`rb-task-row ${canWrite ? 'cursor-grab' : ''}`}"),
     ]
     for (const m of mutants) {
       expect(m).not.toBe(source.tasks)
@@ -110,10 +137,10 @@ describe('the state extraction holds in every extracted B2 file', () => {
     const mutants = [
       // a property field's empty ink, as it was
       source.detail.replace("data-empty={task.phase_id ? 'false' : 'true'}", "style={{ color: task.phase_id ? '#f4a261' : '#57534e' }}"),
-      // the two widths, as a template literal
+      // the priority's tone, as an inline colour picked by a call
       source.detail.replace(
-        'className="rb-task-popup fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col"',
-        "className={`fixed z-50 top-1/2 left-1/2 w-full rounded-control overflow-hidden flex flex-col ${hasLeftColumn ? 'max-w-4xl' : 'max-w-2xl'}`}",
+        "data-tone={priorityTone(task.priority || 'medium')}>",
+        "style={{ color: priorityColor(task.priority) }}>",
       ),
     ]
     for (const m of mutants) {

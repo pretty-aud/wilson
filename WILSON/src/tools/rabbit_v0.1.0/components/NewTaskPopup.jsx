@@ -25,6 +25,10 @@
 // =============================================================================
 
 import { useState } from 'react'
+import { Dialog, Button, Field, StatusDot, statusMeta } from '../../../ui'
+// Priority as a status tone, from the one place that decides it (the
+// Dashboard's task table, and the popup, say the same thing).
+import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
 import '../views/rabbitTasks.css'
 
 const TASK_STATUSES = [
@@ -93,167 +97,125 @@ export default function NewTaskPopup({
     }
   }
 
-  const labelCls = 'text-label uppercase mb-1 block'
-  const fieldCls = 'w-full px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500'
-  // The three selects whose ink says "chosen" or "not yet" take only the
-  // frame inline; their ink is `.rb-task-cell-value` / `.rb-task-field-value`.
-  const fieldFrame = { backgroundColor: '#1c1917', border: '1px solid #44403c' }
-  const fieldStyle = { ...fieldFrame, color: '#d6d3d1' }
-
   return (
-    <>
-      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div
-        className="fixed z-50 top-1/2 left-1/2 w-full max-w-lg rounded-control overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#292524',
-          border: '2px solid #f97316',
-          maxHeight: '85vh',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <span className="text-label font-semibold uppercase" style={{ color: '#f97316' }}>
-            New Task
-          </span>
-          <button type="button" onClick={onClose} className="text-body" style={{ color: '#78716c' }}>
-            &#10005;
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-auto px-5 py-4 flex flex-col gap-4">
-          <div>
-            <label className={labelCls} style={{ color: '#78716c' }}>Title</label>
-            <input
-              autoFocus
-              value={draft.title}
-              onChange={e => patch({ title: e.target.value })}
-              onKeyDown={e => { if (e.key === 'Enter') handleConfirm() }}
-              placeholder="What needs doing?"
-              className={fieldCls}
-              style={fieldStyle}
-            />
-          </div>
-
-          <div>
-            <label className={labelCls} style={{ color: '#78716c' }}>Phase</label>
-            <select
-              value={draft.phase_id}
-              onChange={e => patch({ phase_id: e.target.value })}
-              className={`rb-task-cell-value ${fieldCls}`}
-              data-empty={draft.phase_id ? 'false' : 'true'}
-              style={fieldFrame}
-            >
-              <option value="">(no phase)</option>
-              {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className={labelCls} style={{ color: '#78716c' }}>
-              Asset (optional &mdash; narrows the task to one deliverable)
-            </label>
-            <select
-              value={draft.asset_id}
-              onChange={e => patch({ asset_id: e.target.value })}
-              className={`rb-task-cell-value ${fieldCls}`}
-              data-empty={draft.asset_id ? 'false' : 'true'}
-              style={fieldFrame}
-            >
-              <option value="">(no asset &mdash; task lives directly under the phase)</option>
-              {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls} style={{ color: '#78716c' }}>Start Date</label>
-              <input type="date" value={draft.start_date}
-                onChange={e => patch({ start_date: e.target.value })}
-                className={fieldCls} style={fieldStyle} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: '#78716c' }}>End Date</label>
-              <input type="date" value={draft.end_date}
-                onChange={e => patch({ end_date: e.target.value })}
-                className={fieldCls} style={fieldStyle} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls} style={{ color: '#78716c' }}>Bid Days</label>
-              <input type="number" min="0" step="0.25" value={draft.bid_days}
-                onChange={e => patch({ bid_days: e.target.value })}
-                className={fieldCls} style={fieldStyle} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: '#78716c' }}>Assigned To</label>
-              <select
-                value={draft.assignee_id}
-                onChange={e => patch({ assignee_id: e.target.value })}
-                className={`rb-task-field-value ${fieldCls}`}
-                data-empty={draft.assignee_id ? 'false' : 'true'}
-                style={fieldFrame}
-              >
-                <option value="">-- unassigned --</option>
-                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls} style={{ color: '#78716c' }}>Priority</label>
-              <select value={draft.priority} onChange={e => patch({ priority: e.target.value })}
-                className={fieldCls} style={fieldStyle}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: '#78716c' }}>Status</label>
-              <select value={draft.status} onChange={e => patch({ status: e.target.value })}
-                className={fieldCls} style={fieldStyle}>
-                {TASK_STATUSES.map(s => <option key={s} value={s}>{fmt(s)}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* A failed create must say so — the swallowed rejection is what made
-            every earlier failure look like an inert button. */}
-        {error && (
-          <div
-            className="mx-5 mb-3 px-3 py-2 text-dense rounded-control"
-            style={{ color: '#fecaca', backgroundColor: 'rgba(153,27,27,0.25)', border: '1px solid #991b1b' }}
-          >
-            {error}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <span className="text-dense" style={{ color: '#57534e' }}>
+    <Dialog
+      width="form"
+      title="New task"
+      // The backdrop closed it before and still does; Escape closes it too
+      // (Q17), and the busy lock keeps it open while the create is in flight.
+      dismissOnBackdrop
+      busy={creating}
+      // A failed create must say so — the swallowed rejection is what made
+      // every earlier failure look like an inert button. The kit's Dialog
+      // reports it INSIDE the footer, beside the button that failed.
+      error={error}
+      onClose={onClose}
+      footer={(
+        <>
+          <span className="rb-task-new-note">
             Nothing is saved until you confirm.
           </span>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose}
-              className="px-4 py-1.5 text-dense rounded-control transition-colors"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-              Cancel
-            </button>
-            <button type="button" onClick={handleConfirm}
-              disabled={!draft.title.trim() || creating}
-              className="px-4 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-              {creating ? 'Creating...' : 'Confirm & Create'}
-            </button>
-          </div>
+          <Button onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleConfirm}
+            disabled={!draft.title.trim()}
+            loading={creating}
+            loadingLabel="Creating...">
+            Confirm & Create
+          </Button>
+        </>
+      )}
+    >
+      <div className="ui-field-stack">
+        <Field label="Title">
+          <input
+            autoFocus
+            value={draft.title}
+            onChange={e => patch({ title: e.target.value })}
+            onKeyDown={e => { if (e.key === 'Enter') handleConfirm() }}
+            placeholder="What needs doing?"
+            className="ui-input"
+          />
+        </Field>
+
+        <Field label="Phase">
+          <select
+            value={draft.phase_id}
+            onChange={e => patch({ phase_id: e.target.value })}
+            className="ui-input rb-task-prop"
+            data-empty={draft.phase_id ? 'false' : 'true'}
+          >
+            <option value="">(no phase)</option>
+            {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
+          </select>
+        </Field>
+
+        <Field label="Asset" hint="Optional — narrows the task to one deliverable">
+          <select
+            value={draft.asset_id}
+            onChange={e => patch({ asset_id: e.target.value })}
+            className="ui-input rb-task-prop"
+            data-empty={draft.asset_id ? 'false' : 'true'}
+          >
+            <option value="">(no asset &mdash; task lives directly under the phase)</option>
+            {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
+          </select>
+        </Field>
+
+        <div className="rb-task-prop-grid">
+          <Field label="Start date">
+            <input type="date" value={draft.start_date}
+              onChange={e => patch({ start_date: e.target.value })}
+              className="ui-input rb-task-prop rb-task-prop-date"
+              data-empty={draft.start_date ? 'false' : 'true'} />
+          </Field>
+          <Field label="End date">
+            <input type="date" value={draft.end_date}
+              onChange={e => patch({ end_date: e.target.value })}
+              className="ui-input rb-task-prop rb-task-prop-date"
+              data-empty={draft.end_date ? 'false' : 'true'} />
+          </Field>
+        </div>
+
+        <div className="rb-task-prop-grid">
+          <Field label="Bid days">
+            <input type="number" min="0" step="0.25" value={draft.bid_days}
+              onChange={e => patch({ bid_days: e.target.value })}
+              className="ui-input rb-task-prop-number" />
+          </Field>
+          <Field label="Assigned to">
+            <select
+              value={draft.assignee_id}
+              onChange={e => patch({ assignee_id: e.target.value })}
+              className="ui-input rb-task-prop"
+              data-empty={draft.assignee_id ? 'false' : 'true'}
+            >
+              <option value="">-- unassigned --</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <div className="rb-task-prop-grid">
+          <Field label="Priority">
+            <select value={draft.priority} onChange={e => patch({ priority: e.target.value })}
+              className="ui-input rb-task-prop"
+              data-tone={priorityTone(draft.priority)}>
+              {PRIORITIES.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
+            </select>
+          </Field>
+          <Field label="Status">
+            <span className="rb-task-status-select">
+              <StatusDot status={draft.status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+              <select value={draft.status} onChange={e => patch({ status: e.target.value })}
+                className="ui-input rb-task-status-input">
+                {TASK_STATUSES.map(s => <option key={s} value={s}>{statusMeta(s).label}</option>)}
+              </select>
+            </span>
+          </Field>
         </div>
       </div>
-    </>
+    </Dialog>
   )
 }

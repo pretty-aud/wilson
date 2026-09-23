@@ -62,4 +62,23 @@ describe('Stat', () => {
     const { container } = render(<Stat label="X" value={1} surface="light" />)
     expect(container.querySelector('.ui-stat').dataset.surface).toBe('light')
   })
+
+  // B2 kit request K1: a value that IS the good or bad news (Tasks'
+  // "Tasks completed") takes a tone on the value, not on the tile's border.
+  it('puts a value tone on the value as data, and none by default', () => {
+    const plain = render(<Stat label="A" value={1} />).container.querySelector('.ui-stat-value')
+    expect(plain.hasAttribute('data-tone')).toBe(false)
+    cleanup()
+    const toned = render(<Stat label="B" value={2} valueTone="success" />).container.querySelector('.ui-stat-value')
+    expect(toned.dataset.tone).toBe('success')
+    expect(toned.getAttribute('style')).toBeNull()
+  })
+
+  it('has a stylesheet rule for every value tone, and the light surface keeps its one ink', () => {
+    for (const tone of ['signal', 'success', 'warning', 'danger']) {
+      expect(css, tone).toContain(`.ui-stat-value[data-tone="${tone}"]`)
+    }
+    // (0,3,0) against the tones' (0,2,0): on light the value is the one ink.
+    expect(css).toMatch(/\.ui-stat\[data-surface="light"\] \.ui-stat-value\s*\{\s*color:\s*var\(--color-ink-light\)/)
+  })
 })

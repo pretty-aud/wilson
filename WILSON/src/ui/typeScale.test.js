@@ -2116,8 +2116,9 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
     // Every assertion above is an empty-list check, and an empty list is what
     // a scan that opened nothing also returns. These are the denominators.
-    // 8: B1 added rabbitShell.css, A1 dog.css and B6 bins.css (all 2026-09-23).
-    expect(CSS_FILES.length).toBe(8);
+    // 9: B1 added rabbitShell.css, A1 dog.css, B6 bins.css and B2
+    // rabbitTasks.css (all 2026-09-23).
+    expect(CSS_FILES.length).toBe(9);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
     // anywhere fails here instead of passing everywhere.

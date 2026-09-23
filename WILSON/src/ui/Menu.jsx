@@ -21,7 +21,9 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
   useEffect(() => menuOpened(), [])
   useEffect(() => {
     const down = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose?.() }
-    const key = (e) => { if (e.key === 'Escape') onClose?.() }
+    // K4: the Escape is marked handled, so a Dialog this menu sits in does not
+    // close on the same key (see Dialog's key handler).
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); onClose?.() } }
     document.addEventListener('mousedown', down, true)
     document.addEventListener('keydown', key, true)
     return () => {
