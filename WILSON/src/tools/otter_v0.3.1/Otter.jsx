@@ -3166,7 +3166,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-semibold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
+                <span className="font-semibold text-orange-400">Help & Documentation</span>
               </div>
               <button onClick={() => setShowHelpModal(false)} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
                 <X className="w-5 h-5 text-stone-400" />
@@ -5299,7 +5299,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0">
             <div className="flex items-center gap-2">
               <Settings className="w-5 h-5 text-orange-400" />
-              <span className="font-semibold text-orange-400 uppercase tracking-wide">Settings</span>
+              <span className="font-semibold text-orange-400">Settings</span>
             </div>
             <button onClick={() => setSettingsOpen(false)} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
               <X className="w-5 h-5 text-stone-400" />

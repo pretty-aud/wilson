@@ -5248,7 +5248,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0">
           <div className="flex items-center gap-2">
             <SettingsIcon className="w-5 h-5 text-orange-400" />
-            <span className="font-semibold text-orange-400 uppercase tracking-wide">RABBIT Settings</span>
+            <span className="font-semibold text-orange-400">RABBIT Settings</span>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
             <X className="w-5 h-5 text-stone-400" />
@@ -5517,7 +5517,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
         <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-orange-400" />
-            <span className="font-semibold text-orange-400 uppercase tracking-wide">
+            <span className="font-semibold text-orange-400">
               Help & Documentation
             </span>
           </div>

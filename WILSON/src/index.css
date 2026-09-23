@@ -260,6 +260,18 @@ html {
   font-family: var(--font-sans);
 }
 
+/* §3.1 has two weights, and `<strong>` / `<b>` did not know it. Tailwind's
+   preflight gives them `font-weight: bolder`, which over 400 body text
+   COMPUTES to 700 — rendered as 600 only because both faces stop there
+   (declared 400-600), so the screen was right and every measurement of it
+   said otherwise. V1 (2026-09-23) found one live in Settings → Agent (the
+   model name, "Sonnet"); T1 made the same correction inside
+   `.lesson-content` alone. In `@layer base` so a utility on a <strong> still
+   wins. */
+@layer base {
+  strong, b { font-weight: 600; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    FOCUS, PLACEHOLDER, CARET, SELECTION, DISABLED — one token each (F24,
    review Part 3 "Missing coverage").

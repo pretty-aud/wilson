@@ -1667,7 +1667,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
               className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-control text-dense font-mono tabular-nums items-center"
               style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
             >
-              <span className="font-semibold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
+              <span className="text-label font-sans uppercase" style={{ color: '#fb923c' }}>Total</span>
               <span style={{ color: '#a8a29e' }}>{filteredTasks.length}</span>
               <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
               <span />
