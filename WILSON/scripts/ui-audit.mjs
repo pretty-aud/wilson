@@ -43,6 +43,7 @@ const ROOT = 'src';
 export const EXCLUDED = [
   /(^|[\/])ui[\/]/,                       // src/ui/**  — Foundation's, on scale
   /\.test\.[jt]sx?$/,                     // guards, not product surface
+  /[\/]rabbitCssGuards\.js$/,             // B2: B1's CSS scanners, moved out of a test file; regexes, not product
   /LayoutVisualizer\.jsx$/,               // C4, including its border-2
   /VideoThumbnail\.jsx$/,                 // C4
   /[\/]sprites[\/]/,                      // C5
