@@ -64,12 +64,17 @@ describe('Rabbit.jsx docks the dot and the pill instead of floating them', () =>
   it('on Summary, where no context bar is drawn, docks them in the tab bar instead (C1: hidden on no view)', () => {
     expect(rabbitSrc).toMatch(/activeView !== 'summary' && \(\s*<ProjectContextBar/)
     expect(rabbitSrc).toMatch(/const statusInTabBar = activeView === 'summary'/)
-    expect(rabbitSrc).toMatch(/\{statusInTabBar && \([\s\S]{0,200}\{presence\}[\s\S]{0,120}\{adapterDot\}/)
+    // On Summary the compact strip (three faces and "+N"; R2 finding 3).
+    expect(rabbitSrc).toMatch(/\{statusInTabBar && \([\s\S]{0,200}\{presenceCompact\}[\s\S]{0,120}\{adapterDot\}/)
   })
 
-  it('renders each exactly once per view: no stray floating copy remains', () => {
+  it('renders each once per view: one dot, one strip per dock, no stray floating copy', () => {
     expect(rabbitSrc.match(/<AdapterStatusDot /g)).toHaveLength(1)
-    expect(rabbitSrc.match(/<RealtimePresenceStrip /g)).toHaveLength(1)
+    // `presence` for the context bar, `presenceCompact` for Summary's tab strip —
+    // the two docks are never on screen together (activeView decides).
+    expect(rabbitSrc.match(/<RealtimePresenceStrip /g)).toHaveLength(2)
+    expect(rabbitSrc.match(/\{presence\}|presenceSlot=\{presence\}/g)).toHaveLength(1)
+    expect(rabbitSrc.match(/\{presenceCompact\}/g)).toHaveLength(1)
   })
 
   it('neither component positions itself over the view body any more', () => {

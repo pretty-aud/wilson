@@ -135,7 +135,7 @@ export default function IntakeProgress({
             onClick={handleAbort}
             className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
           >
-            <X className="w-3 h-3" />
+            <X aria-hidden="true" />
             Cancel
           </button>
         )}
