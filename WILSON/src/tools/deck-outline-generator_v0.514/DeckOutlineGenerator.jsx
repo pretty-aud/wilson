@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner, Menu } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog } from '../../ui';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -5034,178 +5034,165 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
       {/* Footer bar is now managed by App.jsx container */}
 
-      {/* New Project Modal */}
+      {/* New Project Modal — the kit's Dialog (review D20: the one modal on
+          the tool written in inline style objects, with #fff on #ea580c at
+          13px (C6), #f4a261 ink, 2px frames, a focus ring of its own and ✕
+          glyphs). Same fields in the same order, the same validation, the
+          same close paths: Cancel, the backdrop, and now the named Close. */}
       {showNewProjectModal && (
-        <div
-          onClick={resetNewProjectModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-stone-800 border border-stone-600 rounded-control shadow-xl"
-            style={{ width: '520px', maxHeight: '85vh', padding: '24px', overflowY: 'auto' }}
-          >
-            <h3 className="text-h3 font-semibold text-orange-400 mb-4">Create New Project</h3>
-            <div className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Project Title</label>
-                <input
-                  type="text"
-                  value={newProjectTitle}
-                  onChange={(e) => setNewProjectTitle(e.target.value)}
-                  placeholder="Enter project title..."
-                  autoFocus
-                  className="w-full px-3 py-2 text-body rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Description</label>
-                <textarea
-                  value={newProjectDescription}
-                  onChange={(e) => setNewProjectDescription(e.target.value)}
-                  placeholder="Brief description of the project..."
-                  rows={3}
-                  className="w-full px-3 py-2 text-body rounded-control focus:ring-2 focus:ring-orange-500 resize-none"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
-                />
-              </div>
-
-              {/* Dates */}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Start Date</label>
-                  <input
-                    type="date"
-                    value={newProjectStartDate}
-                    onChange={(e) => setNewProjectStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">End Date</label>
-                  <input
-                    type="date"
-                    value={newProjectEndDate}
-                    onChange={(e) => setNewProjectEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
-                  />
-                </div>
-              </div>
-
-              {/* Documents Upload — cloud projects have no attachment home
-                  yet (locked #17 / S14 storage work), so the pickers degrade
-                  to an explanation rather than losing files silently. */}
-              {cloudProjects ? (
-                <p className="text-dense text-stone-500 border border-stone-700 rounded-control px-2 py-2 bg-stone-900/50">
-                  File attachments on cloud projects arrive with the storage
-                  work. Create the project here, then upload files in the
-                  generator panel to include them in generation.
-                </p>
-              ) : (<>
-              <div>
-                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Documents</label>
-                <div
-                  onClick={() => document.getElementById('new-proj-docs-input')?.click()}
-                  className="border border-dashed border-stone-600 rounded-control px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
-                  style={{ backgroundColor: '#1c1917' }}
-                >
-                  <p className="text-dense text-stone-500">Click to upload documents (.pdf, .doc, .txt, .md, .csv)</p>
-                  <input
-                    id="new-proj-docs-input"
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
-                    onChange={(e) => { handleNewProjectFileUpload('documents', e.target.files); e.target.value = ''; }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-                {newProjectDocuments.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {newProjectDocuments.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-control border border-stone-700">
-                        <span className="text-dense text-stone-400 truncate flex-1 mr-2">{f.name}</span>
-                        <button
-                          onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
-                          className="text-dense text-stone-600 hover:text-red-500 transition-colors flex-shrink-0"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Visual Assets Upload */}
-              <div>
-                <label className="text-label font-semibold uppercase text-stone-400 mb-1 block">Visual Assets</label>
-                <div
-                  onClick={() => document.getElementById('new-proj-assets-input')?.click()}
-                  className="border border-dashed border-stone-600 rounded-control px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
-                  style={{ backgroundColor: '#1c1917' }}
-                >
-                  <p className="text-dense text-stone-500">Click to upload images or videos</p>
-                  <input
-                    id="new-proj-assets-input"
-                    type="file"
-                    multiple
-                    accept="image/*,video/*"
-                    onChange={(e) => { handleNewProjectFileUpload('assets', e.target.files); e.target.value = ''; }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-                {newProjectAssets.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {newProjectAssets.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-control border border-stone-700">
-                        {f.type?.startsWith('image/') && (
-                          <img src={f.content} alt="" className="w-6 h-6 object-cover rounded-control mr-2 flex-shrink-0" />
-                        )}
-                        <span className="text-dense text-stone-400 truncate flex-1 mr-2">{f.name}</span>
-                        <button
-                          onClick={() => setNewProjectAssets(prev => prev.filter(a => a.id !== f.id))}
-                          className="text-dense text-stone-600 hover:text-red-500 transition-colors flex-shrink-0"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              </>)}
-            </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3 mt-5">
-              <button
-                onClick={resetNewProjectModal}
-                className="flex-1 px-4 py-2 text-dense font-semibold rounded-control transition-colors"
-                style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
-              >
+        <Dialog
+          title="Create new project"
+          onClose={resetNewProjectModal}
+          dismissOnBackdrop
+          width="form"
+          className="dog-np"
+          footer={(
+            <>
+              <Button variant="secondary" onClick={resetNewProjectModal}>
                 Cancel
-              </button>
-              <button
-                onClick={handleCreateProjectFromModal}
-                disabled={!newProjectTitle.trim()}
-                className="flex-1 px-4 py-2 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-                style={{ backgroundColor: '#ea580c', color: '#fff' }}
-              >
-                Create Project
-              </button>
+              </Button>
+              <Button variant="primary" onClick={handleCreateProjectFromModal} disabled={!newProjectTitle.trim()}>
+                Create project
+              </Button>
+            </>
+          )}
+        >
+          <div className="dog-np-body">
+            {/* Title */}
+            <div>
+              <label className="ui-field-label dog-np-label" htmlFor="dog-np-title">Project Title</label>
+              <input
+                id="dog-np-title"
+                type="text"
+                value={newProjectTitle}
+                onChange={(e) => setNewProjectTitle(e.target.value)}
+                placeholder="Enter project title..."
+                autoFocus
+                className="ui-input" data-size="md" data-surface="dark"
+              />
             </div>
+
+            {/* Description */}
+            <div>
+              <label className="ui-field-label dog-np-label" htmlFor="dog-np-description">Description</label>
+              <textarea
+                id="dog-np-description"
+                value={newProjectDescription}
+                onChange={(e) => setNewProjectDescription(e.target.value)}
+                placeholder="Brief description of the project..."
+                rows={3}
+                className="ui-input dog-np-textarea" data-surface="dark"
+              />
+            </div>
+
+            {/* Dates */}
+            <div className="dog-np-dates">
+              <div>
+                <label className="ui-field-label dog-np-label" htmlFor="dog-np-start">Start Date</label>
+                <input
+                  id="dog-np-start"
+                  type="date"
+                  value={newProjectStartDate}
+                  onChange={(e) => setNewProjectStartDate(e.target.value)}
+                  className="ui-input dog-np-date" data-size="md" data-surface="dark"
+                />
+              </div>
+              <div>
+                <label className="ui-field-label dog-np-label" htmlFor="dog-np-end">End Date</label>
+                <input
+                  id="dog-np-end"
+                  type="date"
+                  value={newProjectEndDate}
+                  onChange={(e) => setNewProjectEndDate(e.target.value)}
+                  className="ui-input dog-np-date" data-size="md" data-surface="dark"
+                />
+              </div>
+            </div>
+
+            {/* Documents Upload — cloud projects have no attachment home
+                yet (locked #17 / S14 storage work), so the pickers degrade
+                to an explanation rather than losing files silently. */}
+            {cloudProjects ? (
+              <p className="dog-np-note">
+                File attachments on cloud projects arrive with the storage
+                work. Create the project here, then upload files in the
+                generator panel to include them in generation.
+              </p>
+            ) : (<>
+            <div>
+              <span className="ui-field-label dog-np-label">Documents</span>
+              {/* The picker is the kit's secondary Button, as A1's upload is
+                  (review D30: three upload affordances, three looks). It was
+                  a clickable <div> the keyboard could not reach. */}
+              <Button variant="secondary" Icon={Upload} className="dog-np-upload"
+                onClick={() => document.getElementById('new-proj-docs-input')?.click()}
+              >
+                <span>Click to upload documents</span>
+                <span className="dog-upload-hint">(.pdf, .doc, .txt, .md, .csv)</span>
+              </Button>
+              <input
+                id="new-proj-docs-input"
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+                onChange={(e) => { handleNewProjectFileUpload('documents', e.target.files); e.target.value = ''; }}
+                className="hidden"
+              />
+              {newProjectDocuments.length > 0 && (
+                <div className="dog-np-files">
+                  {newProjectDocuments.map(f => (
+                    <div key={f.id} className="dog-np-file">
+                      <span className="dog-np-file-name">{f.name}</span>
+                      <IconButton
+                        size="sm"
+                        Icon={X}
+                        title={`Remove ${f.name}`}
+                        onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Visual Assets Upload */}
+            <div>
+              <span className="ui-field-label dog-np-label">Visual Assets</span>
+              <Button variant="secondary" Icon={Upload} className="dog-np-upload"
+                onClick={() => document.getElementById('new-proj-assets-input')?.click()}
+              >
+                Click to upload images or videos
+              </Button>
+              <input
+                id="new-proj-assets-input"
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                onChange={(e) => { handleNewProjectFileUpload('assets', e.target.files); e.target.value = ''; }}
+                className="hidden"
+              />
+              {newProjectAssets.length > 0 && (
+                <div className="dog-np-files">
+                  {newProjectAssets.map(f => (
+                    <div key={f.id} className="dog-np-file">
+                      {f.type?.startsWith('image/') && (
+                        <img src={f.content} alt="" className="dog-np-thumb" />
+                      )}
+                      <span className="dog-np-file-name">{f.name}</span>
+                      <IconButton
+                        size="sm"
+                        Icon={X}
+                        title={`Remove ${f.name}`}
+                        onClick={() => setNewProjectAssets(prev => prev.filter(a => a.id !== f.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            </>)}
           </div>
-        </div>
+        </Dialog>
       )}
 
     </div>

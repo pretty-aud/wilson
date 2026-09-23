@@ -846,6 +846,57 @@
   .dog-resolver-preview-meta { color: var(--color-ink-3); }
   .dog-resolver-frame { border-color: var(--color-rule); }
 
+  /* ── New project — the kit's Dialog (form, 560) ──────────────────────────
+        Review D20. The fields wear the kit's Input contract on native
+        controls (the title keeps its autoFocus; the kit Input would add
+        Escape-revert and Enter-blur). */
+  .dog-np-body > * + * { margin-top: 16px; }
+  .dog-np-label { display: block; margin-bottom: 4px; }
+  .ui-input.dog-np-textarea { resize: none; }
+  .dog-np-dates { display: flex; gap: 12px; }
+  .dog-np-dates > * { flex: 1 1 0; min-width: 0; }
+  .ui-input.dog-np-date { color-scheme: dark; }
+  .dog-np-note {
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .ui-btn.dog-np-upload { width: 100%; }
+  .dog-np-files { margin-top: 8px; }
+  .dog-np-files > * + * { margin-top: 4px; }
+  /* A picked file: A1's file chip, full width. */
+  .dog-np-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 2px 0 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+  }
+  .dog-np-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-np-thumb {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    object-fit: cover;
+    border-radius: var(--radius-control);
+  }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
