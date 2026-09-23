@@ -1851,7 +1851,8 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
 
   if (readOnly) {
     return (
-      <span className="rb-task-cell-text" data-empty={value ? 'false' : 'true'} data-static="true">
+      <span className="rb-task-cell-text" data-empty={value ? 'false' : 'true'} data-static="true"
+        title={value || undefined}>
         {value || placeholder || '—'}
       </span>
     )
@@ -1870,6 +1871,7 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
       className="rb-task-cell-text"
+      title={value || undefined}
       data-empty={value ? 'false' : 'true'}>
       {value || placeholder || '—'}
     </button>
