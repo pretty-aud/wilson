@@ -124,7 +124,7 @@ const REGISTRY = [
   P('shell-quit', '/', { steps: ['@quit'], stub: true, homeCaps: true, expect: { text: 'Close WILSON' } }),
 
   // D.O.G.
-  P('dog-history', '/dog', { steps: ['Import/Export History'], expect: { dialog: true } }),
+  P('dog-history', '/dog', { steps: ['Import/export history'], expect: { dialog: true } }),
   P('dog-settings', '/dog', { steps: ['Tool settings'], expect: { dialog: 'System Prompts' } }),
 
   // O.T.T.E.R. — the reading surface and the views behind the tool's own bar.
@@ -143,8 +143,8 @@ const REGISTRY = [
   ...['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins'].map((t) =>
     P(`rabbit-${t.toLowerCase()}`, '/rabbit', { steps: ['@proj', t], expect: { active: t } })),
   P('rabbit-settings', '/rabbit', { steps: ['RABBIT settings'], expect: { text: 'Holidays / Blocked Days' } }),
-  P('rabbit-help', '/rabbit', { steps: ['Help & Documentation'], expect: { text: 'Key Features' } }),
-  P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel'], expect: { text: 'Budget Variables' } }),
+  P('rabbit-help', '/rabbit', { steps: ['Help & documentation'], expect: { text: 'Key Features' } }),
+  P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel'], expect: { text: 'Budget variables' } }),
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
   P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: 'Lock the shooting script' } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),
@@ -311,7 +311,9 @@ const KNOWN = {
      lucide glyph. Owners: A1/A2 (dog*), A3/A4 (otter*), B1-B6 (rabbit*), P1
      (projects-detail — lane C is finished), and the Electron title bar's
      three window controls, seen only under the quit stub. `shell-nav` opens
-     the strip over /dog, so its four are D.O.G.'s. */
+     the strip over /dog, so its four were D.O.G.'s — A1 named them and
+     deleted the lines (2026-09-23), as it did the page's share of the
+     dog-history and dog-settings counts. */
   anon: [
     { key: 'dog-history', text: 'lucide-x', n: 1 },
     { key: 'dog-history', text: 'no-icon', n: 2 },

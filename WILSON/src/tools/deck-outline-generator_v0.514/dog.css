@@ -23,6 +23,15 @@
    kept at the bottom of this file exactly as the extraction wrote them —
    Tailwind's oklch values, written out — for A2 to move onto tokens.
 
+   🚨 A TIE WITH THE KIT IS A LOSS (A1 review round 1). This sheet loads
+   BEFORE src/index.css (the component imports it first), and both put their
+   rules in `components`, so where a one-class rule here and a one-class kit
+   rule set the same property, the KIT's wins on source order — silently.
+   Two did: the header ink override and the tab strip's no-wrap. Every rule
+   below that overrides a kit property carries a second class
+   (`.ui-panel-title.dog-card-title`, `.ui-tabs.dog-page-tabs`) or an
+   ancestor, and wins on specificity, wherever the sheets land.
+
    🚨 THE `@layer` STATEMENT IS THE FIRST LINE, and has to be: this sheet is
    imported from a component, so the bundler can emit it before
    `src/index.css`, and a layer's cascade position is fixed where it is FIRST
@@ -52,7 +61,9 @@
      The Panel is md, not sm, because its header must hold a title and four
      28px kit icon buttons (sm leaves 48px for "Deck outline", which measures
      86.5px); md takes 16px more, so the main column gives 16px back. A 24px
-     gutter here would narrow the preview by 32px and clip the slide at 1440.
+     gutter here would narrow the preview by 32px: measured in the app, with
+     its 10px scrollbar, the slide already runs 5px into the preview's own
+     padding at 1440 and is cut by 149px at 1280; 32 more comes off both.
      Change any term and the probe fails. */
   .dog-root {
     background-color: var(--color-paper);
@@ -66,7 +77,7 @@
 
   /* ═══ THE SIDEBAR — the kit's Panel ═════════════════════════════════════ */
 
-  /* A1 kit request KR-2: the Panel header cannot hold a title and four sm
+  /* kit request A1-KR-2: the Panel header cannot hold a title and four sm
      icon buttons at md with its 8px gap (84px left, 86.5px needed). 4px here,
      scoped to this panel, until the kit decides. The hairline makes the
      header one treatment with the other five (D4). */
@@ -74,7 +85,15 @@
     gap: 4px;
     border-bottom: 1px solid var(--color-rule);
   }
-  .dog-sidebar .ui-panel-title { white-space: nowrap; }
+  /* The title fits with half a pixel to spare (86.5px in 87). Should the
+     face or the copy ever grow, it ellipsizes rather than pushing the
+     actions off the header. */
+  .dog-sidebar .ui-panel-title {
+    white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .dog-history-row {
     position: relative;
@@ -136,7 +155,7 @@
   }
   /* Delete: revealed on hover as before (review D17 — the timestamp still
      steps aside for it; a reserved slot is a flow change, recorded), and now
-     on keyboard focus too, which it never was. */
+     on KEYBOARD focus too, which it never was. */
   .dog-history-row .dog-history-remove {
     position: absolute;
     top: 4px;
@@ -146,10 +165,13 @@
       background-color var(--duration-state) ease-out,
       color var(--duration-state) ease-out;
   }
+  /* :has(:focus-visible), not :focus-within — Chromium focuses a button the
+     mouse clicks, so :focus-within kept the delete showing and the time
+     hidden after an ordinary click (C1; review round 1). */
   .dog-history-row:hover .dog-history-remove,
-  .dog-history-row:focus-within .dog-history-remove { opacity: 1; }
+  .dog-history-row:has(:focus-visible) .dog-history-remove { opacity: 1; }
   .dog-history-row:hover .dog-history-time,
-  .dog-history-row:focus-within .dog-history-time { opacity: 0; }
+  .dog-history-row:has(:focus-visible) .dog-history-time { opacity: 0; }
   @media (prefers-reduced-motion: reduce) {
     .dog-history-open,
     .dog-history-time,
@@ -160,14 +182,14 @@
      The sidebar's header IS the kit's (Panel). The other five — Section 1,
      Section 2, Generated output, the Settings slide-out, the Help modal —
      wear the same `.ui-panel-head` / `.ui-panel-title` contract on their own
-     markup, because the kit exports no PanelHeader yet (A1 kit request KR-3).
+     markup, because the kit exports no PanelHeader yet (kit request A1-KR-3).
      32px, no fill, a hairline under it, the Label step, a 14px leading icon,
      actions on the right.
 
      The title ink is ink-2, not the kit's ink-3: inside a card the fields
      below are labelled at the Label step in ink-2 (`.ui-field-label`), and a
      header dimmer than its own fields inverts the hierarchy. Recorded in
-     KR-3 for the kit to settle. */
+     A1-KR-3 for the kit to settle. */
   .dog-card-head {
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
@@ -180,7 +202,7 @@
   @media (hover: hover) {
     .dog-card-head[data-collapsible='true']:hover { background-color: var(--color-hover); }
   }
-  .dog-card-title,
+  .ui-panel-title.dog-card-title,
   .dog-sidebar .ui-panel-title {
     color: var(--color-ink-2);
   }
@@ -319,24 +341,14 @@
     line-height: var(--text-dense--line-height);
     color: var(--color-ink-2);
   }
-  /* CORE / REFERENCE. Was #fff7ed on a #ea580c fill at 13px — C6 again.
-     Core is now the one selection treatment: the signal tint and edge, ink
-     text. Reference is a hairline and the second ink. (Review D28 wants a
-     StatusBadge here; it is a toggle, and the kit's badge is inert.) */
-  .dog-role-btn {
-    width: 52px;
-    background-color: transparent;
-    color: var(--color-ink-2);
-    border: 1px solid var(--color-rule);
-  }
-  .dog-role-btn[data-core='true'] {
-    background-color: var(--color-signal-tint);
-    color: var(--color-ink);
-    border-color: var(--color-signal);
-  }
-  @media (hover: hover) {
-    .dog-role-btn:not([data-core='true']):hover { background-color: var(--color-hover); }
-  }
+  /* CORE / REFERENCE — the kit's Chip, a two-state toggle (aria-pressed,
+     the one active treatment: the signal tint and edge, ink text). It was
+     #fff7ed on a #ea580c fill at 13px (C6) and hand-rolled (C8). A FIXED
+     width keeps the names in one column whichever state a row is in: at the
+     Label step "CORE" measures 55.45px, so a 52px min-width let Core rows sit
+     3.45px right of Ref rows (review round 2). Its pressed state is not
+     announced, because its label already flips (Core / Ref). */
+  .dog-role-chip { width: 56px; justify-content: center; }
 
   .dog-upload-hint {
     font-size: var(--text-caption);
@@ -380,7 +392,7 @@
   }
 
   /* The three option checkboxes. The kit has no Checkbox (review D26; A1
-     kit request KR-4), so this stays D.O.G.'s — on the tokens, named, and
+     kit request A1-KR-4), so this stays D.O.G.'s — on the tokens, named, and
      announced as a checkbox. The glyph is the checkbox's own mark. */
   .dog-check {
     display: inline-flex;
@@ -424,14 +436,14 @@
   /* The kit's tab strip, one row: the pages scroll sideways as they always
      did rather than wrapping into a second row (the toolbar precedent,
      `.ui-toolbar .ui-tabs`). */
-  .dog-page-tabs {
+  .ui-tabs.dog-page-tabs {
     flex: 1;
     min-width: 0;
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
   }
-  /* A closable tab (A1 kit request KR-1): the tab and its close control sit
+  /* A closable tab (kit request A1-KR-1): the tab and its close control sit
      side by side in one wrapper, and the WRAPPER carries the kit's 2px signal
      underline so it runs under both. */
   .dog-page-tab {
@@ -459,33 +471,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .dog-tab-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    margin-right: 4px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--radius-control);
-    background: none;
-    color: var(--color-ink-3);
-    cursor: pointer;
-    transition: color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
-  }
-  .dog-tab-close > svg { width: var(--icon-sm); height: var(--icon-sm); }
-  @media (hover: hover) {
-    .dog-tab-close:hover { color: var(--color-ink); background-color: var(--color-hover); }
-  }
+  .dog-page-tab > .dog-tab-close { margin-right: 4px; }
   .dog-view-toggle {
     display: flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .dog-tab-close { transition: none; }
   }
 
   /* The descriptor above the text view (review D27: roman, the Caption
@@ -516,21 +507,29 @@
   }
   .dog-output-empty { min-height: 780px; }
 
-  /* ═══ SETTINGS ACCORDIONS — review D3 ══════════════════════════════════
-     Sixteen headers declared `hover:bg-stone-750`, a step Tailwind does not
-     have, so the densest panel in the tool gave no response to the pointer.
-     The hover is now the kit's one hover fill laid OVER whatever the resting
-     ground is, so it survives A2 re-surfacing the slide-out. The resting
-     ground is the extraction's stone-800, unchanged: that is A2's. */
-  .dog-acc-head { background-color: oklch(26.8% 0.007 34.298); /* stone-800 — A2's */ }
-  @media (hover: hover) {
-    .dog-acc-head:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  /* The text view's editor: the outline was set in orange-400 (review D9,
+     the accent as body ink) with a hand-set leading. Ink on the frame's own
+     recessed ground, the Body step's leading. */
+  .dog-editor {
+    color: var(--color-ink);
+    background-color: var(--color-paper-recessed);
   }
 
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
      tokens with the surfaces it restyles. */
+
+  /* Review D3 (A1's): sixteen Settings accordion headers declared
+     `hover:bg-stone-750`, a step Tailwind does not have, so the densest
+     panel in the tool gave no response to the pointer. The hover is the
+     kit's one hover fill laid OVER the resting ground, so it survives A2
+     re-surfacing the slide-out; the resting ground is the extraction's
+     stone-800 and A2's to move. */
+  .dog-acc-head { background-color: oklch(26.8% 0.007 34.298); /* stone-800 */ }
+  @media (hover: hover) {
+    .dog-acc-head:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  }
 
   /* The Settings lock switch (the Full Deck switch is now the kit's Switch).
      `data-on` is "unlocked". */
@@ -562,15 +561,16 @@
   .dog-fmt-hist-btn:active:not(:disabled) { background-color: color-mix(in oklab, oklch(70.5% 0.213 47.604) 30%, transparent); /* orange-500/30 */ }
   .dog-fmt-hist-btn:disabled { color: oklch(44.4% 0.011 73.639); /* stone-600 */ cursor: not-allowed; }
 
-  /* The rewrite popover's Regenerate icon: spins while loading. `spin` is
-     Tailwind's keyframe (`--animate-spin: spin 1s linear infinite`). */
+  /* The rewrite popover's Regenerate icon: spins while loading. Its own
+     keyframes (below the layer): Tailwind emits `spin` only while some
+     utility uses `animate-spin`, the same fragility the header describes. */
   .dog-rewrite-regen-icon { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
   @media (hover: hover) {
     .dog-rewrite-regen-icon:not([data-loading='true']):hover { color: oklch(75% 0.183 55.934); /* orange-400 */ }
   }
   .dog-rewrite-regen-icon[data-loading='true'] {
     color: oklch(75% 0.183 55.934); /* orange-400 */
-    animation: spin 1s linear infinite;
+    animation: dog-spin 1s linear infinite;
   }
 
   /* ── Settings slide-out (A2's surface) ───────────────────────────────── */
@@ -629,4 +629,9 @@
     font-weight: 600;                            /* font-semibold */
     border-left-color: oklch(70.5% 0.213 47.604); /* orange-500 */
   }
+}
+
+/* Tailwind's `spin` (rotate to 360deg), owned here. */
+@keyframes dog-spin {
+  to { transform: rotate(360deg); }
 }

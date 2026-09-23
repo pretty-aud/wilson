@@ -199,6 +199,10 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   }, [rosterMembers])
   const adapterDot = <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
   const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} />
+  // On Summary the pair shares the tab strip's one row with eleven tabs, so
+  // the strip shows three faces and "+N" for the rest (R2 finding 3: five
+  // faces at 1024 pushed the last tab out of view). The bar shows five.
+  const presenceCompact = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} max={3} />
   const statusInTabBar = activeView === 'summary'
 
   return (
@@ -213,12 +217,12 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
           <>
             {statusInTabBar && (
               <span className="rb-ctx-status-group rb-tabbar-status" data-slot="status">
-                <span className="contents" data-slot="presence">{presence}</span>
+                <span className="contents" data-slot="presence">{presenceCompact}</span>
                 <span className="contents" data-slot="adapter">{adapterDot}</span>
               </span>
             )}
             <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
-            <IconButton size="sm" Icon={HelpCircle} title="Help & Documentation" onClick={() => setShowHelpModal(true)} />
+            <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           </>
         )}
       />
@@ -310,7 +314,7 @@ function AdapterStatusDot({ mode, status }) {
 // Docked beside the adapter dot: a LIVE/SYNC pill plus up to five
 // initial chips for who else has this project open (Session 7
 // presence, cloud mode only — hidden when realtime is off).
-function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {} }) {
+function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {}, max = 5 }) {
   // Session 8: presence meta only carries { user_id, label } — the roster is
   // joined in so chips can show real avatars where members uploaded one. The
   // shell fetches the roster and passes the map in (see Rabbit's comment).
@@ -323,7 +327,7 @@ function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {} }) {
     error:      { label: 'Sync error', tone: 'danger'  },
   }[realtimeStatus] || { label: realtimeStatus, tone: 'neutral' }
   const list = Array.isArray(users) ? users : []
-  const shown = list.slice(0, 5)
+  const shown = list.slice(0, max)
   const overflow = list.length - shown.length
   const initials = (label) => (label || '?')
     .split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
