@@ -1852,6 +1852,13 @@ select option {
   .ui-stat-delta[data-tone="success"] { color: var(--color-success); }
   .ui-stat-delta[data-tone="warning"] { color: var(--color-warning); }
   .ui-stat-delta[data-tone="danger"]  { color: var(--color-danger); }
+  /* The VALUE in a tone (B2 kit request K1): the same tones and tokens as the
+     delta. On light the value stays the one ink: `.ui-stat[data-surface=
+     "light"] .ui-stat-value` above is (0,3,0) and these are (0,2,0). */
+  .ui-stat-value[data-tone="signal"]  { color: var(--color-signal); }
+  .ui-stat-value[data-tone="success"] { color: var(--color-success); }
+  .ui-stat-value[data-tone="warning"] { color: var(--color-warning); }
+  .ui-stat-value[data-tone="danger"]  { color: var(--color-danger); }
   /* On light, status colour is not drawn at all (plan §3.2: the greens and
      reds measure 1.4-3.1:1 on #f4a261), so a delta there is the one ink. */
   .ui-stat[data-surface="light"] .ui-stat-delta { color: var(--color-ink-light); }
