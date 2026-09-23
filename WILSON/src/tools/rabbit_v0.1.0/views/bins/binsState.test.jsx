@@ -15,22 +15,31 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, cleanup, screen } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import BinTree from './BinTree'
 import BinFileTable from './BinFileTable'
 import BinFileGrid from './BinFileGrid'
+import BinPoster from './BinPoster'
+import TakePickerDialog from './TakePickerDialog'
+import AssignToShotDialog from './AssignToShotDialog'
+import { MediaTag } from './binUi'
+import { INK_2, INK_3 } from '../../../../ui/tokens'
+import { MEDIA_TYPE_META } from '../../bins/binMedia'
+import { paintsSelector } from './binsGuards'
 
 afterEach(cleanup)
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 const css = read('./bins.css').replace(/\/\*[\s\S]*?\*\//g, '')
 
-/** The selector exactly as bins.css spells it; fails if the sheet no longer does. */
+/** The selector exactly as bins.css spells it — and a rule that PAINTS it, not
+ *  one that merely names it (round 1: the lift lists every painted state and
+ *  sets only two properties, so a deleted selection colour still "existed"). */
 function sel(cls, attr) {
   const s = `.${cls}[data-${attr}="true"]`
-  expect(css.includes(s), `bins.css has no rule for ${s}`).toBe(true)
+  expect(paintsSelector(css, s), `no rule in bins.css paints ${s}`).toBe(true)
   return s
 }
 
@@ -77,6 +86,52 @@ describe('the list view: selected, current, offline, sorted', () => {
     const sorted = sel('bn-th', 'sorted')
     const heads = [...container.querySelectorAll('.bn-th')]
     expect(heads.filter(h => h.matches(sorted)).map(h => h.textContent.trim())).toEqual(['Name'])
+  })
+})
+
+describe('the states round one found never rendered (S1, S4–S7)', () => {
+  it('a bin under a drag matches drag-over', () => {
+    render(<BinTree bins={[bins[0]]} counts={new Map()} offlineCounts={new Map()} currentBinId={null} expanded={new Set()} allCount={0} allOffline={0} canWrite />)
+    const node = screen.getAllByRole('treeitem').find(el => el.textContent.includes('Footage'))
+    fireEvent.dragOver(node, { dataTransfer: { types: ['Files'], dropEffect: '' } })
+    expect(node.matches(sel('bn-tree-row', 'drag-over'))).toBe(true)
+  })
+
+  it('the poster of a primary take matches primary; an ordinary one does not', () => {
+    const { container, rerender } = render(<BinPoster row={file('f1')} primary />)
+    expect(container.firstChild.matches(sel('bn-poster', 'primary'))).toBe(true)
+    rerender(<BinPoster row={file('f1')} />)
+    expect(container.firstChild.matches(sel('bn-poster', 'primary'))).toBe(false)
+  })
+
+  it('the take picker: picked, locked (already assigned) and offline rows', () => {
+    const files = [file('f1'), file('f2'), file('f3', { online: false })]
+    render(<TakePickerDialog shot={{ id: 'sh1', name: 'Shot 1', scene_id: null }} scene={null} files={files} bins={[bins[0]]}
+      assignedFileIds={['f2']} hasPrimary={false} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={() => {}} busy={false} />)
+    const rowOf = (id) => screen.getByText(`Clip ${id}`).closest('label')
+    fireEvent.click(rowOf('f1').querySelector('input'))
+    expect(rowOf('f1').matches(sel('bn-pick-row', 'picked'))).toBe(true)
+    expect(rowOf('f2').matches(sel('bn-pick-row', 'locked'))).toBe(true)
+    expect(rowOf('f2').matches(sel('bn-pick-row', 'picked'))).toBe(false)
+    expect(rowOf('f3').matches(sel('bn-pick-row', 'offline'))).toBe(true)
+  })
+
+  it('assign to shot: a ticked shot row matches picked, its neighbour does not', () => {
+    render(<AssignToShotDialog files={[file('f1')]} binFiles={[file('f1')]} scenes={[{ id: 'sc1', name: 'Scene 1', scene_number: 1 }]}
+      shots={[{ id: 'sh1', name: 'Shot 1', shot_number: 1, scene_id: 'sc1' }, { id: 'sh2', name: 'Shot 2', shot_number: 2, scene_id: 'sc1' }]}
+      shotTakes={[]} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={() => {}} busy={false} />)
+    const rows = [...document.querySelectorAll('label')].filter(l => l.querySelector('input[type=checkbox]'))
+    fireEvent.click(rows[0].querySelector('input'))
+    expect(rows[0].matches(sel('bn-pick-row', 'picked'))).toBe(true)
+    expect(rows[1].matches(sel('bn-pick-row', 'picked'))).toBe(false)
+  })
+
+  it('the media-type tag carries its hue as data, and the two retired greys take the ladder', () => {
+    const hue = (type) => { cleanup(); render(<MediaTag type={type} small />); return document.querySelector('.bn-tag').style.getPropertyValue('--tag-hue') }
+    expect(hue('video')).toBe(MEDIA_TYPE_META.video.color)
+    expect(hue('document')).toBe(INK_2)
+    expect(hue('other')).toBe(INK_3)
+    expect(hue('no-such-type')).toBe(INK_3)
   })
 })
 

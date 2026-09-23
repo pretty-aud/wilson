@@ -182,18 +182,16 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
           type="button"
           onClick={onBack}
           disabled={busy}
-          className="px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
-          style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)', backgroundColor: 'transparent' }}
+          className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
         >
-          ← Back
+          Back
         </button>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleDiscard}
             disabled={busy}
-            className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
-            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)', backgroundColor: 'transparent' }}
+            className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
           >
             {discarding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
             Discard
@@ -202,12 +200,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             type="button"
             onClick={handleSave}
             disabled={busy || (phases.length === 0 && assets.length === 0 && tasks.length === 0)}
-            className="flex items-center gap-1 px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
-            style={{
-              color: 'var(--color-on-fill)',
-              backgroundColor: 'var(--color-signal-fill)',
-              border: '1px solid var(--color-signal-fill)',
-            }}
+            className="ui-btn" data-variant="primary" data-size="md" data-surface="dark"
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Save to project

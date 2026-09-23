@@ -29,7 +29,7 @@ export const TABLE_COLUMNS = [
   { id: 'duration_sec', label: 'Duration', width: '72px',  sortable: true, align: 'right' },
   { id: 'dims',         label: 'Size px',  width: '90px',  sortable: false, align: 'right' },
   { id: 'fps',          label: 'fps',      width: '56px',  sortable: false, align: 'right' },
-  { id: 'codec',        label: 'Codec',    width: '80px',  sortable: false },
+  { id: 'codec',        label: 'Codec',    width: '120px', sortable: false },
   { id: 'size_bytes',   label: 'Bytes',    width: '72px',  sortable: true, align: 'right' },
   { id: 'bin',          label: 'Bin',      width: '130px', sortable: false, mono: false },
 ]
@@ -122,7 +122,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
         return (
           <button type="button" title="Click to cycle select → reject → unflagged" disabled={!canWrite}
             onClick={e => { e.stopPropagation(); onPatch({ review_flag: FLAG_NEXT[row.review_flag || 'unflagged'] }) }}
-            className="flex items-center gap-1 px-1 rounded-control hover:bg-hover disabled:cursor-default" style={{ minHeight: 18 }}>
+            className="flex items-center gap-1 px-1 rounded-control hover:bg-hover disabled:cursor-default" style={{ minHeight: 'var(--control-sm)' }}>
             <FlagMark flag={row.review_flag} circled={row.circled} />
             {row.color && <ColorDot color={row.color} size={8} />}
             {!row.color && row.review_flag === 'unflagged' && !row.circled && <span className="text-dense" style={{ color: C.dimmer }}>—</span>}
@@ -151,7 +151,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
       data-selected={selected ? 'true' : undefined}
       data-current={current ? 'true' : undefined}
       data-offline={row.online === false ? 'true' : undefined}
-      style={{ gridTemplateColumns: template, minWidth: 'max-content', minHeight: 34 }}>
+      style={{ gridTemplateColumns: template, minWidth: 'max-content' }}>
       {cols.map(c => (
         <div key={c.id} className={`px-2 py-1 text-dense min-w-0 ${c.mono === false ? '' : 'font-mono'} ${c.align === 'right' ? 'text-right' : ''}`}>{cell(c.id)}</div>
       ))}

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Spinner, MediaTag, ColorDot, Select, Banner } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, overlayOpen } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -46,6 +46,12 @@ import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatD
 import AssignToShotDialog from './bins/AssignToShotDialog'
 import { usageByFile, usageCounts } from '../bins/shotTakeSelectors'
 import { useNavigateTarget } from '../state/rabbitNavigate'
+
+// A filter chip whose label is the user's own data (a camera, a day, a scene,
+// a tag) keeps its case: the kit Chip sets its label in capitals (the Label
+// step), which turned "camera-original" into "#CAMERA-ORIGINAL" (review round
+// 1). The words are the Caption step, sentence as written.
+const DATA_CHIP = 'text-caption font-normal normal-case tracking-normal'
 
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
@@ -515,7 +521,9 @@ export default function BinsView() {
   const onKeyDown = useCallback((e) => {
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk) return
+    // …and while ANY kit dialog or menu is up, not only the ones this view
+    // tracks (review round 1): the shell's dialogs join as they move onto the kit.
+    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk || overlayOpen()) return
     // The grid's REAL column count, read from its computed tracks (review
     // round 2: a formula guessed it and ↓ walked diagonally at some widths).
     const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
@@ -676,7 +684,7 @@ export default function BinsView() {
           allCount={files.length} allOffline={offlineAll.length} canWrite={canWrite}
         />
 
-        <div className="flex-1 min-w-0 flex flex-col" ref={paneRef} tabIndex={0} style={{ outline: 'none' }}
+        <div className="bn-focus-inset flex-1 min-w-0 flex flex-col" ref={paneRef} tabIndex={0}
           onDragOver={onDragOverPane} onDragLeave={() => setDragOver(false)} onDrop={onDropPane}>
           {/* ── Toolbar ── */}
           <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0 flex-wrap" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -685,7 +693,7 @@ export default function BinsView() {
               <div className="min-w-0">
                 <div className="text-label uppercase truncate" style={{ color: C.bright }} title={currentBin ? binPathLabel(bins, currentBin.id) : 'All files'}>
                   {currentBin ? currentBin.name : 'All files'}
-                  {currentBin && <span className="ml-2 text-dense normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
+                  {currentBin && <span className="ml-2 text-caption font-normal normal-case tracking-normal" style={{ color: C.dim }}>{BIN_KIND_META[currentBin.kind]?.label || ''}</span>}
                 </div>
                 <div className="text-caption tabular-nums flex items-center gap-2 flex-wrap" style={{ color: C.dim }}>
                   <span>{stats.count} file{stats.count === 1 ? '' : 's'}{rows.length !== stats.count ? ` · ${rows.length} shown` : ''}</span>
@@ -699,12 +707,12 @@ export default function BinsView() {
                       · <Unplug className="w-3 h-3" /> {stats.offline} offline
                     </button>
                   )}
-                  {probing > 0 && <span className="inline-flex items-center gap-1" style={{ color: C.muted }}>· <Spinner size={9} /> reading {probing}</span>}
+                  {probing > 0 && <span className="inline-flex items-center gap-1">· <Loading className="text-caption" label={`reading ${probing}`} /></span>}
                   {ffmpeg === false && <span title="Drop ffmpeg.exe into resources/ffmpeg to get posters and columns for every format" style={{ color: C.dimmer }}>· no decoder</span>}
                 </div>
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+            <div className="ml-auto flex items-center justify-end gap-1.5 flex-wrap">
               {currentBin && counts.get(currentBin.id) !== files.filter(f => f.bin_id === currentBin.id).length && (
                 <Chip active={includeNested} onClick={() => setIncludeNested(v => !v)} title="Show files of nested bins too">nested</Chip>
               )}
@@ -732,7 +740,7 @@ export default function BinsView() {
                 {/* A native field in the kit's input class, not the kit Input:
                     Escape here CLEARS the search, where the kit Input's Escape
                     reverts to the value at focus (C1: the key keeps its job). */}
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…" title="Search name, slate, notes and path"
                   className="ui-input pl-6 pr-6 w-56" data-size="sm" aria-label="Search files"
                   onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() } e.stopPropagation() }} />
                 {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
@@ -755,10 +763,10 @@ export default function BinsView() {
               <Chip active={filters.online === false} onClick={() => setFilters(f => ({ ...f, online: f.online === false ? null : false }))} color={C.amber} count={countWhere(f => f.online === false)}><Unplug className="w-3 h-3" /> offline</Chip>
               <span style={{ width: 8 }} />
               {COLORS.filter(c => scopeFiles.some(f => f.color === c)).map(c => <Chip key={c} active={filters.colors.includes(c)} onClick={() => toggleIn('colors', c)} title={`Colour ${c}`} count={countWhere(f => f.color === c)}><ColorDot color={c} size={8} /></Chip>)}
-              {filterValues.cameras.map(c => <Chip key={`cam-${c}`} active={filters.cameras.includes(c)} onClick={() => toggleIn('cameras', c)} count={countWhere(f => f.camera === c)}>{c} cam</Chip>)}
-              {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)} count={countWhere(f => f.shoot_day === d)}>{d}</Chip>)}
-              {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)} count={countWhere(f => f.scene_id === s)}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
-              {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)} count={countWhere(f => (f.tags || []).includes(t))}>#{t}</Chip>)}
+              {filterValues.cameras.map(c => <Chip key={`cam-${c}`} active={filters.cameras.includes(c)} onClick={() => toggleIn('cameras', c)} count={countWhere(f => f.camera === c)} className={DATA_CHIP}>{c} cam</Chip>)}
+              {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)} count={countWhere(f => f.shoot_day === d)} className={DATA_CHIP}>{d}</Chip>)}
+              {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)} count={countWhere(f => f.scene_id === s)} className={DATA_CHIP}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
+              {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)} count={countWhere(f => (f.tags || []).includes(t))} className={DATA_CHIP}>#{t}</Chip>)}
               {filterCount > 0 && <Btn variant="ghost" small className="ml-2" onClick={() => setFilters(EMPTY_FILTERS)}>Clear {filterCount}</Btn>}
               {filterValues.types.length === 0 && <span className="text-dense" style={{ color: C.dimmer }}>Nothing to filter yet.</span>}
             </div>
@@ -774,7 +782,7 @@ export default function BinsView() {
               </div>
             )}
             {loading && files.length === 0 && bins.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center gap-2 text-dense" style={{ color: C.muted }}><Spinner /> Loading bins…</div>
+              <div className="flex-1 flex items-center justify-center"><Loading label="Loading bins…" /></div>
             ) : noBins ? (
               <EmptyState Icon={Clapperboard} title="No bins yet"
                 body="A bin holds references to footage, stills, audio, graphics, VFX and documents where they sit on your drives. Start from a set, or drop a folder anywhere on this page.">
@@ -852,7 +860,8 @@ export default function BinsView() {
       {removeAsk && (
         <Modal title={`Remove ${removeAsk.length} files from the bin?`} width="confirm" onClose={() => setRemoveAsk(null)}
           footer={<>
-            <Btn onClick={() => setRemoveAsk(null)}>Cancel</Btn>
+            {/* Cancel takes the first focus, as every W9 confirm does (DashboardTasksView). */}
+            <Btn autoFocus onClick={() => setRemoveAsk(null)}>Cancel</Btn>
             <Btn danger onClick={() => { const ids = removeAsk; setRemoveAsk(null); doRemoveIds(ids) }}><Trash2 className="w-3 h-3" /> Remove {removeAsk.length} files</Btn>
           </>}>
           <p className="text-dense" style={{ color: C.text }}>The files on disk stay where they are. Undo is in the toast.</p>

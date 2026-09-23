@@ -16,12 +16,13 @@
 
 import { useState, useCallback, useRef } from 'react'
 import {
-  Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon,
+  Folder, Plus, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import '../rabbitShell.css'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Button } from '../../../ui/Button'
+import { Dialog } from '../../../ui/Dialog'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { PERSONA_LIST } from '../intake/personas'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
@@ -460,32 +461,36 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
           Nothing is saved until you confirm.
         </span>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
-            style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>
-            Cancel
-          </button>
-          <button type="button" onClick={handleReviewAndConfirm} disabled={!canSubmit}
-            className="px-5 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-            style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-            Review & Create
-          </button>
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" onClick={handleReviewAndConfirm} disabled={!canSubmit}>
+            Review and create
+          </Button>
         </div>
       </div>
 
       {/* ── Confirmation dialog ── */}
       {showConfirm && (
-        <>
-          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowConfirm(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden"
-            style={{ backgroundColor: 'var(--color-paper-raised)', border: '2px solid var(--color-signal)', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
-            onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
-              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-ink)' }} />
-              <span className="text-dense font-semibold" style={{ color: 'var(--color-ink)' }}>Confirm project creation</span>
-            </div>
-            <div className="px-5 py-4 max-h-[60vh] overflow-auto">
-              <p className="text-dense leading-relaxed mb-4" style={{ color: 'var(--color-ink-2)' }}>
+        /* The kit's Dialog (R11; Q17 ruled its Escape, stack and busy lock
+           in). The backdrop click still closes it, as it always did
+           (dismissOnBackdrop), and the busy lock holds only while the
+           project is being created. The hand-rolled 2px signal frame, the
+           one-off shadow and the vh cap go. */
+        <Dialog
+          title="Confirm project creation"
+          onClose={() => setShowConfirm(false)}
+          dismissOnBackdrop
+          busy={creating}
+          footer={(
+            <>
+              <Button onClick={() => setShowConfirm(false)}>Go back</Button>
+              <Button variant="primary" onClick={handleConfirmCreate} disabled={creating}>
+                {creating ? 'Creating…' : 'Confirm and create'}
+              </Button>
+            </>
+          )}
+        >
+            <div>
+              <p className="text-dense mb-4" style={{ color: 'var(--color-ink-2)' }}>
                 Please verify the details below are correct. This will create a new project in your workspace.
               </p>
               <div className="flex flex-col gap-3">
@@ -536,20 +541,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 )}
               </div>
             </div>
-            <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid var(--color-rule)' }}>
-              <button type="button" onClick={() => setShowConfirm(false)}
-                className="px-4 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
-                style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>
-                Go back
-              </button>
-              <button type="button" onClick={handleConfirmCreate} disabled={creating}
-                className="px-5 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-                {creating ? 'Creating...' : 'Confirm & Create'}
-              </button>
-            </div>
-          </div>
-        </>
+        </Dialog>
       )}
     </div>
   )
@@ -603,7 +595,7 @@ function StepIndicator({ step }) {
         return (
           <div key={s.id} className="flex items-center gap-2">
             <div
-              className="rb-step flex items-center gap-1.5 px-2 py-0.5 rounded-control"
+              className="rb-step flex items-center gap-1.5 px-2 py-0.5"
               data-state={active ? 'active' : done ? 'done' : 'future'}
             >
               <span className="text-dense tabular-nums">{i + 1}</span>
@@ -628,17 +620,13 @@ function NoProjectGate({ onNewProject }) {
     >
       <Folder className="w-10 h-10" style={{ color: 'var(--color-ink-3)' }} />
       <div
-        className="text-dense text-center max-w-md leading-relaxed"
+        className="text-dense text-center max-w-md"
         style={{ color: 'var(--color-ink-2)' }}
       >
         No project selected. Open the <span style={{ color: 'var(--color-ink)' }}>Summary</span> tab
         to pick an existing project, or create a new one below.
       </div>
-      <button type="button" onClick={onNewProject}
-        className="flex items-center gap-1.5 px-5 py-2 text-dense rounded-control transition-colors"
-        style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-        <Plus className="w-3.5 h-3.5" /> New project
-      </button>
+      <Button variant="primary" Icon={Plus} onClick={onNewProject}>New project</Button>
     </div>
   )
 }

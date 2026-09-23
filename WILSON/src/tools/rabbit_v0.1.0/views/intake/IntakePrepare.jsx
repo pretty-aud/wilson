@@ -387,7 +387,7 @@ export default function IntakePrepare({
 
           {/* ── Overwrite warning ────────────────────────────── */}
           {hasExistingData && (
-            <div style={{ marginTop: 28, padding: '16px 20px', borderRadius: 'var(--radius-control)', backgroundColor: 'var(--color-paper-raised)', borderLeft: '3px solid var(--color-signal)' }}>
+            <div style={{ marginTop: 28, padding: '16px 20px', borderRadius: 'var(--radius-control)', backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}>
               <div className="flex items-start gap-3">
                 <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--color-ink)' }} />
                 <div className="flex-1">

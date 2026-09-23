@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { FolderSearch, Link2, Unplug, Check, AlertTriangle, RefreshCw } from 'lucide-react'
-import { C, Btn, Modal, Select, Spinner } from './binUi'
+import { C, Btn, Modal, Select, Loading, Banner } from './binUi'
 import { matchMissingFiles } from '../../components/relinkMatcher'
 
 export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onScan, onApply, onForgetRoot = null, onClose }) {
@@ -74,10 +74,9 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
   const applyCount = match ? match.proposals.length + Object.values(choices).filter(Boolean).length : 0
 
   return (
-    <Modal title="Relink offline files" onClose={onClose} width="reading" busy={phase === 'applying'}
+    <Modal title="Relink offline files" onClose={onClose} width="reading" busy={phase === 'applying'} error={error}
       subtitle={`${offlineRows.length} file${offlineRows.length === 1 ? '' : 's'} cannot be found at ${offlineRows.length === 1 ? 'its' : 'their'} recorded path`}
       footer={<>
-        {error && <span className="text-dense mr-auto flex items-center gap-1.5" style={{ color: C.red }}><AlertTriangle className="w-3 h-3" /> {error}</span>}
         <Btn onClick={onClose} disabled={phase === 'applying'}>{phase === 'done' ? 'Close' : 'Cancel'}</Btn>
         {phase !== 'done' && <Btn primary onClick={apply} disabled={phase !== 'review' || applyCount === 0}><Link2 className="w-3 h-3" /> Relink {applyCount || ''}</Btn>}
       </>}>
@@ -90,7 +89,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Btn primary onClick={pick} disabled={phase === 'scanning'}><FolderSearch className="w-3 h-3" /> Choose the folder they moved to…</Btn>
-            {phase === 'scanning' && <span className="flex items-center gap-2 text-dense" style={{ color: C.muted }}><Spinner /> Walking {folder}…</span>}
+            {phase === 'scanning' && <Loading label={`Walking ${folder}…`} />}
           </div>
           {roots?.length > 0 && (
             <div className="rounded-control" style={{ border: `1px solid ${C.line}` }}>
@@ -128,7 +127,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
               )
             })}
           </div>
-          {scan?.truncated && <div className="text-dense flex items-center gap-1.5" style={{ color: C.amber }}><AlertTriangle className="w-3 h-3" /> The folder was too large to walk completely.</div>}
+          {scan?.truncated && <Banner tone="warning" Icon={AlertTriangle} className="rounded-control">The folder was too large to walk completely.</Banner>}
         </div>
       )}
     </Modal>

@@ -26,7 +26,8 @@
    Dead branches found on the way, and what happened to them:
    - Rabbit.jsx's settings and help buttons declared `hover:bg-stone-700`
      beside an inline `backgroundColor`, so the hover never painted. The
-     hover now lives in `.rb-shell-iconbtn:hover` and paints as declared.
+     extraction revived it; the restyle then made both the kit's IconButton,
+     whose hover is the kit's.
    - IntakeReview's section header declared `hover:bg-stone-700` (#44403c)
      over an inline `#44403c`: a hover that could never be seen. The no-op
      utility is gone; the header keeps its one fill.
@@ -65,8 +66,30 @@
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
-  .rb-viewtabs-list { flex: 1 1 auto; min-width: 0; }
-  .rb-viewtabs .ui-tab { margin-bottom: -1px; }
+  /* One row, always (R1 finding 1). The kit's .ui-tabs wraps, which is right
+     for a set that needs a second line and wrong here: at Electron's 1024px
+     floor, on Summary (where the dot and presence strip also sit in this
+     row), "Bins" dropped to a second line and the whole view jumped 39px
+     every time the Summary tab was crossed. The R.A.B.B.I.T. tabs sit a
+     little tighter (8px sides, 4px separators) and, should a window still be
+     too narrow, the strip scrolls sideways — every tab stays reachable in
+     the same one click (C1), none is hidden. */
+  .rb-viewtabs-list.ui-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  /* Below 1152px the tab icons go: they are decoration (the label names the
+     view), and dropping them returns about 180px — enough that all eleven
+     labels and, on Summary, the status group fit at Electron's 1024px floor
+     without the strip scrolling. */
+  @media (max-width: 1152px) {
+    .rb-viewtab-icon { display: none; }
+  }
+  .rb-viewtabs .ui-tab { margin-bottom: -1px; padding: 0 8px; }
+  .rb-viewtabs .ui-tabs-sep { margin: 0 4px; }
   .rb-viewtab-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
   .rb-viewtabs-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
@@ -76,12 +99,17 @@
   .rb-ctx-status-group { display: flex; align-items: center; gap: 8px; }
   .rb-tabbar-status { margin-right: 8px; }
   .rb-presence { display: flex; align-items: center; gap: 4px; }
+  /* 28px, not 20: two Label-step capitals ("WW" 23.0px) spilled out of a 20px
+     circle, which is T2's MemberAvatar finding at a smaller size (R1 finding
+     14). The chips overlap by 8px so three of them take 68px, not 92. */
+  .rb-presence-avatar + .rb-presence-avatar { margin-left: -8px; }
   .rb-presence-avatar {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
+    box-shadow: 0 0 0 2px var(--color-paper);
     border-radius: 9999px;
     color: var(--color-ink-2);
     background-color: var(--color-paper-raised);
@@ -94,7 +122,7 @@
   .rb-ctx-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
   .rb-ctx-eyebrow { color: var(--color-ink-3); }
   .rb-ctx-title { min-width: 0; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rb-ctx-title[data-empty="true"] { color: var(--color-ink-3); font-weight: 400; }
+  .rb-ctx-title[data-empty="true"] { color: var(--color-ink-3); }
   .rb-ctx-chevron { width: var(--icon-sm); height: var(--icon-sm); }
 
   /* the switcher: a floating surface, so the one shadow and the float radius */
@@ -174,9 +202,13 @@
   .rb-gen[data-state="on"] .rb-gen-icon { color: var(--color-ink); }
   .rb-gen-label { color: var(--color-ink-2); }
   .rb-gen[data-state="on"] .rb-gen-label { color: var(--color-ink); }
+  .rb-gen[data-state="disabled"] .rb-gen-icon,
+  .rb-gen[data-state="disabled"] .rb-gen-label { color: var(--color-ink-3); }
 
   /* ═══ Intake: Review ══════════════════════════════════════════════════ */
-  .rb-review-head { background-color: var(--color-paper-raised); border-bottom: 1px solid transparent; }
+  /* the section header was a lighter strip (#44403c) on its #292524 card; on
+     tokens both would be the raised paper, so the header takes the hover wash */
+  .rb-review-head { background-color: var(--color-hover); border-bottom: 1px solid transparent; }
   .rb-review-head[data-open="true"] { border-bottom-color: var(--color-rule); }
 
   /* ═══ Summary (ProjectSummaryView) ════════════════════════════════════
@@ -228,19 +260,33 @@
      hues the chrome does not carry (R08). */
   .rb-employment,
   .rb-role:not(select) { background-color: transparent; color: var(--color-ink-2); border: 1px solid var(--color-rule); }
+  /* (0,2,0), so it outranks the kit's `.ui-input { width: 100% }` whatever
+     order the two sheets load in (R1 finding 3). */
+  .ui-input.rb-role { width: auto; }
 
   /* the two date cells: a date, or empty */
   .rb-team-date[data-empty="true"] { color: var(--color-ink-3); }
 
   /* the toolbar's filter / sort / group / saved-views controls light up when
      set: the ink rises from the second to the first */
-  .rb-tool-toggle,
-  .rb-saved-views { color: var(--color-ink-2); }
+  /* Two of the three toggles are `.ui-input` selects, and `.ui-input` sets
+     its own colour at (0,1,0). This sheet can load before index.css (it did,
+     in dev), so equal specificity lost silently: a chosen sort painted
+     nothing (R1 finding 2). Every rule here is (0,2,0) or more. */
+  .rb-tool-toggle.rb-tool-toggle,
+  .rb-saved-views.rb-saved-views { color: var(--color-ink-2); }
   .rb-tool-toggle[data-active="true"],
   .rb-saved-views[data-active="true"] { color: var(--color-ink); }
+  .ui-input.rb-tool-toggle { width: auto; }
+  .ui-input.rb-tool-toggle[data-active="true"] { color: var(--color-ink); }
 
   /* the member picker's rows: rest / hover / checked (checked wins over hover;
      the kit Row's selected treatment) */
+  /* Inside the kit Dialog the body is the scroll container (R1 finding 5):
+     the picker cancels the body's padding so its rows keep their own 16px
+     edge, and the search row sticks to the top instead of scrolling away. */
+  .rb-picker { margin: -16px -24px; }
+  .rb-picker-search { position: sticky; top: -16px; z-index: 1; background-color: var(--color-paper-raised); }
   .rb-picker-row { background-color: transparent; border-bottom: 1px solid var(--color-rule); }
   .rb-picker-row:hover { background-color: var(--color-hover); }
   .rb-picker-row[data-checked="true"],
