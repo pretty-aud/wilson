@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Check, X, Loader2, FolderOpen } from 'lucide-react';
+import { Check, ChevronDown, FolderOpen } from 'lucide-react';
+import { Dialog, Tabs, Button, Select } from '../../../ui';
 import { correctGeometryIconOrder } from '../parser';
 import { deriveDeckTitle, exportHistory } from '../export';
 
@@ -197,213 +198,184 @@ ${contentBody}
   };
   
   if (!isOpen) return null;
-  
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-stone-800 border border-stone-600 rounded-control w-[500px] max-h-[80vh] flex flex-col shadow-xl">
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600">
-          <span className="font-semibold text-orange-400 uppercase text-label">History Import/Export</span>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control">
-            <X className="w-4 h-4 text-stone-400" />
-          </button>
-        </div>
-        
-        <div className="p-4">
-          <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => setMode('export')}
-              className={`flex-1 py-2 px-3 rounded-control text-body transition-colors ${mode === 'export' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
-            >
-              Export
-            </button>
-            <button
-              onClick={() => setMode('import')}
-              className={`flex-1 py-2 px-3 rounded-control text-body transition-colors ${mode === 'import' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:bg-stone-600'}`}
-            >
-              Import
-            </button>
-          </div>
-          
-          {mode === 'export' ? (
-            <div className="space-y-3">
-              <p className="text-body text-stone-400">
-                Export all {history.length} page(s) as a DECKOUTLINE markdown file.
-              </p>
 
-              {/* Project Name */}
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-label text-stone-500 uppercase font-semibold">Project Name</span>
-                </div>
-                <div className="flex items-center gap-0 bg-stone-900 border border-stone-600 rounded-control overflow-hidden">
-                  <input
-                    type="text"
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 bg-transparent text-dense text-orange-400"
-                    placeholder="Deck"
-                    spellCheck={false}
-                  />
-                  <span className="px-2 py-1.5 text-caption text-stone-500 bg-stone-800 border-l border-stone-600 flex-shrink-0">_DECKOUTLINE.md</span>
-                </div>
-              </div>
-
-              {/* Export Folder — above checkboxes */}
-              <div className="border-t border-stone-600 pt-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-label text-stone-500 uppercase font-semibold flex-shrink-0">Export Folder</span>
-                  {exportFolderPath && (
-                    <button
-                      onClick={onClearExportFolder}
-                      className="text-dense text-stone-600 hover:text-red-400 transition-colors ml-auto"
-                      title="Reset to browser downloads"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div
-                    className="flex-1 px-2.5 py-1.5 bg-stone-900 border border-stone-600 rounded-control text-dense font-mono truncate"
-                    style={{ color: exportFolderPath ? '#f4a261' : '#78716c' }}
-                    title={exportFolderPath || 'Browser downloads folder'}
-                  >
-                    {exportFolderPath || 'Browser downloads folder (default)'}
-                  </div>
-                  {window.showDirectoryPicker && (
-                    <button
-                      onClick={onPickExportFolder}
-                      className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 border border-stone-600 rounded-control text-dense text-stone-300 transition-colors flex-shrink-0 flex items-center gap-1.5"
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      Browse
-                    </button>
-                  )}
-                </div>
-                {exportDirHandle && (
-                  <p className="text-dense text-stone-500 mt-1">Files will be saved directly to this folder.</p>
-                )}
-                {exportFolderPath && !exportDirHandle && (
-                  <p className="text-dense text-amber-600 mt-1">Folder access expired. Click Browse to re-select.</p>
-                )}
-              </div>
-
-              {/* Checkboxes Section — above button */}
-              <div className="space-y-2 border-t border-stone-600 pt-3">
-                {/* VIS Export Checkbox */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIncludeVisExport(!includeVisExport)}
-                    className={`w-4 h-4 rounded-control border flex items-center justify-center transition-colors ${includeVisExport ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
-                  >
-                    {includeVisExport && <Check className="w-3 h-3 text-orange-400" />}
-                  </button>
-                  <span className="text-dense text-stone-400">Include theme colors & deck visual description</span>
-                </div>
-
-                {/* Image Prompt Export Checkbox */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setEnableImgPromptExport(!enableImgPromptExport)}
-                    className={`w-4 h-4 rounded-control border flex items-center justify-center transition-colors ${enableImgPromptExport ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
-                  >
-                    {enableImgPromptExport && <Check className="w-3 h-3 text-orange-400" />}
-                  </button>
-                  <span className="text-dense text-stone-400">Generate Image Prompts</span>
-                </div>
-
-                {/* Export Visual Assets Checkbox — only visible when placement is active */}
-                {hasPlacedAssets && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setIncludeVisAssets(!includeVisAssets)}
-                      className={`w-4 h-4 rounded-control border flex items-center justify-center transition-colors ${includeVisAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
-                    >
-                      {includeVisAssets && <Check className="w-3 h-3 text-orange-400" />}
-                    </button>
-                    <span className="text-dense text-stone-400">Export Placed Visual Assets</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Model Dropdown — visible only when image prompts enabled */}
-              {enableImgPromptExport && (
-                <div className="px-6">
-                  <label className="block text-label text-stone-500 mb-1 uppercase">Image Generation Model</label>
-                  <select
-                    value={imgPromptModel}
-                    onChange={(e) => setImgPromptModel(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-stone-900 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 cursor-pointer"
-                  >
-                    <option value="midjourney">Midjourney</option>
-                    <option value="flux">Flux</option>
-                    <option value="nanobanana">Nano Banana</option>
-                    <option value="chatgpt">Chat GPT</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Error message */}
-              {imgPromptError && (
-                <p className="text-dense text-red-400 px-1">{imgPromptError}</p>
-              )}
-
-              {/* Export Button — below checkboxes and dropdown */}
-              <button
-                onClick={handleExport}
-                disabled={history.length === 0 || isGeneratingImgPrompts}
-                className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-control font-semibold text-white text-body flex items-center justify-center gap-2"
-              >
-                {isGeneratingImgPrompts ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Generating Image Prompts...
-                  </>
-                ) : enableImgPromptExport ? (
-                  'Download Outline & Image Prompts'
-                ) : (
-                  includeVisExport ? 'Download VIS_DECKOUTLINE.md' : 'Download DECKOUTLINE.md'
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-body text-stone-400">
-                Import a DECKOUTLINE markdown file to restore history.
-              </p>
-              <label className="block w-full py-2 px-4 bg-stone-700 hover:bg-stone-600 rounded-control text-stone-300 text-body text-center cursor-pointer border border-dashed border-stone-500">
-                Choose DECKOUTLINE.md file
-                <input type="file" className="hidden" accept=".md,.txt" onChange={handleFileUpload} />
-              </label>
-              {importText && (
-                <>
-                  <textarea
-                    value={importText}
-                    onChange={(e) => setImportText(e.target.value)}
-                    className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-control text-stone-300 text-dense resize-none"
-                    placeholder="Or paste DECKOUTLINE content here..."
-                  />
-                  <button
-                    onClick={handleImport}
-                    className="w-full py-2 px-4 bg-orange-500 hover:bg-orange-600 rounded-control font-semibold text-white text-body"
-                  >
-                    Import to History
-                  </button>
-                </>
-              )}
-              {!importText && (
-                <textarea
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  className="w-full h-40 p-2 bg-stone-900 border border-stone-600 rounded-control text-stone-300 text-dense resize-none"
-                  placeholder="Or paste DECKOUTLINE content here..."
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+  // A checkbox row: A1's `.dog-check` (kit request A1-KR-4 — the kit has no
+  // Checkbox), one size across the tool (review D26 counted two). The label
+  // stays a plain span: it was not clickable before, and making it so is a
+  // new target (C1).
+  const checkRow = (checked, onToggle, label) => (
+    <div className="dog-history-check">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="dog-check" data-checked={checked} role="checkbox" aria-checked={checked} aria-label={label}
+      >
+        {checked && <Check className="dog-check-glyph" aria-hidden="true" />}
+      </button>
+      <span className="dog-history-check-label">{label}</span>
     </div>
+  );
+
+  // The primary action of each mode sits in the Dialog's footer: the same
+  // control, the same conditions, the same handler — the kit's header /
+  // body / footer contract instead of a full-width bar at the foot of the
+  // body.
+  const footer = mode === 'export' ? (
+    <Button
+      variant="primary"
+      onClick={handleExport}
+      disabled={history.length === 0}
+      loading={isGeneratingImgPrompts}
+      loadingLabel="Generating image prompts..."
+    >
+      {enableImgPromptExport
+        ? 'Download outline & image prompts'
+        : (includeVisExport ? 'Download VIS_DECKOUTLINE.md' : 'Download DECKOUTLINE.md')}
+    </Button>
+  ) : (importText ? (
+    <Button variant="primary" onClick={handleImport}>
+      Import to history
+    </Button>
+  ) : null);
+
+  return (
+    <Dialog
+      title="History import/export"
+      onClose={onClose}
+      width="form"
+      footer={footer}
+      /* The image-prompt failure reads in the footer, beside the button that
+         failed (review D31: a bare red paragraph above it). */
+      error={mode === 'export' ? imgPromptError : null}
+      className="dog-history-dialog"
+    >
+      {/* Export / Import — the kit's Tabs (review D21: the active mode was a
+          white-on-orange-500 fill, C6). */}
+      <Tabs
+        items={[{ id: 'export', label: 'Export' }, { id: 'import', label: 'Import' }]}
+        value={mode}
+        onChange={setMode}
+        label="History mode"
+        panelId="dog-history-panel"
+        className="dog-history-modes"
+      />
+
+      <div id="dog-history-panel" role="tabpanel" className="dog-history-panel">
+        {mode === 'export' ? (
+          <>
+            <p className="dog-history-lede">
+              Export all {history.length} page(s) as a DECKOUTLINE markdown file.
+            </p>
+
+            {/* Project Name */}
+            <div className="dog-history-group">
+              <label className="ui-field-label dog-history-label" htmlFor="dog-history-name">Project Name</label>
+              <div className="dog-history-name">
+                <input
+                  id="dog-history-name"
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className="ui-input dog-history-name-input" data-size="md" data-surface="dark"
+                  placeholder="Deck"
+                  spellCheck={false}
+                />
+                <span className="dog-history-suffix">_DECKOUTLINE.md</span>
+              </div>
+            </div>
+
+            {/* Export Folder — above checkboxes */}
+            <div className="dog-history-group dog-history-rule">
+              <div className="dog-history-label-row">
+                <span className="ui-field-label">Export Folder</span>
+                {exportFolderPath && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onClearExportFolder}
+                    title="Reset to browser downloads"
+                    className="dog-history-reset"
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
+              <div className="dog-history-folder">
+                <div
+                  className="dog-history-path"
+                  data-set={exportFolderPath ? 'true' : 'false'}
+                  title={exportFolderPath || 'Browser downloads folder'}
+                >
+                  {exportFolderPath || 'Browser downloads folder (default)'}
+                </div>
+                {window.showDirectoryPicker && (
+                  <Button variant="secondary" Icon={FolderOpen} onClick={onPickExportFolder}>
+                    Browse
+                  </Button>
+                )}
+              </div>
+              {exportDirHandle && (
+                <p className="ui-field-hint dog-history-note">Files will be saved directly to this folder.</p>
+              )}
+              {exportFolderPath && !exportDirHandle && (
+                <p className="dog-history-note" data-tone="warning">Folder access expired. Click Browse to re-select.</p>
+              )}
+            </div>
+
+            {/* Checkboxes Section — above button */}
+            <div className="dog-history-group dog-history-rule dog-history-checks">
+              {checkRow(includeVisExport, () => setIncludeVisExport(!includeVisExport), 'Include theme colors & deck visual description')}
+              {checkRow(enableImgPromptExport, () => setEnableImgPromptExport(!enableImgPromptExport), 'Generate Image Prompts')}
+              {/* Export Visual Assets Checkbox — only visible when placement is active */}
+              {hasPlacedAssets && checkRow(includeVisAssets, () => setIncludeVisAssets(!includeVisAssets), 'Export Placed Visual Assets')}
+            </div>
+
+            {/* Model Dropdown — visible only when image prompts enabled. It
+                sat in a 24px indent no other control had (review D33); it
+                belongs to the checkbox above by proximity now. */}
+            {enableImgPromptExport && (
+              <div className="dog-history-model">
+                <label className="ui-field-label dog-history-label" htmlFor="dog-history-model">Image Generation Model</label>
+                <div className="dog-history-select">
+                  <Select
+                    id="dog-history-model"
+                    value={imgPromptModel}
+                    onChange={setImgPromptModel}
+                    options={[
+                      { value: 'midjourney', label: 'Midjourney' },
+                      { value: 'flux', label: 'Flux' },
+                      { value: 'nanobanana', label: 'Nano Banana' },
+                      { value: 'chatgpt', label: 'Chat GPT' },
+                    ]}
+                    className="dog-select"
+                  />
+                  <ChevronDown className="dog-select-chevron" aria-hidden="true" />
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="dog-history-lede">
+              Import a DECKOUTLINE markdown file to restore history.
+            </p>
+            {/* The file picker wears the kit's secondary Button contract on
+                its <label>, as A1's upload control does. */}
+            <label className="ui-btn dog-history-upload" data-variant="secondary" data-size="md" data-surface="dark">
+              Choose DECKOUTLINE.md file
+              <input type="file" className="hidden" accept=".md,.txt" onChange={handleFileUpload} />
+            </label>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              className="ui-input dog-history-paste" data-surface="dark"
+              placeholder="Or paste DECKOUTLINE content here..."
+              aria-label="DECKOUTLINE content"
+            />
+          </>
+        )}
+      </div>
+    </Dialog>
   );
 };
 

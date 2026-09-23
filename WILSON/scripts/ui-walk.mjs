@@ -216,11 +216,11 @@ const KNOWN = {
      screen and the element's own quoted text, generated from both walks.
      O.T.T.E.R.'s "+ New", "All" and its count repeat on every one of its
      views. (D.O.G.'s step badges "1" / "2" were here on every D.O.G. screen;
-     A1 took the fill away and deleted the lines, 2026-09-23.) The fix
+     A1 took the fill away and deleted the lines, 2026-09-23; History
+     import/export's "Export" mode went with A2's kit Tabs.) The fix
      is the rule, not the ink (§3.2, Q16): a filled PRIMARY takes
      signal-fill with white, a selected TAB or CHIP loses the fill. */
   c6: [
-    { key: 'dog-history', text: '"Export"' },
     { key: 'otter', text: '"1"' },
     { key: 'otter', text: '"All"' },
     { key: 'otter', text: '"New Course"' },
@@ -324,11 +324,10 @@ const KNOWN = {
      three window controls, seen only under the quit stub. `shell-nav` opens
      the strip over /dog, so its four were D.O.G.'s — A1 named them and
      deleted the lines (2026-09-23), as it did the page's share of the
-     dog-history and dog-settings counts. */
+     dog-history and dog-settings counts; A2 put History import/export on
+     the kit's Dialog, Tabs and named checkboxes, and the Settings lock on
+     the kit's Switch, and deleted the last four (2026-09-23). */
   anon: [
-    { key: 'dog-history', text: 'lucide-x', n: 1 },
-    { key: 'dog-history', text: 'no-icon', n: 2 },
-    { key: 'dog-settings', text: 'no-icon', n: 1 },
     { key: 'otter-quiz', text: 'lucide-chevron-down', n: 1 },
     { key: 'otter-search', text: 'lucide-x', n: 1 },
     { key: 'otter-settings', text: 'lucide-x', n: 1 },

@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    D.O.G. — the tool's page stylesheet
-   UI overhaul A1, 2026-09-23
+   UI overhaul A1 and A2, 2026-09-23
 
    Two jobs, in the order they were done (the dashboard.css pattern).
 
@@ -17,11 +17,13 @@
    six panel headers — moved onto the kit and the `@theme` tokens. No hex and
    no palette literal is written in that half.
 
-   THE OTHER HALF IS STILL A TRANSCRIPTION. The regenerate bar, the
-   formatting toolbar, the rewrite popover, the Settings slide-out and the
-   Help modal are A2's (plan §5 Wave 3, lane A). Their extracted rules are
-   kept at the bottom of this file exactly as the extraction wrote them —
-   Tailwind's oklch values, written out — for A2 to move onto tokens.
+   THIRD (A2's half, below A1's): the regenerate bar, the formatting
+   toolbar, the rewrite preview, the context menu, History import/export,
+   the duplicate resolver, New project, the Settings slide-out and Help —
+   moved onto the kit (Toolbar, Dialog, Drawer, Menu, Tabs, Switch) and the
+   tokens, one surface per commit. The extraction's transcription that
+   waited here for A2 (15 rule groups, 36 oklch literals) is gone; like
+   A1's half, A2's writes no hex and no palette literal.
 
    🚨 A TIE WITH THE KIT IS A LOSS (A1 review round 1). This sheet loads
    BEFORE src/index.css (the component imports it first), and both put their
@@ -480,8 +482,7 @@
   }
 
   /* The descriptor above the text view (review D27: roman, the Caption
-     step, a measure). The caption UNDER the preview sits inside the C4
-     wrapper and only changed its ink, so the wrapper's geometry cannot move. */
+     step, a measure). The caption UNDER the preview is below. */
   .dog-caption-row {
     padding: 6px 12px;
     border-bottom: 1px solid var(--color-rule);
@@ -490,6 +491,31 @@
     max-width: 60ch;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* 🚨 C4 — THE CAPTION UNDER THE PREVIEW (A2's written decision on review
+     D27). It sits INSIDE the preview's overflow-hidden wrapper, so its box
+     is part of the pinned `wrapper.h` (751 + 30.84 = 781.84 at both sizes).
+     D27 asked for three things:
+       roman, not italic ........ DONE — the line box is the same, the probe
+                                  is green and `wrapper.h` did not move;
+       the Caption step (12px) .. NOT DONE — 12 x 1.4 is 16.8 against the
+                                  Dense step's 18.85, so the wrapper would
+                                  lose 2.05px;
+       a 60ch measure ........... NOT DONE — the sentence is ~115 characters,
+                                  so 60ch wraps it onto a second line and the
+                                  wrapper grows ~19px.
+     The preview's own box would not move either way (root, slide, padding
+     and available width are above and beside it), but the pin holds the
+     wrapper, and C4 says a D.O.G. session measures and does not re-pin in
+     passing. The last two are carried to Audrey: a re-pin of `wrapper.h`
+     with its reason, or the caption as it is. Every length below is the
+     utilities' it replaced (`text-dense px-4 py-1.5`). */
+  .dog-preview-caption {
+    padding: 6px 16px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
     color: var(--color-ink-3);
   }
 
@@ -515,119 +541,588 @@
     background-color: var(--color-paper-recessed);
   }
 
-  /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
-     Everything below is still Tailwind's palette written out as oklch
-     literals, exactly as the state extraction left it. A2 moves it onto the
-     tokens with the surfaces it restyles. */
+  /* ═══ A2'S HALF — ON THE KIT AND THE TOKENS ═════════════════════════════
+     UI overhaul A2, 2026-09-23. Each surface below left the transcription
+     at the bottom of this file in its own commit; nothing here writes a hex
+     or a palette literal. */
 
-  /* Review D3 (A1's): sixteen Settings accordion headers declared
-     `hover:bg-stone-750`, a step Tailwind does not have, so the densest
-     panel in the tool gave no response to the pointer. The hover is the
-     kit's one hover fill laid OVER the resting ground, so it survives A2
-     re-surfacing the slide-out; the resting ground is the extraction's
-     stone-800 and A2's to move. */
-  .dog-acc-head { background-color: oklch(26.8% 0.007 34.298); /* stone-800 */ }
-  @media (hover: hover) {
-    .dog-acc-head:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  /* ── The two toolbars (regenerate bar, formatting toolbar) — the kit's
+        Toolbar. 44px, one baseline, every child the 28px sm control
+        (review D16). Inside a Card the gutter is the card's 12px, not the
+        page's 24px: the tab bar above and the panel header above that both
+        start at 12px, and a toolbar 12px further in would break the column
+        (review D13, four gutters in one panel). Two classes, because the
+        kit's `.ui-toolbar` sets the same property and a tie is a loss. */
+  .ui-toolbar.dog-toolbar { padding: 0 12px; }
+  .dog-toolbar-label {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    /* Was orange-400, the accent as a label ink (review D9). */
+    color: var(--color-ink-2);
   }
 
-  /* The Settings lock switch (the Full Deck switch is now the kit's Switch).
-     `data-on` is "unlocked". */
-  .dog-switch { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
-  .dog-switch[data-on='true'] { background-color: oklch(70.5% 0.213 47.604); /* orange-500 */ }
-  .dog-switch-knob { left: 0.25rem; /* left-1 */ }
-  .dog-switch[data-on='true'] .dog-switch-knob { left: 1.5rem; /* left-6 */ }
+  /* The regenerate bar: the field takes the row, as it always did. */
+  .dog-regen-bar > .ui-toolbar-slot { flex: 1 1 auto; }
+  .ui-input.dog-regen-input { flex: 1 1 0; width: auto; }
+  .dog-regen-layout { position: relative; flex-shrink: 0; }
+  .ui-input.dog-regen-select { width: auto; min-width: 140px; }
+  /* The chevron inside a 28px control is the 14px icon (§3.3). */
+  .dog-regen-layout .dog-select-chevron { width: var(--icon-sm); height: var(--icon-sm); }
+  .dog-regen-go { flex-shrink: 0; }
+  /* `.dog-select` sets `cursor: pointer` in `components`, which outranks
+     `@layer base`'s `:disabled { cursor: not-allowed }` whatever the
+     selectors say — so a disabled layout select (Section 2 in Full Deck
+     mode, this one while a page regenerates) showed a pointer. */
+  .dog-select:disabled { cursor: not-allowed; }
 
-  /* ── Regenerate bar and formatting toolbar (A2's surfaces; extracted
-        here because the extraction is the whole file) ──────────────────── */
-
-  /* `disabled` is exactly "no previous / redo version". */
-  .dog-regen-hist-btn { background-color: oklch(37.4% 0.01 67.558); /* stone-700 */ color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  @media (hover: hover) {
-    .dog-regen-hist-btn:hover:not(:disabled) { background-color: oklch(44.4% 0.011 73.639); /* stone-600 */ }
+  /* The formatting toolbar: the one divider between text history and the
+     three markdown controls. */
+  .dog-toolbar-divider {
+    width: 1px;
+    height: var(--icon-md);
+    flex-shrink: 0;
+    background-color: var(--color-rule);
   }
-  .dog-regen-hist-btn:disabled {
-    background-color: oklch(26.8% 0.007 34.298); /* stone-800 */
-    color: oklch(44.4% 0.011 73.639);            /* stone-600 */
-    cursor: not-allowed;
-  }
 
-  /* `disabled` is exactly `count === 0`. Active after hover, as Tailwind
-     orders `active:` after `hover:`. */
-  .dog-fmt-hist-btn { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  @media (hover: hover) {
-    .dog-fmt-hist-btn:hover:not(:disabled) { background-color: color-mix(in oklab, oklch(70.5% 0.213 47.604) 20%, transparent); /* orange-500/20 */ }
+  /* ── The rewrite preview — a floating surface on the kit's float tokens
+        (review D5: a sixth floating surface with its own orange edge and
+        shadow). The box, its z-order and the anchor arithmetic in the JSX
+        (420 wide, 310 tall, clamped with 428 / 320) are unchanged. ─────── */
+  .dog-rewrite {
+    position: absolute;
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    width: 420px;
+    max-height: 310px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
   }
-  .dog-fmt-hist-btn:active:not(:disabled) { background-color: color-mix(in oklab, oklch(70.5% 0.213 47.604) 30%, transparent); /* orange-500/30 */ }
-  .dog-fmt-hist-btn:disabled { color: oklch(44.4% 0.011 73.639); /* stone-600 */ cursor: not-allowed; }
-
-  /* The rewrite popover's Regenerate icon: spins while loading. Its own
+  .dog-rewrite-part { padding: 8px 12px; }
+  .dog-rewrite-orig {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-rewrite-orig-scroll { margin-top: 4px; max-height: 60px; overflow-y: auto; }
+  .dog-rewrite-new { flex: 1; min-height: 0; overflow-y: auto; }
+  .dog-rewrite-body { margin-top: 4px; }
+  .dog-rewrite-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  /* The rewrite was set in orange-400 and the original in stone-400 (D9):
+     the new text is the one to read, so it takes the ink and the original
+     steps back to ink-2. The Dense step's own leading (was 1.625). */
+  .dog-rewrite-text {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    white-space: pre-wrap;
+    color: var(--color-ink);
+  }
+  .dog-rewrite-text[data-role='original'] { color: var(--color-ink-2); }
+  .dog-rewrite-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-rewrite-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .dog-rewrite-actions > .ui-btn { margin-left: 4px; }
+  /* The Regenerate icon takes its button's ink (the kit's ink-2, its hover
+     and its disabled ink-3) and spins while the rewrite loads. Its own
      keyframes (below the layer): Tailwind emits `spin` only while some
-     utility uses `animate-spin`, the same fragility the header describes. */
-  .dog-rewrite-regen-icon { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
+     utility uses `animate-spin`. Like the kit's spinner it keeps turning
+     under reduced motion: an indeterminate wait has no end state. */
+  .dog-rewrite-regen-icon[data-loading='true'] { animation: dog-spin 1s linear infinite; }
+
+  /* ── History import / export — the kit's Dialog (form, 560) ─────────────
+        Review D5: its own backdrop (black/70), a stone-700 header, 500px.
+        The body keeps its order: the mode tabs, the lede, Project name,
+        Export folder, the options, the model; the mode's one action moved
+        to the Dialog's footer. */
+  .dog-history-modes { margin: -8px 0 16px; border-bottom: 1px solid var(--color-rule); }
+  .dog-history-panel > * + * { margin-top: 16px; }
+  .dog-history-lede {
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-history-label { display: block; margin-bottom: 4px; }
+  .dog-history-rule { padding-top: 16px; border-top: 1px solid var(--color-rule); }
+  .dog-history-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: var(--control-sm);
+    margin-bottom: 4px;
+  }
+  /* Project name: the field and its fixed suffix read as one well. */
+  .dog-history-name { display: flex; align-items: stretch; }
+  .ui-input.dog-history-name-input {
+    flex: 1 1 0;
+    width: auto;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .dog-history-suffix {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 0 8px;
+    border: 1px solid var(--color-rule);
+    border-left: 0;
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+    background-color: var(--color-paper-recessed);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* Export folder: a read-only path beside Browse. A path is data, so a
+     chosen folder is set in the mono; the default is a sentence, so it is
+     not. It was #f4a261 when set and #78716c (3.16:1) when not. */
+  .dog-history-folder { display: flex; align-items: center; gap: 8px; }
+  .dog-history-path {
+    flex: 1;
+    min-width: 0;
+    height: var(--control-md);
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+    font-size: var(--text-dense);
+    color: var(--color-ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dog-history-path[data-set='true'] { font-family: var(--font-mono); color: var(--color-ink); }
+  .dog-history-note { margin-top: 4px; }
+  .dog-history-note[data-tone='warning'] {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-warning);
+  }
+  .dog-history-checks > * + * { margin-top: 8px; }
+  .dog-history-check { display: flex; align-items: center; gap: 8px; }
+  .dog-history-check-label {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* The model belongs to "Generate image prompts" above it: 8px, not the
+     16px between groups (review D33's proximity, without its 24px indent). */
+  .dog-history-panel > .dog-history-model { margin-top: 8px; }
+  .dog-history-select { position: relative; }
+  .ui-btn.dog-history-upload { width: 100%; }
+  .ui-input.dog-history-paste { height: 160px; resize: none; }
+
+  /* ── The duplicate resolver — the kit's Dialog at the workbench width
+        (960; review D5: a hard-coded 894 x 349 box on its own backdrop,
+        and D7: nine inline font sizes). The options stay side by side, one
+        per duplicate, each a button; selecting one is the kit's one
+        selection — the signal edge and tint — and its text brightens a step
+        as it always did (it went from stone to orange; now ink-3 / ink-2 to
+        ink-2 / ink, every step legal where #57534e was 1.99:1). ────────── */
+  .dog-resolver-options { display: flex; gap: 8px; }
+  .dog-resolver-option {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
   @media (hover: hover) {
-    .dog-rewrite-regen-icon:not([data-loading='true']):hover { color: oklch(75% 0.183 55.934); /* orange-400 */ }
+    .dog-resolver-option:not([data-selected='true']):hover {
+      border-color: color-mix(in srgb, var(--color-ink) 28%, transparent);
+    }
   }
-  .dog-rewrite-regen-icon[data-loading='true'] {
-    color: oklch(75% 0.183 55.934); /* orange-400 */
-    animation: dog-spin 1s linear infinite;
+  .dog-resolver-option[data-selected='true'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .dog-resolver-option-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .dog-resolver-option-name {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink-2);
+  }
+  /* The hover-intent countdown label (review D25 asks to drop it with the
+     500ms delay; the delay is an interaction, so both stay, recorded). */
+  .dog-resolver-hold {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-resolver-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+  }
+  .dog-resolver-title,
+  .dog-resolver-sub,
+  .dog-resolver-line {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dog-resolver-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink-2);
+  }
+  .dog-resolver-sub {
+    margin-bottom: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-resolver-copy {
+    display: block;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .dog-resolver-line {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-resolver-option-name,
+  .dog-resolver-title { transition: color var(--duration-state) ease-out; }
+  .dog-resolver-option[data-selected='true'] :is(.dog-resolver-option-name, .dog-resolver-title) { color: var(--color-ink); }
+  .dog-resolver-option[data-selected='true'] :is(.dog-resolver-sub, .dog-resolver-line) { color: var(--color-ink-2); }
+  .dog-resolver-selected {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .dog-resolver-selected > svg {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    flex-shrink: 0;
+    color: var(--color-signal);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-resolver-option,
+    .dog-resolver-option-name,
+    .dog-resolver-title { transition: none; }
   }
 
-  /* ── Settings slide-out (A2's surface) ───────────────────────────────── */
+  /* 🚨 C4 — the resolver's slide preview. COLOUR ONLY: every length that
+     places the pinned 714 x 402 frame (740 wide, 12px padding, a 1px edge,
+     the header row's two steps and 8px under it) is a utility or an inline
+     style on the element and did not change; this block sets no length.
+     The float surface: paper-raised, the hairline, the one shadow, 6px (a
+     radius places nothing). The accent edge and label (D9) go. */
+  .dog-resolver-preview {
+    border-color: var(--color-rule);
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+  }
+  .dog-resolver-preview-label { color: var(--color-ink-2); }
+  .dog-resolver-preview-meta { color: var(--color-ink-3); }
+  .dog-resolver-frame { border-color: var(--color-rule); }
 
-  .dog-settings-tab { background-color: oklch(37.4% 0.01 67.558); /* stone-700 */ color: oklch(70.9% 0.01 56.259); /* stone-400 */ }
+  /* ── New project — the kit's Dialog (form, 560) ──────────────────────────
+        Review D20. The fields wear the kit's Input contract on native
+        controls (the title keeps its autoFocus; the kit Input would add
+        Escape-revert and Enter-blur). */
+  .dog-np-body > * + * { margin-top: 16px; }
+  .dog-np-label { display: block; margin-bottom: 4px; }
+  .ui-input.dog-np-textarea { resize: none; }
+  .dog-np-dates { display: flex; gap: 12px; }
+  .dog-np-dates > * { flex: 1 1 0; min-width: 0; }
+  .ui-input.dog-np-date { color-scheme: dark; }
+  .dog-np-note {
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .ui-btn.dog-np-upload { width: 100%; }
+  .dog-np-files { margin-top: 8px; }
+  .dog-np-files > * + * { margin-top: 4px; }
+  /* A picked file: A1's file chip, full width. */
+  .dog-np-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 2px 0 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+  }
+  .dog-np-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-np-thumb {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    object-fit: cover;
+    border-radius: var(--radius-control);
+  }
+
+  /* ── Settings — the kit's Drawer (its first caller) ─────────────────────
+        🚨 THE WIDTH IS D.O.G.'S, NOT THE KIT'S. The Drawer's widths are the
+        panel tokens (200 / 240 / 300); this panel was 40% of the window and
+        never under 400px, and it holds sixteen prompt editors up to 384px
+        tall, so the kit's widest would be a different panel (C1). Kit
+        request A2-KR-2 (a working-drawer width). Three classes, because
+        `.ui-drawer[data-width="lg"]` is two and a tie is a loss. */
+  .ui-drawer.dog-settings-drawer[data-width] { width: 40%; min-width: 400px; }
+  .dog-settings-drawer .ui-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* A1-KR-3: a header dimmer than the labels under it inverts the order;
+       the six D.O.G. panel headers take ink-2 until the kit settles it. */
+    color: var(--color-ink-2);
+  }
+  /* The tabs and the lock bar stay put while the prompts scroll, as they
+     did: the drawer's body is a column here and only the tab panel scrolls. */
+  .dog-settings-drawer .ui-drawer-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+  .ui-tabs.dog-settings-tabs {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-settings-body { flex: 1; min-height: 0; overflow-y: auto; }
+  .dog-settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .dog-settings-foot-note {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* The lock bar. `data-locked` is the CURRENT tab's lock. Unlocked is the
+     one active state — the signal on the icon only, never under text. */
+  .dog-lock-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
+  .dog-lock-label,
+  .dog-lock-mode {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .dog-lock-label { font-weight: var(--text-label--font-weight); color: var(--color-ink-2); }
+  .dog-lock-mode { font-weight: var(--text-label--font-weight); color: var(--color-ink-3); }
+  .dog-lock-bar[data-locked='true'] .dog-lock-icon,
+  .dog-lock-bar[data-locked='true'] .dog-lock-label { color: var(--color-ink-3); }
+
+  /* The three group titles. */
+  .dog-settings-section {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-settings-section-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  /* The sixteen accordions. Review D3 (A1's): the headers declared a hover
+     step Tailwind does not have; they take the kit's one hover fill, over no
+     resting fill (the stone-800 ground went with the panel's). Review D18:
+     one disclosure idiom — this panel's rotating chevron, which A1 left as
+     the tool's. */
+  .dog-acc { border-bottom: 1px solid var(--color-rule); overflow: hidden; }
+  .dog-acc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
   @media (hover: hover) {
-    .dog-settings-tab:not([data-active='true']):hover { color: oklch(86.9% 0.005 56.366); /* stone-300 */ }
+    .dog-acc-head:hover { background-color: var(--color-hover); }
   }
-  .dog-settings-tab[data-active='true'] {
-    background-color: oklch(21.6% 0.006 56.043); /* stone-900 */
-    color: oklch(75% 0.183 55.934);              /* orange-400 */
-    border-bottom-style: solid;
-    border-bottom-width: 2px;
-    border-color: oklch(70.5% 0.213 47.604);     /* orange-500 */
-    margin-bottom: -0.25rem;                     /* -mb-1 */
+  .dog-acc-text { min-width: 0; }
+  .dog-acc-label {
+    display: block;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    /* Was orange-400, the accent as a label ink (review D9). */
+    color: var(--color-ink-2);
+  }
+  .dog-acc-desc {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-acc-chevron {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    flex-shrink: 0;
+    color: var(--color-ink-3);
+    transition: rotate var(--duration-response) var(--ease-response);
+  }
+  .dog-acc-chevron[data-open='true'] { rotate: 90deg; }
+  .dog-acc-body { padding: 8px 12px 12px; }
+  /* Reset to default is the kit's ghost sm Button; its label lines up with
+     the editor's edge above it, so the button starts one padding (the sm
+     button's 10px) to the left of it and its hover fill runs into the
+     gutter rather than the text stepping in. */
+  .dog-acc-body > .ui-btn.dog-acc-reset { margin-top: 4px; margin-left: -10px; }
+  /* The one read-only schema reads as text you cannot edit: ink-2 and the
+     not-allowed cursor it always had. */
+  .ui-input.dog-acc-textarea[data-readonly='true'] { color: var(--color-ink-2); cursor: not-allowed; }
+
+  /* 🚨 THE LOCK IS THE DISABLED TOKEN, NOT AN OPACITY. The whole tab panel
+     used to go to opacity 50% (§3.1 bans the spelling; the walk measured
+     the result at 1.77:1 on 39 lines). The textareas and Reset buttons are
+     `disabled` and take the kit's disabled ink and cursor; the headers stay
+     live (they still open and close) and their labels step down to ink-3,
+     as they stepped from orange to stone-500 before. */
+  .dog-settings-body[data-locked='true'] .dog-acc-label { color: var(--color-ink-3); }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-acc-head,
+    .dog-acc-chevron { transition: none; }
   }
 
-  /* The lock bar and the body carry the CURRENT tab's lock; each tab's
-     accordions render only while their tab is showing, so the body's lock
-     is the lock every ternary below read. */
-  .dog-lock-label { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  .dog-lock-bar[data-locked='true'] .dog-lock-label { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-  .dog-lock-mode { color: oklch(70.9% 0.01 56.259); /* stone-400 */ }
-  .dog-lock-bar[data-locked='true'] .dog-lock-mode { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-
-  .dog-settings-body[data-locked='true'] { opacity: 50%; }
-
-  .dog-acc-label { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  .dog-settings-body[data-locked='true'] .dog-acc-label { color: oklch(55.3% 0.013 58.071); /* stone-500 */ }
-
-  .dog-acc-chevron[data-open='true'] { rotate: 90deg; /* rotate-90 */ }
-
-  .dog-settings-body[data-locked='true'] .dog-acc-textarea { cursor: not-allowed; }
-
-  .dog-acc-reset { color: oklch(75% 0.183 55.934); /* orange-400 */ }
-  @media (hover: hover) {
-    .dog-acc-reset:hover { color: oklch(83.7% 0.128 66.29); /* orange-300 */ }
+  /* ── Help — the kit's Dialog (reading, 720) ─────────────────────────────
+        The body is two columns that scroll on their own at a fixed height,
+        as before; the Dialog's own body padding and scroll give way to
+        them. Two classes where the kit sets the same property. */
+  .ui-dialog.dog-help { height: 82vh; }
+  .dog-help .ui-dialog-body {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
   }
-  .dog-settings-body[data-locked='true'] .dog-acc-reset {
-    color: oklch(44.4% 0.011 73.639); /* stone-600 */
-    cursor: not-allowed;
+  .dog-help-side {
+    display: flex;
+    flex-direction: column;
+    width: var(--panel-sm);
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 8px 0 0;
+    border-right: 1px solid var(--color-rule);
   }
-
-  /* ── Help modal (A2's surface) ───────────────────────────────────────── */
-
-  .dog-help-nav { color: oklch(70.9% 0.01 56.259); /* stone-400 */ border-left-color: transparent; }
+  .dog-help-list { flex: 1; }
+  .dog-help-nav {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
   @media (hover: hover) {
     .dog-help-nav:not([data-active='true']):hover {
-      background-color: oklch(26.8% 0.007 34.298); /* stone-800 */
-      color: oklch(86.9% 0.005 56.366);            /* stone-300 */
+      background-color: var(--color-hover);
+      color: var(--color-ink);
     }
   }
   .dog-help-nav[data-active='true'] {
-    background-color: oklch(26.8% 0.007 34.298); /* stone-800 */
-    color: oklch(75% 0.183 55.934);              /* orange-400 */
-    font-weight: 600;                            /* font-semibold */
-    border-left-color: oklch(70.5% 0.213 47.604); /* orange-500 */
+    font-weight: 600;
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  /* The build's version string is data: the mono, the Caption step. */
+  .dog-help-version {
+    padding: 8px 12px;
+    border-top: 1px solid var(--color-rule);
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-help-content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 24px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dog-help-nav { transition: none; }
   }
 }
 
