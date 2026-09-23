@@ -22,12 +22,13 @@
 // consumer — stands down while any kit dialog or menu is up, the Bins ones
 // included. binsDialogs.test.jsx pins the identity and the counters.
 
+import { useEffect, useRef } from 'react'
 import { Check, Ban, Circle } from 'lucide-react'
 import { MEDIA_TYPE_META, COLOR_HEX, COLORS } from '../../bins/binMedia'
 import {
   Button, IconButton, Chip as KitChip, Kbd, Menu as KitMenu, Dialog, Field, Input, TextArea,
-  Select as KitSelect, EmptyState, Spinner, Switch, Banner, StatusBadge, overlayOpen,
-  PAPER, PAPER_RAISED, PAPER_RECESSED, INK, INK_2, RULE, SIGNAL, SUCCESS, DANGER, WARNING,
+  Select as KitSelect, EmptyState, Spinner, Loading, Switch, Banner, StatusBadge, overlayOpen,
+  modalDepth, PAPER, PAPER_RAISED, PAPER_RECESSED, INK_2, INK_3, RULE, SIGNAL, SUCCESS, DANGER, WARNING,
 } from '../../../../ui'
 // The Bins surface's own state (tree, table, tiles, pick lists, posters …).
 import './bins.css'
@@ -38,14 +39,19 @@ import './bins.css'
 // on the paper. The two QUIET inks are custom properties with the token as the
 // fallback, because ink-3 and the signal fail on the hover and selection
 // grounds (3.75–4.33:1) and a hovered or selected row lifts them one step —
-// see "the lift" in bins.css. A var() is a string like any colour here, except
-// that nothing may append an alpha to it; binsCss.test.js holds that line.
-const INK_3_LIFTABLE = 'var(--bn-ink-3, var(--color-ink-3))'
-const SIGNAL_INK_LIFTABLE = 'var(--bn-signal-ink, var(--color-signal))'
+// see "the lift" in bins.css. And every ink is a property for "the dim" (review
+// round 1): an offline, locked or missing row takes the disabled ink through
+// them instead of an opacity that took its text to 2.35–3.47:1. A var() is a
+// string like any colour here, except that nothing may append an alpha to it;
+// binsCss.test.js holds that line.
+const INK_PROP = 'var(--bn-ink, var(--color-ink))'
+const INK_2_PROP = 'var(--bn-ink-2, var(--color-ink-2))'
+const INK_3_PROP = 'var(--bn-ink-3, var(--color-ink-3))'
+const SIGNAL_INK_PROP = 'var(--bn-signal-ink, var(--color-signal))'
 export const C = {
   bg: PAPER, panel: PAPER_RAISED, deep: PAPER_RECESSED, line: RULE, faint: RULE,
-  text: INK_2, bright: INK, muted: INK_2, dim: INK_3_LIFTABLE, dimmer: INK_3_LIFTABLE,
-  accent: SIGNAL, accentBorder: SIGNAL, accentText: SIGNAL_INK_LIFTABLE,
+  text: INK_2_PROP, bright: INK_PROP, muted: INK_2_PROP, dim: INK_3_PROP, dimmer: INK_3_PROP,
+  accent: SIGNAL, accentBorder: SIGNAL, accentText: SIGNAL_INK_PROP,
   green: SUCCESS, red: DANGER, amber: WARNING,
 }
 
@@ -55,7 +61,7 @@ export const C = {
 //   was ~28px at 13px; toolbars pass `small` (28px, Dense 13).
 // Toggle → Switch: `checked`, `onChange`, `label` unchanged. Difference: the
 //   track is a real <button role="switch"> (focusable, Space / Enter), 36x20.
-export { Kbd, Field, TextArea, EmptyState, Spinner, Banner, StatusBadge, overlayOpen }
+export { Kbd, Field, TextArea, EmptyState, Spinner, Loading, Banner, StatusBadge, overlayOpen }
 export { Button as Btn, Switch as Toggle }
 
 // ── Adapters ───────────────────────────────────────────────────────────────
@@ -104,22 +110,59 @@ export function Menu({ items, ...props }) {
  *  (the kit's default is off — Q17); the width is one of the kit's four named
  *  widths (confirm 400 / form 560 / reading 720 / workbench 960), and Bins'
  *  own 520 / 640 / 820 / 860 moved onto them in B6; the kit adds focus
- *  management (initial focus, a Tab trap on the topmost dialog, focus
- *  returned on close — F3) that the Bins modal never had. */
+ *  management (initial focus, a Tab trap on the topmost dialog — F3) that the
+ *  Bins modal never had.
+ *
+ *  🚨 C1, WHERE FOCUS ENDS AFTER A CLOSE (review round 1). The kit hands focus
+ *  back to the control that opened the dialog. The Bins keys stand down for a
+ *  focused button (a control's own Space and Enter are the control's), so
+ *  after "click the offline count → Relink → Cancel", Space re-opened Relink
+ *  instead of playing the preview, and Enter re-opened it instead of renaming.
+ *  The Bins modal never moved focus: closed from INSIDE (a click, Enter on a
+ *  footer button) focus fell to the page; closed with Escape it had never left
+ *  the opener. This keeps exactly that: unless the last thing pressed was
+ *  Escape, or another dialog is still open (a question stacked over the add
+ *  dialog hands focus back inside it), the returned focus is let go. */
 export function Modal({ width = 'form', ...props }) {
+  const openerRef = useRef(undefined)
+  if (openerRef.current === undefined) openerRef.current = typeof document === 'undefined' ? null : document.activeElement
+  const lastInputRef = useRef(null)
+  useEffect(() => {
+    const onKey = (e) => { lastInputRef.current = e.key }
+    const onPointer = () => { lastInputRef.current = 'pointer' }
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('pointerdown', onPointer, true)
+      const opener = openerRef.current
+      const byEscape = lastInputRef.current === 'Escape'
+      // After every cleanup of this commit — the kit's focus return included.
+      setTimeout(() => {
+        if (byEscape || modalDepth() > 0) return
+        if (opener && opener !== document.body && document.activeElement === opener) opener.blur()
+      }, 0)
+    }
+  }, [])
   return <Dialog width={width} dismissOnBackdrop {...props} />
 }
 
 // ── Bins-specific data components ──────────────────────────────────────────
 
+// binMedia's two grey hues are the retired stone inks (#a8a29e; #78716c, which
+// fails at 3.61:1 even on its own tint): they take the ladder's inks. Every
+// other hue is the type's own (B33 — Audrey's call; the reviewer's: keep).
+const TAG_INK = { document: INK_2, other: INK_3 }
+
 export function MediaTag({ type, small = false, onClick, title }) {
-  const meta = MEDIA_TYPE_META[type] || MEDIA_TYPE_META.other
+  const key = MEDIA_TYPE_META[type] ? type : 'other'
+  const meta = MEDIA_TYPE_META[key]
   return (
     <span
       onClick={onClick}
       title={title || meta.label}
-      className={`inline-flex items-center rounded-control uppercase ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
-      style={{ color: meta.color, backgroundColor: meta.bg, border: `1px solid ${meta.color}33` }}
+      className={`bn-tag inline-flex items-center rounded-control uppercase ${small ? 'px-1 text-label leading-[14px]' : 'px-1.5 text-label leading-[18px]'} ${onClick ? 'cursor-pointer' : ''}`}
+      style={{ '--tag-hue': TAG_INK[key] || meta.color }}
     >
       {small ? meta.short : meta.label}
     </span>
@@ -163,7 +206,7 @@ export function FlagMark({ flag, circled, size = 12, muted = false }) {
     <span className="bn-flags inline-flex items-center gap-0.5 flex-shrink-0" data-muted={muted ? 'true' : undefined}>
       {flag === 'select' && <Check style={{ ...s, color: C.green }} />}
       {flag === 'reject' && <Ban style={{ ...s, color: C.red }} />}
-      {circled && <Circle style={{ ...s, color: C.accentText }} strokeWidth={2.5} />}
+      {circled && <Circle style={{ ...s, color: C.accent }} strokeWidth={2.5} />}
     </span>
   )
 }

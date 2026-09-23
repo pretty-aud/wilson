@@ -44,7 +44,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
     <Modal title={`Add takes to "${shot?.name || 'Untitled shot'}"`} onClose={onCancel} width="workbench" busy={busy}
       subtitle={`${scene ? `${scene.name || 'Untitled scene'} · ` : ''}${(files || []).length} file${(files || []).length === 1 ? '' : 's'} in the bins · ${rows.length} shown · ${assigned.size} already assigned`}
       footer={<>
-        <Select value={role} className="!w-auto" options={[{ value: 'auto', label: autoLabel }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
+        <Select value={role} size="md" className="!w-auto" options={[{ value: 'auto', label: autoLabel }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
         <span className="flex-1" />
         <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>
         <Btn primary disabled={busy || n === 0} onClick={() => onConfirm([...picked], role === 'auto' ? null : role)}><Check className="w-3 h-3" /> Assign {n || ''} {n === 1 ? 'take' : 'takes'}</Btn>
@@ -52,7 +52,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="relative">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
-          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…" title="Search name, slate, notes and path"
             className="ui-input pl-6 pr-6 w-64" data-size="sm" aria-label="Search files"
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
           {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}

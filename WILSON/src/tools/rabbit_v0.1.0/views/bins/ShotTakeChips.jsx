@@ -23,7 +23,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
   if (!list.length) {
     return (
       <button type="button" onClick={open} title={canWrite ? 'Assign takes from the bins' : 'No takes assigned'}
-        className="inline-flex items-center gap-1 px-1.5 rounded-control text-dense hover:bg-hover transition-colors"
+        className="bn-take-add inline-flex items-center gap-1 px-1.5 rounded-control text-dense hover:bg-hover transition-colors"
         style={{ height, color: C.dimmer, border: `1px dashed ${C.line}` }}>
         {canWrite ? <><Plus style={{ width: 10, height: 10 }} /> takes</> : '—'}
       </button>

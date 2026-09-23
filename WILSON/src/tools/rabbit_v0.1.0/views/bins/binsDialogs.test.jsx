@@ -13,7 +13,8 @@
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { useState } from 'react'
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import { overlayOpen, Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner, C } from './binUi'
 import { overlayOpen as kitOverlayOpen, Dialog, Switch } from '../../../../ui'
 import BinInspector from './BinInspector'
@@ -115,19 +116,20 @@ describe('W9: no native confirm on the Bins tab — the kit Dialog asks', () => 
     }
   })
 
-  it('the Bins keys stand down while "remove more than five?" is up', () => {
-    const src = code('../BinsView.jsx')
-    expect(src).toMatch(/if \(menu \|\| addDlg \|\| deleteDlg \|\| relinkOpen \|\| assignDlg \|\| removeAsk\) return/)
-    expect(src).toMatch(/if \(ids\.length > 5\) \{ setRemoveAsk\(ids\); return \}/)
-  })
+  // The stand-down behind "remove more than five?" is pinned by rendering
+  // BinsView (binsView.test.jsx), not by a regex over its source (round 1).
 
   it('a worked-on batch asks before it is discarded; Escape closes the question, not the batch', () => {
     const onCancel = vi.fn()
     const plan = { items: [{ source_path: 'C:/a.mov', original_name: 'a.mov', display_name: 'a', media_type: 'video', status: 'ok', include: true, size_bytes: 1 }] }
     render(<AddFilesDialog bin={bins[0]} plan={plan} scenes={[scene]} onConfirm={() => {}} onCancel={onCancel} busy={false} progress={null} />)
+    // The first focus is the first field, where Enter does nothing (round 1:
+    // it was the ✕, and Enter closed an untouched batch).
+    expect(document.activeElement.tagName).toBe('SELECT')
     fireEvent.change(screen.getByLabelText('Camera (all)'), { target: { value: 'B' } })
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.getByRole('dialog', { name: 'Discard this batch?' })).toBeTruthy()
+    expect(document.activeElement.textContent).toBe('Keep editing')
     expect(onCancel).not.toHaveBeenCalled()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Discard this batch?' })).toBeNull()
@@ -143,6 +145,84 @@ describe('W9: no native confirm on the Bins tab — the kit Dialog asks', () => 
     render(<AddFilesDialog bin={bins[0]} plan={{ items: [] }} scenes={[scene]} onConfirm={() => {}} onCancel={onCancel} busy={false} progress={null} />)
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('🚨 C1: where focus ends after a Bins dialog closes (review round 1)', () => {
+  // The Bins modal never moved focus; the kit Dialog hands it back to the
+  // opener. binUi's Modal keeps the old outcome: let go after a close from
+  // inside the dialog, kept after Escape, kept inside an outer dialog.
+  const tick = () => act(() => new Promise(r => setTimeout(r, 0)))
+  function Opener({ nested = false }) {
+    const [open, setOpen] = useState(false)
+    const [inner, setInner] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>Open</button>
+        {open && (
+          <Modal title="Outer" onClose={() => setOpen(false)} footer={<Btn onClick={() => setOpen(false)}>Done</Btn>}>
+            <button type="button" onClick={() => setInner(true)}>Ask</button>
+            {nested && inner && (
+              <Modal title="Inner" width="confirm" onClose={() => setInner(false)} footer={<Btn onClick={() => setInner(false)}>Keep</Btn>}>
+                <p>question</p>
+              </Modal>
+            )}
+          </Modal>
+        )}
+      </>
+    )
+  }
+  const open = () => {
+    const opener = screen.getByRole('button', { name: 'Open' })
+    opener.focus()
+    fireEvent.click(opener)
+    return opener
+  }
+
+  it('closed from inside with the pointer: the returned focus is let go, as the Bins modal left it', async () => {
+    render(<Opener />)
+    open()
+    const done = screen.getByRole('button', { name: 'Done' })
+    fireEvent.pointerDown(done)
+    fireEvent.click(done)
+    await tick()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('closed with Enter on a footer button: let go too (the button that had it is gone)', async () => {
+    render(<Opener />)
+    open()
+    const done = screen.getByRole('button', { name: 'Done' })
+    done.focus()
+    fireEvent.keyDown(done, { key: 'Enter' })
+    fireEvent.click(done)
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('closed with Escape: focus is back on the opener, where the Bins modal never moved it from', async () => {
+    render(<Opener />)
+    const opener = open()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await tick()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('an inner question closed with the pointer hands focus back INSIDE the outer dialog', async () => {
+    render(<Opener nested />)
+    open()
+    const ask = screen.getByRole('button', { name: 'Ask' })
+    ask.focus()
+    fireEvent.click(ask)
+    const keep = screen.getByRole('button', { name: 'Keep' })
+    fireEvent.pointerDown(keep)
+    fireEvent.click(keep)
+    await tick()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(document.activeElement).not.toBe(document.body)
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true)
   })
 })
 

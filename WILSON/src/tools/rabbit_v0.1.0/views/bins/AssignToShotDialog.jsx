@@ -45,7 +45,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
     <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width="reading" busy={busy} error={error}
       subtitle={`${totalShots} shot${totalShots === 1 ? '' : 's'} across ${groups.filter(g => g.scene).length} scene${groups.filter(g => g.scene).length === 1 ? '' : 's'}${hiddenOmitted ? ` · ${hiddenOmitted} omitted shot${hiddenOmitted === 1 ? '' : 's'} hidden` : ''}`}
       footer={<>
-        <Select value={role} className="!w-auto" options={[{ value: 'auto', label: 'Automatic — primary if the shot has none, else alt' }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
+        <Select value={role} size="md" className="!w-auto" options={[{ value: 'auto', label: 'Automatic — primary if the shot has none, else alt' }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
         <span className="flex-1" />
         <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>
         <Btn primary disabled={busy || nShots === 0} onClick={() => onConfirm([...picked], role === 'auto' ? null : role)}>
@@ -65,7 +65,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
       <div className="flex items-center gap-2 mb-2">
         <div className="relative w-64 flex-shrink-0">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
-          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shots by name, number, scene or framing…"
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shots…" title="Search shots by name, number, scene or framing"
             className="ui-input pl-6 pr-6" data-size="sm" aria-label="Search shots"
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
           {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
@@ -98,7 +98,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
                     <span className="flex-1 min-w-0 truncate text-dense" style={{ color: C.bright }}>{shot.name || 'Untitled shot'}</span>
                     {shot.framing && <span className="text-label uppercase flex-shrink-0" style={{ color: C.dim }}>{shot.framing}</span>}
                     <StatusBadge status={shot.status || 'not_started'} className="flex-shrink-0" />
-                    <span className="bn-take-count w-36 text-right text-dense tabular-nums flex-shrink-0" data-assigned={t?.ofThese ? 'true' : undefined}>
+                    <span className="bn-take-count w-44 text-right text-dense tabular-nums flex-shrink-0" data-assigned={t?.ofThese ? 'true' : undefined}>
                       {t ? `${t.total} take${t.total === 1 ? '' : 's'}${t.ofThese ? ` · ${allIn ? (nFiles === 1 ? 'already assigned' : 'all of these already') : `${t.ofThese} of these already`}` : ''}` : 'no takes yet'}
                     </span>
                   </label>

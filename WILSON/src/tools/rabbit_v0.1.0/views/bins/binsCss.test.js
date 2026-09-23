@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { C } from './binUi'
-import { INK_2, INK_3, SIGNAL, THEME } from '../../../../ui/tokens'
+import { INK, INK_2, INK_3, SIGNAL, THEME } from '../../../../ui/tokens'
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url))
 const read = (rel) => readFileSync(here(rel), 'utf8')
@@ -213,18 +213,19 @@ describe('the restyle: tokens only, and the lift (B04, B02)', () => {
     expect([...used].filter(t => !(t in THEME))).toEqual([])
   })
 
-  it('binUi\'s C is the kit ladder: the quiet inks lift, everything else is a token', () => {
-    expect(C.dim).toBe('var(--bn-ink-3, var(--color-ink-3))')
-    expect(C.dimmer).toBe(C.dim)
+  it('binUi\'s C is the kit ladder: every ink a liftable / dimmable property, everything else a token', () => {
+    expect(C.bright).toBe('var(--bn-ink, var(--color-ink))')
+    expect([C.text, C.muted]).toEqual(['var(--bn-ink-2, var(--color-ink-2))', 'var(--bn-ink-2, var(--color-ink-2))'])
+    expect([C.dim, C.dimmer]).toEqual(['var(--bn-ink-3, var(--color-ink-3))', 'var(--bn-ink-3, var(--color-ink-3))'])
     expect(C.accentText).toBe('var(--bn-signal-ink, var(--color-signal))')
-    expect([C.text, C.muted]).toEqual([INK_2, INK_2])
     expect(C.accent).toBe(SIGNAL)
-    // The fallbacks are the real tokens, spelled as index.css spells them.
-    expect(THEME['color-ink-3']).toBe(INK_3)
     for (const [k, v] of Object.entries(C)) {
-      if (['dim', 'dimmer', 'accentText'].includes(k)) continue
+      const prop = /^var\(--bn-[a-z0-9-]+, var\(--([a-z0-9-]+)\)\)$/.exec(v)
+      if (prop) { expect(prop[1] in THEME, `C.${k}'s fallback --${prop[1]} is not a token`).toBe(true); continue }
       expect(Object.values(THEME), `C.${k} = ${v} is not a token`).toContain(v)
     }
+    // And the fallbacks resolve to the ladder the plan names.
+    expect([THEME['color-ink'], THEME['color-ink-2'], THEME['color-ink-3']]).toEqual([INK, INK_2, INK_3])
   })
 
   it('🚨 nothing appends an alpha to a C colour (a var() cannot take one)', () => {
