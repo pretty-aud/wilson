@@ -632,6 +632,90 @@
      under reduced motion: an indeterminate wait has no end state. */
   .dog-rewrite-regen-icon[data-loading='true'] { animation: dog-spin 1s linear infinite; }
 
+  /* ── History import / export — the kit's Dialog (form, 560) ─────────────
+        Review D5: its own backdrop (black/70), a stone-700 header, 500px.
+        The body keeps its order: the mode tabs, the lede, Project name,
+        Export folder, the options, the model; the mode's one action moved
+        to the Dialog's footer. */
+  .dog-history-modes { margin: -8px 0 16px; border-bottom: 1px solid var(--color-rule); }
+  .dog-history-panel > * + * { margin-top: 16px; }
+  .dog-history-lede {
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-history-label { display: block; margin-bottom: 4px; }
+  .dog-history-rule { padding-top: 16px; border-top: 1px solid var(--color-rule); }
+  .dog-history-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: var(--control-sm);
+    margin-bottom: 4px;
+  }
+  /* Project name: the field and its fixed suffix read as one well. */
+  .dog-history-name { display: flex; align-items: stretch; }
+  .ui-input.dog-history-name-input {
+    flex: 1 1 0;
+    width: auto;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .dog-history-suffix {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 0 8px;
+    border: 1px solid var(--color-rule);
+    border-left: 0;
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+    background-color: var(--color-paper-recessed);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* Export folder: a read-only path beside Browse. A path is data, so a
+     chosen folder is set in the mono; the default is a sentence, so it is
+     not. It was #f4a261 when set and #78716c (3.16:1) when not. */
+  .dog-history-folder { display: flex; align-items: center; gap: 8px; }
+  .dog-history-path {
+    flex: 1;
+    min-width: 0;
+    height: var(--control-md);
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-recessed);
+    font-size: var(--text-dense);
+    color: var(--color-ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dog-history-path[data-set='true'] { font-family: var(--font-mono); color: var(--color-ink); }
+  .dog-history-note { margin-top: 4px; }
+  .dog-history-note[data-tone='warning'] {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-warning);
+  }
+  .dog-history-checks > * + * { margin-top: 8px; }
+  .dog-history-check { display: flex; align-items: center; gap: 8px; }
+  .dog-history-check-label {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* The model belongs to "Generate image prompts" above it: 8px, not the
+     16px between groups (review D33's proximity, without its 24px indent). */
+  .dog-history-panel > .dog-history-model { margin-top: 8px; }
+  .dog-history-select { position: relative; }
+  .ui-btn.dog-history-upload { width: 100%; }
+  .ui-input.dog-history-paste { height: 160px; resize: none; }
+
   /* ═══ A2'S SURFACES — THE EXTRACTION'S TRANSCRIPTION, UNCHANGED ═════════
      Everything below is still Tailwind's palette written out as oklch
      literals, exactly as the state extraction left it. A2 moves it onto the
