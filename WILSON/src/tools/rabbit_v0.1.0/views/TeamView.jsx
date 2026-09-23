@@ -31,6 +31,8 @@ import { useWorkspaceMembers } from '../../../components/TeamMembers/useWorkspac
 import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import '../rabbitShell.css'
+import { Dialog } from '../../../ui/Dialog'
+import { Button } from '../../../ui/Button'
 
 // ROLE_COLORS moved to `.rb-role[data-role]` in rabbitShell.css (B1 state extraction).
 
@@ -544,24 +546,26 @@ export default function TeamView() {
 
       {/* ── Save view dialog ── */}
       {showSaveDialog && (
-        <>
-          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 rounded-control overflow-hidden" style={{ transform: 'translate(-50%, -50%)', backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)', padding: 24, minWidth: 300 }}>
-            <div className="text-label uppercase mb-3" style={{ color: 'var(--color-ink)' }}>Save current view</div>
-            <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              placeholder="View name…"
-              className="ui-input mb-3" data-size="md" data-surface="dark" />
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowSaveDialog(false)}
-                className="px-3 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
-                style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>Cancel</button>
-              <button type="button" onClick={saveCurrentView}
-                className="px-3 py-1.5 text-dense rounded-control transition-colors"
-                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>Save</button>
-            </div>
-          </div>
-        </>
+        /* The kit's Dialog at its confirm width (R11). The backdrop still
+           closes it, Enter in the name field still saves; the title reads
+           as a title (Dialog's H2, sentence case), not a Label-step shout. */
+        <Dialog
+          title="Save current view"
+          width="confirm"
+          onClose={() => setShowSaveDialog(false)}
+          dismissOnBackdrop
+          footer={(
+            <>
+              <Button onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+              <Button variant="primary" onClick={saveCurrentView}>Save</Button>
+            </>
+          )}
+        >
+          <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
+            placeholder="View name…"
+            className="ui-input" data-size="md" data-surface="dark" />
+        </Dialog>
       )}
 
       {/* ── Member picker modal ── */}
@@ -874,34 +878,28 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
     }
   }
 
+  // The kit's Dialog (R11; Q17). Search, list, selection and confirm are
+  // unchanged; the backdrop click still closes it (dismissOnBackdrop). The
+  // title reads as a title — sentence case at the Dialog's H2, not a
+  // Label-step shout — and the count sits in the footer with the actions.
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-50"
-        style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
-        onClick={onClose}
-      />
-      {/* Modal */}
-      <div
-        className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden flex flex-col"
-        style={{
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: 'var(--color-paper-raised)',
-          border: '1px solid var(--color-rule)',
-          maxHeight: '70vh',
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--color-rule)' }}>
-          <span className="text-label uppercase" style={{ color: 'var(--color-ink)' }}>
-            Assign Team Members
+    <Dialog
+      title="Assign team members"
+      onClose={onClose}
+      dismissOnBackdrop
+      busy={assigning}
+      footer={(
+        <>
+          <span className="text-caption font-mono tabular-nums" style={{ color: 'var(--color-ink-2)', marginRight: 'auto' }}>
+            {selected.size} selected
           </span>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-hover rounded-control" style={{ color: 'var(--color-ink-2)' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={selected.size === 0 || assigning}>
+            {assigning ? 'Adding…' : `Add ${selected.size || ''} member${selected.size === 1 ? '' : 's'}`}
+          </Button>
+        </>
+      )}
+    >
         {/* Search */}
         <div className="px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
           <input
@@ -966,40 +964,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
           )}
         </div>
 
-        {/* Footer with confirm button */}
-        <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ borderTop: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper)' }}
-        >
-          <span className="text-caption font-mono tabular-nums" style={{ color: 'var(--color-ink-2)' }}>
-            {selected.size} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-hover"
-              style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={selected.size === 0 || assigning}
-              className="px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                color: 'var(--color-on-fill)',
-                backgroundColor: 'var(--color-signal-fill)',
-                border: '1px solid var(--color-signal-fill)',
-              }}
-            >
-              {assigning ? 'Adding...' : `Add ${selected.size || ''} Member${selected.size === 1 ? '' : 's'}`}
-            </button>
-          </div>
-        </div>
-      </div>
-    </>
+    </Dialog>
   )
 }
 

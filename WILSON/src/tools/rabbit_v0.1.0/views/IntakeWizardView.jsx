@@ -16,12 +16,13 @@
 
 import { useState, useCallback, useRef } from 'react'
 import {
-  Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon,
+  Folder, Plus, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import '../rabbitShell.css'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Button } from '../../../ui/Button'
+import { Dialog } from '../../../ui/Dialog'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { PERSONA_LIST } from '../intake/personas'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
@@ -475,16 +476,26 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
 
       {/* ── Confirmation dialog ── */}
       {showConfirm && (
-        <>
-          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowConfirm(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden"
-            style={{ backgroundColor: 'var(--color-paper-raised)', border: '2px solid var(--color-signal)', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
-            onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
-              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-ink)' }} />
-              <span className="text-dense font-semibold" style={{ color: 'var(--color-ink)' }}>Confirm project creation</span>
-            </div>
-            <div className="px-5 py-4 max-h-[60vh] overflow-auto">
+        /* The kit's Dialog (R11; Q17 ruled its Escape, stack and busy lock
+           in). The backdrop click still closes it, as it always did
+           (dismissOnBackdrop), and the busy lock holds only while the
+           project is being created. The hand-rolled 2px signal frame, the
+           one-off shadow and the vh cap go. */
+        <Dialog
+          title="Confirm project creation"
+          onClose={() => setShowConfirm(false)}
+          dismissOnBackdrop
+          busy={creating}
+          footer={(
+            <>
+              <Button onClick={() => setShowConfirm(false)}>Go back</Button>
+              <Button variant="primary" onClick={handleConfirmCreate} disabled={creating}>
+                {creating ? 'Creating…' : 'Confirm and create'}
+              </Button>
+            </>
+          )}
+        >
+            <div>
               <p className="text-dense leading-relaxed mb-4" style={{ color: 'var(--color-ink-2)' }}>
                 Please verify the details below are correct. This will create a new project in your workspace.
               </p>
@@ -536,20 +547,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                 )}
               </div>
             </div>
-            <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid var(--color-rule)' }}>
-              <button type="button" onClick={() => setShowConfirm(false)}
-                className="px-4 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
-                style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}>
-                Go back
-              </button>
-              <button type="button" onClick={handleConfirmCreate} disabled={creating}
-                className="px-5 py-1.5 text-dense font-semibold rounded-control transition-colors disabled:opacity-40"
-                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}>
-                {creating ? 'Creating...' : 'Confirm & Create'}
-              </button>
-            </div>
-          </div>
-        </>
+        </Dialog>
       )}
     </div>
   )
