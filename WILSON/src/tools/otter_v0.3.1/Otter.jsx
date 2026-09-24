@@ -4078,13 +4078,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     </div>
                   )}
                   {/* pr-8. The trigger is absolutely positioned at right-2 and
-                      is 30px wide since the PHASE 5 target-size fix, so its
-                      left edge sits 8+30 = 38px from the CARD's padding edge —
-                      but this h3 is a block child of a `p-4` card, so its
-                      content box already starts 16px in. It therefore needs
-                      only 38-16 = 22px of right padding to clear the trigger.
-                      pr-6 (24px) still cleared it, by 2px; pr-8 (32px) restores
-                      the ~10px breathing gap the old 22px trigger had. */}
+                      is the kit IconButton's md square since A3, 36px, so its
+                      left edge sits 8+36 = 44px from the CARD's edge — but
+                      this h3 is a block child of a `p-4` card, so its content
+                      box already starts 16px in. It therefore needs 44-16 =
+                      28px of right padding to clear the trigger; pr-8 (32px)
+                      clears it by 4px. (30px before A3, 22px before PHASE 5.) */}
                   <h3 className="otter-course-card-title font-semibold text-h1 leading-tight pr-8 transition-colors mb-2">{sw.name}</h3>
                   {cloudMode && (
                     <div className="flex items-center gap-1.5 flex-wrap mb-2">

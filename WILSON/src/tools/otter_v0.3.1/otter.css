@@ -229,26 +229,6 @@
     background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
   }
 
-  /* ═══ EXTRACTION — THE ROW MENU'S TRIGGER (components/CourseRowMenu.jsx)
-     stone-400 at rest (PHASE 5's measured 4.08:1 on a hovered stone-700 row;
-     it had been stone-600 at 1.35:1), orange-400 on a stone-700 fill on hover.
-     Its size is not a state (compact or not) and stays a utility.
-
-     🚨 THE OPEN BRANCH WAS DEAD. The ternary added text-orange-400 while the
-     menu is open, but text-stone-400 sat on the same element and Tailwind
-     emits it later, so it won: measured before this commit, an open trigger
-     renders stone-400 on no fill, exactly its rest state. `data-open` names
-     the branch; no rule gives it a look here, because none ever rendered.
-     shareDiscoverability.test.js reads this rule for the contrast floor and
-     for concealment, since the class list no longer carries either. */
-  .otter-row-menu-trigger {
-    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
-  }
-  .otter-row-menu-trigger:hover {
-    color: oklch(75% 0.183 55.934);                         /* hover:text-orange-400 */
-    background-color: oklch(37.4% 0.01 67.558);             /* hover:bg-stone-700 */
-  }
-
   /* ═══════════════════════════════════════════════════════════════════════
      THE RESTYLE (A3). Tokens and the kit only: no hex, no palette literal.
      ═══════════════════════════════════════════════════════════════════════ */
@@ -360,6 +340,19 @@
   .otter-course-row[data-active='true'] .otter-course-name { font-weight: 600; }
   .otter-course-row[data-openable='false'] .otter-course-open { color: var(--color-ink-3); }
   .otter-course-menu { display: inline-flex; flex-shrink: 0; }
+
+  /* ═══ THE ROW MENU (CourseRowMenu.jsx) — the kit's IconButton and Menu ══
+     The trigger is the kit's IconButton (ink-2, sm 28 in the sidebar, md 36
+     elsewhere). 🚨 Its OPEN branch was dead before A3 (text-stone-400 won
+     the utility order over the open ternary's orange); it now holds the
+     kit's hover while its menu is open, which is what the ternary meant.
+     Two classes, because a one-class rule here ties the kit's and loses.
+     The popup wears the kit Menu's classes on this component's own element
+     (the roles and the placement are its own). */
+  .ui-iconbtn.otter-row-menu-trigger[data-open='true'] {
+    color: var(--color-ink);
+    background-color: var(--color-hover);
+  }
 
   .otter-subjects { padding-bottom: 4px; }
   .otter-subject-row {
