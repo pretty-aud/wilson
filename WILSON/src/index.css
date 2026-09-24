@@ -990,7 +990,11 @@ select option {
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
   }
-  .ui-chip:hover:not(:disabled) { background-color: var(--color-hover); color: var(--color-ink); }
+  /* A3-KR-6 (2026-09-24): the hover is for a chip that is NOT active. At
+     (0,3,0) it out-ranked the active rule's (0,2,0), so the active chip lost
+     its tint under the pointer (#3d2315 to #292624 — A3 review round 2), the
+     defect the Table's selected row fixed by doubling its attribute. */
+  .ui-chip:hover:not(:disabled):not([data-active="true"]) { background-color: var(--color-hover); color: var(--color-ink); }
   /* The one active treatment: the signal as a 16% tint and a 1px edge, the
      ink unchanged. Never the signal as a fill under 11px text. A caller may
      pass a DATA colour (a bin's colour) through `--chip-color`. */
@@ -1025,7 +1029,7 @@ select option {
     color: var(--color-ink-light);
     border-color: var(--color-rule-light);
   }
-  .ui-chip[data-surface="light"]:hover:not(:disabled) {
+  .ui-chip[data-surface="light"]:hover:not(:disabled):not([data-active="true"]) {
     color: var(--color-ink-light);
     background-color: var(--color-hover-light);
   }

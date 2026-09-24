@@ -81,7 +81,9 @@ describe('Chip on the light ground', () => {
   })
 
   it('the count and the hover take the one ink too, not the dark-side pair', () => {
-    expect(css).toMatch(/\.ui-chip\[data-surface="light"\]:hover:not\(:disabled\) \{[^}]*color: var\(--color-ink-light\)/)
+    // A3-KR-6 (2026-09-24): the hover is for a chip that is not active, so the
+    // selector may carry `:not([data-active="true"])`; the ink is what is pinned.
+    expect(css).toMatch(/\.ui-chip\[data-surface="light"\]:hover:not\(:disabled\)(?::not\(\[data-active="true"\]\))? \{[^}]*color: var\(--color-ink-light\)/)
     // The DECLARATION, not the selector: `.ui-chip-count` is `ink-3` on dark,
     // which is 1.68:1 here, and a test that only proves the selector was
     // typed would pass with the grey left in it.
