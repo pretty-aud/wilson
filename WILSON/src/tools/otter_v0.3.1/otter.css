@@ -1335,10 +1335,185 @@
     color: var(--color-ink-3);
   }
 
+  /* ═══ SEARCH — the kit's Dialog (workbench, 960) ══════════════════════
+     Review O27, O28, A3 §4 item 4. It was a 900 x 600 box of its own with a
+     hard offset shadow, an orange field icon, a grey-filled selected result
+     and a preview that re-drew the Hotkeys table with inline hexes. The
+     field is still the header — the Dialog's title slot, the kit's Close
+     beside it — and the two panes keep their widths and scroll on their own
+     at the fixed height (the kit caps it at 88vh; it was 85vh). The preview
+     is the reference views' own vocabulary now: A3's Table + Kbd, function
+     and node cards and section titles. Two classes where the kit sets the
+     same property. */
+  .ui-dialog.otter-search-dialog { height: 600px; }
+  .otter-search-dialog .ui-dialog-head { align-items: center; padding: 12px 16px 12px 24px; }
+  .otter-search-dialog .ui-dialog-head > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .otter-search-bar { display: flex; align-items: center; gap: 12px; }
+  .otter-search-bar-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  /* The title slot is H2 at 600; the field and the count are not titles.
+     The field keeps 8px inside its own edge, so the kit's focus ring (it
+     has focus whenever the dialog opens) does not sit on the first letter;
+     the margin keeps the text where it was, 12px from the icon. */
+  .otter-search-field {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--control-md);
+    margin-left: -8px;
+    padding: 0 8px;
+    border-radius: var(--radius-control);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-weight: 400;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+  }
+  .otter-search-field::placeholder { color: var(--color-ink-3); }
+  .otter-search-count {
+    flex-shrink: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-search-dialog .ui-dialog-body {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+  .otter-search-results {
+    width: 280px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    background-color: var(--color-paper);
+    border-right: 1px solid var(--color-rule);
+  }
+  .otter-search-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 16px;
+    background-color: var(--color-paper);
+  }
+  /* The two empty states read in the third ink (stone-600 was 2.29:1). */
+  .otter-search-hint { padding: 32px 16px; text-align: center; color: var(--color-ink-3); }
+  .otter-search-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--color-ink-3);
+  }
+  /* A result: F2's selected row (the tint and a 2px signal edge inside it),
+     where the selected one was a grey fill; the kit's hover wash. */
+  .otter-search-result {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-search-result[data-active='true'] {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .otter-search-result-head { display: flex; align-items: center; gap: 6px; }
+  .otter-search-result-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-search-result-path {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  /* The match count was orange-400 text; a count is data, in the second ink. */
+  .otter-search-result-count {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* The third ink is 4.33:1 on the hover wash and 4.18 on the tint, so the
+     path lifts under both (A3's rule, otterCss.test.js). */
+  .otter-search-result[data-active='true'] .otter-search-result-path { color: var(--color-ink-2); }
+  @media (hover: hover) {
+    .otter-search-result:not([data-active='true']):hover { background-color: var(--color-hover); }
+    .otter-search-result:hover .otter-search-result-path { color: var(--color-ink-2); }
+  }
+  .otter-search-preview-head { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--color-rule); }
+  .otter-search-preview-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .otter-search-preview-titles { min-width: 0; }
+  .otter-search-preview-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-search-preview-path {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-search-preview-count {
+    margin-top: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* A preview section sits in a pane, not on a page: 24px apart, not 32. */
+  .otter-search-preview .otter-ref-section { margin-bottom: 24px; }
+  .otter-search-system {
+    margin: -8px 0 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  /* A row that does not match is the kit's inactive row; its keys dim with
+     it, as the whole row did under the old opacity. */
+  .otter-search-hk .ui-tr[data-inactive='true'] .ui-kbd { color: var(--color-ink-3); }
+  /* The lesson text (O28): the Body step and the second ink, its line
+     breaks kept, a long token broken rather than run out of the pane. */
+  .otter-search-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  /* A match: the signal tint behind the ink (it was orange-300 on an
+     orange wash). */
+  .otter-search-mark {
+    padding: 0 2px;
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+  }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
     .otter-dropzone { transition: none; }
+    .otter-search-result { transition: none; }
   }
 
 }

@@ -3268,244 +3268,249 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── SEARCH MODAL ──
   function renderSearchModal() {
+    // A4: the kit's Dialog at the workbench width (review O27; it was 900
+    // wide on its own backdrop with a hard offset shadow). The search field
+    // is still the dialog's header: the Dialog takes it as its title, with
+    // the kit's Close where the old X was, and the dialog is named "Search"
+    // (A4-KR-1). The two panes scroll on their own at a fixed height.
     return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowSearchModal(false)}>
-        <div
-          className="bg-stone-800 border border-stone-600 rounded-control shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)] w-[900px] max-w-[95vw] h-[600px] max-h-[85vh] flex flex-col"
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="px-4 py-3 border-b border-stone-600 shrink-0">
-            <div className="flex items-center gap-3">
-              <Search className="w-5 h-5 text-orange-400 shrink-0" />
-              <input
-                ref={searchInputRef}
-                autoFocus
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
-                onKeyDown={e => {
-                  if (e.key === 'Escape') setShowSearchModal(false);
-                  if (e.key === 'ArrowDown' && searchResults.length > 0) {
-                    e.preventDefault();
-                    setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
-                  }
-                  if (e.key === 'ArrowUp' && searchResults.length > 0) {
-                    e.preventDefault();
-                    setSelectedSearchResult(prev => prev !== null ? Math.max(prev - 1, 0) : 0);
-                  }
-                  if (e.key === 'Enter' && selectedSearchResult !== null) {
-                    const r = searchResults[selectedSearchResult];
-                    if (r) navigateToSearchResult(r);
-                  }
-                }}
-                placeholder="Search lessons, hotkeys, functions, nodes..."
-                className="flex-1 bg-transparent text-white text-body placeholder-stone-500"
-              />
-              <span className="text-stone-500 text-caption shrink-0">
-                {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
+      <Dialog
+        title={(
+          <div className="otter-search-bar">
+            <Search className="otter-search-bar-icon" aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              autoFocus
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
+              onKeyDown={e => {
+                if (e.key === 'Escape') setShowSearchModal(false);
+                if (e.key === 'ArrowDown' && searchResults.length > 0) {
+                  e.preventDefault();
+                  setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
+                }
+                if (e.key === 'ArrowUp' && searchResults.length > 0) {
+                  e.preventDefault();
+                  setSelectedSearchResult(prev => prev !== null ? Math.max(prev - 1, 0) : 0);
+                }
+                if (e.key === 'Enter' && selectedSearchResult !== null) {
+                  const r = searchResults[selectedSearchResult];
+                  if (r) navigateToSearchResult(r);
+                }
+              }}
+              placeholder="Search lessons, hotkeys, functions, nodes..."
+              aria-label="Search"
+              className="otter-search-field"
+            />
+            <span className="otter-search-count">
+              {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
+            </span>
+          </div>
+        )}
+        aria-label="Search"
+        width="workbench"
+        dismissOnBackdrop
+        onClose={() => setShowSearchModal(false)}
+        className="otter-search-dialog"
+      >
+        <div className="otter-search-results wilson-dark-scroll">
+          {searchQuery.length < 2 && <p className="otter-search-hint">Type at least 2 characters to search</p>}
+          {searchQuery.length >= 2 && searchResults.length === 0 && <p className="otter-search-hint">No matches found</p>}
+          {searchResults.map((r, i) => (
+            <button
+              key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
+              type="button"
+              onClick={() => setSelectedSearchResult(i)}
+              className="otter-search-result"
+              data-active={selectedSearchResult === i}
+            >
+              <span className="otter-search-result-head">
+                <span className="otter-search-result-title">{r.lessonTitle}</span>
+                {r.resultType && <Badge>{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</Badge>}
               </span>
-              <button onClick={() => setShowSearchModal(false)} className="p-1 hover:bg-stone-700 rounded-control">
-                <X className="w-4 h-4 text-stone-400" />
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 flex overflow-hidden">
-            <div className="w-[280px] shrink-0 border-r border-stone-600 overflow-y-auto bg-stone-900">
-              {searchQuery.length < 2 && <div className="px-4 py-8 text-center text-stone-600 text-body">Type at least 2 characters to search</div>}
-              {searchQuery.length >= 2 && searchResults.length === 0 && <div className="px-4 py-8 text-center text-stone-600 text-body">No matches found</div>}
-              {searchResults.map((r, i) => (
-                <button
-                  key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
-                  onClick={() => setSelectedSearchResult(i)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-stone-700 transition-colors ${selectedSearchResult === i ? 'bg-stone-700' : 'hover:bg-stone-800'}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-white text-dense font-semibold truncate flex-1">{r.lessonTitle}</p>
-                    {r.resultType && <span className="text-label px-1.5 py-0.5 rounded-control font-semibold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</span>}
-                  </div>
-                  <p className="text-stone-500 text-dense truncate">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</p>
-                  <p className="text-orange-400 text-dense mt-0.5">{r.matches} match{r.matches !== 1 ? 'es' : ''}</p>
-                </button>
-              ))}
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 bg-stone-900">
-              {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
-                const r = searchResults[selectedSearchResult];
-                const q = searchQuery.trim();
-                const lowerQ = q.toLowerCase();
-
-                const header = (
-                  <div className="mb-4 pb-3 border-b border-stone-700">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-orange-400 font-semibold text-h3">{r.lessonTitle}</h3>
-                        <p className="text-stone-500 text-dense">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
-                      </div>
-                      <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-control text-dense font-semibold border border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
-                        {r.resultType === 'hotkeys' ? 'Go to Hotkeys' : r.resultType === 'functions' ? 'Go to Functions' : r.resultType === 'nodes' ? 'Go to Nodes' : 'Go to Lesson'}
-                      </button>
-                    </div>
-                    <p className="text-orange-400 text-dense mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
-                  </div>
-                );
-
-                {/* ── Hotkeys: table with all shortcuts, matches highlighted ── */}
-                if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.hotkeyCategories.map((cat, ci) => {
-                        const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
-                        if (!hasMatch) return null;
-                        return (
-                          <div key={ci} className="mb-4">
-                            <h4 className="text-orange-400 font-semibold text-h3 mb-2">{cat.category}</h4>
-                            <div className="bg-stone-800 border border-stone-600 rounded-control overflow-hidden">
-                              <table className="w-full">
-                                <thead>
-                                  <tr style={{ background: '#44403c' }}>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {cat.shortcuts.map((s, si) => {
-                                    const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
-                                    return (
-                                      <tr key={si} className={`border-b border-stone-700 last:border-0 transition-colors ${isMatch ? 'bg-orange-500/10' : 'opacity-40'}`}>
-                                        <td className="p-2 text-dense" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-control text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-control text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                                        <td className="p-2 text-dense" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                }
-
-                {/* ── Functions: only matching functions in card format ── */}
-                if (r.resultType === 'functions' && r.matchedCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.matchedCategories.map((cat, ci) => (
-                        <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-semibold text-h3 mb-2">{cat.category}</h4>
-                          <div className="space-y-2">
-                            {cat.functions.map((f, fi) => (
-                              <div key={fi} className="bg-stone-800 border border-stone-600 rounded-control p-3">
-                                <code className="font-mono font-semibold text-dense" style={{ color: '#fb923c' }}>{f.name}</code>
-                                {f.syntax && <pre className="border rounded-control px-2 py-1.5 mb-2 mt-1.5 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                                {f.parameters && <div className="mb-1.5"><span className="text-label font-semibold uppercase block mb-0.5" style={{ color: '#78716c' }}>Parameters:</span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                                {f.returns && <div className="mb-1.5"><span className="text-label font-semibold uppercase" style={{ color: '#78716c' }}>Returns: </span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                                {f.description && <p className="text-dense mb-1.5 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                                {f.example && <pre className="border rounded-control px-2 py-1.5 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                {/* ── Nodes: only matching nodes in card format ── */}
-                if (r.resultType === 'nodes' && r.matchedCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.matchedCategories.map((mc, ci) => (
-                        <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-semibold text-h3 mb-1">{mc.category}</h4>
-                          <p className="text-stone-600 text-dense mb-2">{mc.system}</p>
-                          <div className="space-y-2">
-                            {mc.nodes.map((node, ni) => (
-                              <div key={ni} className="bg-stone-800 border border-stone-600 rounded-control p-3">
-                                <div className="font-semibold text-dense mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
-                                <p className="text-dense mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
-                                {Array.isArray(node.inputs) && node.inputs.length > 0 && (
-                                  <div className="mb-2">
-                                    <span className="text-label font-semibold uppercase block mb-1" style={{ color: '#78716c' }}>Inputs</span>
-                                    <div className="space-y-0.5">
-                                      {node.inputs.filter(Boolean).map((inp, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-caption">
-                                          <span className="shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
-                                          <NodeTypeBadge type={inp.type} />
-                                          <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {Array.isArray(node.outputs) && node.outputs.length > 0 && (
-                                  <div className="mb-2">
-                                    <span className="text-label font-semibold uppercase block mb-1" style={{ color: '#78716c' }}>Outputs</span>
-                                    <div className="space-y-0.5">
-                                      {node.outputs.filter(Boolean).map((out, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-caption">
-                                          <span className="shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
-                                          <NodeTypeBadge type={out.type} />
-                                          <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {node.notes && (
-                                  <div className="border-t border-stone-700 pt-1.5 mt-1.5">
-                                    <span className="text-caption italic" style={{ color: '#78716c' }}>{node.notes}</span>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                {/* ── Default: lesson results with highlighted text ── */}
-                const content = r.content;
-                const parts = [];
-                const lowerContent = content.toLowerCase();
-                let lastIdx = 0;
-                let pos = 0;
-                while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
-                  if (pos > lastIdx) parts.push({ text: content.slice(lastIdx, pos), highlight: false });
-                  parts.push({ text: content.slice(pos, pos + q.length), highlight: true });
-                  lastIdx = pos + q.length;
-                }
-                if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
-                return (
-                  <div>
-                    {header}
-                    <pre className="text-stone-300 text-dense leading-relaxed whitespace-pre-wrap font-sans">
-                      {parts.map((part, i) =>
-                        part.highlight
-                          ? <mark key={i} className="bg-orange-500/30 text-orange-300 rounded-control px-0.5">{part.text}</mark>
-                          : <span key={i}>{part.text}</span>
-                      )}
-                    </pre>
-                  </div>
-                );
-              })() : (
-                <div className="flex items-center justify-center h-full text-stone-600 text-body">
-                  {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
-                </div>
-              )}
-            </div>
-          </div>
+              <span className="otter-search-result-path">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</span>
+              <span className="otter-search-result-count">{r.matches} match{r.matches !== 1 ? 'es' : ''}</span>
+            </button>
+          ))}
         </div>
-      </div>
+        <div className="otter-search-preview wilson-dark-scroll">
+          {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
+            const r = searchResults[selectedSearchResult];
+            const q = searchQuery.trim();
+            const lowerQ = q.toLowerCase();
+
+            const header = (
+              <div className="otter-search-preview-head">
+                <div className="otter-search-preview-row">
+                  <div className="otter-search-preview-titles">
+                    <h3 className="otter-search-preview-title">{r.lessonTitle}</h3>
+                    <p className="otter-search-preview-path">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
+                  </div>
+                  <Button variant="primary" size="sm" onClick={() => navigateToSearchResult(r)}>
+                    {r.resultType === 'hotkeys' ? 'Go to hotkeys' : r.resultType === 'functions' ? 'Go to functions' : r.resultType === 'nodes' ? 'Go to nodes' : 'Go to lesson'}
+                  </Button>
+                </div>
+                <p className="otter-search-preview-count">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
+              </div>
+            );
+
+            {/* ── Hotkeys: the Hotkeys view's own table (the kit's Table and
+                Kbd, A3); a row that does not match takes the kit's inactive
+                row (the third ink — it was opacity 40%) and a row that does
+                takes its highlighted edge (it was an orange wash). ── */}
+            if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.hotkeyCategories.map((cat, ci) => {
+                    const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
+                    if (!hasMatch) return null;
+                    return (
+                      <section key={ci} className="otter-ref-section">
+                        <h4 className="otter-ref-section-title">{cat.category}</h4>
+                        <Card pad={false} className="otter-hk-card otter-search-hk">
+                          <Table
+                            head={
+                              <Row>
+                                <Th width="36%">Action</Th>
+                                <Th width="20%">Windows</Th>
+                                <Th width="20%">Mac</Th>
+                                <Th>Notes</Th>
+                              </Row>
+                            }
+                          >
+                            {cat.shortcuts.map((s, si) => {
+                              const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
+                              return (
+                                <Row key={si} highlighted={isMatch} inactive={!isMatch}>
+                                  <Td>{s.action}</Td>
+                                  <Td><Kbd>{s.windows}</Kbd></Td>
+                                  <Td><Kbd>{s.mac}</Kbd></Td>
+                                  <Td className="otter-hk-notes">{s.notes || '—'}</Td>
+                                </Row>
+                              );
+                            })}
+                          </Table>
+                        </Card>
+                      </section>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            {/* ── Functions: the Functions view's own cards ── */}
+            if (r.resultType === 'functions' && r.matchedCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.matchedCategories.map((cat, ci) => (
+                    <section key={ci} className="otter-ref-section">
+                      <h4 className="otter-ref-section-title">{cat.category}</h4>
+                      <div className="otter-ref-cards">
+                        {cat.functions.map((f, fi) => (
+                          <div key={fi} className="otter-fn-card">
+                            <code className="otter-fn-name">{f.name}</code>
+                            {f.syntax && <pre className="otter-code-well">{f.syntax}</pre>}
+                            {f.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{f.parameters}</span></div>}
+                            {f.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{f.returns}</span></div>}
+                            {f.description && <p className="otter-fn-desc">{f.description}</p>}
+                            {f.example && <pre className="otter-code-well">{f.example}</pre>}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            {/* ── Nodes: the Nodes view's own cards ── */}
+            if (r.resultType === 'nodes' && r.matchedCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.matchedCategories.map((mc, ci) => (
+                    <section key={ci} className="otter-ref-section">
+                      <h4 className="otter-ref-section-title">{mc.category}</h4>
+                      <p className="otter-search-system">{mc.system}</p>
+                      <div className="otter-ref-cards">
+                        {mc.nodes.map((node, ni) => (
+                          <div key={ni} className="otter-fn-card otter-node-card">
+                            <div className="otter-node-name">{node.name}</div>
+                            <p className="otter-fn-desc">{node.description}</p>
+                            {Array.isArray(node.inputs) && node.inputs.length > 0 && (
+                              <div className="otter-node-ports">
+                                <span className="otter-fn-label">Inputs</span>
+                                <ul className="otter-node-port-list">
+                                  {node.inputs.filter(Boolean).map((inp, k) => (
+                                    <li key={k} className="otter-node-port">
+                                      <span className="otter-node-port-name">{inp.name || ''}</span>
+                                      <NodeTypeBadge type={inp.type} />
+                                      <span className="otter-node-port-desc">{inp.description || ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {Array.isArray(node.outputs) && node.outputs.length > 0 && (
+                              <div className="otter-node-ports">
+                                <span className="otter-fn-label">Outputs</span>
+                                <ul className="otter-node-port-list">
+                                  {node.outputs.filter(Boolean).map((out, k) => (
+                                    <li key={k} className="otter-node-port">
+                                      <span className="otter-node-port-name">{out.name || ''}</span>
+                                      <NodeTypeBadge type={out.type} />
+                                      <span className="otter-node-port-desc">{out.description || ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {node.notes && <p className="otter-node-notes">{node.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            {/* ── Default: the lesson's text, the matches marked. Review O28:
+                a <pre> undone by font-sans, 12px with no rhythm; it is the
+                lesson's Body step and second ink now, its line breaks kept
+                and the same marks. ── */}
+            const content = r.content;
+            const parts = [];
+            const lowerContent = content.toLowerCase();
+            let lastIdx = 0;
+            let pos = 0;
+            while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
+              if (pos > lastIdx) parts.push({ text: content.slice(lastIdx, pos), highlight: false });
+              parts.push({ text: content.slice(pos, pos + q.length), highlight: true });
+              lastIdx = pos + q.length;
+            }
+            if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
+            return (
+              <div>
+                {header}
+                <div className="otter-search-text">
+                  {parts.map((part, i) =>
+                    part.highlight
+                      ? <mark key={i} className="otter-search-mark">{part.text}</mark>
+                      : <span key={i}>{part.text}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })() : (
+            <p className="otter-search-placeholder">
+              {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
+            </p>
+          )}
+        </div>
+      </Dialog>
     );
   }
 

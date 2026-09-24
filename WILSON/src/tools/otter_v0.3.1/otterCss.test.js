@@ -176,6 +176,9 @@ describe('otter.css', () => {
       [".otter-course-row[data-openable='false']:hover", '.otter-course-open'],
       ['.otter-fork-actions', '.otter-form-hint'],
       [".otter-subject-row[data-stub='true']:hover", ''],
+      // A4: the search dialog's results.
+      [".otter-search-result[data-active='true']", '.otter-search-result-path'],
+      ['.otter-search-result:hover', '.otter-search-result-path'],
     ]
     const expand = (sel) => {
       const m = sel.match(/^(.*?)\s*:is\(([^()]*)\)$/)

@@ -307,7 +307,6 @@ const KNOWN = {
      the kit's Switch, and deleted the last four (2026-09-23). */
   anon: [
     { key: 'otter-quiz', text: 'lucide-chevron-down', n: 1 },
-    { key: 'otter-search', text: 'lucide-x', n: 1 },
     { key: 'otter-settings', text: 'lucide-x', n: 1 },
     { key: 'otter-settings', text: 'no-icon', n: 1 },
     { key: 'projects-detail', text: 'lucide-trash2', n: 30 },
