@@ -149,6 +149,10 @@
   .otter-course-row[data-active='true'] .otter-course-open { color: var(--color-ink); }
   .otter-course-row[data-active='true'] .otter-course-name { font-weight: 600; }
   .otter-course-row[data-openable='false'] .otter-course-open { color: var(--color-ink-3); }
+  /* The third ink is 4.36:1 on the hover wash (paper under 6% ink) — under
+     AA at 13px. Every third-ink text on a row that takes the hover moves up
+     to the second ink with it (A3 review round 1). */
+  .otter-course-row[data-openable='false']:hover .otter-course-open { color: var(--color-ink-2); }
   .otter-course-menu { display: inline-flex; flex-shrink: 0; }
 
   /* ═══ THE ROW MENU (CourseRowMenu.jsx) — the kit's IconButton and Menu ══
@@ -175,6 +179,7 @@
   }
   .otter-subject-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
   .otter-subject-row[data-stub='true'] { color: var(--color-ink-3); }
+  .otter-subject-row[data-stub='true']:hover { color: var(--color-ink-2); }
   .otter-subject-row[data-active='true'][data-active='true'] {
     color: var(--color-ink);
     background-color: var(--color-signal-tint);
@@ -209,6 +214,12 @@
     color: var(--color-ink-3);
   }
   .otter-subject-outline { margin-left: 4px; color: var(--color-ink-3); }
+  /* On the selected row the third ink sits on the signal tint, not on
+     paper: measured 4.17:1 at 12px (ui-walk, A3), and the same on the hover
+     wash. The second ink clears both (7.02:1 on the tint). The outline tag
+     is the number's sibling and was missed by the first fix (review round 1). */
+  .otter-subject-row[data-active='true'] :is(.otter-subject-order, .otter-subject-outline),
+  .otter-subject-row:hover :is(.otter-subject-order, .otter-subject-outline) { color: var(--color-ink-2); }
   /* The delete keeps its slot at every moment (the row never reflows), is
      revealed on the row's hover as before and now on KEYBOARD focus too —
      `:has(:focus-visible)`, not `:focus-within`, which a mouse click also
@@ -330,6 +341,7 @@
   }
   .otter-group-row { gap: 8px; height: var(--row-dense); padding: 0 12px; color: var(--color-ink-2); }
   .otter-group-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .otter-group-row:hover .otter-group-count { color: var(--color-ink-2); }
   .otter-group-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
   .otter-group-name,
   .otter-section-name,
@@ -410,13 +422,17 @@
      orange floating in the padding, an 18px orange header bar, white with an
      icon, 16px grey in a bar. Each is now the kit's SectionTitle — H2 in the
      one ink — on the page gutter, its actions on the right, centred on the
-     title's line (the kit bottom-aligns them for a multi-line description;
-     these headers are one line plus a caption, so centre reads true). */
+     title's LINE. The kit bottom-aligns them to the text block; `center`
+     centred them on title-plus-description, 11px under the title on the
+     course page and Sources (A3 review round 1). So the block is top-aligned
+     and the actions — md controls, 36px, every one of them — rise by half
+     the difference between the H2 line (16 x 1.3) and the control. */
   .otter-view { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
   .otter-view-page { margin: 0 auto; padding: var(--spacing-gutter); }
   .otter-view-page[data-width='data'] { max-width: var(--width-data-max); }
   .otter-view-page[data-width='reading'] { max-width: var(--width-reading); }
-  .ui-section.otter-view-title { padding-top: 0; margin-bottom: 24px; align-items: center; }
+  .ui-section.otter-view-title { padding-top: 0; margin-bottom: 24px; align-items: flex-start; }
+  .otter-view-title .ui-section-actions { margin-top: calc((var(--text-h2) * var(--text-h2--line-height) - var(--control-md)) / 2); }
   .otter-view-title .ui-section-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .otter-view-meta .otter-owner { margin-left: 8px; }
   .otter-count { font-variant-numeric: tabular-nums; }
@@ -578,7 +594,9 @@
      other view. Its fields keep their own elements and wear the kit's CSS:
      `ui-input` for the inputs, the select and the textarea (paper-raised,
      one hairline, Dense, the focus ring), the Field label's Label step for
-     the seven labels (O25: they were two sizes in orange, with two gaps).
+     the seven labels (O25: they were two sizes in orange, with two gaps),
+     at the Field's own spacing: 4px from label to control, 16px between
+     fields (the first pass had 8 and 20; 20 is off §3.3's scale).
      The radio card (O26, drawn twice) takes the kit's ONE selected
      treatment — the Chip's: the signal tint and a 1px signal edge, the ink
      unchanged — instead of white on an orange wash; the skill level is the
@@ -591,15 +609,15 @@
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
   }
-  .otter-form-label { display: block; margin-bottom: 8px; }
-  .otter-form-field { position: relative; margin-top: 20px; }
+  .ui-field-label.otter-form-label { display: block; margin-bottom: 4px; }
+  .otter-form-field { position: relative; margin-top: 16px; }
   .otter-form-hint {
     margin-top: 4px;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .otter-form-hint-above { margin: -4px 0 8px; }
+  .otter-form-hint-above { margin: 0 0 8px; }
   .otter-radio-row { display: flex; gap: 12px; }
   .otter-radio-card {
     flex: 1 1 0;
@@ -660,6 +678,7 @@
     transition: background-color var(--duration-state) ease-out;
   }
   .otter-sw-option:hover { background-color: var(--color-hover); }
+  .otter-sw-option:hover .otter-sw-option-count { color: var(--color-ink-2); }
   .otter-sw-option[data-match='true'] { color: var(--color-ink); font-weight: 600; }
   .otter-sw-option-count {
     font-size: var(--text-caption);
@@ -668,7 +687,19 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
   }
-  .ui-banner.otter-fork-offer { margin-top: 12px; }
+  /* The kit Banner is a page strip — the gutter's side padding, a bottom
+     hairline, square corners, the icon centred on the text. Inside the
+     form card it is an inset notice: the card's own inset, one hairline
+     round, the control radius, the icon on the heading's line (it sat
+     49px below it, centred on four lines — A3 review round 1). */
+  .ui-banner.otter-fork-offer {
+    margin-top: 12px;
+    align-items: flex-start;
+    padding: 12px 16px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .ui-banner.otter-fork-offer > svg { margin-top: 1px; }
   .otter-fork-title { font-weight: 600; color: var(--color-ink); }
   .otter-fork-body { margin-top: 2px; color: var(--color-ink-2); }
   .otter-fork-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -727,7 +758,7 @@
     color: var(--color-ink);
   }
   .otter-ref-cards { display: flex; flex-direction: column; gap: 12px; }
-  .otter-hk-notes { color: var(--color-ink-3); }
+  .ui-td.otter-hk-notes { color: var(--color-ink-3); }
   .otter-fn-card {
     padding: 16px;
     background-color: var(--color-paper-raised);
@@ -755,6 +786,9 @@
     color: var(--color-ink-2);
   }
   .otter-fn-part { margin-bottom: 8px; }
+  /* The card's padding is its inset; the last part's own margin added to it
+     (29px under the last code well against 17 over the name). */
+  .otter-fn-card > :last-child { margin-bottom: 0; }
   .otter-fn-label {
     display: block;
     margin-bottom: 4px;
@@ -818,18 +852,45 @@
     color: var(--color-ink);
   }
   .otter-node-ports { margin-bottom: 12px; }
-  .otter-node-port-list { display: flex; flex-direction: column; gap: 4px; }
+  /* A node card is ONE grid, and its port sections, lists and rows are
+     subgrids of it, so Inputs and Outputs share their columns: the names in
+     112px, the socket types in the widest type's column, the descriptions
+     on one left edge, the three on one baseline. As flex rows each
+     description started where its own badge ended — four left edges in one
+     list, a fifth for the outputs — and the badge's word sat 1.5px under its
+     row (A3 review round 1, on injected data). A grid does not collapse
+     margins, so the notes take no top margin of their own: the gap above
+     them is the ports' 12 or the description's 8, as it was. */
+  .otter-node-card {
+    display: grid;
+    grid-template-columns: 112px max-content minmax(0, 1fr);
+    column-gap: 8px;
+  }
+  .otter-node-card > * { grid-column: 1 / -1; min-width: 0; }
+  .otter-node-card > .otter-node-notes { margin-top: 0; }
+  .otter-node-ports,
+  .otter-node-port-list,
   .otter-node-port {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+  }
+  .otter-node-ports > .otter-fn-label { grid-column: 1 / -1; }
+  .otter-node-port-list { row-gap: 4px; }
+  .otter-node-port {
+    align-items: baseline;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
   }
-  .otter-node-port-name { width: 112px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink); }
-  .otter-node-port-desc { color: var(--color-ink-2); }
+  .otter-node-port-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink); }
+  .otter-node-port-desc { min-width: 0; color: var(--color-ink-2); }
+  /* The word is the data colour lifted 15% toward the ink: #818cf8 (Integer)
+     was 4.48:1 at 11px on its own wash, the only one of the fifteen under
+     AA. The hue stays the map's (Q9); the wash and the hairline keep the
+     unmixed colour. */
   .ui-badge.otter-node-type {
-    color: var(--node-color);
+    justify-self: start; /* a badge hugs its word; the column is the widest one's */
+    color: color-mix(in srgb, var(--node-color) 85%, var(--color-ink));
     border-color: color-mix(in srgb, var(--node-color) 25%, transparent);
     background-color: color-mix(in srgb, var(--node-color) 12.5%, transparent);
   }
@@ -981,14 +1042,26 @@
 
   /* ═══ THE LESSON PAGE (renderStudyView) ═══════════════════════════════
      The reading surface (.lesson-content, in index.css) and its frame: a
-     720px reading container on the page gutter (§3.3's reading measure;
-     tables and code run to it, prose stops at --measure-body), the
-     breadcrumb at Caption in the third ink with the current lesson in the
-     second, the lesson's title at the H1 step, Key takeaways and the
-     practice exercise as the kit's Card ON THE PROSE'S MEASURE, and the
-     foot row on the kit's Buttons. */
+     720px reading container, centred on the page gutter like every sibling
+     view (Sources and the outline page are `.otter-view-page`; the lesson
+     sat 140px left of them — A3 review round 1), tables and code running to
+     it and everything else stopping on the prose's edge: the breadcrumb at
+     Caption in the third ink with the current lesson in the second, the
+     lesson's title at the H1 step, Key takeaways and the practice exercise
+     as the kit's Card, and the foot row on the kit's Buttons.
+     ONE RIGHT EDGE: the page declares `--measure-body-len` at the Body step
+     (index.css registers it), so the title, the cards and the foot row
+     inherit the paragraph's 45ch as a length. Their own `ch` would be their
+     own font's: the title's was 615px against the paragraph's 418. */
   .otter-study { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
-  .otter-study-page { max-width: var(--width-reading); padding: var(--spacing-gutter); }
+  .otter-study-page {
+    max-width: var(--width-reading);
+    margin: 0 auto;
+    padding: var(--spacing-gutter);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    --measure-body-len: var(--measure-body);
+  }
   .otter-crumbs {
     display: flex;
     flex-wrap: wrap;
@@ -999,10 +1072,10 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .otter-crumb-sep { width: 12px; height: 12px; flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
   .otter-crumb-current { color: var(--color-ink-2); }
   .otter-lesson-title {
-    max-width: var(--measure-body);
+    max-width: var(--measure-body-len);
     margin-bottom: 8px;
     font-size: var(--text-h1);
     line-height: var(--text-h1--line-height);
@@ -1011,11 +1084,10 @@
     color: var(--color-ink);
   }
   .otter-study .lesson-content { margin-bottom: 24px; }
-  /* The measure is set in ch at the Body step, so a card at the Body step
-     reads the same 45ch the paragraph above it does: the right edges line
-     up (the card's padding comes out of the width — border-box). */
+  /* The paragraph's length, so the right edges line up (the card's padding
+     comes out of the width — border-box). Its text is the Body step. */
   .ui-card.otter-lesson-card {
-    max-width: var(--measure-body);
+    max-width: var(--measure-body-len);
     margin-bottom: 16px;
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
@@ -1024,10 +1096,14 @@
   .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
   .otter-takeaways { display: flex; flex-direction: column; gap: 4px; color: var(--color-ink-2); }
   .otter-takeaways > li { display: flex; align-items: flex-start; gap: 8px; }
-  /* The bullet's 14px glyph sits on the first line's centre: (21 - 14) / 2. */
-  .otter-takeaway-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 3.5px; color: var(--color-ink-3); }
+  /* The bullet's 14px glyph on its first line: (21 - 14) / 2 is 3.5, which
+     painted the check across a pixel boundary (A3 review round 1). Geist's
+     glyph box sits half a pixel above the 21px line box's centre, so 3px
+     centres the check on the TEXT exactly (measured: both at +10px). */
+  .otter-takeaway-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 3px; color: var(--color-ink-3); }
   .otter-practice { color: var(--color-ink-2); }
   .otter-lesson-foot {
+    max-width: var(--measure-body-len);
     display: flex;
     align-items: center;
     justify-content: space-between;

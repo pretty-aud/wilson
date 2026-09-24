@@ -51,7 +51,8 @@ const MENU_WIDTH = 200
 // The kit menu's geometry (index.css `.ui-menu`, `.ui-menu-item`,
 // `.ui-menu-divider`), so place() flips at the height the menu will draw.
 const MENU_ITEM_H = 28      // `.ui-menu-item` min-height: --control-sm
-const MENU_CHROME_H = 19    // 4px padding top and bottom, 1px edges, the divider's 1 + 4 + 4
+const MENU_CHROME_H = 10    // 4px padding top and bottom, 1px edges
+const MENU_DIVIDER_H = 9    // `.ui-menu-divider`: 1px, 4px either side — drawn only between items and trash
 const VIEWPORT_PAD = 8
 
 export default function CourseRowMenu({
@@ -85,6 +86,7 @@ export default function CourseRowMenu({
   ].filter(Boolean)
 
   const menuHeight = (items.length + (mayTrash ? 1 : 0)) * MENU_ITEM_H + MENU_CHROME_H
+    + (mayTrash && items.length > 0 ? MENU_DIVIDER_H : 0)
 
   // The trigger's label must name the actions that are ACTUALLY in the menu.
   // A fixed "share, submit, copy or trash" was wrong for most rows: on a

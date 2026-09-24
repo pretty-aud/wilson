@@ -64,16 +64,24 @@ import {
 } from './components/otterSharing.js';
 
 // ═══════════════════════════════════════════════════════════════════
-//  THE LESSON'S CODE BLOCK (A3): oneDark's block style is inline, so a class
-//  cannot reach it; these two objects are the tokens it is dressed in.
+//  THE LESSON'S CODE BLOCK (A3). react-markdown wraps every fence in its own
+//  <pre>, even when the `code` renderer returns the highlighter (PreTag="div"
+//  names only the highlighter's inner wrapper), so `.lesson-content pre` in
+//  index.css draws the ONE code well for tagged and untagged fences alike.
+//  oneDark's block style is inline and would draw a second well inside it —
+//  a cool hsl(220) ground, its own padding, margin and radius, Fira Code —
+//  so this object takes all of that away and keeps only the app's mono. The
+//  syntax colours on the tokens inside are data and stay the theme's.
+//  (A3 review round 1 measured the first version: two nested wells.)
 // ═══════════════════════════════════════════════════════════════════
 const LESSON_CODE_BLOCK = {
-  background: 'var(--color-paper-recessed)',
-  color: 'var(--color-ink-2)',
-  border: '1px solid var(--color-rule)',
-  borderRadius: 'var(--radius-control)',
-  padding: '12px 16px',
-  margin: '12px 0',
+  background: 'transparent',
+  color: 'inherit',
+  border: 0,
+  borderRadius: 0,
+  padding: 0,
+  margin: 0,
+  overflow: 'visible',
   textShadow: 'none',
   fontFamily: 'var(--font-mono)',
   fontSize: 'var(--text-dense)',
@@ -238,6 +246,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── Search modal ──
   const [showSearchModal, setShowSearchModal] = useState(false);
+  // A kit Menu floats over every dialog (its layer is 80) and Search is not a
+  // kit Dialog yet, so Space with the Edit menu open would leave the menu over
+  // the search dialog. Before A3 the dropdown sat under the search backdrop and
+  // closed on the first click there; closing it as Search opens keeps that
+  // outcome. (A3 review round 1.)
+  useEffect(() => { if (showSearchModal) setEditMenuOpen(false); }, [showSearchModal]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedSearchResult, setSelectedSearchResult] = useState(null);
@@ -2955,7 +2969,6 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <button
           type="button"
           className="ui-tab otter-nav-button"
-          aria-haspopup="menu"
           aria-expanded={editMenuOpen}
           data-active={editMenuOpen ? 'true' : undefined}
           onPointerDown={() => { editPressWhileOpenRef.current = editMenuOpen; }}
@@ -3098,7 +3111,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               content edge only while both sidebars were open at their old
               widths — and hovered 48px up over a bar 8px tall. */}
           {generatingSubjects.size > 0 && (
-            <div className="otter-queue" role="status" aria-label="Generating">
+            <div className="otter-queue">
               <div className="otter-queue-head">
                 <Loader2 className="animate-spin" aria-hidden="true" /> Generating ({generatingSubjects.size})
               </div>
@@ -3930,8 +3943,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   )}
                 </>
               }
+              as="div"
             >
-              {activeSoftware.name}
+              {/* The heading is the name alone (its badges were inside it,
+                  so it read "DaVinci Resolve 19Standard"); SectionTitle's
+                  own element is a div here and carries the H2 look. */}
+              <h2 className="otter-title-text">{activeSoftware.name}</h2>
               {cloudMode && <VisibilityBadge course={activeCourseRow} />}
               {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
               {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
@@ -4439,7 +4456,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 <a href={src.url} target="_blank" rel="noopener noreferrer" className="otter-source">
                   <ExternalLink className="otter-source-icon" aria-hidden="true" />
                   <span className="otter-source-text">
-                    <span className="otter-source-title">{src.title || 'Untitled Source'}</span>
+                    <h3 className="otter-source-title">{src.title || 'Untitled source'}</h3>
                     <span className="otter-source-url">{src.url}</span>
                   </span>
                 </a>
@@ -4542,11 +4559,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                 code({ node, inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
-                  // A3: the fenced block is dressed from tokens here, because
-                  // oneDark's inline styles (a cool hsl(220) ground, Fira
-                  // Code, 1em padding) beat any class. The syntax colours
-                  // inside are data and stay the theme's. Inline code carries
-                  // no style of its own any more: .lesson-content styles it.
+                  // A3: oneDark's inline block style is neutralised here
+                  // (LESSON_CODE_BLOCK, above the component) so the <pre>
+                  // react-markdown wraps around this draws the one well. The
+                  // syntax colours inside are data and stay the theme's.
+                  // Inline code carries no style of its own any more:
+                  // .lesson-content styles it.
                   return !inline && match ? (
                     <SyntaxHighlighter
                       style={oneDark}
@@ -5193,7 +5211,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <h3 className="otter-ref-section-title">{cat.category}</h3>
               <div className="otter-ref-cards">
                 {cat.nodes.map((node, j) => (
-                  <div key={j} className="otter-fn-card">
+                  <div key={j} className="otter-fn-card otter-node-card">
                     <div className="otter-node-name">{node.name}</div>
                     <p className="otter-fn-desc">{node.description}</p>
 

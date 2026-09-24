@@ -304,6 +304,12 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
 // agent surface's (P1) and was left byte-for-byte. O.T.T.E.R.'s lesson-content
 // block carried ten more values until A3 (2026-09-24) put it on the tokens,
 // so it is no longer exempt. This pins the set so nothing new can join it.
+const splitList = (list) => {
+  const out = []; let depth = 0, cur = ''
+  for (const ch of list) { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && depth === 0) { out.push(cur); cur = '' } else cur += ch }
+  out.push(cur); return out
+}
+
 describe('hexes in index.css outside @theme', () => {
   const themeBlock = css.match(/@theme[^{]*\{[\s\S]*?\n\}/)[0]
   // Code only: the comments quote hexes when they explain a measurement.
@@ -321,7 +327,10 @@ describe('hexes in index.css outside @theme', () => {
     for (const rule of rest.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const [, selector, body] = rule
       if ((body.match(HEX) || []).length === 0) continue
-      expect(selector.trim(), selector.trim()).toMatch(/\.companion-chat-md/)
+      // Every selector in the list, from its start (A3 review round 1: the
+      // substring let `.lesson-content strong, .companion-chat-md-legacy strong`
+      // through, which is the amber `strong` O5 removed).
+      expect(splitList(selector).every((s) => /^\s*\.companion-chat-md(?![\w-])/.test(s)), selector.trim()).toBe(true)
     }
   })
 })
