@@ -34,12 +34,14 @@ import { visibilityMeta } from './otterSharing.js'
 // with three origins it left "yours" as the only unlabelled state, i.e. the one
 // you identify by ELIMINATION. "Yours" is therefore drawn, but quietest of the
 // four — grey, no colour — so the coloured ones still carry the emphasis.
-const STYLES = {
-  personal:         { bg: 'rgba(120,113,108,0.25)', fg: '#a8a29e', bd: 'rgba(120,113,108,0.5)',  Icon: Lock },
-  own:              { bg: 'rgba(120,113,108,0.20)', fg: '#a8a29e', bd: 'rgba(120,113,108,0.45)', Icon: User },
-  shared:           { bg: 'rgba(56,189,248,0.15)',  fg: '#7dd3fc', bd: 'rgba(56,189,248,0.35)',  Icon: Users },
-  from_someone:     { bg: 'rgba(167,139,250,0.16)', fg: '#c4b5fd', bd: 'rgba(167,139,250,0.38)', Icon: Share2 },
-  company_standard: { bg: 'rgba(234,88,12,0.18)',   fg: '#fdba74', bd: 'rgba(234,88,12,0.45)',   Icon: ShieldCheck },
+// A3 (2026-09-24): the per-origin colours moved to otter.css, keyed on
+// `data-origin`; the icon is the one part of an origin that is not a colour.
+const ORIGIN_ICON = {
+  personal:         Lock,
+  own:              User,
+  shared:           Users,
+  from_someone:     Share2,
+  company_standard: ShieldCheck,
 }
 
 /**
@@ -74,8 +76,7 @@ export function VisibilityBadge({ course, visibility, showPersonal = false, comp
   if (origin === 'personal' && !showPersonal) return null
   if (origin === 'own' && !course && !showPersonal) return null
 
-  const s = STYLES[origin]
-  const { Icon } = s
+  const Icon = ORIGIN_ICON[origin]
   const who = course?.owner_label
   const label =
     origin === 'company_standard' ? 'Standard'
@@ -92,16 +93,16 @@ export function VisibilityBadge({ course, visibility, showPersonal = false, comp
 
   if (compact) {
     return (
-      <span title={hint} aria-label={label} className="shrink-0 inline-flex">
-        <Icon className="w-3 h-3" style={{ color: s.fg }} />
+      <span title={hint} aria-label={label} className="otter-origin-icon shrink-0 inline-flex" data-origin={origin}>
+        <Icon className="w-3 h-3" />
       </span>
     )
   }
 
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-control text-label font-semibold uppercase shrink-0 max-w-[160px]"
-      style={{ background: s.bg, color: s.fg, border: `1px solid ${s.bd}` }}
+      className="otter-origin-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded-control text-label font-semibold uppercase shrink-0 max-w-[160px]"
+      data-origin={origin}
       title={hint}
     >
       <Icon className="w-2.5 h-2.5 shrink-0" />

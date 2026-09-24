@@ -361,4 +361,26 @@
     background-color: oklch(37.4% 0.01 67.558);             /* hover:bg-stone-700 */
   }
 
+  /* ═══ EXTRACTION — THE ORIGIN BADGE (components/CourseBadges.jsx) ══════
+     VisibilityBadge drew one of five origins from an inline-style map, each
+     a fill, an ink and an edge; now `data-origin` on the badge (and on the
+     compact, icon-only form, whose ink the icon inherits as currentColor).
+     The map's hexes are written here as rgb() — the page-sheet guard
+     forbids a hex outside @theme, and this half is transcription, deleted
+     by the restyle like the oklch literals above it.
+       personal, own     the grey, own a shade quieter
+       shared            sky
+       from_someone      violet
+       company_standard  orange */
+  .otter-origin-badge[data-origin='personal'] { background: rgba(120,113,108,0.25); color: rgb(168 162 158); border: 1px solid rgba(120,113,108,0.5); }
+  .otter-origin-badge[data-origin='own'] { background: rgba(120,113,108,0.20); color: rgb(168 162 158); border: 1px solid rgba(120,113,108,0.45); }
+  .otter-origin-badge[data-origin='shared'] { background: rgba(56,189,248,0.15); color: rgb(125 211 252); border: 1px solid rgba(56,189,248,0.35); }
+  .otter-origin-badge[data-origin='from_someone'] { background: rgba(167,139,250,0.16); color: rgb(196 181 253); border: 1px solid rgba(167,139,250,0.38); }
+  .otter-origin-badge[data-origin='company_standard'] { background: rgba(234,88,12,0.18); color: rgb(253 186 116); border: 1px solid rgba(234,88,12,0.45); }
+  .otter-origin-icon[data-origin='personal'],
+  .otter-origin-icon[data-origin='own'] { color: rgb(168 162 158); }
+  .otter-origin-icon[data-origin='shared'] { color: rgb(125 211 252); }
+  .otter-origin-icon[data-origin='from_someone'] { color: rgb(196 181 253); }
+  .otter-origin-icon[data-origin='company_standard'] { color: rgb(253 186 116); }
+
 }
