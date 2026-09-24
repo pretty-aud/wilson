@@ -3950,9 +3950,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 {subjectList.map(sub => (
                   <div
                     key={sub.slug}
-                    className={`bg-stone-800 border rounded-control shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative flex flex-col h-[200px] ${
-                      sub.is_stub ? 'border-dashed border-stone-600' : 'border-stone-600 hover:border-orange-500 cursor-pointer'
-                    }`}
+                    className="otter-subject-card bg-stone-800 rounded-control shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative flex flex-col h-[200px]"
+                    data-stub={sub.is_stub ? 'true' : undefined}
                     onClick={() => {
                       if (!sub.is_stub) { selectSubject(activeSoftwareSlug, sub.slug); setCurrentView('study'); }
                     }}
@@ -3969,7 +3968,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {activeCanWrite && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
-                          className="p-1 text-stone-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-[color,background-color,border-color,opacity] rounded-control hover:bg-stone-700"
+                          className="otter-subject-card-delete p-1 transition-[color,background-color,border-color,opacity] rounded-control"
                           title="Delete subject"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -3978,7 +3977,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     </div>
                     {/* Body */}
                     <div className="flex flex-col flex-1 px-4 py-3 min-h-0">
-                      <h3 className={`font-semibold text-h2 leading-tight mb-1.5 line-clamp-2 transition-colors ${sub.is_stub ? 'text-stone-400' : 'text-white group-hover:text-orange-400'}`}>
+                      <h3 className="otter-subject-card-title font-semibold text-h2 leading-tight mb-1.5 line-clamp-2 transition-colors">
                         {sub.title}
                       </h3>
                       <p
@@ -4092,11 +4091,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div
                   key={sw.slug}
-                  className={`bg-stone-800 border rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative ${
-                    openable
-                      ? 'border-stone-600 hover:border-orange-500 cursor-pointer'
-                      : 'border-dashed border-stone-700 cursor-default'
-                  }`}
+                  className="otter-course-card bg-stone-800 rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative"
+                  data-openable={openable ? undefined : 'false'}
                   onClick={() => { if (openable) { selectSoftware(sw.slug); setCurrentView('library'); } }}
                 >
                   {/* PHASE 5: hover concealment removed here too — see the
@@ -4123,9 +4119,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       only 38-16 = 22px of right padding to clear the trigger.
                       pr-6 (24px) still cleared it, by 2px; pr-8 (32px) restores
                       the ~10px breathing gap the old 22px trigger had. */}
-                  <h3 className={`font-semibold text-h1 leading-tight pr-8 transition-colors mb-2 ${
-                    openable ? 'text-white group-hover:text-orange-400' : 'text-stone-500'
-                  }`}>{sw.name}</h3>
+                  <h3 className="otter-course-card-title font-semibold text-h1 leading-tight pr-8 transition-colors mb-2">{sw.name}</h3>
                   {cloudMode && (
                     <div className="flex items-center gap-1.5 flex-wrap mb-2">
                       <VisibilityBadge course={sw} />

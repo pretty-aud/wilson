@@ -149,4 +149,69 @@
     border-left-color: oklch(70.5% 0.213 47.604);     /* border-orange-500 */
   }
 
+  /* ═══ EXTRACTION — THE LIBRARY (renderLibrary) ═════════════════════════
+     Two cards, each a container ternary and a title ternary on ONE
+     condition, so the title keys on its card's attribute:
+
+     the SUBJECT card (the course page)
+       stub     a dashed stone-600 edge, no hover; title stone-400
+       default  a stone-600 edge, orange-500 on hover, a pointer; title
+                white, orange-400 while the card is hovered
+     and its delete, hidden until the card is hovered, stone-600, red-400
+     on a stone-700 fill on its own hover.
+
+     the COURSE card (the library)
+       not openable  a dashed stone-700 edge, the default cursor; title
+                     stone-500
+       default       a stone-600 edge, orange-500 on hover, a pointer;
+                     title white, orange-400 while the card is hovered
+
+     🚨 The border utility moved here WITH the colour: it sets the border
+     style too, and a utility beats this layer, so leaving it on the element
+     would have drawn the dashed branches solid. */
+  .otter-subject-card {
+    border: 1px solid oklch(44.4% 0.011 73.639);          /* border border-stone-600 */
+  }
+  .otter-subject-card:not([data-stub='true']) { cursor: pointer; }
+  .otter-subject-card:not([data-stub='true']):hover {
+    border-color: oklch(70.5% 0.213 47.604);              /* hover:border-orange-500 */
+  }
+  .otter-subject-card[data-stub='true'] { border-style: dashed; }
+  .otter-subject-card-title { color: white; }           /* text-white */
+  .otter-subject-card:not([data-stub='true']):hover .otter-subject-card-title {
+    color: oklch(75% 0.183 55.934);                       /* group-hover:text-orange-400 */
+  }
+  .otter-subject-card[data-stub='true'] .otter-subject-card-title {
+    color: oklch(70.9% 0.01 56.259);                      /* text-stone-400 */
+  }
+  .otter-subject-card-delete {
+    opacity: 0;
+    color: oklch(44.4% 0.011 73.639);                     /* text-stone-600 */
+  }
+  .otter-subject-card:hover .otter-subject-card-delete { opacity: 1; } /* group-hover:opacity-100 */
+  .otter-subject-card-delete:hover {
+    color: oklch(70.4% 0.191 22.216);                     /* hover:text-red-400 */
+    background-color: oklch(37.4% 0.01 67.558);           /* hover:bg-stone-700 */
+  }
+
+  .otter-course-card {
+    border: 1px solid oklch(44.4% 0.011 73.639);          /* border border-stone-600 */
+    cursor: pointer;
+  }
+  .otter-course-card:not([data-openable='false']):hover {
+    border-color: oklch(70.5% 0.213 47.604);              /* hover:border-orange-500 */
+  }
+  .otter-course-card[data-openable='false'] {
+    border-style: dashed;
+    border-color: oklch(37.4% 0.01 67.558);               /* border-stone-700 */
+    cursor: default;
+  }
+  .otter-course-card-title { color: white; }            /* text-white */
+  .otter-course-card:not([data-openable='false']):hover .otter-course-card-title {
+    color: oklch(75% 0.183 55.934);                       /* group-hover:text-orange-400 */
+  }
+  .otter-course-card[data-openable='false'] .otter-course-card-title {
+    color: oklch(55.3% 0.013 58.071);                     /* text-stone-500 */
+  }
+
 }
