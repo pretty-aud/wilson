@@ -26,7 +26,8 @@
 
 import { useEffect } from 'react'
 
-const WIDTHS = ['sm', 'md', 'lg']
+// xl (420) is B3c-KR-1: R.A.B.B.I.T.'s edit history and Timeline settings.
+const WIDTHS = ['sm', 'md', 'lg', 'xl']
 
 export function Drawer({
   open,

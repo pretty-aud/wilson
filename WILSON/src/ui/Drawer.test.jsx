@@ -114,6 +114,13 @@ describe('Drawer', () => {
     expect(rule).not.toMatch(/top:\s*\d+px/)
   })
 
+  it('xl (B3c-KR-1) is a width the sheet sizes, from its own token', () => {
+    const { container } = render(<Drawer open width="xl" title="H">x</Drawer>)
+    expect(container.querySelector('.ui-drawer').dataset.width).toBe('xl')
+    expect(css).toMatch(/\.ui-drawer\[data-width="xl"\] \{ width: var\(--panel-xl\); \}/)
+    expect(css).toMatch(/--panel-xl: 420px;/)
+  })
+
   it('writes no inline style: side, width and surface are all data', () => {
     const { container } = render(<Drawer open side="left" width="lg" surface="light" title="H">x</Drawer>)
     const el = container.querySelector('.ui-drawer')
