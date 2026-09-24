@@ -84,6 +84,9 @@ import {
   parseHolidayCSV, exportHolidayCSV,
   countWorkingDays,
 } from '../holidays.js'
+// UI overhaul B3: every state this file used to decide inline (hover, drop
+// target, selected, locked, dragging, a bar's tone) is a named variant there.
+import './rabbitTimeline.css'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -1164,13 +1167,13 @@ const OverviewPane = forwardRef(function OverviewPane({
         {ticks.map(tick => (
           <div
             key={tick.key}
-            className="absolute top-0 bottom-0 flex flex-col justify-end pb-0.5 px-1"
+            className="absolute top-0 bottom-0 flex flex-col justify-end pb-0.5 px-1 rb-tl-ov-tick"
+            data-major={tick.major ? 'true' : 'false'}
             style={{
               left: tick.offset * dayPx,
-              borderLeft: tick.major ? '1px solid #44403c' : '1px solid #292524',
             }}
           >
-            <span className="text-dense whitespace-nowrap" style={{ color: tick.major ? '#a8a29e' : '#57534e' }}>
+            <span className="text-dense whitespace-nowrap rb-tl-ov-tick-label">
               {tick.label}
             </span>
           </div>
@@ -1183,10 +1186,10 @@ const OverviewPane = forwardRef(function OverviewPane({
           bars are never clipped by the bottom pane border. */}
       <div
         ref={bgRef}
-        className="relative w-full"
+        className="relative w-full rb-tl-ov-body"
+        data-panning={isPanning ? 'true' : 'false'}
         style={{
           height: OVERVIEW_HEIGHT - OVERVIEW_HEADER - OVERVIEW_SCROLLBAR_H - 2,
-          cursor: isPanning ? 'grabbing' : 'grab',
           overflow: 'hidden',
         }}
         onMouseDown={handleBackgroundMouseDown}
@@ -1199,12 +1202,11 @@ const OverviewPane = forwardRef(function OverviewPane({
           {ticks.map(tick => (
             <div
               key={`mb-${tick.key}`}
-              className="absolute top-0 bottom-0 pointer-events-none"
+              className="absolute top-0 bottom-0 pointer-events-none rb-tl-ov-grid"
+              data-major={tick.major ? 'true' : 'false'}
               style={{
                 left: tick.offset * dayPx,
                 width: 1,
-                backgroundColor: tick.major ? '#44403c' : '#292524',
-                opacity: tick.major ? 0.7 : 0.5,
               }}
             />
           ))}
@@ -1410,12 +1412,15 @@ const OverviewPane = forwardRef(function OverviewPane({
           the ones that have to line up. */}
       {hoverPopup && (hoverPopup.row?.kind === 'phase' || hoverPopup.row?.kind === 'milestone') && (
         <div
-          className="fixed pointer-events-none rounded-control shadow-lg font-mono"
+          className="fixed pointer-events-none rounded-control shadow-lg font-mono rb-tl-pop"
+          data-kind={hoverPopup.row.kind === 'milestone' ? 'milestone' : 'phase'}
           style={{
             left: hoverPopup.x + 14,
             top:  hoverPopup.y + 14,
             backgroundColor: '#1c1917',
-            border: `1px solid ${hoverPopup.row.kind === 'milestone' ? (hoverPopup.row.milestone?.color || '#f59e0b') : '#fb923c'}`,
+            // A key date's own colour is user data: handed to the sheet, which
+            // falls back to amber when there is none.
+            '--rb-tl-ms': hoverPopup.row.milestone?.color,
             padding: '6px 10px',
             zIndex: 9999,
             maxWidth: 320,
@@ -1424,8 +1429,8 @@ const OverviewPane = forwardRef(function OverviewPane({
           {hoverPopup.row.kind === 'milestone' ? (
             <>
               <div className="flex items-center gap-1.5">
-                <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }} />
-                <div className="text-dense font-semibold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
+                <Diamond className="w-3 h-3 flex-shrink-0 rb-tl-pop-ms" />
+                <div className="text-dense font-semibold truncate rb-tl-pop-ms">
                   {hoverPopup.row.label || 'Untitled milestone'}
                 </div>
               </div>
@@ -1564,16 +1569,14 @@ function MinimapScrollbar({ dayPx, height, onPan }) {
     >
       <div
         onMouseDown={onThumbMouseDown}
-        className="absolute rounded-full"
+        className="absolute rounded-full rb-tl-mm-thumb"
+        data-dragging={dragging ? 'true' : 'false'}
         style={{
           top: 2,
           bottom: 2,
           left: `calc(50% + ${thumbOffset}px - ${THUMB_W / 2}px)`,
           width: THUMB_W,
-          backgroundColor: dragging ? '#fb923c' : '#57534e',
           border: '1px solid #44403c',
-          cursor: dragging ? 'grabbing' : 'grab',
-          transition: dragging ? 'none' : 'background-color 0.15s ease',
         }}
         title="Drag to pan the timeline — keeps scrolling past the edges"
       />
@@ -1732,10 +1735,12 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
   // 2px gutter top and bottom.
   const barH = Math.max(4, effectiveRowH - 4)
 
-  // Lifecycle palette — picks active / upcoming / completed based
-  // on the row's dates + status. Phase bars use the phaseStyle
-  // variant which is slightly more prominent.
-  const tone = barTone(row, critical, row.kind === 'phase')
+  // The bar's tone, named: a phase bar or a task bar (data-shape), its
+  // status (data-status) and, for a task, whether it is on the critical
+  // path (data-critical). The palette those name is `.rb-tl-tone` in
+  // rabbitTimeline.css (UI overhaul B3), transcribed unchanged from the
+  // barTone() it replaces. An unset status is the default tone.
+  const toneStatus = (row.kind === 'phase' ? row.phase?.status : row.task?.status) || undefined
 
   function onMouseDown(e) {
     if (e.button !== 0) return
@@ -1802,19 +1807,15 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
       onMouseMove={onHoverMove}
       onMouseLeave={onHoverLeave}
       data-minimap-nojump="1"
-      className="absolute rounded-control"
+      className="absolute rounded-control rb-tl-tone rb-tl-ov-bar"
+      data-shape={isPhase ? 'phase' : 'task'}
+      data-status={toneStatus}
+      data-critical={critical ? 'true' : 'false'}
+      data-writable={canWrite ? 'true' : 'false'}
       style={{
         left, width,
         top: 2,
         height: barH,
-        backgroundColor: tone.bg,
-        border: isPhase
-          ? `2px solid ${tone.border}`
-          : `1px solid ${tone.border}`,
-        boxShadow: isPhase
-          ? '0 1px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
-          : undefined,
-        cursor: canWrite ? 'grab' : 'pointer',
         // Lift bars above the visible-window frame (zIndex 5) so
         // hover/click still hit the bar even when it sits inside
         // the orange frame rectangle. The frame's empty whitespace
@@ -2329,16 +2330,15 @@ function DetailPane({
                     // the editor with no preset dates.
                     onNewTaskInPhase?.(dzPhaseId, null, null)
                   }}
-                  className={`relative flex items-center transition-colors ${canWrite ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                  className="relative flex items-center transition-colors rb-tl-dz"
+                  data-writable={canWrite ? 'true' : 'false'}
+                  data-hover={isDzHover ? 'true' : 'false'}
+                  data-drop-hover={isReparentHoverDz ? 'true' : 'false'}
                   style={{
                     height: rowPx,
                     borderBottom: '1px solid transparent',
-                    backgroundColor: isReparentHoverDz
-                      ? '#7c2d12'
-                      : (isDzHover && canWrite ? 'rgba(234, 88, 12, 0.06)' : 'transparent'),
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
-                    outline: isReparentHoverDz ? '2px dashed #fb923c' : undefined,
                     // Session 29: denied stays dimmed and never lights up on
                     // hover, so it reads as unavailable rather than as
                     // something that failed to respond.
@@ -2359,7 +2359,9 @@ function DetailPane({
                     // (the colours below keep it faint, which is what she asked
                     // for — "the faint + new task in the left side table"), and
                     // denied keeps the dimming, so the two finally differ.
-                    opacity: canWrite ? 1 : 0.4,
+                    // (That opacity, the hover tint and the drop-target fill
+                    // are `.rb-tl-dz` in rabbitTimeline.css since UI overhaul
+                    // B3, values unchanged.)
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
                   title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
@@ -2368,12 +2370,10 @@ function DetailPane({
                       applies); the LABEL is stone-400 (6.8:1) because 4.5:1 is
                       the floor for text. Both are existing palette values. */}
                   <Plus
-                    className="w-3 h-3 mr-1.5"
-                    style={{ color: isDzHover && canWrite ? '#fb923c' : '#78716c' }}
+                    className="w-3 h-3 mr-1.5 rb-tl-dz-icon"
                   />
                   <span
-                    className="text-dense italic"
-                    style={{ color: isDzHover && canWrite ? '#fdba74' : '#a8a29e' }}
+                    className="text-dense italic rb-tl-dz-label"
                   >
                     New task…
                   </span>
@@ -2396,19 +2396,14 @@ function DetailPane({
                 key={r.key}
                 data-phase-drop-target={dropTargetId || undefined}
                 draggable={false}
-                className={`relative flex items-center hover:bg-stone-800/50 transition-colors ${isTaskRow && canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+                className="relative flex items-center transition-colors rb-tl-row"
+                data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
+                data-grab={isTaskRow && canWrite ? 'true' : 'false'}
+                data-drop-hover={isHoverTarget ? 'true' : 'false'}
                 style={{
                   height: rowPx,
-                  borderBottom: r.kind === 'phase' ? '1px solid #292524' : '1px solid #1c1917',
-                  backgroundColor: isHoverTarget
-                    ? '#7c2d12'
-                    : 'transparent',
-                  borderLeft: r.kind === 'phase'
-                    ? (r.isSubgroup ? '2px solid #78716c' : '2px solid #fb923c')
-                    : '2px solid transparent',
                   paddingLeft: (6 + depth * INDENT_UNIT + 20),
                   paddingRight: 8,
-                  outline: isHoverTarget ? '2px dashed #fb923c' : undefined,
                   userSelect: 'none',
                 }}
                 onMouseDown={isTaskRow ? (e) => startTaskDrag(e, r.task) : undefined}
@@ -2430,13 +2425,12 @@ function DetailPane({
                       e.stopPropagation()
                       onToggleCollapse?.(r.phase)
                     }}
-                    className="absolute flex items-center justify-center rounded-control hover:bg-stone-800"
+                    className="absolute flex items-center justify-center rounded-control hover:bg-stone-800 rb-tl-row-chevron"
                     style={{
                       left: 4 + depth * INDENT_UNIT,
                       top: (rowPx - 16) / 2,
                       width: 16,
                       height: 16,
-                      color: r.isSubgroup ? '#78716c' : '#fb923c',
                       zIndex: 2,
                     }}
                     title={r.collapsed ? 'Expand' : 'Collapse'}
@@ -2447,12 +2441,7 @@ function DetailPane({
                   </button>
                 )}
                 <span
-                  className={`text-dense truncate ${
-                    r.kind === 'phase'
-                      ? (r.isSubgroup ? '' : 'font-semibold')
-                      : ''
-                  }`}
-                  style={{ color: r.kind === 'phase' ? '#fb923c' : '#78716c' }}
+                  className="text-dense truncate rb-tl-row-label"
                 >
                   {r.label}
                 </span>
@@ -2477,14 +2466,12 @@ function DetailPane({
               return (
                 <div
                   key={tick.key}
-                  className="absolute top-0 bottom-0 px-1"
+                  className="absolute top-0 bottom-0 px-1 rb-tl-axis-tick"
+                  data-major={tick.major ? 'true' : 'false'}
                   style={{
                     left: dayToX(tick.offset),
                     display: 'flex',
                     flexDirection: 'column',
-                    borderLeft: tick.major
-                      ? '1px solid #44403c'
-                      : '1px solid #292524',
                   }}
                 >
                   {tick.topLabel && (
@@ -2497,8 +2484,8 @@ function DetailPane({
                   )}
                   <span style={{ flex: 1 }} />
                   <span
-                    className="text-dense whitespace-nowrap"
-                    style={{ color: tick.major ? '#78716c' : '#57534e', marginBottom: 4 }}
+                    className="text-dense whitespace-nowrap rb-tl-axis-label"
+                    style={{ marginBottom: 4 }}
                   >
                     {tick.label}
                   </span>
@@ -2527,11 +2514,11 @@ function DetailPane({
                 return (
                   <div
                     key={`wk-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-weekend"
+                    data-day={dow === 0 ? 'sun' : 'sat'}
                     style={{
                       left: dayToX(i),
                       width: dayPx,
-                      backgroundColor: dow === 0 ? 'rgba(120, 113, 108, 0.10)' : 'rgba(120, 113, 108, 0.06)',
                     }}
                   />
                 )
@@ -2577,11 +2564,11 @@ function DetailPane({
               return (
                 <div
                   key={`g-${i}`}
-                  className="absolute top-0 bottom-0 pointer-events-none"
+                  className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid"
+                  data-week={isWeek ? 'true' : 'false'}
                   style={{
                     left: dayToX(i),
                     width: 1,
-                    backgroundColor: isWeek ? '#44403c' : '#292524',
                     opacity: 0.4,
                   }}
                 />
@@ -2714,14 +2701,14 @@ function DetailPane({
                       const endDate   = addDays(startDate, 7)
                       onNewTaskInPhase?.(dzPhaseId, startDate, endDate)
                     }}
-                    className={`absolute left-0 right-0 ${canWrite ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                    className="absolute left-0 right-0 rb-tl-chart-dz"
+                    data-writable={canWrite ? 'true' : 'false'}
+                    data-hover={isDzHover ? 'true' : 'false'}
+                    data-drop-hover={isReparentHoverDz ? 'true' : 'false'}
                     style={{
                       top: i * rowPx,
                       height: rowPx,
                       borderBottom: '1px dashed #44403c',
-                      backgroundColor: isReparentHoverDz
-                        ? 'rgba(124, 45, 18, 0.35)'
-                        : (isDzHover && canWrite ? 'rgba(234, 88, 12, 0.05)' : 'transparent'),
                     }}
                     aria-disabled={canWrite ? undefined : 'true'}
                     title={canWrite ? undefined : writeReason || undefined}
@@ -2779,18 +2766,13 @@ function DetailPane({
                 <div
                   key={r.key}
                   data-phase-drop-target={chartDropTargetId || undefined}
-                  className="absolute left-0 right-0"
+                  className="absolute left-0 right-0 rb-tl-chart-row"
+                  data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
+                  data-drop-hover={isChartHoverTarget ? 'true' : 'false'}
                   style={{
                     top: i * rowPx,
                     height: rowPx,
                     borderBottom: '1px solid #1c1917',
-                    backgroundColor: isChartHoverTarget
-                      ? 'rgba(124, 45, 18, 0.45)'
-                      : (r.kind === 'phase'
-                          ? (r.isSubgroup ? 'rgba(51, 48, 45, 0.45)' : 'rgba(68, 64, 60, 0.55)')
-                          : 'transparent'),
-                    outline: isChartHoverTarget ? '2px dashed #fb923c' : undefined,
-                    cursor: r.kind === 'asset' ? 'default' : 'crosshair',
                   }}
                   onMouseDown={r.kind === 'asset' ? undefined : makeBackgroundMouseDown(r)}
                 >
@@ -2871,14 +2853,14 @@ function DetailPane({
                   return (
                     <div
                       key={`pdg-${r.key}`}
-                      className="absolute rounded-control"
+                      className="absolute rounded-control rb-tl-ghost"
+                      data-shape={isPhase ? 'phase' : 'task'}
                       style={{
                         top:  i * rowPx + (isPhase ? 3 : 5),
                         height: isPhase ? rowPx - 6 : rowPx - 10,
                         left,
                         width,
                         backgroundColor: 'rgba(234, 88, 12, 0.18)',
-                        border: `${isPhase ? 2 : 1}px dashed #fb923c`,
                       }}
                     />
                   )
@@ -3365,7 +3347,9 @@ function DependencyOverlay({
               strokeLinecap="round"
               strokeLinejoin="round"
               markerEnd={marker}
-              style={{ pointerEvents: 'stroke', cursor: canWrite ? 'pointer' : 'default' }}
+              className="rb-tl-dep"
+              data-writable={canWrite ? 'true' : 'false'}
+              style={{ pointerEvents: 'stroke' }}
               onClick={(ev) => {
                 ev.stopPropagation()
                 // Session 29 — the confirm() must be INSIDE the gate. Asking
@@ -3560,12 +3544,18 @@ function DetailBar({
   const right = dayToX(offsetDays + lengthDays)
   const width = Math.max(6, right - left)
 
-  // Lifecycle palette — picks active / upcoming / completed based
-  // on the row's (live, drag-aware) dates + status. Phases use the
-  // phaseStyle variant which carries a touch more visual weight.
-  // Subgroups get a distinct cool-toned palette to separate them
-  // visually from real phases.
-  const tone = barTone({ ...row, start, end }, critical, phaseStyle, subgroupStyle)
+  // The bar's tone, named: its shape (data-shape), its status
+  // (data-status), whether a task is on the critical path
+  // (data-critical) and, for a subgroup with no status of its own, its
+  // lifecycle from the row's live, drag-aware dates (data-life). A
+  // subgroup is status-driven when it has a status and date-driven when
+  // it has none, so it carries one of the two, never both. The palette
+  // those name is `.rb-tl-tone` in rabbitTimeline.css (UI overhaul B3),
+  // transcribed unchanged from the barTone() it replaces.
+  const toneStatus = (subgroupStyle
+    ? (row?.assetRef?.status || row?.phase?.status)
+    : (phaseStyle ? row?.phase?.status : row?.task?.status)) || undefined
+  const toneLife = subgroupStyle && !toneStatus ? lifecycleState(start, end) : undefined
 
   function onMouseDown(e) {
     if (e.button !== 0) return
@@ -3776,15 +3766,16 @@ function DetailBar({
       onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
       onMouseLeave={scheduleHoverOff}
       data-row-bar={dataRowBar}
-      className={`absolute flex items-center px-2 rounded-control ${canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      className="absolute flex items-center px-2 rounded-control rb-tl-tone rb-tl-bar"
+      data-shape={subgroupStyle ? 'subgroup' : phaseStyle ? 'phase' : 'task'}
+      data-status={toneStatus}
+      data-life={toneLife}
+      data-critical={critical ? 'true' : 'false'}
+      data-writable={canWrite ? 'true' : 'false'}
       style={{
         left, width,
         top: subgroupStyle ? 4 : (phaseStyle ? 3 : 5),
         height: subgroupStyle ? rowPx - 8 : (phaseStyle ? rowPx - 6 : rowPx - 10),
-        backgroundColor: tone.bg,
-        border: `${subgroupStyle ? 1.5 : (phaseStyle ? 2 : 1)}px solid ${tone.border}`,
-        boxShadow: subgroupStyle ? undefined : (phaseStyle ? '0 0 0 1px rgba(0,0,0,0.4)' : undefined),
-        borderStyle: subgroupStyle ? 'dashed' : 'solid',
       }}
       title={canWrite
         ? `${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`
@@ -3792,8 +3783,8 @@ function DetailBar({
     >
       {/* Edge resize cursor hints — the ew-resize cursor is a promise that the
           edge can be dragged, so it must not be shown to a read-only caller. */}
-      <div className="absolute left-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
-      <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
+      <div className="absolute left-0 top-0 bottom-0 rb-tl-bar-edge" style={{ width: EDGE_GRAB_PX }} />
+      <div className="absolute right-0 top-0 bottom-0 rb-tl-bar-edge" style={{ width: EDGE_GRAB_PX }} />
       {width > 32 && (
         /* 🚨 THE TWO TRUE-ARMS ARE IDENTICAL AND THE TERNARY STAYS. T0 left it
            as the marker that a distinction was intended: phase bars used to be
@@ -3850,12 +3841,16 @@ function DetailBar({
            express with two weights, and collapsing the ternary to
            `(phaseStyle || subgroupStyle) ? 'font-semibold' : ''` would say it
            more plainly at the cost of the marker. Audrey rules; walkthrough 34
-           asks her. Until then, nothing here is silently tidied away. */
+           asks her. Until then, nothing here is silently tidied away.
+
+           📌 UI overhaul B3 (stage 1, the state extraction): the ternary is
+           now two NAMED rules in rabbitTimeline.css, one per arm (the label
+           of a `[data-shape="subgroup"]` bar and of a `[data-shape="phase"]`
+           bar, both 600), so the marker survives un-collapsed. The four
+           channels above and barTone's palette moved there too, values
+           unchanged; the line numbers above are the pre-B3 file's. */
         <span
-          className={`text-dense truncate pointer-events-none overflow-hidden ${
-            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-semibold' : '')
-          }`}
-          style={{ color: tone.fg }}
+          className="text-dense truncate pointer-events-none overflow-hidden rb-tl-bar-label"
         >
           {label}
         </span>
@@ -3887,14 +3882,14 @@ function DetailBar({
           onMouseDown={onDepHandleDown}
           onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
           onMouseLeave={scheduleHoverOff}
-          className="absolute rounded-full"
+          className="absolute rounded-full rb-tl-dep-handle"
+          data-kind={phaseStyle ? 'phase' : 'task'}
           style={{
             right: -22,
             top: '50%',
             transform: 'translateY(-50%)',
             width: 14,
             height: 14,
-            backgroundColor: phaseStyle ? '#22d3ee' : '#fb923c',
             border: '2px solid #1c1917',
             cursor: 'crosshair',
             zIndex: 6,
@@ -4210,7 +4205,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-label font-mono uppercase font-semibold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
+          <span className="text-label font-mono uppercase font-semibold rb-tl-ed-title" data-milestone={isMilestone ? 'true' : 'false'}>
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset
@@ -4884,11 +4879,7 @@ function DetailZoomToolbar({
           type="button"
           onClick={onUndo}
           disabled={!canUndo}
-          className="p-1.5 rounded-control transition-colors hover:bg-stone-800"
-          style={{
-            color: canUndo ? '#d6d3d1' : '#44403c',
-            cursor: canUndo ? 'pointer' : 'not-allowed',
-          }}
+          className="p-1.5 rounded-control transition-colors hover:bg-stone-800 rb-tl-undo"
           title="Undo (Ctrl+Z)"
         >
           <Undo2 className="w-3.5 h-3.5" />
@@ -4897,11 +4888,7 @@ function DetailZoomToolbar({
           type="button"
           onClick={onRedo}
           disabled={!canRedo}
-          className="p-1.5 rounded-control transition-colors hover:bg-stone-800"
-          style={{
-            color: canRedo ? '#d6d3d1' : '#44403c',
-            cursor: canRedo ? 'pointer' : 'not-allowed',
-          }}
+          className="p-1.5 rounded-control transition-colors hover:bg-stone-800 rb-tl-undo"
           title="Redo (Ctrl+Shift+Z)"
         >
           <Redo2 className="w-3.5 h-3.5" />
@@ -4916,11 +4903,8 @@ function DetailZoomToolbar({
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-2.5 py-1 text-dense rounded-control transition-colors"
-            style={{
-              color: zoomId === z.id ? '#fff7ed' : '#78716c',
-              backgroundColor: zoomId === z.id ? '#ea580c' : 'transparent',
-            }}
+            className="px-2.5 py-1 text-dense rounded-control transition-colors rb-tl-zoom"
+            data-active={zoomId === z.id ? 'true' : 'false'}
             title={`Switch the detail gantt to ${z.label} zoom`}
           >
             {z.label}
@@ -4960,10 +4944,8 @@ function DetailZoomToolbar({
                 key={g.id}
                 type="button"
                 onClick={() => onGroupByChange(g.id)}
-                className="p-1.5 rounded-control transition-colors hover:bg-stone-800"
-                style={{
-                  color: groupBy === g.id ? '#fb923c' : '#57534e',
-                }}
+                className="p-1.5 rounded-control transition-colors hover:bg-stone-800 rb-tl-group"
+                data-active={groupBy === g.id ? 'true' : 'false'}
                 title={g.title}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -4980,10 +4962,8 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('asc')}
-          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
-          style={{
-            color: sortOrder === 'asc' ? '#fb923c' : '#57534e',
-          }}
+          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800 rb-tl-sort"
+          data-active={sortOrder === 'asc' ? 'true' : 'false'}
           title="Sort phases and tasks by start date, earliest first"
         >
           ↑ Date
@@ -4991,10 +4971,8 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('desc')}
-          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
-          style={{
-            color: sortOrder === 'desc' ? '#fb923c' : '#57534e',
-          }}
+          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800 rb-tl-sort"
+          data-active={sortOrder === 'desc' ? 'true' : 'false'}
           title="Sort phases and tasks by start date, latest first"
         >
           ↓ Date
@@ -5259,21 +5237,15 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         <div className="flex shrink-0">
           <button
             onClick={() => setSettingsTab('settings')}
-            className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${
-              settingsTab === 'settings'
-                ? 'text-orange-400 border-orange-500 bg-stone-900'
-                : 'text-stone-400 border-transparent bg-stone-700'
-            }`}
+            className="flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 rb-tl-set-tab"
+            data-active={settingsTab === 'settings' ? 'true' : 'false'}
           >
             Settings
           </button>
           <button
             onClick={() => setSettingsTab('prompts')}
-            className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${
-              settingsTab === 'prompts'
-                ? 'text-orange-400 border-orange-500 bg-stone-900'
-                : 'text-stone-400 border-transparent bg-stone-700'
-            }`}
+            className="flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 rb-tl-set-tab"
+            data-active={settingsTab === 'prompts' ? 'true' : 'false'}
           >
             System Prompts
           </button>
@@ -5285,12 +5257,12 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
             {isLocked
               ? <Lock className="w-4 h-4 text-stone-500" />
               : <Unlock className="w-4 h-4 text-orange-400" />}
-            <span className={`text-label font-semibold uppercase ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
+            <span className="text-label font-semibold uppercase rb-tl-lock-label" data-locked={isLocked ? 'true' : 'false'}>
               {isLocked ? 'Locked' : 'Unlocked'}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-label uppercase ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
+            <span className="text-label uppercase rb-tl-lock-hint" data-locked={isLocked ? 'true' : 'false'}>
               {isLocked ? 'Read Only' : 'Editable'}
             </span>
             <button
@@ -5298,10 +5270,11 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 if (settingsTab === 'prompts') setPromptsLocked(!promptsLocked)
                 else setToolsLocked(!toolsLocked)
               }}
-              className={`relative w-11 h-6 rounded-full transition-colors ${isLocked ? 'bg-stone-600' : 'bg-orange-500'}`}
+              className="relative w-11 h-6 rounded-full transition-colors rb-tl-switch"
+              data-on={isLocked ? 'false' : 'true'}
             >
               <span
-                className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${isLocked ? 'left-1' : 'left-6'}`}
+                className="absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform rb-tl-switch-knob"
               />
             </button>
           </div>
@@ -5310,7 +5283,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {settingsTab === 'settings' && (
-            <div className={toolsLocked ? 'opacity-60 pointer-events-none' : ''}>
+            <div className="rb-tl-set-body" data-locked={toolsLocked ? 'true' : 'false'}>
               <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
                 <label className="block text-h3 font-semibold mb-2 text-orange-400">Timeline Display</label>
                 <div className="flex items-center justify-between">
@@ -5323,10 +5296,11 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                   </div>
                   <button
                     onClick={() => patchSettings({ showWeekends: !settings.showWeekends })}
-                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${settings.showWeekends ? 'bg-orange-500' : 'bg-stone-600'}`}
+                    className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-3 rb-tl-switch"
+                    data-on={settings.showWeekends ? 'true' : 'false'}
                   >
                     <span
-                      className={`absolute top-1 w-4 h-4 bg-stone-200 rounded-full transition-transform ${settings.showWeekends ? 'left-6' : 'left-1'}`}
+                      className="absolute top-1 w-4 h-4 bg-stone-200 rounded-full transition-transform rb-tl-switch-knob"
                     />
                   </button>
                 </div>
@@ -5389,11 +5363,8 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                                 templates[type] = { ...(templates[type] || {}), [field]: !tpl[field] }
                                 patchSettings({ projectTypeTemplates: templates })
                               }}
-                              className="w-4 h-4 rounded-control flex items-center justify-center transition-colors"
-                              style={{
-                                backgroundColor: tpl[field] ? '#ea580c' : 'transparent',
-                                border: `1px solid ${tpl[field] ? '#ea580c' : '#57534e'}`,
-                              }}
+                              className="w-4 h-4 rounded-control flex items-center justify-center transition-colors rb-tl-type-check"
+                              data-checked={tpl[field] ? 'true' : 'false'}
                             >
                               {tpl[field] && <Check className="w-2.5 h-2.5 text-white" />}
                             </button>
@@ -5421,7 +5392,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
           )}
 
           {settingsTab === 'prompts' && (
-            <div className={promptsLocked ? 'opacity-60' : ''}>
+            <div className="rb-tl-prompts" data-locked={promptsLocked ? 'true' : 'false'}>
               {promptSections.map(s => (
                 <div key={s.key} className="border-b border-stone-700 overflow-hidden">
                   <button
@@ -5429,13 +5400,14 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors"
                   >
                     <div className="text-left">
-                      <span className={`text-label font-semibold uppercase ${promptsLocked ? 'text-stone-500' : 'text-orange-400'}`}>
+                      <span className="text-label font-semibold uppercase rb-tl-prompt-title" data-locked={promptsLocked ? 'true' : 'false'}>
                         {s.title}
                       </span>
                       <p className="text-dense text-stone-500">{s.desc}</p>
                     </div>
                     <ChevronRight
-                      className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${openSection === s.key ? 'rotate-90' : ''}`}
+                      className="w-4 h-4 text-stone-500 transition-transform flex-shrink-0 rb-tl-prompt-chevron"
+                      data-open={openSection === s.key ? 'true' : 'false'}
                     />
                   </button>
                   {openSection === s.key && (
@@ -5446,7 +5418,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                           setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))
                         }
                         disabled={promptsLocked}
-                        className={`w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none ${promptsLocked ? 'cursor-not-allowed' : ''}`}
+                        className="w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none rb-tl-prompt-text"
                       />
                       <div className="flex gap-3 mt-1">
                         <button
@@ -5454,14 +5426,14 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                             setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))
                           }
                           disabled={promptsLocked}
-                          className={`text-dense ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
+                          className="text-dense rb-tl-prompt-act"
                         >
                           Reset to default
                         </button>
                         <button
                           onClick={savePrompts}
                           disabled={promptsLocked}
-                          className={`text-dense ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
+                          className="text-dense rb-tl-prompt-act"
                         >
                           Save
                         </button>
@@ -5532,11 +5504,8 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
                 <button
                   key={item.id}
                   onClick={() => setHelpPage(item.id)}
-                  className={`w-full text-left px-3 py-1.5 text-dense transition-colors ${
-                    helpPage === item.id
-                      ? 'bg-stone-800 text-orange-400 font-semibold border-l-2 border-orange-500'
-                      : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                  }`}
+                  className="w-full text-left px-3 py-1.5 text-dense transition-colors border-l-2 rb-tl-help-item"
+                  data-active={helpPage === item.id ? 'true' : 'false'}
                 >
                   {item.label}
                 </button>
@@ -5582,10 +5551,9 @@ function ZoomControls({ zoomId, onChange }) {
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-2 py-0.5 text-dense"
+            className="px-2 py-0.5 text-dense rb-tl-zoomctl"
+            data-active={zoomId === z.id ? 'true' : 'false'}
             style={{
-              color: zoomId === z.id ? '#fff7ed' : '#a8a29e',
-              backgroundColor: zoomId === z.id ? '#ea580c' : '#1c1917',
               borderRight: '1px solid #44403c',
             }}
           >
@@ -5768,14 +5736,14 @@ function SummaryBand({
 }
 
 function SummaryTile({ icon: Icon, label, value, tone }) {
-  const colors = tone === 'danger'
-    ? { value: '#fca5a5', icon: '#ef4444', label: '#fca5a5' }
-    : { value: '#fb923c', icon: '#57534e', label: '#d6d3d1' }
+  // Danger (a blocked count above zero) or not: `.rb-tl-tile` in
+  // rabbitTimeline.css holds both sets of inks (UI overhaul B3, values
+  // unchanged from the lookup this function used to carry).
   return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1">
-      <Icon className="w-3 h-3" style={{ color: colors.icon }} />
-      <span className="text-dense" style={{ color: colors.value }}>{value}</span>
-      <span className="text-label uppercase" style={{ color: colors.label }}>{label}</span>
+    <div className="flex items-center gap-1.5 px-1.5 py-1 rb-tl-tile" data-danger={tone === 'danger' ? 'true' : 'false'}>
+      <Icon className="w-3 h-3 rb-tl-tile-icon" />
+      <span className="text-dense rb-tl-tile-value">{value}</span>
+      <span className="text-label uppercase rb-tl-tile-label">{label}</span>
     </div>
   )
 }
@@ -5802,74 +5770,12 @@ function lifecycleState(start, end, status) {
   return 'active'
 }
 
-// barTone — pick a palette for a phase or task bar.
-// Args:
-//   row           — { start, end, task?, phase?, assetRef? }
-//   critical      — true if this task is on the critical path
-//   phaseStyle    — true for phase bars (phases + subgroups)
-//   subgroupStyle — true for subgroup bars (assets, team, scenes, etc.)
-//
-// Color mapping aligns with statusColor() in ProjectTasksView so the
-// timeline and task table speak the same visual language.
-function barTone(row, critical, phaseStyle, subgroupStyle) {
-  // ── Subgroup bars (assets, team members, scenes, etc.) ────────
-  // Status-driven when an explicit status is available (assets carry
-  // status via assetRef). Falls back to date-based lifecycle for
-  // subgroups without an explicit status field.
-  if (subgroupStyle) {
-    const status = row?.assetRef?.status || row?.phase?.status || null
-    if (status) {
-      if (status === 'in_progress')  return { bg: '#451a03', border: '#fb923c', fg: '#fff7ed' }
-      if (status === 'completed')    return { bg: '#052e16', border: '#22c55e', fg: '#dcfce7' }
-      if (status === 'on_hold')      return { bg: '#1c1917', border: '#d97706', fg: '#fcd34d' }
-      // not_started or unrecognized
-      return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
-    }
-    // No explicit status — fall back to date-based lifecycle
-    const state = lifecycleState(row?.start, row?.end)
-    if (state === 'completed') return { bg: '#292524', border: '#57534e', fg: '#78716c' }
-    if (state === 'upcoming')  return { bg: '#1c1917', border: '#78716c', fg: '#a8a29e' }
-    return { bg: '#451a03', border: '#f59e0b', fg: '#fef3c7' }
-  }
-
-  // ── Phase bars ────────────────────────────────────────────────
-  if (phaseStyle) {
-    const phaseStatus = row?.phase?.status || 'not_started'
-    if (phaseStatus === 'completed') return { bg: '#27272a', border: '#52525b', fg: '#a1a1aa' }
-    if (phaseStatus === 'delayed')   return { bg: '#1c1917', border: '#b45309', fg: '#fcd34d' }
-    if (phaseStatus === 'active')    return { bg: '#7c2d12', border: '#fb923c', fg: '#fff7ed' }
-    return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
-  }
-
-  // ── Task bars — status-driven ─────────────────────────────────
-  const status = row?.task?.status
-
-  switch (status) {
-    case 'in_progress':
-      if (critical) return { bg: '#9a3412', border: '#fb923c', fg: '#fff7ed' }
-      return { bg: '#7c2d12', border: '#fb923c', fg: '#fed7aa' }
-    case 'pending_review':
-      return { bg: '#451a03', border: '#fbbf24', fg: '#fef3c7' }
-    case 'needs_revisions':
-      return { bg: '#4a1942', border: '#e879f9', fg: '#fae8ff' }
-    case 'approved':
-      return { bg: '#052e16', border: '#4ade80', fg: '#dcfce7' }
-    case 'final':
-      return { bg: '#14532d', border: '#22c55e', fg: '#bbf7d0' }
-    case 'blocked':
-      return { bg: '#1c1917', border: '#ef4444', fg: '#fca5a5' }
-    case 'on_hold':
-      return { bg: '#1c1917', border: '#d97706', fg: '#fcd34d' }
-    case 'omitted':
-      return { bg: '#1c1917', border: '#292524', fg: '#57534e' }
-    case 'waiting_to_start':
-      return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
-    default: {
-      // Unknown or unset status — stone neutral
-      return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
-    }
-  }
-}
+// barTone() — the palette of a phase, task or subgroup bar — lives in
+// rabbitTimeline.css since UI overhaul B3 (stage 1, the state
+// extraction): `.rb-tl-tone`, keyed on the data-shape, data-status,
+// data-life and data-critical that OverviewBar and DetailBar now carry,
+// with every branch a named rule and every value transcribed unchanged.
+// lifecycleState() above still decides data-life.
 
 // ============================================================
 // Schedule + row builders

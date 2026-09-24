@@ -1,0 +1,430 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. Timeline — the extracted state of lane B3's files
+   UI overhaul B3, 2026-09-24
+
+   Owns: views/TimelineView.jsx (the Timeline: its minimap, the detail
+   gantt, the zoom toolbar, the task editor, the settings panel and the
+   help modal it exports) and components/EditHistoryDrawer.jsx (opened
+   from Tasks). Every class here is `rb-tl-` (TimelineView) or `rb-hist-`
+   (EditHistoryDrawer): the `rb-` prefix is what the lane scanners
+   (rabbitCssGuards.js) key on, and the second word keeps these clear of
+   B1's rabbitShell.css, B2's rabbitTasks.css and B6's `bn-`.
+
+   STAGE 1 ("no visual change"): every hover / selected / active /
+   disabled / dragging / drag-over / locked / empty branch these files
+   wrote as an inline `style` ternary, a className template literal, a
+   conditional className or a colour lookup moved onto a `data-*`
+   attribute, or onto the native `:disabled` where the branch's condition
+   IS the element's `disabled` prop, resolved here with the shipped values
+   TRANSCRIBED UNCHANGED: the inline hexes and rgba()s as they were
+   written, and for a Tailwind utility a branch used to swap, the value
+   that utility computed (v4.1.18's oklch palette written out with its
+   step name, as A1's dog.css does: a `--color-stone-700` reference would
+   go blank the day the last such utility in the app is restyled away).
+   Proven pixel for pixel against the build before it
+   (scripts/timeline-state-shots.mjs: 34 states, at 1440x900 and 1280x700).
+   Geometry (left, top, width, height and transforms computed from dates
+   and pixels) stays inline: it is not state. A key date's own colour is
+   user data: it arrives as `--rb-tl-ms` and only its fallback lives here.
+
+   STAGE 2, the restyle: every value a token. Until it lands this sheet is
+   the one registered stylesheet allowed its hexes (typeScale.test.js).
+
+   THE PROPERTY MOVES WHOLE. A rule in `components` loses to any utility on
+   its element and to any inline style, so when a branch changed a
+   property, every value of that property (at rest, under the pointer, in
+   the state) moved here and left both the element's style and its
+   className. Tailwind wraps `hover:` in `@media (hover: hover)`; so does
+   this file.
+
+   Dead or broken branches the extraction found (each keeps its CURRENT
+   rendered look — stage 1 changes no pixel, a dead one included):
+   - The detail gantt's label row declared a hover fill (stone-800 at 50%)
+     that never painted: the row's inline background (transparent, or the
+     drop-target fill) beat it in every state. Not carried: `.rb-tl-row`
+     has no hover.
+   - A chart row's cursor was `default` for a row of kind 'asset', but no
+     row builder emits that kind (rows are phase, task or drop-zone), so
+     every chart row has only ever shown the crosshair. Not carried. (Its
+     twin, `onMouseDown={r.kind === 'asset' ? undefined : …}`, is a
+     handler and stays as it is.)
+   - ZoomControls has no caller ("legacy — kept for compatibility, no
+     longer rendered"): its selected / idle pair is extracted
+     (`.rb-tl-zoomctl`) and can never be seen.
+   - The label of a phase bar and of a subgroup bar are both 600: the two
+     identical arms T0 kept as a marker (DetailBar's comment). They stay
+     two named rules. barTone()'s tone for a subgroup with an unrecognised
+     status and its default phase tone are byte-identical, and both stay
+     named too.
+   Found beside the extraction, outside its forms, and left as they are:
+   - the settings panel's prompt-section header declares a hover on
+     `stone-750`, which is not a Tailwind colour, so it generates no CSS
+     and has never painted;
+   - "Manage Task Templates" declares a hover fill beside an inline
+     background, which beats it: never painted;
+   - EditHistoryDrawer's `entryActionMeta(entry) || {…}` fallback cannot
+     run (entryActionMeta always returns an object; its own unknown-action
+     fallback is the same grey, `.rb-hist-action`'s default);
+   - the key-date markers' glow appends `66` to the key date's colour, so
+     only a six-digit hex keeps its glow (the editor's colour picker only
+     makes those). Those markers keep their colour inline: it is data, and
+     the glow's spelling cannot be written in CSS for every colour.
+
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST RULE OF THIS FILE, and it
+   has to be (rabbitShell.css's header; D1 hand-off §5 trap 1): this sheet
+   is imported from a component, so the bundler can emit it before
+   index.css, and a layer's position is fixed where it is FIRST named.
+   No element here wears a kit class, so there is no fight with the kit
+   (rabbitTimelineCss.test.js measures it anyway).
+
+   THE VARIANTS — attribute = values, on which element, what each paints.
+   TimelineView
+     .rb-tl-ov-tick, .rb-tl-ov-grid   data-major = true|false: a year's month
+                                      is lighter (tick edge and label, divider)
+     .rb-tl-ov-body                   data-panning = true|false: grabbing | grab
+     .rb-tl-pop                       data-kind = phase|milestone: orange edge |
+                                      the key date's colour, amber without one
+     .rb-tl-mm-thumb                  data-dragging = true|false: orange,
+                                      grabbing, no fade | stone, grab, fade
+     .rb-tl-tone (both kinds of bar)  data-shape = task|phase|subgroup,
+                                      data-status = the stored status,
+                                      data-life = completed|upcoming|active
+                                      (a subgroup with no status),
+                                      data-critical = true|false: the palette
+     .rb-tl-ov-bar                    data-shape = phase: 2px, lifted shadow;
+                                      data-writable = true: grab (else pointer)
+     .rb-tl-bar                       data-shape = phase: 2px + dark ring, a 600
+                                      label; = subgroup: 1.5px dashed, a 600
+                                      label; data-writable = true: grab /
+                                      grabbing, edges ew-resize (else pointer)
+     .rb-tl-dep-handle                data-kind = phase|task: cyan | orange
+     .rb-tl-dz, .rb-tl-chart-dz       data-writable, data-hover, data-drop-hover
+                                      = true|false: "+ New task" rows, dim and
+                                      not-allowed when not writable, tinted on
+                                      hover, the drop fill under a dragged task
+     .rb-tl-row                       data-shape = task|phase|subgroup: left
+                                      edge, rule, label ink and weight;
+                                      data-grab = true: grab / grabbing;
+                                      data-drop-hover = true: the drop fill
+     .rb-tl-axis-tick                 data-major = true|false: lighter
+     .rb-tl-weekend                   data-day = sun|sat: Sunday deeper
+     .rb-tl-grid                      data-week = true|false: Monday lighter
+     .rb-tl-chart-row                 data-shape: phase / subgroup banding;
+                                      data-drop-hover = true: the drop fill
+     .rb-tl-ghost                     data-shape = phase|task: 2px | 1px dashed
+     .rb-tl-dep                       data-writable = true|false: pointer | default
+     .rb-tl-ed-title                  data-milestone = true|false: amber | orange
+     .rb-tl-undo                      :disabled: dim ink, not-allowed
+     .rb-tl-zoom, .rb-tl-zoomctl      data-active = true: the filled orange chip
+     .rb-tl-group, .rb-tl-sort        data-active = true: orange
+     .rb-tl-set-tab                   data-active = true: raised, orange, underlined
+     .rb-tl-lock-label, .rb-tl-lock-hint, .rb-tl-prompt-title
+                                      data-locked = true|false: stone | orange
+                                      (the hint: stone-500 | stone-400)
+     .rb-tl-switch                    data-on = true|false: orange, knob right
+     .rb-tl-set-body                  data-locked = true: dimmed and inert
+     .rb-tl-prompts                   data-locked = true: dimmed
+     .rb-tl-type-check                data-checked = true: filled orange
+     .rb-tl-prompt-chevron            data-open = true: turned 90°
+     .rb-tl-prompt-text, .rb-tl-prompt-act
+                                      :disabled: not-allowed (an action's ink
+                                      dims); :hover lightens an enabled action
+     .rb-tl-help-item                 data-active = true|false: the open page
+                                      raised, orange, 600, edged | lightens
+                                      under the pointer
+     .rb-tl-tile                      data-danger = true|false: a tile's inks
+   EditHistoryDrawer
+     .rb-hist-spin                    data-spinning = true|false: turning
+     .rb-hist-action                  data-action = create|update|delete|
+                                      restore|other: the action's colour
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ The minimap (OverviewPane) ═══════════════════════════════════════ */
+
+  /* The month axis: a major tick is lighter, edge and label. */
+  .rb-tl-ov-tick { border-left: 1px solid #292524; }
+  .rb-tl-ov-tick[data-major="true"] { border-left-color: #44403c; }
+  .rb-tl-ov-tick-label { color: #57534e; }
+  .rb-tl-ov-tick[data-major="true"] .rb-tl-ov-tick-label { color: #a8a29e; }
+
+  /* The body pans: grab, and grabbing while a pan is under way. */
+  .rb-tl-ov-body { cursor: grab; }
+  .rb-tl-ov-body[data-panning="true"] { cursor: grabbing; }
+
+  /* The month dividers through the body. */
+  .rb-tl-ov-grid { background-color: #292524; opacity: 0.5; }
+  .rb-tl-ov-grid[data-major="true"] { background-color: #44403c; opacity: 0.7; }
+
+  /* The hover popup: a phase's orange edge, or a key date's own colour
+     (--rb-tl-ms, set on the popup from the key date) with the amber a key
+     date without one falls back to. The var rides in the shorthand, so an
+     unreadable colour drops the whole border, as the inline one did. */
+  .rb-tl-pop { border: 1px solid #fb923c; }
+  .rb-tl-pop[data-kind="milestone"] { border: 1px solid var(--rb-tl-ms, #f59e0b); }
+  .rb-tl-pop[data-kind="milestone"] .rb-tl-pop-ms { color: var(--rb-tl-ms, #f59e0b); }
+
+  /* The infinite scrollbar's thumb (MinimapScrollbar): orange and without
+     its fade while it is dragged. */
+  .rb-tl-mm-thumb { background-color: #57534e; cursor: grab; transition: background-color 0.15s ease; }
+  .rb-tl-mm-thumb[data-dragging="true"] { background-color: #fb923c; cursor: grabbing; transition: none; }
+
+  /* ═══ The bars' tone (barTone(), transcribed) ═══════════════════════════
+     On every minimap bar (OverviewBar) and every gantt bar (DetailBar). A
+     tone is three channels, ground / edge / ink, set here as custom
+     properties and read by the bars below. A task's tone is its status (in
+     progress on the critical path is one step hotter); a phase's is its
+     status, unset meaning not started; a subgroup's is its status when it
+     has one and its lifecycle (data-life) when it has none. An unset or
+     unrecognised status is the shape's default: the shape's first rule. */
+  .rb-tl-tone[data-shape="task"]                                   { --rb-tl-bg: #1c1917; --rb-tl-border: #57534e; --rb-tl-fg: #a8a29e; }
+  .rb-tl-tone[data-shape="task"][data-status="in_progress"]        { --rb-tl-bg: #7c2d12; --rb-tl-border: #fb923c; --rb-tl-fg: #fed7aa; }
+  .rb-tl-tone[data-shape="task"][data-status="in_progress"][data-critical="true"] { --rb-tl-bg: #9a3412; --rb-tl-border: #fb923c; --rb-tl-fg: #fff7ed; }
+  .rb-tl-tone[data-shape="task"][data-status="pending_review"]     { --rb-tl-bg: #451a03; --rb-tl-border: #fbbf24; --rb-tl-fg: #fef3c7; }
+  .rb-tl-tone[data-shape="task"][data-status="needs_revisions"]    { --rb-tl-bg: #4a1942; --rb-tl-border: #e879f9; --rb-tl-fg: #fae8ff; }
+  .rb-tl-tone[data-shape="task"][data-status="approved"]           { --rb-tl-bg: #052e16; --rb-tl-border: #4ade80; --rb-tl-fg: #dcfce7; }
+  .rb-tl-tone[data-shape="task"][data-status="final"]              { --rb-tl-bg: #14532d; --rb-tl-border: #22c55e; --rb-tl-fg: #bbf7d0; }
+  .rb-tl-tone[data-shape="task"][data-status="blocked"]            { --rb-tl-bg: #1c1917; --rb-tl-border: #ef4444; --rb-tl-fg: #fca5a5; }
+  .rb-tl-tone[data-shape="task"][data-status="on_hold"]            { --rb-tl-bg: #1c1917; --rb-tl-border: #d97706; --rb-tl-fg: #fcd34d; }
+  .rb-tl-tone[data-shape="task"][data-status="omitted"]            { --rb-tl-bg: #1c1917; --rb-tl-border: #292524; --rb-tl-fg: #57534e; }
+  .rb-tl-tone[data-shape="task"][data-status="waiting_to_start"]   { --rb-tl-bg: #1c1917; --rb-tl-border: #57534e; --rb-tl-fg: #a8a29e; }
+  .rb-tl-tone[data-shape="phase"]                                  { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #d6d3d1; }
+  .rb-tl-tone[data-shape="phase"][data-status="completed"]         { --rb-tl-bg: #27272a; --rb-tl-border: #52525b; --rb-tl-fg: #a1a1aa; }
+  .rb-tl-tone[data-shape="phase"][data-status="delayed"]           { --rb-tl-bg: #1c1917; --rb-tl-border: #b45309; --rb-tl-fg: #fcd34d; }
+  .rb-tl-tone[data-shape="phase"][data-status="active"]            { --rb-tl-bg: #7c2d12; --rb-tl-border: #fb923c; --rb-tl-fg: #fff7ed; }
+  .rb-tl-tone[data-shape="subgroup"]                               { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #d6d3d1; }
+  .rb-tl-tone[data-shape="subgroup"][data-status="in_progress"]    { --rb-tl-bg: #451a03; --rb-tl-border: #fb923c; --rb-tl-fg: #fff7ed; }
+  .rb-tl-tone[data-shape="subgroup"][data-status="completed"]      { --rb-tl-bg: #052e16; --rb-tl-border: #22c55e; --rb-tl-fg: #dcfce7; }
+  .rb-tl-tone[data-shape="subgroup"][data-status="on_hold"]        { --rb-tl-bg: #1c1917; --rb-tl-border: #d97706; --rb-tl-fg: #fcd34d; }
+  .rb-tl-tone[data-shape="subgroup"][data-life="completed"]        { --rb-tl-bg: #292524; --rb-tl-border: #57534e; --rb-tl-fg: #78716c; }
+  .rb-tl-tone[data-shape="subgroup"][data-life="upcoming"]         { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #a8a29e; }
+  .rb-tl-tone[data-shape="subgroup"][data-life="active"]           { --rb-tl-bg: #451a03; --rb-tl-border: #f59e0b; --rb-tl-fg: #fef3c7; }
+
+  /* A minimap bar: a phase is drawn 2px with a lifted shadow; a writer
+     grabs it, a reader clicks it. */
+  .rb-tl-ov-bar {
+    background-color: var(--rb-tl-bg);
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--rb-tl-border);
+    cursor: pointer;
+  }
+  .rb-tl-ov-bar[data-shape="phase"] {
+    border-width: 2px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .rb-tl-ov-bar[data-writable="true"] { cursor: grab; }
+
+  /* A gantt bar: a phase 2px with a dark ring, a subgroup 1.5px dashed, a
+     task 1px; a writer grabs it (grabbing while pressed) and its edges
+     resize, a reader's edges take the bar's own pointer. The label is the
+     tone's ink, 600 on a phase and on a subgroup. */
+  .rb-tl-bar {
+    background-color: var(--rb-tl-bg);
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--rb-tl-border);
+    cursor: pointer;
+  }
+  .rb-tl-bar[data-shape="phase"] { border-width: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); }
+  .rb-tl-bar[data-shape="subgroup"] { border-width: 1.5px; border-style: dashed; }
+  .rb-tl-bar[data-writable="true"] { cursor: grab; }
+  .rb-tl-bar[data-writable="true"]:active { cursor: grabbing; }
+  .rb-tl-bar-edge { cursor: inherit; }
+  .rb-tl-bar[data-writable="true"] > .rb-tl-bar-edge { cursor: ew-resize; }
+  .rb-tl-bar-label { color: var(--rb-tl-fg); }
+  .rb-tl-bar[data-shape="phase"] > .rb-tl-bar-label { font-weight: 600; }
+  .rb-tl-bar[data-shape="subgroup"] > .rb-tl-bar-label { font-weight: 600; }
+
+  /* The dependency grip past a bar's right edge: cyan links phases,
+     orange links tasks. */
+  .rb-tl-dep-handle { background-color: #fb923c; }
+  .rb-tl-dep-handle[data-kind="phase"] { background-color: #22d3ee; }
+
+  /* ═══ The label gutter (DetailPane) ════════════════════════════════════ */
+
+  /* "+ New task" under an expanded phase. Writable: full opacity, and a
+     faint orange tint with a brighter icon and label while the pointer is
+     on this row or on its twin in the chart (one hover state spans both
+     panes). Not writable: dimmed to 0.4 and never lit. Under a dragged
+     task: the drop fill and a dashed outline, over any tint. */
+  .rb-tl-dz { background-color: transparent; cursor: not-allowed; opacity: 0.4; }
+  .rb-tl-dz[data-writable="true"] { cursor: pointer; opacity: 1; }
+  .rb-tl-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: rgba(234, 88, 12, 0.06); }
+  .rb-tl-dz[data-drop-hover="true"] { background-color: #7c2d12; outline: 2px dashed #fb923c; }
+  .rb-tl-dz-icon { color: #78716c; }
+  .rb-tl-dz[data-writable="true"][data-hover="true"] .rb-tl-dz-icon { color: #fb923c; }
+  .rb-tl-dz-label { color: #a8a29e; }
+  .rb-tl-dz[data-writable="true"][data-hover="true"] .rb-tl-dz-label { color: #fdba74; }
+
+  /* A phase, subgroup or task row. Its 2px left edge says which (orange,
+     stone, none), a phase or subgroup row is ruled a shade lighter, and its
+     label is orange (600 on a phase) against a task's stone. A task row a
+     writer can drag shows the grab hand; a row under a dragged task takes
+     the drop fill and a dashed outline. No hover fill (see the header). */
+  .rb-tl-row {
+    background-color: transparent;
+    border-bottom: 1px solid #1c1917;
+    border-left: 2px solid transparent;
+    cursor: pointer;
+  }
+  .rb-tl-row[data-shape="phase"],
+  .rb-tl-row[data-shape="subgroup"] { border-bottom-color: #292524; }
+  .rb-tl-row[data-shape="phase"] { border-left-color: #fb923c; }
+  .rb-tl-row[data-shape="subgroup"] { border-left-color: #78716c; }
+  .rb-tl-row[data-grab="true"] { cursor: grab; }
+  .rb-tl-row[data-grab="true"]:active { cursor: grabbing; }
+  .rb-tl-row[data-drop-hover="true"] { background-color: #7c2d12; outline: 2px dashed #fb923c; }
+  .rb-tl-row-chevron { color: #fb923c; }
+  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-chevron { color: #78716c; }
+  .rb-tl-row-label { color: #78716c; }
+  .rb-tl-row[data-shape="phase"] > .rb-tl-row-label,
+  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color: #fb923c; }
+  .rb-tl-row[data-shape="phase"] > .rb-tl-row-label { font-weight: 600; }
+
+  /* ═══ The chart (DetailPane) ═══════════════════════════════════════════ */
+
+  /* The axis: a major tick is lighter, edge and label. */
+  .rb-tl-axis-tick { border-left: 1px solid #292524; }
+  .rb-tl-axis-tick[data-major="true"] { border-left-color: #44403c; }
+  .rb-tl-axis-label { color: #57534e; }
+  .rb-tl-axis-tick[data-major="true"] .rb-tl-axis-label { color: #78716c; }
+
+  /* Day view's weekend tint, Sunday a shade deeper; a day line, a week's
+     first day lighter. */
+  .rb-tl-weekend { background-color: rgba(120, 113, 108, 0.06); }
+  .rb-tl-weekend[data-day="sun"] { background-color: rgba(120, 113, 108, 0.10); }
+  .rb-tl-grid { background-color: #292524; }
+  .rb-tl-grid[data-week="true"] { background-color: #44403c; }
+
+  /* "+ New task" in the chart: the gutter row's twin, on the same hover. */
+  .rb-tl-chart-dz { background-color: transparent; cursor: not-allowed; }
+  .rb-tl-chart-dz[data-writable="true"] { cursor: pointer; }
+  .rb-tl-chart-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: rgba(234, 88, 12, 0.05); }
+  .rb-tl-chart-dz[data-drop-hover="true"] { background-color: rgba(124, 45, 18, 0.35); }
+
+  /* A chart row: phase and subgroup rows are banded, a row under a
+     dragged task takes the drop fill and a dashed outline. */
+  .rb-tl-chart-row { background-color: transparent; cursor: crosshair; }
+  .rb-tl-chart-row[data-shape="phase"][data-drop-hover="false"] { background-color: rgba(68, 64, 60, 0.55); }
+  .rb-tl-chart-row[data-shape="subgroup"][data-drop-hover="false"] { background-color: rgba(51, 48, 45, 0.45); }
+  .rb-tl-chart-row[data-drop-hover="true"] { background-color: rgba(124, 45, 18, 0.45); outline: 2px dashed #fb923c; }
+
+  /* A contained bar's ghost while its phase is dragged: 2px for a phase. */
+  .rb-tl-ghost { border: 1px dashed #fb923c; }
+  .rb-tl-ghost[data-shape="phase"] { border-width: 2px; }
+
+  /* A dependency arrow: the pointer only where a click can remove it. */
+  .rb-tl-dep { cursor: default; }
+  .rb-tl-dep[data-writable="true"] { cursor: pointer; }
+
+  /* ═══ The task editor (TaskEditor) ═════════════════════════════════════ */
+  .rb-tl-ed-title { color: #fb923c; }
+  .rb-tl-ed-title[data-milestone="true"] { color: #f59e0b; }
+
+  /* ═══ The zoom toolbar (DetailZoomToolbar) ══════════════════════════════ */
+
+  /* Undo / redo: `disabled` is exactly "nothing to undo / redo". */
+  .rb-tl-undo { color: #d6d3d1; cursor: pointer; }
+  .rb-tl-undo:disabled { color: #44403c; cursor: not-allowed; }
+  /* The selected zoom is the filled chip; the selected grouping and sort
+     are orange. */
+  .rb-tl-zoom { color: #78716c; background-color: transparent; }
+  .rb-tl-zoom[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
+  .rb-tl-group,
+  .rb-tl-sort { color: #57534e; }
+  .rb-tl-group[data-active="true"],
+  .rb-tl-sort[data-active="true"] { color: #fb923c; }
+  /* ZoomControls' chips (no caller; see the header). */
+  .rb-tl-zoomctl { color: #a8a29e; background-color: #1c1917; }
+  .rb-tl-zoomctl[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
+
+  /* ═══ The settings panel (SettingsPanel) ════════════════════════════════ */
+
+  /* The two tabs: the open one raised, orange, with an orange underline. */
+  .rb-tl-set-tab {
+    color: oklch(70.9% 0.01 56.259);             /* stone-400 */
+    border-color: transparent;
+    background-color: oklch(37.4% 0.01 67.558);  /* stone-700 */
+  }
+  .rb-tl-set-tab[data-active="true"] {
+    color: oklch(75% 0.183 55.934);              /* orange-400 */
+    border-color: oklch(70.5% 0.213 47.604);     /* orange-500 */
+    background-color: oklch(21.6% 0.006 56.043); /* stone-900 */
+  }
+  /* The lock bar, and each prompt section's title: stone while locked. */
+  .rb-tl-lock-label,
+  .rb-tl-prompt-title { color: oklch(75% 0.183 55.934); }         /* orange-400 */
+  .rb-tl-lock-label[data-locked="true"],
+  .rb-tl-prompt-title[data-locked="true"] { color: oklch(55.3% 0.013 58.071); } /* stone-500 */
+  .rb-tl-lock-hint { color: oklch(70.9% 0.01 56.259); }           /* stone-400 */
+  .rb-tl-lock-hint[data-locked="true"] { color: oklch(55.3% 0.013 58.071); } /* stone-500 */
+  /* The two switches (the lock, "Show weekends"): on is orange, knob right. */
+  .rb-tl-switch { background-color: oklch(44.4% 0.011 73.639); }  /* stone-600 */
+  .rb-tl-switch[data-on="true"] { background-color: oklch(70.5% 0.213 47.604); } /* orange-500 */
+  .rb-tl-switch-knob { left: 0.25rem; }                            /* left-1 */
+  .rb-tl-switch[data-on="true"] > .rb-tl-switch-knob { left: 1.5rem; } /* left-6 */
+  /* The Settings tab's body while locked: dimmed and inert. The System
+     Prompts tab's while locked: dimmed (its sections still open). */
+  .rb-tl-set-body[data-locked="true"] { opacity: 60%; pointer-events: none; }
+  .rb-tl-prompts[data-locked="true"] { opacity: 60%; }
+  /* Project-type defaults: a ticked box is filled orange. */
+  .rb-tl-type-check { background-color: transparent; border: 1px solid #57534e; }
+  .rb-tl-type-check[data-checked="true"] { background-color: #ea580c; border-color: #ea580c; }
+  /* A prompt section's chevron turns when it is open. */
+  .rb-tl-prompt-chevron[data-open="true"] { rotate: 90deg; }
+  /* The prompt editor and its two actions: `disabled` is exactly "locked". */
+  .rb-tl-prompt-text:disabled { cursor: not-allowed; }
+  .rb-tl-prompt-act { color: oklch(75% 0.183 55.934); }            /* orange-400 */
+  @media (hover: hover) {
+    .rb-tl-prompt-act:hover:not(:disabled) { color: oklch(83.7% 0.128 66.29); } /* orange-300 */
+  }
+  .rb-tl-prompt-act:disabled { color: oklch(44.4% 0.011 73.639); cursor: not-allowed; } /* stone-600 */
+
+  /* ═══ Help (HelpModal) ══════════════════════════════════════════════════ */
+
+  /* The sidebar: the open page raised, orange, 600, with an orange left
+     edge; the others lighten under the pointer. */
+  .rb-tl-help-item { color: oklch(70.9% 0.01 56.259); border-color: transparent; } /* stone-400 */
+  @media (hover: hover) {
+    .rb-tl-help-item[data-active="false"]:hover {
+      background-color: oklch(26.8% 0.007 34.298);  /* stone-800 */
+      color: oklch(86.9% 0.005 56.366);             /* stone-300 */
+    }
+  }
+  .rb-tl-help-item[data-active="true"] {
+    background-color: oklch(26.8% 0.007 34.298);    /* stone-800 */
+    color: oklch(75% 0.183 55.934);                 /* orange-400 */
+    font-weight: 600;
+    border-color: oklch(70.5% 0.213 47.604);        /* orange-500 */
+  }
+
+  /* ═══ The summary band (SummaryTile) ════════════════════════════════════ */
+
+  /* A tile's icon, figure and label; "Blocked" above zero is danger. */
+  .rb-tl-tile-icon { color: #57534e; }
+  .rb-tl-tile-value { color: #fb923c; }
+  .rb-tl-tile-label { color: #d6d3d1; }
+  .rb-tl-tile[data-danger="true"] .rb-tl-tile-icon { color: #ef4444; }
+  .rb-tl-tile[data-danger="true"] .rb-tl-tile-value,
+  .rb-tl-tile[data-danger="true"] .rb-tl-tile-label { color: #fca5a5; }
+
+  /* ═══ EditHistoryDrawer ═════════════════════════════════════════════════ */
+
+  /* Refresh while the list loads, an entry's revert while it runs: the icon
+     turns. The kit's own `ui-spin` keyframes (index.css), which are
+     Tailwind's `spin` — the same turn — owned by the kit, so they cannot be
+     tree-shaken away with the last `animate-spin` in the app. */
+  .rb-hist-spin[data-spinning="true"] { animation: ui-spin 1s linear infinite; }
+  /* An entry's action badge, in its action's colour (editHistoryFormat.js's
+     ACTION_META and RESTORE_META, transcribed): created and restored green,
+     edited orange, deleted red, anything else grey. */
+  .rb-hist-action { color: #a8a29e; border: 1px solid #a8a29e; opacity: 0.9; }
+  .rb-hist-action[data-action="create"],
+  .rb-hist-action[data-action="restore"] { color: #4ade80; border-color: #4ade80; }
+  .rb-hist-action[data-action="update"] { color: #fb923c; border-color: #fb923c; }
+  .rb-hist-action[data-action="delete"] { color: #fca5a5; border-color: #fca5a5; }
+}

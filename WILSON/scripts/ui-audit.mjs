@@ -191,6 +191,12 @@ export const CSS_FILES = [
   // in the commit that created it, so the denominator moves by one named
   // file; the extraction's palette literals are oklch(), never hex.
   'src/tools/otter_v0.3.1/otter.css',
+  // B3, 2026-09-24 — the Timeline's extracted state (TimelineView and
+  // EditHistoryDrawer). Added in its STAGE 1 commit, not its last-hex one:
+  // it transcribes the shipped hexes on purpose until the restyle tokenises
+  // them, so the hex row lists them as B3's stage-2 work (typeScale.test.js
+  // exempts this one file from the no-hex assertion until then).
+  'src/tools/rabbit_v0.1.0/views/rabbitTimeline.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting
