@@ -23,10 +23,13 @@ import { History, RefreshCw, RotateCcw, X } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { usePermissions } from '../../../permissions/usePermissions'
 import {
-  ENTITY_LABELS, entryActionMeta,
+  ENTITY_LABELS, entryActionMeta, ACTION_META, RESTORE_META,
   diffLines, snapshotSummary, formatHistoryTimestamp, actorName,
 } from './editHistoryFormat'
 import { canRevertEntry, revertActionLabel } from './editHistoryRevert'
+// UI overhaul B3: the turning icons and the action badge's colours are
+// named variants in the Timeline lane's sheet.
+import '../views/rabbitTimeline.css'
 
 export default function EditHistoryDrawer({ entityType, entityId, entityLabel, onClose }) {
   const { getAdapter, adapterMode, revertHistoryEntry } = useRabbit()
@@ -99,7 +102,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
           </div>
           <button type="button" onClick={load} title="Refresh"
             className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
-            <RefreshCw className={`w-3.5 h-3.5${loading ? ' animate-spin' : ''}`} />
+            <RefreshCw className="w-3.5 h-3.5 rb-hist-spin" data-spinning={loading ? 'true' : 'false'} />
           </button>
           <button type="button" onClick={onClose} title="Close"
             className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
@@ -176,8 +179,11 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
     <div className="rounded-control px-3 py-2.5 flex flex-col gap-1.5"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
       <div className="flex items-center gap-2">
-        <span className="text-label uppercase font-semibold px-1.5 py-0.5 rounded-control flex-shrink-0"
-          style={{ color: meta.color, border: `1px solid ${meta.color}`, opacity: 0.9 }}>
+        <span className="text-label uppercase font-semibold px-1.5 py-0.5 rounded-control flex-shrink-0 rb-hist-action"
+          data-action={meta === ACTION_META.create ? 'create'
+            : meta === ACTION_META.update ? 'update'
+            : meta === ACTION_META.delete ? 'delete'
+            : meta === RESTORE_META ? 'restore' : 'other'}>
           {meta.label}
         </span>
         <span className="text-dense font-semibold truncate flex-1" style={{ color: '#d6d3d1' }}>
@@ -195,7 +201,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
             className="p-1 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0 disabled:opacity-40"
             style={{ color: '#fb923c' }}
           >
-            <RotateCcw className={`w-3.5 h-3.5${reverting ? ' animate-spin' : ''}`} />
+            <RotateCcw className="w-3.5 h-3.5 rb-hist-spin" data-spinning={reverting ? 'true' : 'false'} />
           </button>
         )}
       </div>

@@ -1942,15 +1942,26 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(where, `page stylesheets off the weight axis:\n${where.join('\n')}`).toEqual([]);
   });
 
+  /* B3, 2026-09-24 — ONE page stylesheet may still write hex, on the hex row
+     only: rabbitTimeline.css is the Timeline's STAGE 1 state extraction
+     (plan §5), which transcribes the shipped hexes unchanged on purpose, so
+     that stage 1 moves no pixel. B3's stage 2 (the restyle) turns every one
+     into a token and DELETES this entry; until then the audit's `--css`
+     table lists them as that work. Its sizes are still asserted below. */
+  const STAGE_1_HEX = ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css'];
+
   it('the four page stylesheets write no hex and no off-scale size', () => {
     // C8 and C7, on the surfaces T3 swept. Everything the two rows still
     // report is inside `src/index.css`, in `.lesson-content` (T1's by plan §5
     // lane A3) and `.companion-chat-md` (the agent panel's, lane A — `index.css`
     // says so; it is not the pet's sprite, so C5 does not cover it; V1).
+    // A stage-1 exemption must name a registered sheet (a typo excuses nothing).
+    expect(STAGE_1_HEX.filter((f) => !CSS_FILES.includes(f))).toEqual([]);
     for (const label of ['hex colour outside @theme', 'font-size off the scale']) {
       const row = cssRow(label);
       const where = row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`))
-        .filter(PAGE_SHEETS);
+        .filter(PAGE_SHEETS)
+        .filter((hit) => label !== 'hex colour outside @theme' || !STAGE_1_HEX.some((f) => hit.startsWith(`${f}:`)));
       expect(where, `${label} in a page stylesheet:\n${where.join('\n')}`).toEqual([]);
     }
   });
@@ -1996,6 +2007,12 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
        structural 2px border there would have passed (A1 review round 1). */
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row', 'exact'],   // F2 Row's "highlighted" edge: a page open in a tab
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab', 'exact'],      // the kit's tab underline, on the closable wrapper (A1-KR-1)
+    /* B3, 2026-09-24 — the Timeline's stage-1 sheet: four shape indicators,
+       each the shipped look transcribed (plan §5), none structural. EXACT. */
+    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ov-bar[data-shape="phase"]', 'exact'],  // a phase bar is 2px against a task's 1px, in the minimap…
+    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-bar[data-shape="phase"]', 'exact'],     // …and in the gantt
+    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ghost[data-shape="phase"]', 'exact'],   // and so is its ghost while its parent phase is dragged
+    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-row', 'exact'],                         // a label row's left edge: orange phase, stone subgroup, none for a task
     // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
     ['src/index.css', '.lesson-content'],
     ['src/index.css', '.companion-chat-md'],
@@ -2116,12 +2133,13 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
   it('CONTROL: the CSS scan is actually reading the stylesheets', () => {
     // Every assertion above is an empty-list check, and an empty list is what
     // a scan that opened nothing also returns. These are the denominators.
-    // 9: B1 added rabbitShell.css, A1 dog.css, B6 bins.css and B2
-    // rabbitTasks.css (all 2026-09-23).
-    expect(CSS_FILES.length).toBe(9);
-    // …and the ninth is B2's sheet, listed once (a duplicate line kept the
-    // count at 9 while dropping it; B2 round one).
+    // 10: B1 added rabbitShell.css, A1 dog.css, B6 bins.css and B2
+    // rabbitTasks.css (all 2026-09-23), and B3 rabbitTimeline.css (2026-09-24).
+    expect(CSS_FILES.length).toBe(10);
+    // …and the ninth is B2's sheet and the tenth B3's, each listed once (a
+    // duplicate line kept the count at 9 while dropping one; B2 round one).
     expect(CSS_FILES).toContain('src/tools/rabbit_v0.1.0/views/rabbitTasks.css');
+    expect(CSS_FILES).toContain('src/tools/rabbit_v0.1.0/views/rabbitTimeline.css');
     expect(new Set(CSS_FILES).size).toBe(CSS_FILES.length);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing
