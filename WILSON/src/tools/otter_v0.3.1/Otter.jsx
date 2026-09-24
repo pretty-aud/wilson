@@ -2943,7 +2943,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   //  RENDER — MAIN LAYOUT
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col h-full bg-stone-900">
+    <div className="otter-root">
       {/* ── NAV BAR ──
           A3: the six views are the kit's Tabs (review O1, O2): one tab
           treatment, one active state (the 2px signal underline), on the same
@@ -4455,7 +4455,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   function renderStudyView() {
     if (!activeSubject) {
-      return <div className="flex items-center justify-center h-full text-stone-500"><p>Select a subject from the sidebar to begin studying.</p></div>;
+      return <EmptyState icon={BookOpen} title="Select a subject from the sidebar to begin studying." />;
     }
     if (activeSubject.is_stub) {
       return (

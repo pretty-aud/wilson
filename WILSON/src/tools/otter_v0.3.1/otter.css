@@ -401,6 +401,10 @@
   }
   .otter-sources-link:hover { background-color: var(--color-hover); color: var(--color-ink); }
 
+  /* The tool's own ground: paper (it was Tailwind's stone-900, the same
+     value by another name). */
+  .otter-root { display: flex; flex-direction: column; height: 100%; background-color: var(--color-paper); }
+
   /* ═══ THE VIEWS' SCAFFOLD — one page, one view-title treatment (O3) ════
      Every O.T.T.E.R. view that titled itself did so four ways (O3): 24px
      orange floating in the padding, an 18px orange header bar, white with an
