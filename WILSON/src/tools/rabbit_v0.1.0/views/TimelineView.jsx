@@ -48,7 +48,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
-  CalendarDays, GitBranch, ZoomIn, ZoomOut, Layers, Boxes, ListChecks,
+  CalendarDays, GitBranch, Layers, Boxes, ListChecks,
   AlertTriangle, Plus, X, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown,
   Settings as SettingsIcon, HelpCircle, Lock, Unlock, Crosshair,
   Undo2, Redo2, Maximize2, Briefcase, Upload, Download, Check,
@@ -91,6 +91,9 @@ import './rabbitTimeline.css'
 // span readout and snap marks, computed and tested outside this file.
 import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth } from './timelineMinimap.js'
 import { IconButton } from '../../../ui/IconButton'
+import { Button } from '../../../ui/Button'
+import { Toolbar } from '../../../ui/Toolbar'
+import { Tabs } from '../../../ui/Tabs'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -2381,6 +2384,9 @@ function DetailPane({
   return (
     <div
       ref={scrollRef}
+      id={DETAIL_PANEL_ID}
+      role="tabpanel"
+      aria-label="Gantt"
       className="flex-1 overflow-auto relative"
       style={{ backgroundColor: '#1c1917' }}
     >
@@ -4978,158 +4984,89 @@ function DetailZoomToolbar({
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
 }) {
+  // UI overhaul B3b: the kit Toolbar (44px, the 24px gutter, one 28px
+  // control height), and ONE segmented idiom for the three selectors
+  // (TL-01) — the kit Tabs, an underline and no fill — where the zoom chips
+  // were a filled orange chip, and the grouping and the sort were orange
+  // text. Every control stays, with the same title and the same click (C1).
+  const groupItems = [
+    { id: 'phase',      icon: Layers,   title: 'Group by phase' },
+    { id: 'team',       icon: Users,    title: 'Group by team member' },
+    { id: 'asset',      icon: Boxes,    title: 'Group by asset' },
+    ...(project?.scenes_enabled ? [{ id: 'scene', icon: Film, title: 'Group by scene' }] : []),
+    ...(project?.levels_enabled ? [{ id: 'level', icon: Gamepad2, title: 'Group by level' }] : []),
+    ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
+  ].map(({ id, icon: Icon, title }) => ({ id, title, label: <Icon className="w-3.5 h-3.5" aria-hidden="true" /> }))
   return (
-    <div
-      className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
-      style={{ borderBottom: '1px solid #292524', backgroundColor: '#1c1917' }}
+    <Toolbar
+      right={
+        <>
+          {groupBy === 'phase' && (
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <Button size="sm" variant="ghost" icon={Plus} onClick={onNewPhase}>
+              Phase
+            </Button>
+          </GatedAction>
+          )}
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <Button size="sm" variant="ghost" icon={Diamond} onClick={onNewMilestone}>
+              Key date
+            </Button>
+          </GatedAction>
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <Button size="sm" variant="primary" icon={Plus} onClick={onNewTask}>
+              Task
+            </Button>
+          </GatedAction>
+        </>
+      }
     >
       {/* Undo / redo */}
-      <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={onUndo}
-          disabled={!canUndo}
-          className="p-1.5 rounded-control transition-colors hover:bg-stone-800 rb-tl-undo"
-          title="Undo (Ctrl+Z)"
-        >
-          <Undo2 className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onRedo}
-          disabled={!canRedo}
-          className="p-1.5 rounded-control transition-colors hover:bg-stone-800 rb-tl-undo"
-          title="Redo (Ctrl+Shift+Z)"
-        >
-          <Redo2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      <IconButton size="sm" icon={Undo2} onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" />
+      <IconButton size="sm" icon={Redo2} onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" />
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
-      <div className="flex items-center gap-1">
-        {ZOOM_LEVELS.map(z => (
-          <button
-            key={z.id}
-            type="button"
-            onClick={() => onChange(z.id)}
-            className="px-2.5 py-1 text-dense rounded-control transition-colors rb-tl-zoom"
-            data-active={zoomId === z.id ? 'true' : 'false'}
-            title={`Switch the detail gantt to ${z.label} zoom`}
-          >
-            {z.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Detail zoom"
+        panelId={DETAIL_PANEL_ID}
+        items={ZOOM_LEVELS.map(z => ({ id: z.id, label: z.label, title: `Switch the detail gantt to ${z.label} zoom` }))}
+        value={zoomId}
+        onChange={onChange}
+      />
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
-      <button
-        type="button"
-        onClick={onCenterToday}
-        className="flex items-center gap-1 px-2 py-1 rounded-control hover:bg-stone-800 transition-colors"
-        style={{ color: '#78716c' }}
-        title="Center the detail timeline on today"
-      >
-        <Crosshair className="w-3 h-3" />
-        <span className="text-label uppercase">Today</span>
-      </button>
+      <Button size="sm" variant="ghost" icon={Crosshair} onClick={onCenterToday} title="Center the detail timeline on today">
+        Today
+      </Button>
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
       {/* Group-by selector */}
       {onGroupByChange && (
-        <div className="flex items-center gap-0.5">
-          {[
-            { id: 'phase',      icon: Layers,   title: 'Group by phase' },
-            { id: 'team',       icon: Users,    title: 'Group by team member' },
-            { id: 'asset',      icon: Boxes,    title: 'Group by asset' },
-            ...(project?.scenes_enabled ? [{ id: 'scene', icon: Film, title: 'Group by scene' }] : []),
-            ...(project?.levels_enabled ? [{ id: 'level', icon: Gamepad2, title: 'Group by level' }] : []),
-            ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
-          ].map((g) => {
-            const Icon = g.icon
-            return (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => onGroupByChange(g.id)}
-                className="p-1.5 rounded-control transition-colors hover:bg-stone-800 rb-tl-group"
-                data-active={groupBy === g.id ? 'true' : 'false'}
-                title={g.title}
-              >
-                <Icon className="w-3.5 h-3.5" />
-              </button>
-            )
-          })}
-        </div>
+        <Tabs label="Group by" panelId={DETAIL_PANEL_ID} items={groupItems} value={groupBy} onChange={onGroupByChange} />
       )}
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
       {/* Sort */}
-      <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={() => onSortOrderChange?.('asc')}
-          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800 rb-tl-sort"
-          data-active={sortOrder === 'asc' ? 'true' : 'false'}
-          title="Sort phases and tasks by start date, earliest first"
-        >
-          ↑ Date
-        </button>
-        <button
-          type="button"
-          onClick={() => onSortOrderChange?.('desc')}
-          className="px-2 py-1 text-dense rounded-control transition-colors hover:bg-stone-800 rb-tl-sort"
-          data-active={sortOrder === 'desc' ? 'true' : 'false'}
-          title="Sort phases and tasks by start date, latest first"
-        >
-          ↓ Date
-        </button>
-      </div>
-
-      {/* + Phase / + Task */}
-      <div className="ml-auto flex items-center gap-1.5">
-        {groupBy === 'phase' && (
-        <GatedAction allowed={canWrite} reason={writeReason}>
-          <button
-            type="button"
-            onClick={onNewPhase}
-            className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
-            style={{ color: '#78716c' }}
-          >
-            <Plus className="w-3 h-3" />
-            Phase
-          </button>
-        </GatedAction>
-        )}
-        <GatedAction allowed={canWrite} reason={writeReason}>
-          <button
-            type="button"
-            onClick={onNewMilestone}
-            className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors hover:bg-stone-800"
-            style={{ color: '#f59e0b' }}
-          >
-            <Diamond className="w-3 h-3" />
-            Key Date
-          </button>
-        </GatedAction>
-        <GatedAction allowed={canWrite} reason={writeReason}>
-          <button
-            type="button"
-            onClick={onNewTask}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
-          >
-            <Plus className="w-3 h-3" />
-            Task
-          </button>
-        </GatedAction>
-      </div>
-    </div>
+      <Tabs
+        label="Sort by start date"
+        panelId={DETAIL_PANEL_ID}
+        items={[
+          { id: 'asc',  label: '↑ Date', title: 'Sort phases and tasks by start date, earliest first' },
+          { id: 'desc', label: '↓ Date', title: 'Sort phases and tasks by start date, latest first' },
+        ]}
+        value={sortOrder}
+        onChange={(o) => onSortOrderChange?.(o)}
+      />
+    </Toolbar>
   )
 }
+
+/** The region the toolbar's three tab sets switch (Tabs' panelId): the gantt. */
+const DETAIL_PANEL_ID = 'rb-tl-detail'
 
 // ============================================================
 // HolidaysEditor — inline editor inside SettingsPanel for
@@ -5634,56 +5571,8 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
   )
 }
 
-// ============================================================
-// ZoomControls (legacy — kept for compatibility, no longer
-// rendered. The new DetailZoomToolbar replaced it.)
-// ============================================================
-
-function ZoomControls({ zoomId, onChange }) {
-  const idx = ZOOM_LEVELS.findIndex(z => z.id === zoomId)
-  const canZoomIn  = idx > 0
-  const canZoomOut = idx < ZOOM_LEVELS.length - 1
-  return (
-    <div className="ml-auto flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => canZoomIn && onChange(ZOOM_LEVELS[idx - 1].id)}
-        disabled={!canZoomIn}
-        className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30"
-        title="Zoom in"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-      >
-        <ZoomIn className="w-3 h-3" />
-      </button>
-      <div className="flex rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
-        {ZOOM_LEVELS.map(z => (
-          <button
-            key={z.id}
-            type="button"
-            onClick={() => onChange(z.id)}
-            className="px-2 py-0.5 text-dense rb-tl-zoomctl"
-            data-active={zoomId === z.id ? 'true' : 'false'}
-            style={{
-              borderRight: '1px solid #44403c',
-            }}
-          >
-            {z.label}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={() => canZoomOut && onChange(ZOOM_LEVELS[idx + 1].id)}
-        disabled={!canZoomOut}
-        className="p-1 rounded-control hover:bg-stone-700 disabled:opacity-30"
-        title="Zoom out"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-      >
-        <ZoomOut className="w-3 h-3" />
-      </button>
-    </div>
-  )
-}
+// ZoomControls — the legacy zoom strip DetailZoomToolbar replaced — had no
+// caller and carried a sixth active-state idiom; B3b deleted it (TL-36).
 
 // ============================================================
 // SummaryBand

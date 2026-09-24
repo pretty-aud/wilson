@@ -50,9 +50,9 @@
      every chart row has only ever shown the crosshair. Not carried. (Its
      twin, `onMouseDown={r.kind === 'asset' ? undefined : …}`, is a
      handler and stays as it is.)
-   - ZoomControls has no caller ("legacy — kept for compatibility, no
-     longer rendered"): its selected / idle pair is extracted
-     (`.rb-tl-zoomctl`) and can never be seen.
+   - ZoomControls had no caller ("legacy — kept for compatibility, no
+     longer rendered"); stage 1 extracted its selected / idle pair. B3b
+     deleted the component and its rules (TL-36).
    - The label of a phase bar and of a subgroup bar are both 600: the two
      identical arms T0 kept as a marker (DetailBar's comment). They stay
      two named rules. barTone()'s tone for a subgroup with an unrecognised
@@ -120,9 +120,8 @@
      .rb-tl-ghost                     data-shape = phase|task: 2px | 1px dashed
      .rb-tl-dep                       data-writable = true|false: pointer | default
      .rb-tl-ed-title                  data-milestone = true|false: amber | orange
-     .rb-tl-undo                      :disabled: dim ink, not-allowed
-     .rb-tl-zoom, .rb-tl-zoomctl      data-active = true: the filled orange chip
-     .rb-tl-group, .rb-tl-sort        data-active = true: orange
+     (the zoom toolbar's undo pair, zoom, grouping and sort are the kit's
+     IconButton and Tabs since B3b: their states live in index.css)
      .rb-tl-set-tab                   data-active = true: raised, orange, underlined
      .rb-tl-lock-label, .rb-tl-lock-hint, .rb-tl-prompt-title
                                       data-locked = true|false: stone | orange
@@ -467,22 +466,12 @@
   .rb-tl-ed-title { color: #fb923c; }
   .rb-tl-ed-title[data-milestone="true"] { color: #f59e0b; }
 
-  /* ═══ The zoom toolbar (DetailZoomToolbar) ══════════════════════════════ */
-
-  /* Undo / redo: `disabled` is exactly "nothing to undo / redo". */
-  .rb-tl-undo { color: #d6d3d1; cursor: pointer; }
-  .rb-tl-undo:disabled { color: #44403c; cursor: not-allowed; }
-  /* The selected zoom is the filled chip; the selected grouping and sort
-     are orange. */
-  .rb-tl-zoom { color: #78716c; background-color: transparent; }
-  .rb-tl-zoom[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
-  .rb-tl-group,
-  .rb-tl-sort { color: #57534e; }
-  .rb-tl-group[data-active="true"],
-  .rb-tl-sort[data-active="true"] { color: #fb923c; }
-  /* ZoomControls' chips (no caller; see the header). */
-  .rb-tl-zoomctl { color: #a8a29e; background-color: #1c1917; }
-  .rb-tl-zoomctl[data-active="true"] { color: #fff7ed; background-color: #ea580c; }
+  /* ═══ The zoom toolbar (DetailZoomToolbar) — stage 2 (B3b) ══════════════
+     The kit's Toolbar, Tabs, Button and IconButton carry every state now
+     (TL-01: one segmented idiom). What is left here is the hairline between
+     its groups. The filled zoom chip, the orange grouping and sort, the
+     undo pair's two inks and ZoomControls' chips went with their elements. */
+  .rb-tl-tb-sep { flex: none; width: 1px; height: 16px; background-color: var(--color-rule); }
 
   /* ═══ The settings panel (SettingsPanel) ════════════════════════════════ */
 

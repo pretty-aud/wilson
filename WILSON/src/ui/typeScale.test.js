@@ -1601,7 +1601,10 @@ describe('the inline half: every type value reads a token (T3)', () => {
     const bad = coverage().filter((c) => !c.ok)
       .map((c) => `${c.file}: grep ${c.raw}, inventory ${c.seen} (+${c.exempt} exempt)`);
     expect(bad, `files the inline inventory cannot fully see:\n${bad.join('\n')}`).toEqual([]);
-  });
+    // B3b: a scan of every source file, under 3s alone but 5–9s beside
+    // fourteen other files in one run on a dev machine — past vitest's 5s
+    // default, so it failed on time, not on content. Given room, not changed.
+  }, 20000);
 
   /* 🚨 THE FIFTH SPELLING WAS ASSERTED OVER ONE LANE WHILE THE BLOCK CLAIMED
      THE APP. `textTransform` appeared only in T2's lane assertion, so a
