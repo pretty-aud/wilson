@@ -11,6 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
+import { Menu, Tabs } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -182,9 +183,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [deletedSubjectsStack, setDeletedSubjectsStack] = useState([]);
   const [redoSubjectsStack, setRedoSubjectsStack] = useState([]);
 
-  // ── Edit menu ──
+  // ── Edit menu ── (the kit Menu since A3: it owns outside-click and Escape)
   const [editMenuOpen, setEditMenuOpen] = useState(false);
-  const editMenuRef = useRef(null);
+  const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
+  const editPressWhileOpenRef = useRef(false);
 
   // ── Software name autocomplete ──
   const [showSoftwareDropdown, setShowSoftwareDropdown] = useState(false);
@@ -2372,17 +2374,6 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showSearchModal, currentPage]);
 
-  // Close edit menu on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (editMenuRef.current && !editMenuRef.current.contains(e.target)) {
-        setEditMenuOpen(false);
-      }
-    };
-    if (editMenuOpen) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [editMenuOpen]);
-
   // ═══════════════════════════════════════════════════════════════
   //  IMPORT / EXPORT
   // ═══════════════════════════════════════════════════════════════
@@ -2858,177 +2849,154 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   }, [selectSoftware, selectSubject]);
 
   // ═══════════════════════════════════════════════════════════════
+  //  THE NAV BAR'S VIEWS (A3: the kit's Tabs)
+  // ═══════════════════════════════════════════════════════════════
+  // Which tab is selected — each condition is the one its button used to
+  // carry. Library only with no course open; Hotkeys and Functions share the
+  // hotkeys view and split on the course's type. Anything else (a course, a
+  // lesson, the prompt, Sources) selects no tab, as before.
+  const navView =
+    currentView === 'library' && !activeSoftwareSlug ? 'library'
+      : currentView === 'quiz' ? 'quiz'
+        : currentView === 'hotkeys' ? (activeSoftware?.type === 'coding_language' ? 'functions' : 'hotkeys')
+          : currentView === 'nodes' ? 'nodes'
+            : currentView === 'requests' ? 'requests'
+              : currentView === 'validator' ? 'validator'
+                : null;
+
+  // Each tab does exactly what its button's onClick did.
+  function selectNavView(id) {
+    if (id === 'library') {
+      navigateTo('library', () => {
+        setActiveSoftwareSlug(null);
+        setActiveSoftware(null);
+        setActiveSubjectSlug(null);
+        setActiveSubject(null);
+      });
+    } else if (id === 'quiz') {
+      loadQuizSelectionData(); navigateTo('quiz');
+    } else if (id === 'hotkeys') {
+      if (activeSoftware && activeSoftware.type !== 'coding_language') {
+        navigateTo('hotkeys');
+      } else {
+        const first = softwareList.find(sw => sw.type !== 'coding_language');
+        if (first) selectSoftware(first.slug);
+        navigateTo('hotkeys');
+      }
+    } else if (id === 'nodes') {
+      const nodeCapable = softwareList.filter(sw => sw.type !== 'coding_language');
+      if (nodeCapable.length > 0) {
+        if (!activeSoftware || activeSoftware.type === 'coding_language') {
+          selectSoftware(nodeCapable[0].slug);
+        }
+      }
+      navigateTo('nodes');
+    } else if (id === 'functions') {
+      if (activeSoftware && activeSoftware.type === 'coding_language') {
+        navigateTo('hotkeys');
+      } else {
+        const first = softwareList.find(sw => sw.type === 'coding_language');
+        if (first) selectSoftware(first.slug);
+        navigateTo('hotkeys');
+      }
+    } else if (id === 'requests') {
+      navigateTo('requests');
+    } else if (id === 'validator') {
+      navigateTo('validator');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   //  RENDER — MAIN LAYOUT
   // ═══════════════════════════════════════════════════════════════
   return (
     <div className="flex flex-col h-full bg-stone-900">
-      {/* ── NAV BAR ── */}
-      <nav className="bg-stone-800 border-b border-stone-600 flex items-center shrink-0">
-        {/* EDIT dropdown */}
-        <div className="relative" ref={editMenuRef}>
-          <button
-            onClick={() => setEditMenuOpen(prev => !prev)}
-            className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-            data-active={editMenuOpen ? 'true' : undefined}
-          >
-            Edit <ChevronDown className="w-3 h-3" />
-          </button>
-          {editMenuOpen && (
-            <div className="absolute left-0 top-full mt-0 bg-stone-700 border border-stone-600 rounded-control shadow-lg z-50 min-w-[180px]">
-              <button
-                onClick={() => { undoDeleteSubject(); setEditMenuOpen(false); }}
-                disabled={deletedSubjectsStack.length === 0}
-                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
-              >
-                <RotateCcw className="w-3 h-3" /> Undo Delete
-                {deletedSubjectsStack.length > 0 && (
-                  <span className="ml-auto text-caption text-stone-500">({deletedSubjectsStack.length})</span>
-                )}
-              </button>
-              <button
-                onClick={() => { redoDeleteSubject(); setEditMenuOpen(false); }}
-                disabled={redoSubjectsStack.length === 0}
-                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
-              >
-                <ArrowRight className="w-3 h-3" /> Redo Delete
-                {redoSubjectsStack.length > 0 && (
-                  <span className="ml-auto text-caption text-stone-500">({redoSubjectsStack.length})</span>
-                )}
-              </button>
-              <div className="border-t border-stone-600 my-1" />
-              <button
-                onClick={() => { setShowImportModal(true); setEditMenuOpen(false); }}
-                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
-              >
-                <Upload className="w-3 h-3" /> Import Subjects
-              </button>
-              <button
-                onClick={() => { exportAll(); setEditMenuOpen(false); }}
-                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
-              >
-                <Download className="w-3 h-3" /> Export All
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Separator */}
-        <div className="w-px h-6 bg-stone-600 mx-1" />
-
-        {/* Search */}
+      {/* ── NAV BAR ──
+          A3: the six views are the kit's Tabs (review O1, O2): one tab
+          treatment, one active state (the 2px signal underline), on the same
+          strip R.A.B.B.I.T.'s ViewTabs draws. Edit (a menu) and Search (a
+          dialog) are not views, so they are not tabs; they wear the tab's
+          class so the strip reads as one language, and keep the underline
+          while their menu or dialog is open, as they always did. */}
+      <nav className="otter-nav" aria-label="O.T.T.E.R.">
         <button
-          onClick={() => setShowSearchModal(true)}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={showSearchModal ? 'true' : undefined}
-        >
-          <Search className="w-4 h-4" /> Search
-        </button>
-
-        {/* Library */}
-        <button
-          onClick={() => {
-            navigateTo('library', () => {
-              setActiveSoftwareSlug(null);
-              setActiveSoftware(null);
-              setActiveSubjectSlug(null);
-              setActiveSubject(null);
-            });
+          type="button"
+          className="ui-tab otter-nav-button"
+          aria-haspopup="menu"
+          aria-expanded={editMenuOpen}
+          data-active={editMenuOpen ? 'true' : undefined}
+          onPointerDown={() => { editPressWhileOpenRef.current = editMenuOpen; }}
+          onKeyDown={() => { editPressWhileOpenRef.current = false; }}
+          onClick={(e) => {
+            // The kit Menu closes on any mousedown outside itself, and the
+            // trigger is outside it: a press that closed the menu must not
+            // reopen it on the click that follows.
+            if (editPressWhileOpenRef.current) { editPressWhileOpenRef.current = false; return; }
+            const r = e.currentTarget.getBoundingClientRect();
+            setEditMenuPos({ x: r.left, y: r.bottom });
+            setEditMenuOpen(prev => !prev);
           }}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={currentView === 'library' && !activeSoftwareSlug ? 'true' : undefined}
         >
-          <Library className="w-4 h-4" /> Library
+          Edit <ChevronDown className="otter-nav-icon" aria-hidden="true" />
         </button>
-
-        {/* Quiz */}
-        <button
-          onClick={() => { loadQuizSelectionData(); navigateTo('quiz'); }}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={currentView === 'quiz' ? 'true' : undefined}
-        >
-          <GraduationCap className="w-4 h-4" /> Quiz
-        </button>
-
-        {/* Hotkeys */}
-        <button
-          onClick={() => {
-            if (activeSoftware && activeSoftware.type !== 'coding_language') {
-              navigateTo('hotkeys');
-            } else {
-              const first = softwareList.find(sw => sw.type !== 'coding_language');
-              if (first) selectSoftware(first.slug);
-              navigateTo('hotkeys');
-            }
-          }}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={currentView === 'hotkeys' && activeSoftware?.type !== 'coding_language' ? 'true' : undefined}
-        >
-          <Keyboard className="w-4 h-4" /> Hotkeys
-        </button>
-
-        {/* Nodes */}
-        <button
-          onClick={() => {
-            const nodeCapable = softwareList.filter(sw => sw.type !== 'coding_language');
-            if (nodeCapable.length > 0) {
-              if (!activeSoftware || activeSoftware.type === 'coding_language') {
-                selectSoftware(nodeCapable[0].slug);
-              }
-            }
-            navigateTo('nodes');
-          }}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={currentView === 'nodes' ? 'true' : undefined}
-        >
-          <Share2 className="w-4 h-4" /> Nodes
-        </button>
-
-        {/* Functions */}
-        <button
-          onClick={() => {
-            if (activeSoftware && activeSoftware.type === 'coding_language') {
-              navigateTo('hotkeys');
-            } else {
-              const first = softwareList.find(sw => sw.type === 'coding_language');
-              if (first) selectSoftware(first.slug);
-              navigateTo('hotkeys');
-            }
-          }}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={currentView === 'hotkeys' && activeSoftware?.type === 'coding_language' ? 'true' : undefined}
-        >
-          <Braces className="w-4 h-4" /> Functions
-        </button>
-
-        {/* Requests — Session 13 follow-up (Audrey, 2026-07-30). Cloud-only:
-            change requests are meaningless without a workspace (the ops are
-            cloudOnly and would 501 locally). Admins read it as their company-
-            library controls; everyone else as their own requests + feedback. */}
-        {cloudMode && (
-          <button
-            onClick={() => navigateTo('requests')}
-            className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-            data-active={currentView === 'requests' ? 'true' : undefined}
-            title={appRole === 'admin'
-              ? 'Company library — review and apply suggested changes'
-              : 'Change requests and feedback'}
-          >
-            <GitPullRequestArrow className="w-4 h-4" />
-            {appRole === 'admin' ? 'Admin' : 'Requests'}
-          </button>
+        {editMenuOpen && (
+          <Menu
+            x={editMenuPos.x}
+            y={editMenuPos.y}
+            onClose={() => setEditMenuOpen(false)}
+            items={[
+              {
+                label: 'Undo delete', Icon: RotateCcw, onClick: undoDeleteSubject,
+                disabled: deletedSubjectsStack.length === 0,
+                hint: deletedSubjectsStack.length > 0 ? `(${deletedSubjectsStack.length})` : undefined,
+              },
+              {
+                label: 'Redo delete', Icon: ArrowRight, onClick: redoDeleteSubject,
+                disabled: redoSubjectsStack.length === 0,
+                hint: redoSubjectsStack.length > 0 ? `(${redoSubjectsStack.length})` : undefined,
+              },
+              { divider: true },
+              { label: 'Import subjects', Icon: Upload, onClick: () => setShowImportModal(true) },
+              { label: 'Export all', Icon: Download, onClick: exportAll },
+            ]}
+          />
         )}
-
-        {/* Validate — right-aligned */}
-        <div className="ml-auto" />
+        <span className="ui-tabs-sep" aria-hidden="true" />
         <button
-          onClick={() => navigateTo('validator')}
-          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
-          data-active={currentView === 'validator' ? 'true' : undefined}
-          title="Lesson Validator"
+          type="button"
+          className="ui-tab otter-nav-button"
+          data-active={showSearchModal ? 'true' : undefined}
+          onClick={() => setShowSearchModal(true)}
         >
-          <ShieldCheck className="w-4 h-4" /> Validate
+          <Search className="otter-nav-icon" aria-hidden="true" /> Search
         </button>
-
+        <Tabs
+          items={[
+            { id: 'library', label: <><Library className="otter-nav-icon" aria-hidden="true" />Library</> },
+            { id: 'quiz', label: <><GraduationCap className="otter-nav-icon" aria-hidden="true" />Quiz</> },
+            { id: 'hotkeys', label: <><Keyboard className="otter-nav-icon" aria-hidden="true" />Hotkeys</> },
+            { id: 'nodes', label: <><Share2 className="otter-nav-icon" aria-hidden="true" />Nodes</> },
+            { id: 'functions', label: <><Braces className="otter-nav-icon" aria-hidden="true" />Functions</> },
+            // Requests — Session 13 follow-up (Audrey, 2026-07-30). Cloud-only:
+            // change requests are meaningless without a workspace (the ops are
+            // cloudOnly and would 501 locally). Admins read it as their
+            // company-library controls; everyone else as their own requests.
+            ...(cloudMode ? [{
+              id: 'requests',
+              label: <><GitPullRequestArrow className="otter-nav-icon" aria-hidden="true" />{appRole === 'admin' ? 'Admin' : 'Requests'}</>,
+              title: appRole === 'admin'
+                ? 'Company library — review and apply suggested changes'
+                : 'Change requests and feedback',
+            }] : []),
+            // Validate — right-aligned (otter.css), and always the last tab.
+            { id: 'validator', label: <><ShieldCheck className="otter-nav-icon" aria-hidden="true" />Validate</>, title: 'Lesson Validator' },
+          ]}
+          value={navView}
+          onChange={selectNavView}
+          panelId="otter-view-panel"
+          label="O.T.T.E.R. views"
+          className="otter-nav-tabs"
+        />
       </nav>
 
       {/* ── BODY — sidebars + content ── */}
@@ -3036,6 +3004,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {renderSoftwareSidebar()}
         {renderLessonSidebar()}
         <main className="flex-1 overflow-hidden relative">
+          {/* The region the nav's tabs switch (kit Tabs: `panelId`). A div, so
+              <main> keeps its landmark role. */}
+          <div id="otter-view-panel" role="tabpanel" className="h-full">
           <div className={currentView === 'library' ? 'h-full' : 'hidden'}>{renderLibrary()}</div>
           <div className={currentView === 'prompt' ? 'h-full' : 'hidden'}>{renderPromptInput()}</div>
           <div className={currentView === 'study' ? 'h-full' : 'hidden'}>{renderStudyView()}</div>
@@ -3086,6 +3057,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               softwareCacheRef={softwareCacheRef}
               subjectCacheRef={subjectCacheRef}
             />
+          </div>
           </div>
         </main>
       </div>

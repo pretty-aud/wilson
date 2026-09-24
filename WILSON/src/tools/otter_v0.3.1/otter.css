@@ -39,49 +39,6 @@
 
 @layer components {
 
-  /* ═══ EXTRACTION — THE NAV BAR (Otter.jsx, the main return) ════════════
-     Nine controls, one ternary each, two branches:
-       active    orange-400 text, orange-500 underline, stone-900 fill
-       default   stone-400 text, transparent underline; hover stone-300
-                 text on a stone-700 fill (the active branch had no hover)
-     `data-active` is the ternary's condition, per control:
-       Edit      the menu is open
-       Search    the search dialog is open
-       Library   the library view with no course selected
-       Quiz, Nodes, Requests, Validate   that view
-       Hotkeys   the hotkeys view on a course that is not a coding language
-       Functions the hotkeys view on a coding-language course
-     The 2px bottom edge's WIDTH stays a utility on the element (it never
-     changed with state); only its colour moved. */
-  .otter-nav-item {
-    color: oklch(70.9% 0.01 56.259);                /* text-stone-400 */
-    border-bottom-color: transparent;               /* border-transparent */
-  }
-  .otter-nav-item:not([data-active='true']):hover {
-    color: oklch(86.9% 0.005 56.366);               /* hover:text-stone-300 */
-    background-color: oklch(37.4% 0.01 67.558);     /* hover:bg-stone-700 */
-  }
-  .otter-nav-item[data-active='true'] {
-    color: oklch(75% 0.183 55.934);                 /* text-orange-400 */
-    border-bottom-color: oklch(70.5% 0.213 47.604); /* border-orange-500 */
-    background-color: oklch(21.6% 0.006 56.043);    /* bg-stone-900 */
-  }
-
-  /* The Edit menu's four items. Undo and Redo carried a ternary on their own
-     `disabled` condition (the stack is empty), so it is `:disabled` here;
-     Import and Export carried the enabled branch's classes unconditionally. */
-  .otter-edit-item {
-    color: oklch(86.9% 0.005 56.366);               /* text-stone-300 */
-  }
-  .otter-edit-item:hover:not(:disabled) {
-    color: white;                                   /* hover:text-white */
-    background-color: oklch(44.4% 0.011 73.639);    /* hover:bg-stone-600 */
-  }
-  .otter-edit-item:disabled {
-    color: oklch(44.4% 0.011 73.639);               /* text-stone-600 */
-    cursor: not-allowed;
-  }
-
   /* ═══ EXTRACTION — SIDEBAR 1, courses and subjects (renderSoftwareSidebar)
      The course NAME, three branches, first match wins:
        not openable (an admin's metadata-only row)   stone-600
@@ -382,5 +339,35 @@
   .otter-origin-icon[data-origin='shared'] { color: rgb(125 211 252); }
   .otter-origin-icon[data-origin='from_someone'] { color: rgb(196 181 253); }
   .otter-origin-icon[data-origin='company_standard'] { color: rgb(253 186 116); }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     THE RESTYLE (A3). Tokens and the kit only: no hex, no palette literal.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  /* ═══ THE NAV BAR — the kit's Tabs, drawn as R.A.B.B.I.T.'s strip ══════
+     Review O1 (five tab treatments, three active states) and O2 (the same
+     strip in two languages in two tools). This is rabbitShell.css's
+     `.rb-viewtabs` rule for rule: paper, one hairline under it, the tabs'
+     own 36px, 8px of side padding, the first LABEL on the 24px gutter. The
+     old strip was stone-800 with a stone-600 rule and a filled active tab.
+     Edit and Search wear `.ui-tab` (they are a menu and a dialog, not views);
+     the separator is the kit's. Validate keeps its place at the far right. */
+  .otter-nav {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 8px);
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .otter-nav .ui-tab { padding: 0 8px; }
+  .ui-tabs.otter-nav-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+  .ui-tabs.otter-nav-tabs > .ui-tab:last-child { margin-left: auto; }
+  .otter-nav-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
 
 }
