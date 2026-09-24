@@ -165,7 +165,9 @@ if (await step('24-settings', page.locator('[aria-label="RABBIT settings"]'), 'c
 
 // ── Help (HelpModal) ────────────────────────────────────────────────────────
 if (await step('30-help', page.locator('[aria-label="Help & documentation"]'), 'click')) {
-  const items = page.locator('.fixed nav button, .fixed aside button');
+  // The page list: the kit Dialog's `.rb-tl-help-item` since B3c; the old
+  // modal's `.fixed nav button` for a before run on the old code.
+  const items = page.locator('.rb-tl-help-item, .fixed nav button, .fixed aside button');
   if ((await items.count()) > 2) {
     await items.nth(1).hover(); await shot('31-help-hover-item');
     await items.nth(2).click(); await park(); await shot('32-help-third-page');

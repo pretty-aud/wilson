@@ -95,6 +95,7 @@ import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Tabs } from '../../../ui/Tabs'
 import { Stat } from '../../../ui/Stat'
+import { Dialog } from '../../../ui/Dialog'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -5531,52 +5532,44 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
 }
 
 // ============================================================
-// HelpModal — 850×82vh modal with sidebar + content (DOG/OTTER pattern)
-// Exported so Rabbit.jsx can render it outside TimelineView.
+// HelpModal — the kit's Dialog (reading, 720), the one D.O.G.'s Help
+// uses (UI overhaul B3c): a sidebar of pages and the page, two columns
+// that scroll on their own at a fixed height, so changing page does not
+// resize it. It was an 850px hand-rolled modal with its own backdrop,
+// header and close button; the Dialog brings Escape (Q17, ruled), the
+// modal stack and focus management, and keeps the backdrop click that
+// closed it. Exported so Rabbit.jsx can render it outside TimelineView.
 // ============================================================
 export function HelpModal({ helpPage, setHelpPage, onClose }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div
-        className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col"
-        style={{ width: '850px', height: '82vh' }}
-      >
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <HelpCircle className="w-5 h-5 text-orange-400" />
-            <span className="font-semibold text-orange-400">
-              Help & Documentation
-            </span>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-            <X className="w-5 h-5 text-stone-400" />
-          </button>
+    <Dialog
+      title="Help & documentation"
+      onClose={onClose}
+      dismissOnBackdrop
+      width="reading"
+      className="rb-tl-help"
+    >
+      <nav className="rb-tl-help-side" aria-label="Help contents">
+        <div className="rb-tl-help-list">
+          {RABBIT_HELP_SIDEBAR_ITEMS.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setHelpPage(item.id)}
+              className="rb-tl-help-item"
+              data-active={helpPage === item.id ? 'true' : 'false'}
+              aria-current={helpPage === item.id ? 'page' : undefined}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
-        <div className="flex-1 flex overflow-hidden">
-          <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto py-2 flex flex-col">
-            <div className="flex-1">
-              {RABBIT_HELP_SIDEBAR_ITEMS.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setHelpPage(item.id)}
-                  className="w-full text-left px-3 py-1.5 text-dense transition-colors border-l-2 rb-tl-help-item"
-                  data-active={helpPage === item.id ? 'true' : 'false'}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="px-3 py-2 border-t border-stone-800">
-              <span className="text-dense text-stone-500">RABBIT v0.1.0</span>
-            </div>
-          </nav>
-          <div className="flex-1 overflow-y-auto p-5">
-            <RabbitHelpContent helpPage={helpPage} theme="dark" />
-          </div>
-        </div>
+        <div className="rb-tl-help-version">RABBIT v0.1.0</div>
+      </nav>
+      <div className="rb-tl-help-content">
+        <RabbitHelpContent helpPage={helpPage} theme="dark" />
       </div>
-    </div>
+    </Dialog>
   )
 }
 
