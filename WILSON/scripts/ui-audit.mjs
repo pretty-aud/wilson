@@ -187,6 +187,10 @@ export const CSS_FILES = [
   // B2, 2026-09-23 — Tasks, the task popups and the template manager. Added
   // in the commit that took its last hex out, as B1's was.
   'src/tools/rabbit_v0.1.0/views/rabbitTasks.css',
+  // A3, 2026-09-24 — O.T.T.E.R.'s extracted state and its A3 restyle. Added
+  // in the commit that created it, so the denominator moves by one named
+  // file; the extraction's palette literals are oklch(), never hex.
+  'src/tools/otter_v0.3.1/otter.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting

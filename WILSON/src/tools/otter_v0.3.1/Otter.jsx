@@ -53,6 +53,7 @@ import ChangeRequestDialog from './components/ChangeRequestDialog.jsx';
 // for managers (0026), and every proposer's own requests + feedback.
 import RequestsView from './components/RequestsView.jsx';
 import TrashPanel, { TrashSidebarList } from './components/TrashPanel.jsx';
+import './otter.css';
 import {
   VisibilityBadge, OwnerBadge, MetadataOnlyBadge, ReadOnlyBadge,
 } from './components/CourseBadges.jsx';
@@ -2867,9 +2868,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="relative" ref={editMenuRef}>
           <button
             onClick={() => setEditMenuOpen(prev => !prev)}
-            className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-              editMenuOpen ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-            }`}
+            className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+            data-active={editMenuOpen ? 'true' : undefined}
           >
             Edit <ChevronDown className="w-3 h-3" />
           </button>
@@ -2878,9 +2878,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <button
                 onClick={() => { undoDeleteSubject(); setEditMenuOpen(false); }}
                 disabled={deletedSubjectsStack.length === 0}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-body ${
-                  deletedSubjectsStack.length === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-stone-300 hover:bg-stone-600 hover:text-white'
-                }`}
+                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
               >
                 <RotateCcw className="w-3 h-3" /> Undo Delete
                 {deletedSubjectsStack.length > 0 && (
@@ -2890,9 +2888,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <button
                 onClick={() => { redoDeleteSubject(); setEditMenuOpen(false); }}
                 disabled={redoSubjectsStack.length === 0}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-body ${
-                  redoSubjectsStack.length === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-stone-300 hover:bg-stone-600 hover:text-white'
-                }`}
+                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
               >
                 <ArrowRight className="w-3 h-3" /> Redo Delete
                 {redoSubjectsStack.length > 0 && (
@@ -2902,13 +2898,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="border-t border-stone-600 my-1" />
               <button
                 onClick={() => { setShowImportModal(true); setEditMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-body text-stone-300 hover:bg-stone-600 hover:text-white"
+                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
               >
                 <Upload className="w-3 h-3" /> Import Subjects
               </button>
               <button
                 onClick={() => { exportAll(); setEditMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-body text-stone-300 hover:bg-stone-600 hover:text-white"
+                className="otter-edit-item w-full flex items-center gap-2 px-3 py-2 text-body"
               >
                 <Download className="w-3 h-3" /> Export All
               </button>
@@ -2922,10 +2918,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {/* Search */}
         <button
           onClick={() => setShowSearchModal(true)}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            showSearchModal ? 'text-orange-400 border-orange-500 bg-stone-900' :
-            'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={showSearchModal ? 'true' : undefined}
         >
           <Search className="w-4 h-4" /> Search
         </button>
@@ -2940,10 +2934,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               setActiveSubject(null);
             });
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            currentView === 'library' && !activeSoftwareSlug ? 'text-orange-400 border-orange-500 bg-stone-900' :
-            'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={currentView === 'library' && !activeSoftwareSlug ? 'true' : undefined}
         >
           <Library className="w-4 h-4" /> Library
         </button>
@@ -2951,10 +2943,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {/* Quiz */}
         <button
           onClick={() => { loadQuizSelectionData(); navigateTo('quiz'); }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            currentView === 'quiz' ? 'text-orange-400 border-orange-500 bg-stone-900' :
-            'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={currentView === 'quiz' ? 'true' : undefined}
         >
           <GraduationCap className="w-4 h-4" /> Quiz
         </button>
@@ -2970,11 +2960,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               navigateTo('hotkeys');
             }
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            currentView === 'hotkeys' && activeSoftware?.type !== 'coding_language'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={currentView === 'hotkeys' && activeSoftware?.type !== 'coding_language' ? 'true' : undefined}
         >
           <Keyboard className="w-4 h-4" /> Hotkeys
         </button>
@@ -2990,11 +2977,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             }
             navigateTo('nodes');
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            currentView === 'nodes'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={currentView === 'nodes' ? 'true' : undefined}
         >
           <Share2 className="w-4 h-4" /> Nodes
         </button>
@@ -3010,11 +2994,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               navigateTo('hotkeys');
             }
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            currentView === 'hotkeys' && activeSoftware?.type === 'coding_language'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={currentView === 'hotkeys' && activeSoftware?.type === 'coding_language' ? 'true' : undefined}
         >
           <Braces className="w-4 h-4" /> Functions
         </button>
@@ -3026,11 +3007,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {cloudMode && (
           <button
             onClick={() => navigateTo('requests')}
-            className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-              currentView === 'requests'
-                ? 'text-orange-400 border-orange-500 bg-stone-900'
-                : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-            }`}
+            className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+            data-active={currentView === 'requests' ? 'true' : undefined}
             title={appRole === 'admin'
               ? 'Company library — review and apply suggested changes'
               : 'Change requests and feedback'}
@@ -3044,11 +3022,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         <div className="ml-auto" />
         <button
           onClick={() => navigateTo('validator')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2 ${
-            currentView === 'validator'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
+          className="otter-nav-item flex items-center gap-1.5 px-4 py-2 text-body transition-colors border-b-2"
+          data-active={currentView === 'validator' ? 'true' : undefined}
           title="Lesson Validator"
         >
           <ShieldCheck className="w-4 h-4" /> Validate

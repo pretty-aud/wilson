@@ -1,0 +1,85 @@
+/* ═══════════════════════════════════════════════════════════════
+   O.T.T.E.R. — the tool's page stylesheet
+   UI overhaul A3, 2026-09-24 (A4 appends its half below A3's)
+
+   Two jobs, in the order they are done (the dog.css pattern).
+
+   FIRST (the "state extraction" commits, no visual change): every hover,
+   selected, active and disabled state that lived in a className template
+   literal or an inline style object on A3's surfaces became a named variant
+   here, keyed on a `data-*` attribute or on the native `:disabled` where the
+   ternary's condition IS the element's `disabled` prop. One commit per
+   render function. When a state changed a property, EVERY value of that
+   property moved here — a rule in `components` loses to any utility left on
+   the element, so a colour half-moved is a colour that never changes.
+
+   The extraction transcribes Tailwind's own palette as literal oklch()
+   values, commented with the utility it replaced. It does not use
+   `var(--color-stone-700)`: Tailwind v4 emits a palette variable only while
+   some utility still uses it, so that spelling goes blank the day the last
+   `bg-stone-700` in the app is restyled away (A1 hand-off §5 trap 8).
+
+   SECOND (the restyle commits, below the extraction): A3's surfaces onto the
+   kit and the `@theme` tokens. No hex and no palette literal is written in
+   that half; each restyle deletes the extraction rules it replaces.
+
+   🚨 A TIE WITH THE KIT IS A LOSS (A1 review round 1). This sheet loads
+   BEFORE src/index.css (the component imports it first), and both put their
+   rules in `components`, so a one-class rule here and a one-class kit rule
+   setting the same property resolve to the KIT. Every rule below that
+   overrides a kit property carries a second class or an ancestor.
+
+   🚨 THE `@layer` STATEMENT IS THE FIRST LINE, and has to be: this sheet is
+   imported from a component, so the bundler can emit it before
+   `src/index.css`, and a layer's cascade position is fixed where it is FIRST
+   named (D1 hand-off §5 trap 1).
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ EXTRACTION — THE NAV BAR (Otter.jsx, the main return) ════════════
+     Nine controls, one ternary each, two branches:
+       active    orange-400 text, orange-500 underline, stone-900 fill
+       default   stone-400 text, transparent underline; hover stone-300
+                 text on a stone-700 fill (the active branch had no hover)
+     `data-active` is the ternary's condition, per control:
+       Edit      the menu is open
+       Search    the search dialog is open
+       Library   the library view with no course selected
+       Quiz, Nodes, Requests, Validate   that view
+       Hotkeys   the hotkeys view on a course that is not a coding language
+       Functions the hotkeys view on a coding-language course
+     The 2px bottom edge's WIDTH stays a utility on the element (it never
+     changed with state); only its colour moved. */
+  .otter-nav-item {
+    color: oklch(70.9% 0.01 56.259);                /* text-stone-400 */
+    border-bottom-color: transparent;               /* border-transparent */
+  }
+  .otter-nav-item:not([data-active='true']):hover {
+    color: oklch(86.9% 0.005 56.366);               /* hover:text-stone-300 */
+    background-color: oklch(37.4% 0.01 67.558);     /* hover:bg-stone-700 */
+  }
+  .otter-nav-item[data-active='true'] {
+    color: oklch(75% 0.183 55.934);                 /* text-orange-400 */
+    border-bottom-color: oklch(70.5% 0.213 47.604); /* border-orange-500 */
+    background-color: oklch(21.6% 0.006 56.043);    /* bg-stone-900 */
+  }
+
+  /* The Edit menu's four items. Undo and Redo carried a ternary on their own
+     `disabled` condition (the stack is empty), so it is `:disabled` here;
+     Import and Export carried the enabled branch's classes unconditionally. */
+  .otter-edit-item {
+    color: oklch(86.9% 0.005 56.366);               /* text-stone-300 */
+  }
+  .otter-edit-item:hover:not(:disabled) {
+    color: white;                                   /* hover:text-white */
+    background-color: oklch(44.4% 0.011 73.639);    /* hover:bg-stone-600 */
+  }
+  .otter-edit-item:disabled {
+    color: oklch(44.4% 0.011 73.639);               /* text-stone-600 */
+    cursor: not-allowed;
+  }
+
+}
