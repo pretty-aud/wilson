@@ -6,6 +6,11 @@ import { StatusDot, STATUS, STATUS_TONES, statusMeta, humanizeStatus } from './S
 afterEach(cleanup)
 
 describe('StatusDot', () => {
+  it('a change request reads open, changes requested, approved, rejected, withdrawn — on the Admin Terminal\'s tones (A4-KR-2)', () => {
+    expect(['open', 'changes_requested', 'approved', 'rejected', 'withdrawn'].map((k) => [statusMeta(k).tone, statusMeta(k).label]))
+      .toEqual([['signal', 'Open'], ['warning', 'Changes requested'], ['success', 'Approved'], ['danger', 'Rejected'], ['neutral', 'Withdrawn']])
+  })
+
   it('maps every known status to a tone the stylesheet knows', () => {
     for (const [key, meta] of Object.entries(STATUS)) {
       expect(STATUS_TONES, key).toContain(meta.tone)
@@ -13,7 +18,9 @@ describe('StatusDot', () => {
     }
     // The plan's fourteen plus the two keys the data actually uses.
     for (const k of ['not_started', 'in_progress', 'blocked', 'on_hold', 'pending_review', 'needs_revisions',
-      'approved', 'final', 'omitted', 'active', 'draft', 'archived', 'online', 'offline', 'waiting_to_start', 'wrapped']) {
+      'approved', 'final', 'omitted', 'active', 'draft', 'archived', 'online', 'offline', 'waiting_to_start', 'wrapped',
+      // A change request's (A4-KR-2).
+      'open', 'changes_requested', 'rejected', 'withdrawn']) {
       expect(STATUS[k], k).toBeDefined()
     }
   })

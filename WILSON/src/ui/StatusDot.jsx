@@ -32,6 +32,15 @@ export const STATUS = Object.freeze({
   archived:         { tone: 'neutral', label: 'Archived' },
   online:           { tone: 'success', label: 'Online' },
   offline:          { tone: 'neutral', label: 'Offline' },
+  // A change request's life (A4-KR-2), on the tones the Admin Terminal's
+  // Requests section chose (lane C): open is waiting on an admin and wears
+  // the one active tone; changes requested is waiting on the proposer.
+  // Before, RequestsView and that section each kept a private map, and
+  // RequestsView's drew five hexes found nowhere else (review O24).
+  open:              { tone: 'signal',  label: 'Open' },
+  changes_requested: { tone: 'warning', label: 'Changes requested' },
+  rejected:          { tone: 'danger',  label: 'Rejected' },
+  withdrawn:         { tone: 'neutral', label: 'Withdrawn' },
 })
 
 export const STATUS_TONES = Object.freeze(['neutral', 'signal', 'success', 'warning', 'danger'])
