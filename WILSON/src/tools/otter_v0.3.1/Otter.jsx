@@ -3241,18 +3241,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {/* ── SEARCH MODAL ── */}
       {showSearchModal && renderSearchModal()}
 
-      {/* ── QUIZ LEAVE CONFIRM ── */}
+      {/* ── QUIZ LEAVE CONFIRM ──
+          A4: the kit's Dialog at the confirm width (review O27). Escape is
+          Stay (Q17); there was, and is, no backdrop close. */}
       {showQuizLeaveConfirm && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <div className="bg-stone-800 border border-stone-600 rounded-control p-6 max-w-sm w-full mx-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]">
-            <h3 className="text-orange-400 font-semibold text-h1 mb-2">Leave Quiz?</h3>
-            <p className="text-stone-400 text-body mb-6">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowQuizLeaveConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body font-semibold">Stay</button>
-              <button onClick={confirmLeaveQuiz} className="flex-1 bg-orange-600 text-white border border-orange-700 py-2 rounded-control hover:bg-orange-700 transition-colors text-body font-semibold">Leave Quiz</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title="Leave quiz?"
+          width="confirm"
+          onClose={() => setShowQuizLeaveConfirm(null)}
+          footer={(
+            <>
+              <Button onClick={() => setShowQuizLeaveConfirm(null)}>Stay</Button>
+              <Button variant="primary" onClick={confirmLeaveQuiz}>Leave quiz</Button>
+            </>
+          )}
+        >
+          <p className="otter-confirm-text">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
+        </Dialog>
       )}
     </div>
   );
