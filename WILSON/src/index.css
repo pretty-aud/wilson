@@ -1006,6 +1006,11 @@ select option {
      first caller that passes `count` (O.T.T.E.R.'s course filters). */
   .ui-chip-count { color: var(--color-ink-3); font-weight: 400; letter-spacing: 0; text-transform: none; }
   .ui-chip[data-active="true"] .ui-chip-count { color: var(--color-ink-2); }
+  /* A3-KR-4 (2026-09-24): the count takes the second ink under the hover
+     wash too — the third ink measured 4.34:1 on it at 11px (A3 review round
+     2); the second measures 7.3:1. Not on the light chip, whose count is
+     `ink-light` in every state (below). */
+  .ui-chip:hover:not(:disabled):not([data-surface="light"]) .ui-chip-count { color: var(--color-ink-2); }
 
   /* ── The light Chip (D1 kit request 4) ────────────────────────────────
      🚨 MEASURED: the component took `surface="light"`, stamped it, and no
