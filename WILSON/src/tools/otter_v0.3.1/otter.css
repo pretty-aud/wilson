@@ -39,28 +39,6 @@
 
 @layer components {
 
-  /* ═══ EXTRACTION — SIDEBAR 2, the lesson list (renderLessonSidebar) ════
-     A lesson row, two branches:
-       active   orange-400 on stone-900, an orange-500 left edge; no hover
-       default  stone-400; hover stone-300 on stone-800
-     Both branches carried the 2px left edge, so its width stays a utility.
-     The hotkey-group and node-group lists in the same function carry no
-     state (a static hover only), and the sidebar's #1f1c1a ground is an
-     inline constant, not a state — both are the restyle's. */
-  .otter-lesson-row {
-    color: oklch(70.9% 0.01 56.259);                  /* text-stone-400 */
-    border-left-color: transparent;                   /* border-transparent */
-  }
-  .otter-lesson-row:not([data-active='true']):hover {
-    color: oklch(86.9% 0.005 56.366);                 /* hover:text-stone-300 */
-    background-color: oklch(26.8% 0.007 34.298);      /* hover:bg-stone-800 */
-  }
-  .otter-lesson-row[data-active='true'] {
-    color: oklch(75% 0.183 55.934);                   /* text-orange-400 */
-    background-color: oklch(21.6% 0.006 56.043);      /* bg-stone-900 */
-    border-left-color: oklch(70.5% 0.213 47.604);     /* border-orange-500 */
-  }
-
   /* ═══ EXTRACTION — THE LIBRARY (renderLibrary) ═════════════════════════
      Two cards, each a container ternary and a title ternary on ONE
      condition, so the title keys on its card's attribute:
@@ -467,6 +445,130 @@
   }
   .otter-rail:hover .otter-rail-icon { color: var(--color-ink); }
 
+  /* ═══ SIDEBAR 2 — lessons, shortcut groups, node groups: the kit's Panel
+     md (240): lesson titles are the longest labels in either column, and the
+     prose beside them is measured in characters now, not by the pane. The
+     column was 220px on a one-off #1f1c1a found nowhere else in WILSON (O21)
+     with per-row hairlines at two opacities (O22). Now: no fill, one
+     hairline, rows separated by their own height, not by lines.
+       group row   32px, Dense ink-2, the icon and the count at the third
+                   ink, the count in the mono (it is data, tabular)
+       lessons     the subject's own title at H3 over its progress (the
+                   Panel's Label-step title would uppercase a name — O9),
+                   a 4px bar (a neutral fill: progress is not the signal's
+                   job), the percentage at Caption, tabular
+       section     32px, Dense at 600, the chevron at the third ink
+       lesson      28px, Dense ink-2; the open lesson the kit Row's selected
+                   treatment (tint + a 2px signal edge, inset); done is a
+                   filled check in the success ink, not done an empty ring —
+                   a SHAPE, so it reads in greyscale (review: "what works") */
+  .ui-panel.otter-lessons > .ui-panel-body,
+  .ui-panel.otter-groups > .ui-panel-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .otter-groups .ui-panel-head { border-bottom: 1px solid var(--color-rule); }
+  .otter-panel-count {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-group-list,
+  .otter-lesson-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 0; }
+  .otter-group-row,
+  .otter-section-row,
+  .otter-lesson-row,
+  .otter-sources-link {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .otter-group-row { gap: 8px; height: var(--row-dense); padding: 0 12px; color: var(--color-ink-2); }
+  .otter-group-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .otter-group-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-group-name,
+  .otter-section-name,
+  .otter-lesson-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .otter-group-name { flex-grow: 1; }
+  .otter-group-count {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+
+  .otter-lessons-head { padding: 12px; border-bottom: 1px solid var(--color-rule); flex-shrink: 0; }
+  .otter-lessons-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-progress {
+    height: 4px;
+    margin-top: 8px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-rule);
+    overflow: hidden;
+  }
+  .otter-progress-fill {
+    height: 100%;
+    background-color: var(--color-ink-2);
+    transition: width var(--duration-state) ease-out;
+  }
+  .otter-lessons-meta {
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-section-row { gap: 6px; height: var(--row-dense); padding: 0 12px; font-weight: 600; color: var(--color-ink); }
+  .otter-section-row:hover { background-color: var(--color-hover); }
+  .otter-section-chevron { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-lesson-row { gap: 8px; height: var(--control-sm); padding: 0 12px 0 32px; color: var(--color-ink-2); }
+  .otter-lesson-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .otter-lesson-row[data-active='true'][data-active='true'] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .otter-lesson-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-success); }
+  .otter-lesson-ring {
+    width: 12px;
+    height: 12px;
+    margin: 1px;
+    flex-shrink: 0;
+    border: 1px solid var(--color-ink-3);
+    border-radius: 9999px;
+  }
+  .otter-sources-link {
+    gap: 8px;
+    height: var(--row-dense);
+    padding: 0 12px;
+    flex-shrink: 0;
+    color: var(--color-ink-2);
+    border-top: 1px solid var(--color-rule);
+  }
+  .otter-sources-link:hover { background-color: var(--color-hover); color: var(--color-ink); }
+
   /* ═══ THE COURSE BADGES (CourseBadges.jsx) — the kit's Badge ══════════
      Origin (Standard, Shared by you, From <name>, Yours), Private and Read
      only are all the kit's Badge: the Label step, ink-2, one hairline, no
@@ -492,7 +594,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .otter-course-row, .otter-subject-row, .otter-subject-row .otter-subject-delete,
-    .otter-add-subject, .otter-rail, .otter-rail-icon { transition: none; }
+    .otter-add-subject, .otter-rail, .otter-rail-icon,
+    .otter-group-row, .otter-section-row, .otter-lesson-row, .otter-sources-link,
+    .otter-progress-fill { transition: none; }
   }
 
 }

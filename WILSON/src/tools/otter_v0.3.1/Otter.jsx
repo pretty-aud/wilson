@@ -3666,23 +3666,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const hotkeys = (softwareHotkeys?.categories || []).filter(cat => cat && Array.isArray(cat.shortcuts));
         if (hotkeys.length === 0) return null;
         return (
-          <aside className="w-[220px] shrink-0 border-r border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
-            <div className="p-3 border-b border-stone-700 shrink-0">
-              <h3 className="text-orange-400 font-semibold text-dense truncate">Shortcut Groups</h3>
-              <p className="text-stone-500 text-dense mt-1">{hotkeys.length} categories</p>
-            </div>
-            <div className="flex-1 overflow-y-auto">
+          <Panel
+            width="md"
+            className="otter-groups"
+            title="Shortcut groups"
+            actions={<span className="otter-panel-count">{hotkeys.length} categories</span>}
+          >
+            <div className="otter-group-list">
               {hotkeys.map((cat, i) => (
-                <button key={i} onClick={() => scrollToCategory(hotkeyScrollRef, `hk-cat-${i}`)}
-                  className="w-full text-left px-3 py-2 text-dense flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
-                  style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}>
-                  <Keyboard className="w-3 h-3 text-stone-500 shrink-0" />
-                  <span className="truncate">{cat.category}</span>
-                  <span className="ml-auto text-stone-600 text-caption">{cat.shortcuts.length}</span>
+                <button key={i} onClick={() => scrollToCategory(hotkeyScrollRef, `hk-cat-${i}`)} className="otter-group-row">
+                  <Keyboard className="otter-group-icon" aria-hidden="true" />
+                  <span className="otter-group-name">{cat.category}</span>
+                  <span className="otter-group-count">{cat.shortcuts.length}</span>
                 </button>
               ))}
             </div>
-          </aside>
+          </Panel>
         );
       }
     }
@@ -3694,23 +3693,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       const categories = activeSys?.categories || [];
       if (systems.length === 0) return null;
       return (
-        <aside className="w-[220px] shrink-0 border-r border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
-          <div className="p-3 border-b border-stone-700 shrink-0">
-            <h3 className="text-orange-400 font-semibold text-dense truncate">Node Groups</h3>
-            <p className="text-stone-500 text-dense mt-1">{activeSys?.system || 'No system'}</p>
-          </div>
-          <div className="flex-1 overflow-y-auto">
+        <Panel
+          width="md"
+          className="otter-groups"
+          title="Node groups"
+          actions={<span className="otter-panel-count">{activeSys?.system || 'No system'}</span>}
+        >
+          <div className="otter-group-list">
             {categories.filter(cat => cat && Array.isArray(cat.nodes) && cat.nodes.length > 0).map((cat, i) => (
-              <button key={i} onClick={() => scrollToCategory(nodeScrollRef, `node-cat-${i}`)}
-                className="w-full text-left px-3 py-2 text-dense flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
-                style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}>
-                <Share2 className="w-3 h-3 text-stone-500 shrink-0" />
-                <span className="truncate">{cat.category}</span>
-                <span className="ml-auto text-stone-600 text-caption">{cat.nodes.length}</span>
+              <button key={i} onClick={() => scrollToCategory(nodeScrollRef, `node-cat-${i}`)} className="otter-group-row">
+                <Share2 className="otter-group-icon" aria-hidden="true" />
+                <span className="otter-group-name">{cat.category}</span>
+                <span className="otter-group-count">{cat.nodes.length}</span>
               </button>
             ))}
           </div>
-        </aside>
+        </Panel>
       );
     }
 
@@ -3719,27 +3717,36 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const completedList = getCompletedLessons();
     const progress = getCurrentProgressPercent();
     return (
-      <aside className="w-[220px] shrink-0 border-r border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
-        <div className="p-3 border-b border-stone-700 shrink-0">
-          <h3 className="text-orange-400 font-semibold text-dense truncate">{activeSubject.title}</h3>
-          <div className="mt-1.5 bg-stone-700 rounded-control h-1.5 overflow-hidden">
-            <div className="bg-orange-500 h-full transition-[width]" style={{ width: `${progress}%` }} />
+      <Panel width="md" className="otter-lessons">
+        {/* The subject is data, so it is not the Panel's Label-step title:
+            it keeps its own casing at the H3 step above its progress. */}
+        <div className="otter-lessons-head">
+          <h3 className="otter-lessons-title">{activeSubject.title}</h3>
+          <div
+            className="otter-progress"
+            role="progressbar"
+            aria-label="Lessons completed"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <div className="otter-progress-fill" style={{ width: `${progress}%` }} />
           </div>
-          <p className="text-stone-500 text-dense mt-1">{progress}% complete</p>
+          <p className="otter-lessons-meta">{progress}% complete</p>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="otter-lesson-list">
           {(activeSubject.sections || []).map(section => (
             <div key={section.id}>
               <button
                 onClick={() => setExpandedSubjectSections(prev => ({ ...prev, [section.id]: !prev[section.id] }))}
-                className="w-full text-left px-3 py-2 text-dense flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 transition-colors font-semibold"
-                style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}
+                className="otter-section-row"
+                aria-expanded={!!expandedSubjectSections[section.id]}
               >
                 {expandedSubjectSections[section.id]
-                  ? <ChevronDown className="w-3 h-3 text-orange-400 shrink-0" />
-                  : <ChevronRight className="w-3 h-3 text-stone-500 shrink-0" />
+                  ? <ChevronDown className="otter-section-chevron" aria-hidden="true" />
+                  : <ChevronRight className="otter-section-chevron" aria-hidden="true" />
                 }
-                <span className="truncate">{section.title}</span>
+                <span className="otter-section-name">{section.title}</span>
               </button>
               {expandedSubjectSections[section.id] && (section.lessons || []).map(lesson => {
                 const isActive = selectedLessonId === lesson.id;
@@ -3748,14 +3755,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <button
                     key={lesson.id}
                     onClick={() => { setSelectedLessonId(lesson.id); setCurrentView('study'); }}
-                    className="otter-lesson-row w-full text-left pl-7 pr-3 py-1.5 text-dense flex items-center gap-2 transition-colors border-l-2"
+                    className="otter-lesson-row"
                     data-active={isActive ? 'true' : undefined}
                   >
+                    {/* Completion is a SHAPE (a filled check or an empty
+                        ring), so it survives greyscale — kept. */}
                     {isComplete
-                      ? <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
-                      : <div className="w-3 h-3 rounded-full border border-stone-600 shrink-0" />
+                      ? <CheckCircle2 className="otter-lesson-mark" aria-hidden="true" />
+                      : <span className="otter-lesson-ring" aria-hidden="true" />
                     }
-                    <span className="truncate">{lesson.title}</span>
+                    <span className="otter-lesson-name">{lesson.title}</span>
                   </button>
                 );
               })}
@@ -3764,17 +3773,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         </div>
         {/* ── Sources button ── */}
         {activeSubject.sources?.length > 0 && (
-          <div className="mt-auto border-t border-stone-700 shrink-0">
-            <button
-              onClick={() => setCurrentView('sources')}
-              className="w-full text-left px-3 py-2.5 text-dense flex items-center gap-2 text-stone-400 hover:text-orange-400 hover:bg-stone-800 transition-colors"
-            >
-              <BookOpen className="w-3.5 h-3.5 shrink-0" />
-              <span>Sources ({activeSubject.sources.length})</span>
-            </button>
-          </div>
+          <button onClick={() => setCurrentView('sources')} className="otter-sources-link">
+            <BookOpen className="otter-group-icon" aria-hidden="true" />
+            <span>Sources ({activeSubject.sources.length})</span>
+          </button>
         )}
-      </aside>
+      </Panel>
     );
   }
 
