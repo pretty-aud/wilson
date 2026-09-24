@@ -143,7 +143,7 @@ const REGISTRY = [
   P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard shortcuts' } }),   // A3: sentence case (Q2)
   P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes reference' } }),   // A3: sentence case (Q2)
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
-  P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
+  P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson validator' } }),   // A4: sentence case (Q2)
   P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New software course' } }),   // A3: sentence case (Q2)
   P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import data' } }),   // A4: sentence case (Q2)
   // A4: the overlays the walk lacked, each proven open by its own panel's
@@ -249,7 +249,6 @@ const KNOWN = {
     // A3 (2026-09-24) deleted the O.T.T.E.R. rows it fixed: the course filter
     // chip and its count, New, New course, Next and the skill level all left
     // the orange fill. The Validator's own button is A4's and stays.
-    { key: 'otter-validate', text: '"Validate All (17)"' },
     { key: 'rabbit-asset-detail', text: '"Add files"' },
     { key: 'rabbit-asset-detail', text: '"Done"' },
     { key: 'rabbit-asset-detail', text: '"New asset"' },

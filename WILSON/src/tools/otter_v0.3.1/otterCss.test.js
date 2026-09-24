@@ -29,7 +29,9 @@ const CODE = RAW.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
 const INDEX = readFileSync(fileURLToPath(new URL('../../index.css', import.meta.url)), 'utf8')
 const THEME = themeNames(INDEX)
 const JSX_FILES = ['./Otter.jsx', './components/CourseBadges.jsx', './components/CourseFilterChips.jsx',
-  './components/CourseRowMenu.jsx', './components/SidebarCollapse.jsx']
+  './components/CourseRowMenu.jsx', './components/SidebarCollapse.jsx',
+  // A4's surfaces
+  './Validator.jsx']
   .map((f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8'))
 
 /** A colour written as a value rather than read from a token: hex (also
@@ -180,6 +182,9 @@ describe('otter.css', () => {
       // A4: the settings slide-out's accordion headers.
       ['.otter-acc-head:hover', '.otter-acc-desc'],
       [".otter-settings-body[data-locked='true'] .otter-acc-head:hover", '.otter-acc-label'],
+      // A4: the Validator's audit list.
+      [".otter-val-audit[data-active='true']", '.otter-val-audit-meta'],
+      ['.otter-val-audit:hover', '.otter-val-audit-meta'],
       // A4: the search dialog's results.
       [".otter-search-result[data-active='true']", '.otter-search-result-path'],
       ['.otter-search-result:hover', '.otter-search-result-path'],

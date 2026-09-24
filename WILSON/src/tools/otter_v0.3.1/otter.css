@@ -1650,12 +1650,399 @@
     color: var(--color-ink-3);
   }
 
+  /* ═══ THE VALIDATOR (Validator.jsx) ════════════════════════════════════
+     Review O12, O24, O3, V1-02. Twelve button treatments on one surface,
+     and its two primaries lightened to orange-500 under the pointer where
+     every other primary darkened; a stone-800 header bar; a tree of four
+     greys; grades in six colours (one of them the only blue); findings on
+     red and yellow washes. Now: the view title every view wears (A3's
+     SectionTitle), the kit's Buttons, Select, Card, Panel, Toolbar,
+     StatusBadge and Banner, and one ground, paper. */
+  .otter-val {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--color-paper);
+  }
+  /* The title stays put while the tree scrolls, as the bar did; a hairline
+     under it where the bar ended. */
+  .otter-val-head {
+    flex-shrink: 0;
+    padding: 16px var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .otter-val-head .ui-section.otter-view-title { margin-bottom: 0; }
+  .otter-val-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-val-spin { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .ui-input.otter-val-scope { width: auto; }
+  .otter-val-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--spacing-gutter); }
+  .otter-val-bulk { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .otter-val-count { margin-right: 4px; color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
+  .otter-val-courses { display: flex; flex-direction: column; gap: 12px; }
+
+  /* The tree: one card per course, rows on hairlines and no fills — the
+     level is the indent (20px a step, on the 4px unit; it was 16, 32, 56,
+     80) and the type step, as the sidebars read (A3). A native checkbox in
+     the signal (`accent-color`), the kit having no Checkbox yet (A1-KR-4). */
+  .otter-check {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin: 0;
+    accent-color: var(--color-signal);
+    cursor: pointer;
+  }
+  .otter-val-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--row-dense);
+    padding: 0 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .otter-val-row[data-level='subject'] { padding-left: 36px; }
+  .otter-val-row[data-level='section'] { padding-left: 56px; }
+  .otter-val-row[data-level='lesson'] {
+    padding-left: 76px;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-val-row[data-level='lesson'][data-selected='true'] { background-color: var(--color-signal-tint); }
+  .otter-val-row[data-level='course'] { min-height: var(--row); border-top: 0; }
+  .otter-val-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .otter-val-chevron { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-val-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-val-row[data-level='course'] .otter-val-name {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-val-row[data-level='section'] .otter-val-name { font-size: var(--text-dense); line-height: var(--text-dense--line-height); }
+  .otter-val-row[data-level='lesson'][data-selected='true'] .otter-val-name { color: var(--color-ink); }
+  .otter-val-num {
+    flex-shrink: 0;
+    margin-left: 2px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-val-row[data-level='course'] .otter-val-num { font-size: var(--text-dense); line-height: var(--text-dense--line-height); }
+  @media (hover: hover) {
+    .otter-val-row[data-level='lesson']:not([data-selected='true']):hover { background-color: var(--color-hover); }
+  }
+  /* Full validation: the count is data, the H1 step in the ink (it was
+     stone-600, 2.29:1), the words under it the second and third inks. */
+  .otter-val-summary { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: var(--spacing-gutter); }
+  .otter-val-summary-inner { max-width: var(--measure-reading); text-align: center; }
+  .otter-val-total {
+    margin-bottom: 8px;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .otter-val-summary-line { margin-bottom: 4px; color: var(--color-ink-2); }
+  .otter-val-summary-hint {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* Results: the kit's Panel (lg) beside a detail page on paper. The
+     sidebar's body is a column: the Toolbar and two lists that scroll on
+     their own, each under a sticky Label-step head on the page's ground so
+     rows do not show through it. */
+  .otter-val-results { display: flex; height: 100%; background-color: var(--color-paper); }
+  .otter-val-side .ui-panel-body { display: flex; flex-direction: column; overflow: hidden; }
+  .ui-toolbar.otter-val-controls { padding: 0 12px; }
+  .otter-val-queue { flex-shrink: 0; max-height: 200px; overflow-y: auto; border-bottom: 1px solid var(--color-rule); }
+  .otter-val-audits { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .otter-val-section-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 6px 12px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .otter-val-queue-row {
+    padding: 6px 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .otter-val-queue-line { display: flex; align-items: center; gap: 8px; }
+  .otter-val-status-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .otter-val-queue-row[data-status='in-progress'] .otter-val-status-icon { color: var(--color-signal); }
+  .otter-val-queue-row[data-status='completed'] .otter-val-status-icon { color: var(--color-success); }
+  .otter-val-queue-row[data-status='failed'] .otter-val-status-icon { color: var(--color-danger); }
+  .otter-val-queue-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-2); }
+  /* The one running is the ink (it was orange-300 text); the signal is
+     its spinner. */
+  .otter-val-queue-row[data-status='in-progress'] .otter-val-queue-title { color: var(--color-ink); }
+  .otter-val-queue-error { margin: 2px 0 0 22px; color: var(--color-danger); }
+  .otter-val-audits-empty {
+    padding: 12px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* An audit: F2's selected row, the tint and a 2px signal edge inside it
+     (a stone-700 fill before), and the kit's hover wash. */
+  .otter-val-audit {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-val-audit[data-active='true'] {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .otter-val-audit-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+  .otter-val-audit-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .otter-val-audit-meta {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  /* The third ink under the tint (4.18:1) and the hover wash lifts. */
+  .otter-val-audit[data-active='true'] .otter-val-audit-meta { color: var(--color-ink-2); }
+  @media (hover: hover) {
+    .otter-val-audit:not([data-active='true']):hover { background-color: var(--color-hover); }
+    .otter-val-audit:hover .otter-val-audit-meta { color: var(--color-ink-2); }
+  }
+
+  /* The detail page: centred like the lesson (A3), the reading width. */
+  .otter-val-detail { flex: 1 1 auto; min-width: 0; overflow-y: auto; scrollbar-gutter: stable; }
+  .otter-val-page { max-width: var(--width-reading); margin: 0 auto; padding: var(--spacing-gutter); }
+  .otter-val-audit-head { margin-bottom: 24px; }
+  .otter-val-crumb {
+    margin-bottom: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-val-title {
+    margin-bottom: 12px;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-val-score { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .otter-val-accuracy { color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
+  .otter-val-claims {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-val-audit-summary { color: var(--color-ink-2); }
+  .otter-val-section { margin-bottom: 24px; }
+  .otter-val-h3 {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-val-section > .otter-val-h3 { margin-bottom: 8px; }
+  .otter-val-fix-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .otter-val-list { display: flex; flex-direction: column; gap: 8px; }
+
+  /* A finding: one card; its verdict is the kit's StatusBadge and icon in
+     the verdict's tone, and a wrong or unverifiable claim takes that tone
+     on its edge (a red or yellow wash over the whole card before). */
+  .otter-finding {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-finding[data-verdict='inaccurate'] { border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); }
+  .otter-finding[data-verdict='unverifiable'] { border-color: color-mix(in srgb, var(--color-warning) 45%, transparent); }
+  .otter-finding-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .otter-verdict-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; margin-top: 1px; }
+  .otter-verdict-icon[data-verdict='accurate'] { color: var(--color-success); }
+  .otter-verdict-icon[data-verdict='inaccurate'] { color: var(--color-danger); }
+  .otter-verdict-icon[data-verdict='unverifiable'] { color: var(--color-warning); }
+  .otter-finding-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+  .otter-finding-claim {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .otter-finding-hint {
+    margin-top: 2px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-finding-body { padding: 0 12px 12px 36px; }
+  .otter-finding-explanation {
+    margin-bottom: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-finding-source {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* The source was orange-400 at 70%; a source is data, in the second ink. */
+  .otter-finding-link { overflow-wrap: anywhere; color: var(--color-ink-2); }
+
+  /* A fix: the kit's Card, its two halves side by side on one hairline.
+     Current and proposed keep their meaning — what goes and what comes —
+     on the danger and success tones' edges and faint washes, the words in
+     the second ink. */
+  .otter-fix-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .otter-fix-name {
+    flex-shrink: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-fix-why {
+    min-width: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-fix-cols { display: grid; grid-template-columns: 1fr 1fr; }
+  .otter-fix-col { padding: 12px; }
+  .otter-fix-col + .otter-fix-col { border-left: 1px solid var(--color-rule); }
+  .otter-fix-label {
+    margin-bottom: 4px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .otter-fix-text {
+    padding: 8px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-fix-text[data-side='current'] {
+    background-color: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  }
+  .otter-fix-text[data-side='proposed'] {
+    background-color: color-mix(in srgb, var(--color-success) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  }
+  .otter-fix-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--color-rule);
+  }
+  /* The kit's Banner is a page strip; as a line in the list, or a notice
+     in the card, it is inset (A3's fork offer). */
+  .ui-banner.otter-fix-note {
+    padding: 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .ui-banner.otter-fix-failed { align-items: flex-start; padding: 8px 12px; border-top: 1px solid var(--color-rule); border-bottom: 0; }
+  .otter-fix-failed-lead { font-weight: 600; }
+  .otter-fix-declined {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-fix-declined-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
     .otter-dropzone { transition: none; }
     .otter-search-result { transition: none; }
     .otter-acc-head, .otter-acc-chevron { transition: none; }
+    .otter-val-row, .otter-val-audit { transition: none; }
   }
 
 }
