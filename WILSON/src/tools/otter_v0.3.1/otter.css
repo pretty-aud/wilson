@@ -984,14 +984,26 @@
 
   /* ═══ THE LESSON PAGE (renderStudyView) ═══════════════════════════════
      The reading surface (.lesson-content, in index.css) and its frame: a
-     720px reading container on the page gutter (§3.3's reading measure;
-     tables and code run to it, prose stops at --measure-body), the
-     breadcrumb at Caption in the third ink with the current lesson in the
-     second, the lesson's title at the H1 step, Key takeaways and the
-     practice exercise as the kit's Card ON THE PROSE'S MEASURE, and the
-     foot row on the kit's Buttons. */
+     720px reading container, centred on the page gutter like every sibling
+     view (Sources and the outline page are `.otter-view-page`; the lesson
+     sat 140px left of them — A3 review round 1), tables and code running to
+     it and everything else stopping on the prose's edge: the breadcrumb at
+     Caption in the third ink with the current lesson in the second, the
+     lesson's title at the H1 step, Key takeaways and the practice exercise
+     as the kit's Card, and the foot row on the kit's Buttons.
+     ONE RIGHT EDGE: the page declares `--measure-body-len` at the Body step
+     (index.css registers it), so the title, the cards and the foot row
+     inherit the paragraph's 45ch as a length. Their own `ch` would be their
+     own font's: the title's was 615px against the paragraph's 418. */
   .otter-study { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
-  .otter-study-page { max-width: var(--width-reading); padding: var(--spacing-gutter); }
+  .otter-study-page {
+    max-width: var(--width-reading);
+    margin: 0 auto;
+    padding: var(--spacing-gutter);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    --measure-body-len: var(--measure-body);
+  }
   .otter-crumbs {
     display: flex;
     flex-wrap: wrap;
@@ -1002,10 +1014,10 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .otter-crumb-sep { width: 12px; height: 12px; flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
   .otter-crumb-current { color: var(--color-ink-2); }
   .otter-lesson-title {
-    max-width: var(--measure-body);
+    max-width: var(--measure-body-len);
     margin-bottom: 8px;
     font-size: var(--text-h1);
     line-height: var(--text-h1--line-height);
@@ -1014,11 +1026,10 @@
     color: var(--color-ink);
   }
   .otter-study .lesson-content { margin-bottom: 24px; }
-  /* The measure is set in ch at the Body step, so a card at the Body step
-     reads the same 45ch the paragraph above it does: the right edges line
-     up (the card's padding comes out of the width — border-box). */
+  /* The paragraph's length, so the right edges line up (the card's padding
+     comes out of the width — border-box). Its text is the Body step. */
   .ui-card.otter-lesson-card {
-    max-width: var(--measure-body);
+    max-width: var(--measure-body-len);
     margin-bottom: 16px;
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
@@ -1027,10 +1038,14 @@
   .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
   .otter-takeaways { display: flex; flex-direction: column; gap: 4px; color: var(--color-ink-2); }
   .otter-takeaways > li { display: flex; align-items: flex-start; gap: 8px; }
-  /* The bullet's 14px glyph sits on the first line's centre: (21 - 14) / 2. */
-  .otter-takeaway-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 3.5px; color: var(--color-ink-3); }
+  /* The bullet's 14px glyph on its first line: (21 - 14) / 2 is 3.5, which
+     painted the check across a pixel boundary (A3 review round 1). Geist's
+     glyph box sits half a pixel above the 21px line box's centre, so 3px
+     centres the check on the TEXT exactly (measured: both at +10px). */
+  .otter-takeaway-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 3px; color: var(--color-ink-3); }
   .otter-practice { color: var(--color-ink-2); }
   .otter-lesson-foot {
+    max-width: var(--measure-body-len);
     display: flex;
     align-items: center;
     justify-content: space-between;

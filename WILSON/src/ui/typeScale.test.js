@@ -235,7 +235,7 @@ const CSS_OFF_WEIGHT = new RegExp(
    needs no delimiter list at all. */
 const CSS_SHORTHAND = /(?<![-\w])font\s*:/gi;
 /** §3.1: "Measure 60 to 66ch" — a count of CHARACTERS a line. A3 (2026-09-24)
- *  measured what the unit does in Geist: `ch` is the zero's width, 0.673em,
+ *  measured what the unit does in Geist: `ch` is the zero's width, 0.663em,
  *  against an average glyph of about 0.47em, so 60-66ch holds 86-95 characters
  *  — the defect review O4 named, not its fix. The lesson prose reads
  *  `--measure-body`, 45ch, which holds 61-66 (63.5 on average, twelve lines of
@@ -243,7 +243,9 @@ const CSS_SHORTHAND = /(?<![-\w])font\s*:/gi;
  *  44-46ch. */
 /* 🚨 A LOOKBEHIND, as CSS_SHORTHAND has: without it `--max-width:` — a custom
    property that sets nothing — read as the measure (A3 review round 1). */
-const CSS_MEASURE = /(?<![-\w])max-width\s*:\s*(?:(?:4[4-6])ch\b|var\(--measure-body\))/i;
+/* `--measure-body-len` is the same token resolved once at the Body step (see
+   the ONLY-measure test below for why the lesson surface reads it). */
+const CSS_MEASURE = /(?<![-\w])max-width\s*:\s*(?:(?:4[4-6])ch\b|var\(--measure-body(?:-len)?\))/i;
 /** The band itself, so the token cannot drift out of it unnoticed. */
 const MEASURE_TOKEN = /--measure-body:\s*(4[4-6])ch\s*;/;
 /** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
@@ -270,6 +272,47 @@ function splitSelectors(list) {
  *  swept like index.css's: a rule the index.css sweep cannot see is a rule
  *  that can undo everything it checks. */
 const otterLessonRules = () => extractLessonRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'));
+/** The lesson PAGE's frame in otter.css: the breadcrumb, the title, the two
+ *  cards, the foot row — the things beside `.lesson-content` that have to stop
+ *  on its right edge (A3 review round 1 measured the title 197px past it). */
+const FRAME_HEAD = /\.otter-(?:study(?:-page)?|crumbs|crumb-sep|crumb-current|lesson-(?:title|card|foot|steps)|takeaways|takeaway-mark|practice|complete)(?![\w-])[^{};]*\{/g;
+const otterFrameRules = () => extractRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'), FRAME_HEAD);
+/** Every edge on the lesson surface reads the one LENGTH; the page container
+ *  alone is the reading width. Returns one line per violation. */
+function measureViolations(rules) {
+  const bad = [];
+  for (const r of rules) {
+    const sel = r.slice(0, r.indexOf('{')).trim();
+    for (const m of r.matchAll(/(?<![-\w])(max-width|max-inline-size)\s*:\s*([^;}]+)/gi)) {
+      const v = m[2].trim();
+      if (v === 'var(--measure-body-len)' || (sel === '.otter-study-page' && v === 'var(--width-reading)')) continue;
+      bad.push(`${sel}  ${m[1]}: ${v}`);
+    }
+  }
+  return bad;
+}
+/** Where `--measure-body-len` is declared, and whether each declaration is the
+ *  token AT THE BODY STEP — a registered length is resolved in the font of the
+ *  rule that declares it, so a declaration without the Body step's size in the
+ *  same rule is 45ch of whatever that rule inherits. A declaration inside a
+ *  nested block (which the leaf-rule reading below cannot see) is reported by
+ *  count rather than missed. */
+const LEN_DECL = /(?<![-\w])--measure-body-len\s*:\s*([^;}]+)/g;
+function lenDeclarations(source) {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const where = [], bad = [];
+  for (const [, sel, body] of css.matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
+    for (const d of body.matchAll(LEN_DECL)) {
+      const s = sel.trim();
+      where.push(s);
+      if (d[1].trim() !== 'var(--measure-body)') bad.push(`${s}  --measure-body-len: ${d[1].trim()}  (not the token)`);
+      if (!/(?<![-\w])font-size\s*:\s*var\(--text-body\)\s*(?:;|$)/.test(body)) bad.push(`${s}  declares the length off the Body step`);
+    }
+  }
+  const total = (css.match(LEN_DECL) || []).length;
+  if (total !== where.length) bad.push(`${total - where.length} declaration(s) in a nested block`);
+  return { where, bad };
+}
 
 /**
  * Every `.lesson-content` rule in `index.css`.
@@ -294,9 +337,15 @@ const otterLessonRules = () => extractLessonRules(readFileSync('src/tools/otter_
  * swept in as if it were part of this block.
  */
 function extractLessonRules(source) {
+  return extractRules(source, /\.lesson-content(?![\w-])[^{};]*\{/g);
+}
+/** The same walk for any rule head: `head` is a global regex ending at the
+ *  rule's `{`. Each rule comes back from the matched class to its closing
+ *  brace, nested blocks and all. */
+function extractRules(source, head) {
   const css = source.replace(/\/\*[\s\S]*?\*\//g, ' ');
   const out = [];
-  const head = /\.lesson-content(?![\w-])[^{};]*\{/g;
+  head.lastIndex = 0;
   let m;
   while ((m = head.exec(css))) {
     let depth = 1, i = m.index + m[0].length;
@@ -634,20 +683,50 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       .toMatch(MEASURE_READING_TOKEN);
   });
 
-  it('the Body measure is the ONLY measure on the lesson surface, in either sheet (A3)', () => {
+  it('the Body measure is the ONLY measure on the lesson surface, in either sheet, as ONE length (A3)', () => {
     /* A3 review round 1: the assertion above proves a correct max-width
        EXISTS, not that it wins. Survivors: a later `.lesson-content p {
        max-width: 66ch }` (same specificity, later, so it wins); a
        `max-inline-size` beside the token; the token redefined on the surface
        or in otter.css; a 74ch rule in otter.css, which the index.css sweep
-       never read. */
-    const bad = [];
-    for (const r of [...lessonRules(), ...otterLessonRules()]) {
-      for (const m of r.matchAll(/(?<![-\w])(max-width|max-inline-size)\s*:\s*([^;}]+)/gi)) {
-        if (m[2].trim() !== 'var(--measure-body)') bad.push(`${r.slice(0, r.indexOf('{')).trim()}  ${m[1]}: ${m[2].trim()}`);
-      }
-    }
+       never read.
+       🚨 AND `var(--measure-body)` ITSELF WAS A SECOND MEASURE on every
+       element not at the Body step: `ch` resolves in the font of the element
+       that uses it, so the same 45ch was 418px on a paragraph, 492px on a
+       heading and 615px on the lesson title (measured, round 1). Every edge
+       reads `--measure-body-len` — the token resolved once, at the Body step,
+       into a registered length — and the frame's rules are swept too. */
+    const bad = measureViolations([...lessonRules(), ...otterLessonRules(), ...otterFrameRules()]);
     expect(bad, `a second measure on the lesson surface:\n${bad.join('\n')}`).toEqual([]);
+    expect(otterFrameRules().map((r) => r.slice(0, r.indexOf('{')).trim()),
+      'the frame sweep reads the page, the title, the cards and the foot row')
+      .toEqual(expect.arrayContaining(['.otter-study-page', '.otter-lesson-title', '.otter-lesson-card', '.otter-lesson-foot']));
+    // Registered: unregistered, the property holds the TOKENS `45ch` and every
+    // element that reads it resolves them in its own font again.
+    const index = readFileSync('src/index.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ');
+    const reg = index.match(/@property\s+--measure-body-len\s*\{([^}]*)\}/);
+    expect(reg, '--measure-body-len is not registered, so it is not a length').not.toBeNull();
+    expect(reg[1]).toMatch(/syntax\s*:\s*(['"])<length>\s*\|\s*none\1/);
+    expect(reg[1]).toMatch(/inherits\s*:\s*true/);
+    expect(reg[1], 'unset, it must cap nothing rather than collapse to 0').toMatch(/initial-value\s*:\s*none/);
+    const decls = ['src/index.css', 'src/tools/otter_v0.3.1/otter.css'].map((f) => lenDeclarations(readFileSync(f, 'utf8')));
+    expect(decls.flatMap((d) => d.bad), 'a --measure-body-len declaration that is not the token at the Body step').toEqual([]);
+    expect(decls.map((d) => d.where), 'declared on the lesson block and the lesson page, and nowhere else')
+      .toEqual([['.lesson-content'], ['.otter-study-page']]);
+    // CONTROL: both judges fire on what they forbid.
+    expect(measureViolations(extractRules(`
+      .otter-lesson-title { max-width: var(--measure-body); }
+      .otter-lesson-foot { max-width: 45ch; }
+      .otter-study-page { max-width: var(--width-reading); }
+      .lesson-content h2 { max-width: var(--measure-body-len); }
+    `, /\.(?:otter|lesson)-[\w-]+[^{};]*\{/g))).toHaveLength(2);
+    expect(lenDeclarations(`
+      .otter-lesson-card { --measure-body-len: var(--measure-body); }
+      .lesson-content { font-size: var(--text-h2); --measure-body-len: var(--measure-body); }
+      .otter-study-page { font-size: var(--text-body); --measure-body-len: 45ch; }
+      .otter-ok { font-size: var(--text-body); --measure-body-len: var(--measure-body); }
+      .otter-nested { font-size: var(--text-body); --measure-body-len: var(--measure-body); & { color: inherit; } }
+    `).bad).toHaveLength(4);
     const defs = ['src/index.css', 'src/tools/otter_v0.3.1/otter.css']
       .map((f) => (readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').match(/--measure-body\s*:/g) || []).length);
     expect(defs, '--measure-body is declared once, in @theme, and nowhere else').toEqual([1, 0]);
@@ -786,12 +865,13 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     // real before-value, and 66ch / 60ch — §3.1's number read as `ch` — hold
     // 95 and 86 characters of Geist, which is the defect, not the fix (A3).
     for (const s of ['max-width: 45ch;', 'max-width: 44ch;', 'max-width:46ch;',
-      'max-width: var(--measure-body);']) {
+      'max-width: var(--measure-body);', 'max-width: var(--measure-body-len);']) {
       expect(CSS_MEASURE.test(s), s).toBe(true);
     }
     for (const s of ['max-width: 74ch;', 'max-width: 66ch;', 'max-width: 60ch;', 'max-width: 43ch;',
       'max-width: 4ch;', 'max-width: 145ch;', 'max-width: 45chx;', 'max-width: 45.5ch;',
-      'max-width: var(--measure-reading);', '--max-width: var(--measure-body);']) {
+      'max-width: var(--measure-reading);', '--max-width: var(--measure-body);',
+      'max-width: var(--measure-body-lens);']) {
       expect(CSS_MEASURE.test(s), s).toBe(false);
     }
     expect(MEASURE_TOKEN.test('  --measure-body: 45ch;')).toBe(true);
