@@ -82,4 +82,49 @@
     cursor: not-allowed;
   }
 
+  /* ═══ EXTRACTION — SIDEBAR 1, courses and subjects (renderSoftwareSidebar)
+     The course NAME, three branches, first match wins:
+       not openable (an admin's metadata-only row)   stone-600
+       the active course                             orange-400
+       default                                       stone-400
+     so `data-openable='false'` is declared last and beats `data-active`. */
+  .otter-course-name { color: oklch(70.9% 0.01 56.259); }                 /* text-stone-400 */
+  .otter-course-name[data-active='true'] { color: oklch(75% 0.183 55.934); } /* text-orange-400 */
+  .otter-course-name[data-openable='false'] { color: oklch(44.4% 0.011 73.639); } /* text-stone-600 */
+
+  /* A SUBJECT row, three branches, first match wins:
+       active   orange-400, 600, an orange-500 left edge, black at 15%; no hover
+       stub     stone-500 at 50%; hover stone-400 on stone-700 at 50%
+       default  stone-400 at 80%; hover stone-300 on stone-700 at 50%
+     The edge's 2px WIDTH stays a utility; its colour moved. */
+  .otter-subject-row {
+    color: color-mix(in oklab, oklch(70.9% 0.01 56.259) 80%, transparent);  /* text-stone-400/80 */
+    border-left-color: transparent;
+  }
+  .otter-subject-row:not([data-active='true']):hover {
+    color: oklch(86.9% 0.005 56.366);                                       /* hover:text-stone-300 */
+    background-color: color-mix(in oklab, oklch(37.4% 0.01 67.558) 50%, transparent); /* hover:bg-stone-700/50 */
+  }
+  .otter-subject-row[data-stub='true'] {
+    color: color-mix(in oklab, oklch(55.3% 0.013 58.071) 50%, transparent); /* text-stone-500/50 */
+  }
+  .otter-subject-row[data-stub='true']:not([data-active='true']):hover {
+    color: oklch(70.9% 0.01 56.259);                                        /* hover:text-stone-400 */
+  }
+  .otter-subject-row[data-active='true'] {
+    color: oklch(75% 0.183 55.934);                                         /* text-orange-400 */
+    font-weight: 600;                                                       /* font-semibold */
+    border-left-color: oklch(70.5% 0.213 47.604);                           /* border-orange-500 */
+    background-color: color-mix(in oklab, black 15%, transparent);          /* bg-black/15 */
+  }
+
+  /* The subject's delete: hidden until its row is hovered (the row's
+     `group/sub`), stone-600, red-400 on its own hover. */
+  .otter-subject-delete {
+    opacity: 0;
+    color: oklch(44.4% 0.011 73.639);                                       /* text-stone-600 */
+  }
+  .otter-subject-row:hover .otter-subject-delete { opacity: 1; }          /* group-hover/sub:opacity-100 */
+  .otter-subject-delete:hover { color: oklch(70.4% 0.191 22.216); }       /* hover:text-red-400 */
+
 }

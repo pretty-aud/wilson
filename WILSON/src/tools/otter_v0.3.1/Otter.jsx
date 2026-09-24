@@ -3583,9 +3583,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                           ? <ChevronDown className="w-3 h-3 text-orange-400 flex-shrink-0" />
                           : <ChevronRight className="w-3 h-3 text-stone-500 flex-shrink-0" />
                       }
-                      <span className={`text-label font-semibold uppercase truncate ${
-                        !openable ? 'text-stone-600' : isActive ? 'text-orange-400' : 'text-stone-400'
-                      }`}>
+                      <span
+                        className="otter-course-name text-label font-semibold uppercase truncate"
+                        data-openable={openable ? undefined : 'false'}
+                        data-active={isActive ? 'true' : undefined}
+                      >
                         {sw.name}
                       </span>
                       {cloudMode && <VisibilityBadge course={sw} compact />}
@@ -3617,13 +3619,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         return (
                           <div
                             key={sub.slug}
-                            className={`group/sub flex items-center transition-colors border-l-2 ${
-                              isSubActive
-                                ? 'text-orange-400 font-semibold border-orange-500 bg-black/15'
-                                : isStub
-                                  ? 'text-stone-500/50 border-transparent hover:bg-stone-700/50 hover:text-stone-400'
-                                  : 'text-stone-400/80 border-transparent hover:bg-stone-700/50 hover:text-stone-300'
-                            }`}
+                            className="otter-subject-row group/sub flex items-center transition-colors border-l-2"
+                            data-active={isSubActive ? 'true' : undefined}
+                            data-stub={isStub ? 'true' : undefined}
                           >
                             <button
                               onClick={() => {
@@ -3648,7 +3646,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                   e.stopPropagation();
                                   setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title });
                                 }}
-                                className="opacity-0 group-hover/sub:opacity-100 p-1 mr-1 text-stone-600 hover:text-red-400 transition-[color,background-color,border-color,opacity] shrink-0"
+                                className="otter-subject-delete p-1 mr-1 transition-[color,background-color,border-color,opacity] shrink-0"
                                 title="Delete subject"
                               >
                                 <Trash2 className="w-3 h-3" />
