@@ -209,6 +209,9 @@
     color: var(--color-ink-3);
   }
   .otter-subject-outline { margin-left: 4px; color: var(--color-ink-3); }
+  /* On the selected row the third ink sits on the signal tint, not on
+     paper: measured 4.17:1 at 12px (ui-walk, A3). The second ink clears it. */
+  .otter-subject-row[data-active='true'] .otter-subject-order { color: var(--color-ink-2); }
   /* The delete keeps its slot at every moment (the row never reflows), is
      revealed on the row's hover as before and now on KEYBOARD focus too —
      `:has(:focus-visible)`, not `:focus-within`, which a mouse click also
