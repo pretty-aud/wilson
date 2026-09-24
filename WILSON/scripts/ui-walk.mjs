@@ -129,6 +129,12 @@ const REGISTRY = [
 
   // O.T.T.E.R. — the reading surface and the views behind the tool's own bar.
   P('otter-lesson', '/otter', { steps: ['@lesson'], expect: { selector: '.lesson-content' } }),
+  // A3 (2026-09-24): the course page (Sidebar 1 expanded, the subject cards)
+  // and the Sources view off the lesson sidebar. Functions is NOT here: the
+  // fixture course is software, and the Functions view needs a
+  // coding-language course, so on fixtures its button lands on Hotkeys.
+  P('otter-course', '/otter', { steps: ['DaVinci Resolve 19'], expect: { text: 'Editing on the Edit page' } }),
+  P('otter-sources', '/otter', { steps: ['@lesson', 'Sources'], expect: { text: 'Works Cited' } }),
   P('otter-settings', '/otter', { steps: ['Tool settings'], expect: { dialog: true } }),
   P('otter-search', '/otter', { steps: ['Search'], expect: { dialog: true } }),
   P('otter-quiz', '/otter', { steps: ['Quiz'], expect: { text: 'Quiz Center' } }),
