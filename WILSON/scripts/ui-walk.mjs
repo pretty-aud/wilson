@@ -251,8 +251,8 @@ const KNOWN = {
     { key: 'rabbit-scenes', text: '"Scenes"' },
     { key: 'rabbit-scenes', text: '"Table"' },
     { key: 'rabbit-task-detail', text: '"Add files"' },
-    { key: 'rabbit-timeline', text: '"Task"' },
-    { key: 'rabbit-timeline', text: '"Week"' },
+    // rabbit-timeline's two ("Task", "Week") left with B3b: + Task is the kit
+    // primary on signal-fill and the zoom is the kit Tabs' underline.
   ],
   /* V1-09 — buttons nested inside buttons, counted in the DOM per screen
      (React warns once per tag pair per page load, so its warning cannot

@@ -45,8 +45,10 @@ import {
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, inlineStateTernaries,
   normal, selectorsOf, elementsOf, outsideLayer, selectorClasses, strayClasses, unscopedSelectors,
   importedSheet, classesWritten, unreadableAttributes, kitFights, undefinedProperties, readAwayFromSetter,
+  colourLiterals,
 } from '../rabbitCssGuards.js'
 import { ACTION_META, RESTORE_META, entryActionMeta } from '../components/editHistoryFormat'
+import { THEME } from '../../../ui/tokens.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
@@ -337,18 +339,25 @@ describe('the state extraction holds in both B3 files', () => {
     expect(jsCode(source.timeline)).not.toMatch(/\bfunction\s+barTone\b|\bbarTone\s*\(/)
     expect(jsCode(source.timeline)).not.toMatch(/\btone\.(?:bg|border|fg)\b/)
   })
-  it('a key date\'s colour reaches the sheet only as data: set once from the key date, read where it is set, with the amber fallback', () => {
+  it('a key date\'s colour reaches the sheet only as data: set from the key date on the element that reads it, with the warning-amber fallback', () => {
+    // Stage 1 had one setter, the hover card. B3b's minimap sets it on the key
+    // date's line and on its diamond as well (they were inline hex before);
+    // readAwayFromSetter below holds each read to a rule that names its
+    // setter's own class.
     const setters = [...code.timeline.matchAll(/'--rb-tl-ms'\s*:\s*([^,}\n]+)/g)].map((m) => m[1].trim())
-    expect(setters).toEqual(['hoverPopup.row.milestone?.color'])
+    expect(setters).toEqual(['ms.color', 'ms.color', 'hoverPopup.row.milestone?.color'])
     expect(undefinedProperties(sheet, indexCss, Object.values(source))).toEqual([])
     expect(readAwayFromSetter(sheet, Object.values(source))).toEqual([])
-    const reads = [...cssCode(sheet).matchAll(/var\(\s*--rb-tl-ms\s*(,[^)]*)?\)/g)].map((m) => (m[1] || '').replace(/^,\s*/, ''))
+    // The fallback is a token now, the warning ink — the same amber (#f59e0b)
+    // a key date without a colour always had.
+    const reads = [...cssCode(sheet).matchAll(/var\(\s*--rb-tl-ms\s*(?:,\s*((?:[^()]|\([^()]*\))*))?\)/g)].map((m) => (m[1] || '').trim())
     expect(reads.length).toBeGreaterThan(0)
-    expect(new Set(reads)).toEqual(new Set(['#f59e0b']))
-    // Stage 1 reads no variable but its own: a Tailwind palette variable
-    // disappears with the last utility that uses it.
+    expect(new Set(reads)).toEqual(new Set(['var(--color-warning)']))
+    expect(THEME['color-warning']).toBe('#f59e0b')
+    // Stage 2 reads its own properties and the kit's tokens, nothing else: a
+    // Tailwind palette variable disappears with the last utility that uses it.
     const vars = [...new Set([...cssCode(sheet).matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))].sort()
-    expect(vars).toEqual(['--rb-tl-bg', '--rb-tl-border', '--rb-tl-fg', '--rb-tl-ms'])
+    expect(vars.filter((v) => !/^--rb-(tl|hist)-/.test(v) && !(v.slice(2) in THEME))).toEqual([])
   })
   it('CONTROL: B1\'s scanner fires on the shapes these files shipped and passes the shapes they ship now', () => {
     const fires = [
@@ -378,5 +387,37 @@ describe('the state extraction holds in both B3 files', () => {
     expect(conditionalColourConsts("const msColor = ms.color || '#f59e0b'")).toEqual([])
     expect(conditionalColourConsts("const label = on ? 'On' : 'Off'")).toEqual([])
     expect(conditionalColourConsts("const d = draft.description?.trim() || '#none'")).toEqual([])
+  })
+})
+
+/* ── 7. stage 2, surface by surface (B3b) ──────────────────────────────────── */
+/** The sheet cut at its `═══` section banners; each piece keeps its banner. */
+const sectionsOf = (css) => css.split(/(?=\/\* ═══)/).slice(1).map((s) => ({ banner: s.split('\n')[0], body: s }))
+describe('stage 2: a section on tokens writes no colour literal', () => {
+  it('every section whose banner says "stage 2" has every colour as a token or a screen of one', () => {
+    const staged = sectionsOf(sheet).filter((s) => /stage 2/i.test(s.banner))
+    expect(staged.length).toBeGreaterThan(0)
+    for (const s of staged) expect(colourLiterals(s.body), s.banner).toEqual([])
+  })
+  it('CONTROL: a stage-2 section with a hex, an rgba() or a named colour fires; tokens and a screen of the ink pass', () => {
+    const fake = (decl) => sectionsOf(`/* the header */\n/* ═══ x — stage 2 ═══ */\n.rb-tl-x { ${decl} }\n`)[0].body
+    expect(colourLiterals(fake('color: #fb923c;'))).toHaveLength(1)
+    expect(colourLiterals(fake('color: rgba(0, 0, 0, 0.5);'))).toHaveLength(1)
+    expect(colourLiterals(fake('color: white;'))).toHaveLength(1)
+    expect(colourLiterals(fake('color: var(--color-ink); border-color: color-mix(in srgb, var(--color-ink) 6%, transparent);'))).toEqual([])
+  })
+})
+
+/* ── 8. the minimap (B3b, Q22) ────────────────────────────────────────────── */
+describe('the minimap zoom slider: the snap marks are placed from the thumb the sheet draws', () => {
+  it('SPAN_THUMB_W is the thumb width the sheet gives both engines, and the marks are placed from it on a SPAN_TRACK_W track', () => {
+    const w = Number(code.timeline.match(/const SPAN_THUMB_W = (\d+)/)?.[1])
+    expect(w).toBeGreaterThan(0)
+    for (const pseudo of ['::-webkit-slider-thumb', '::-moz-range-thumb']) {
+      const rule = rulesOf(sheet).find(({ sel }) => sel.trim() === `.rb-tl-span-range${pseudo}`)
+      expect(rule?.body, pseudo).toMatch(new RegExp(`(?:^|;)\\s*width:\\s*${w}px`))
+    }
+    expect(code.timeline).toMatch(/snapLeft\(s, minimapMinDays, minimapMaxDays, SPAN_TRACK_W, SPAN_THUMB_W\)/)
+    expect(code.timeline).toMatch(/style=\{\{ width: SPAN_TRACK_W, height: 22 \}\}/)
   })
 })

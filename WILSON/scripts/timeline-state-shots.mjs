@@ -92,7 +92,11 @@ await sleep(800);
 // ── The Gantt at rest, and each hover the extraction moves ─────────────────
 await park();
 await shot('01-default');
-await step('02-hover-phase-label', page.getByText('Development', { exact: true }).first());
+// The gantt's label row, not the first "Development" on the page: since B3b
+// the minimap names its phases too, and that name takes no pointer events
+// (a hover there would wait forever). `.rb-tl-row` is the label row before
+// and after B3b, so a before run and an after run hover the same element.
+await step('02-hover-phase-label', page.locator('.rb-tl-row').getByText('Development', { exact: true }).first());
 await step('03-hover-task-label', page.getByText('Lock the shooting script', { exact: true }).first());
 await step('04-hover-drop-zone', page.getByText(/^New task/).first());
 // The first DETAIL bar (its title carries the length, "· 12.0d ·") with a
