@@ -189,7 +189,8 @@ export const CSS_FILES = [
   'src/tools/rabbit_v0.1.0/views/rabbitTasks.css',
   // A3, 2026-09-24 — O.T.T.E.R.'s extracted state and its A3 restyle. Added
   // in the commit that created it, so the denominator moves by one named
-  // file; the extraction's palette literals are oklch(), never hex.
+  // file. The restyle replaced every extraction literal with a token: it
+  // scores 0 on every row (otterCss.test.js holds it there).
   'src/tools/otter_v0.3.1/otter.css',
   // B3, 2026-09-24 — the Timeline's extracted state (TimelineView and
   // EditHistoryDrawer). Added in its STAGE 1 commit, not its last-hex one:

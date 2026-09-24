@@ -272,21 +272,34 @@ function splitSelectors(list) {
  *  swept like index.css's: a rule the index.css sweep cannot see is a rule
  *  that can undo everything it checks. */
 const otterLessonRules = () => extractLessonRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'));
-/** The lesson PAGE's frame in otter.css: the breadcrumb, the title, the two
- *  cards, the foot row — the things beside `.lesson-content` that have to stop
- *  on its right edge (A3 review round 1 measured the title 197px past it). */
-const FRAME_HEAD = /\.otter-(?:study(?:-page)?|crumbs|crumb-sep|crumb-current|lesson-(?:title|card|foot|steps)|takeaways|takeaway-mark|practice|complete)(?![\w-])[^{};]*\{/g;
-const otterFrameRules = () => extractRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'), FRAME_HEAD);
+/** The lesson PAGE's frame: every otter.css rule that styles an element of
+ *  the page — the breadcrumb, the title, the two cards, the foot row, the
+ *  things beside `.lesson-content` that have to stop on its right edge (A3
+ *  review round 1 measured the title 197px past it). The classes are READ
+ *  from the lesson branch of `renderStudyView` in Otter.jsx, not listed here,
+ *  so an element added to the page is swept the day it lands. */
+const LESSON_PAGE_CLASSES = (() => {
+  const src = readFileSync('src/tools/otter_v0.3.1/Otter.jsx', 'utf8');
+  const start = src.indexOf('<div className="otter-study">', src.indexOf('function renderStudyView()'));
+  const end = src.indexOf('function renderQuizCenter()', start);
+  if (start < 0 || end < 0) return [];
+  return [...new Set([...src.slice(start, end).matchAll(/className="([^"]+)"/g)]
+    .flatMap((m) => m[1].split(/\s+/)).filter((c) => c.startsWith('otter-')))];
+})();
+const frameHead = (classes) => new RegExp(`\\.(?:${classes.join('|')})(?![\\w-])[^{};]*\\{`, 'g');
+const otterFrameRules = () => extractRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'), frameHead(LESSON_PAGE_CLASSES));
 /** Every edge on the lesson surface reads the one LENGTH; the page container
- *  alone is the reading width. Returns one line per violation. */
+ *  alone is the reading width. Any max- width is judged, and so is any width
+ *  at all that is set in `ch` or from a measure token (a `width: 45ch` on the
+ *  foot row is the same defect as a max-width). One line per violation. */
 function measureViolations(rules) {
   const bad = [];
   for (const r of rules) {
     const sel = r.slice(0, r.indexOf('{')).trim();
-    for (const m of r.matchAll(/(?<![-\w])(max-width|max-inline-size)\s*:\s*([^;}]+)/gi)) {
-      const v = m[2].trim();
-      if (v === 'var(--measure-body-len)' || (sel === '.otter-study-page' && v === 'var(--width-reading)')) continue;
-      bad.push(`${sel}  ${m[1]}: ${v}`);
+    for (const m of r.matchAll(/(?<![-\w])((?:max-|min-)?(?:width|inline-size))\s*:\s*([^;}]+)/gi)) {
+      const prop = m[1].toLowerCase(), v = m[2].trim();
+      if (v === 'var(--measure-body-len)' || (sel === '.otter-study-page' && prop === 'max-width' && v === 'var(--width-reading)')) continue;
+      if (prop.startsWith('max-') || /\dch\b|--measure/i.test(v)) bad.push(`${sel}  ${m[1]}: ${v}`);
     }
   }
   return bad;
@@ -698,6 +711,8 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        into a registered length — and the frame's rules are swept too. */
     const bad = measureViolations([...lessonRules(), ...otterLessonRules(), ...otterFrameRules()]);
     expect(bad, `a second measure on the lesson surface:\n${bad.join('\n')}`).toEqual([]);
+    expect(LESSON_PAGE_CLASSES, 'the lesson branch of renderStudyView was not found, or names none of its own classes')
+      .toEqual(expect.arrayContaining(['otter-study', 'otter-study-page', 'otter-crumbs', 'otter-lesson-title', 'otter-lesson-card', 'otter-lesson-foot']));
     expect(otterFrameRules().map((r) => r.slice(0, r.indexOf('{')).trim()),
       'the frame sweep reads the page, the title, the cards and the foot row')
       .toEqual(expect.arrayContaining(['.otter-study-page', '.otter-lesson-title', '.otter-lesson-card', '.otter-lesson-foot']));
@@ -717,9 +732,13 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     expect(measureViolations(extractRules(`
       .otter-lesson-title { max-width: var(--measure-body); }
       .otter-lesson-foot { max-width: 45ch; }
+      .otter-lesson-steps { width: 45ch; }
+      .otter-takeaways { inline-size: calc(var(--measure-body) - 8px); }
       .otter-study-page { max-width: var(--width-reading); }
       .lesson-content h2 { max-width: var(--measure-body-len); }
-    `, /\.(?:otter|lesson)-[\w-]+[^{};]*\{/g))).toHaveLength(2);
+      .otter-card-icon { width: var(--icon-md); }
+      .lesson-content table { width: 100%; }
+    `, /\.(?:otter|lesson)-[\w-]+[^{};]*\{/g))).toHaveLength(4);
     expect(lenDeclarations(`
       .otter-lesson-card { --measure-body-len: var(--measure-body); }
       .lesson-content { font-size: var(--text-h2); --measure-body-len: var(--measure-body); }
