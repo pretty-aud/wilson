@@ -2272,8 +2272,10 @@ select option {
    2px radii (the kit's control radius), the rem margins (now px on §3.3's
    4px grid), and the inline style that sat on every inline `code` in
    Otter.jsx and beat these rules. The fenced block's padding drift T1
-   recorded (oneDark's 1em resolving against 14px) is gone: Otter.jsx
-   sets the block's padding, margin, face and leading from tokens.
+   recorded (oneDark's 1em resolving against 14px) is gone: a TAGGED fence
+   is wrapped in react-markdown's own <pre> too (T1's "no <pre> ancestor"
+   was wrong — measured by A3's review), so `pre` below is the one well for
+   both kinds, and Otter.jsx strips oneDark's inline box to nothing.
    ═══════════════════════════════════════════════════════════════ */
 .lesson-content {
   font-size: var(--text-body);
@@ -2299,9 +2301,10 @@ select option {
    the body's ink too: it used to be a dimmer grey, which de-emphasised. */
 .lesson-content strong { font-weight: 600; color: var(--color-ink-2); }
 .lesson-content em { font-style: italic; color: inherit; }
-/* Inline code: the mono, the ink, a paper-raised chip on one hairline. Not
-   a language-tagged block's <code> (PreTag="div" leaves it no <pre>
-   ancestor): that one is dressed in Otter.jsx (LESSON_CODE_TEXT). */
+/* Inline code: the mono, the ink, a paper-raised chip on one hairline. A
+   fence's <code>, tagged or not, sits inside react-markdown's <pre> and is
+   excluded by `pre code`; the language class is excluded as well, in case a
+   renderer ever drops that <pre>. */
 .lesson-content code:not(pre code):not([class*="language-"]) {
   font-family: var(--font-mono);
   font-size: var(--text-dense);
@@ -2312,7 +2315,8 @@ select option {
   background: var(--color-paper-raised);
   color: var(--color-ink);
 }
-/* An untagged fence: the code well (paper-recessed is that token's job). */
+/* A fence, tagged or untagged: the one code well (paper-recessed is that
+   token's job). */
 .lesson-content pre {
   margin: 12px 0;
   padding: 12px 16px;
