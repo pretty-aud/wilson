@@ -344,8 +344,10 @@ describe('the state extraction holds in both B3 files', () => {
     // date's line and on its diamond as well (they were inline hex before);
     // readAwayFromSetter below holds each read to a rule that names its
     // setter's own class.
+    // B3c: the gantt's key-date line and diamond set it too (they were an
+    // inline hex with a glow), after the minimap's and the hover card's.
     const setters = [...code.timeline.matchAll(/'--rb-tl-ms'\s*:\s*([^,}\n]+)/g)].map((m) => m[1].trim())
-    expect(setters).toEqual(['ms.color', 'ms.color', 'hoverPopup.row.milestone?.color'])
+    expect(setters).toEqual(['ms.color', 'ms.color', 'hoverPopup.row.milestone?.color', 'ms.color', 'ms.color'])
     expect(undefinedProperties(sheet, indexCss, Object.values(source))).toEqual([])
     expect(readAwayFromSetter(sheet, Object.values(source))).toEqual([])
     // The fallback is a token now, the warning ink — the same amber (#f59e0b)

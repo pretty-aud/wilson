@@ -1745,7 +1745,9 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
   const totalH = rowLayouts?.totalHeight ?? rows.length * OVERVIEW_ROW_PX
   // The SVG covers the entire body area; child x positions come
   // from row.start dates × dayPx.
-  const RAIL_COLOR = '#a8a29e'
+  // B3c: the gantt's containment rail (a 40% screen of the ink). The
+  // minimap emits phase rows only, so this draws nothing today (B3b).
+  const RAIL_COLOR = 'color-mix(in srgb, var(--color-ink) 40%, var(--color-paper))'
   const RAIL_WIDTH = 1
 
   // Helper: compute the X pixel of a row's bar left edge.
@@ -2176,9 +2178,12 @@ function DetailPane({
       previewEl.style.position = 'absolute'
       previewEl.style.top = '4px'
       previewEl.style.bottom = '4px'
-      previewEl.style.borderRadius = '2px'
-      previewEl.style.backgroundColor = 'rgba(234, 88, 12, 0.25)'
-      previewEl.style.border = '1px dashed #fb923c'
+      // The drawn task's preview, on the kit's tokens (B3c): a tint of the
+      // signal in a 1px dashed signal line, the control radius. Built
+      // imperatively because it lives only for the drag.
+      previewEl.style.borderRadius = 'var(--radius-control)'
+      previewEl.style.backgroundColor = 'color-mix(in srgb, var(--color-signal) 25%, transparent)'
+      previewEl.style.border = '1px dashed var(--color-signal)'
       previewEl.style.pointerEvents = 'none'
       previewEl.style.zIndex = '6'
       containerEl.appendChild(previewEl)
@@ -2573,12 +2578,8 @@ function DetailPane({
         <div className="relative" style={{ width: effectiveChartW }}>
           {/* Time axis */}
           <div
-            className="relative sticky top-0 z-10"
-            style={{
-              height: HEADER_PX,
-              borderBottom: '1px solid #292524',
-              backgroundColor: '#1c1917',
-            }}
+            className="relative sticky top-0 z-10 rb-tl-axis"
+            style={{ height: HEADER_PX }}
           >
             {ticks.map(tick => {
               if (dayMask && dayMask.mask[tick.offset]?.hidden) return null
@@ -2595,8 +2596,8 @@ function DetailPane({
                 >
                   {tick.topLabel && (
                     <span
-                      className="text-dense whitespace-nowrap"
-                      style={{ color: '#fb923c', marginTop: 4, lineHeight: 1 }}
+                      className="text-dense whitespace-nowrap rb-tl-axis-top"
+                      style={{ marginTop: 4, lineHeight: 1 }}
                     >
                       {tick.topLabel}
                     </span>
@@ -2653,12 +2654,10 @@ function DetailPane({
                 return (
                   <div
                     key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#57534e',
-                      opacity: 0.5,
                     }}
                   />
                 )
@@ -2669,12 +2668,10 @@ function DetailPane({
                 return (
                   <div
                     key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-month"
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#44403c',
-                      opacity: 0.4,
                     }}
                   />
                 )
@@ -2688,7 +2685,6 @@ function DetailPane({
                   style={{
                     left: dayToX(i),
                     width: 1,
-                    opacity: 0.4,
                   }}
                 />
               )
@@ -2697,11 +2693,10 @@ function DetailPane({
             {/* Today line */}
             {todayDays >= 0 && todayDays <= totalDays && (!dayMask || !dayMask.mask[todayDays]?.hidden) && (
               <div
-                className="absolute top-0 bottom-0 pointer-events-none"
+                className="absolute top-0 bottom-0 pointer-events-none rb-tl-today"
                 style={{
                   left: dayToX(todayDays),
                   width: Math.max(2, dayPx > 8 ? 2 : 1),
-                  backgroundColor: '#fca5a5',
                   zIndex: 5,
                 }}
                 title="Today"
@@ -2716,25 +2711,27 @@ function DetailPane({
               if (msDays < 0 || msDays > totalDays) return null
               if (dayMask && dayMask.mask[msDays]?.hidden) return null
               const msX = dayToX(msDays)
-              const msColor = ms.color || '#f59e0b'
+              // B3c: the key date's own colour reaches the sheet as data
+              // (`--rb-tl-ms`, the minimap's spelling); the warning amber
+              // without one is the sheet's fallback. The glow and the dark
+              // 1.5px edge went (§3.3; TL-20).
               return (
                 <div key={`ms-${ms.id}`} className="absolute top-0 pointer-events-none" style={{ left: msX, zIndex: 8 }}>
                   {/* Vertical dashed line */}
                   <div
-                    className="absolute"
+                    className="absolute rb-tl-ms-line"
                     style={{
                       top: 0,
                       bottom: 0,
                       left: 0,
                       width: 1.5,
                       height: rows.length * rowPx,
-                      backgroundImage: `repeating-linear-gradient(to bottom, ${msColor} 0, ${msColor} 4px, transparent 4px, transparent 8px)`,
-                      opacity: 0.5,
+                      '--rb-tl-ms': ms.color,
                     }}
                   />
                   {/* Diamond marker at top */}
                   <div
-                    className="pointer-events-auto cursor-pointer"
+                    className="pointer-events-auto cursor-pointer rb-tl-ms"
                     onClick={() => !ms.isProjectBound && onEditMilestone?.(ms)}
                     title={`${ms.title}${ms.description ? ' — ' + ms.description : ''}${ms.isProjectBound ? ' (project bound)' : ''}`}
                     style={{
@@ -2743,11 +2740,9 @@ function DetailPane({
                       left: -6,
                       width: 13,
                       height: 13,
-                      backgroundColor: msColor,
-                      border: '1.5px solid rgba(0,0,0,0.5)',
                       transform: 'rotate(45deg)',
-                      boxShadow: `0 0 4px ${msColor}66`,
                       zIndex: 9,
+                      '--rb-tl-ms': ms.color,
                     }}
                   />
                 </div>
@@ -2757,8 +2752,7 @@ function DetailPane({
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
-                className="absolute inset-0 flex items-center justify-center text-center px-6 text-dense"
-                style={{ color: '#57534e', fontStyle: 'italic' }}
+                className="absolute inset-0 flex items-center justify-center text-center px-6 text-dense italic rb-tl-chart-empty"
               >
                 {/* Session 29 — the empty state was instructions. Telling a
                     read-only user to "drag on the overview to draw a task" and
@@ -2840,7 +2834,7 @@ function DetailPane({
                         the reason. */}
                     {(isDzHover || isReparentHoverDz) && canWrite && (
                       <div
-                        className="absolute rounded-control flex items-center justify-center pointer-events-none"
+                        className="absolute rounded-control flex items-center justify-center pointer-events-none rb-tl-dz-ghost"
                         style={{
                           left: mouseXInChart != null
                             ? Math.max(0, mouseXInChart - ghostWidth / 2)
@@ -2850,13 +2844,10 @@ function DetailPane({
                           width: ghostWidth,
                           top: 4,
                           height: rowPx - 8,
-                          backgroundColor: 'rgba(234, 88, 12, 0.22)',
-                          border: '1.5px dashed #fb923c',
                         }}
                       >
                         <span
-                          className="text-dense italic truncate px-2"
-                          style={{ color: '#fdba74' }}
+                          className="text-dense italic truncate px-2 rb-tl-dz-ghost-label"
                         >
                           + New task
                         </span>
@@ -3005,14 +2996,12 @@ function DetailPane({
                 const width = Math.max(6, right - left)
                 return (
                   <div
-                    className="absolute rounded-control pointer-events-none"
+                    className="absolute rounded-control pointer-events-none rb-tl-reparent-ghost"
                     style={{
                       top: targetIdx * rowPx + 5,
                       height: rowPx - 10,
                       left,
                       width,
-                      backgroundColor: 'rgba(234, 88, 12, 0.32)',
-                      border: '1.5px dashed #fb923c',
                       zIndex: 9,
                     }}
                   />
@@ -3063,13 +3052,10 @@ function DetailPane({
           the user is dragging a task onto another phase row. */}
       {reparentGhost && (
         <div
-          className="fixed pointer-events-none rounded-control shadow-lg text-dense"
+          className="fixed pointer-events-none rounded-control text-dense rb-tl-reparent-chip"
           style={{
             left: reparentGhost.x + 12,
             top:  reparentGhost.y + 12,
-            backgroundColor: '#7c2d12',
-            border: '1px dashed #fb923c',
-            color: '#fff7ed',
             padding: '4px 10px',
             zIndex: 9999,
             maxWidth: 280,
