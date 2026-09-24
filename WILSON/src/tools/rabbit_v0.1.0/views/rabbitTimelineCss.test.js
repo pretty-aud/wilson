@@ -421,3 +421,42 @@ describe('the minimap zoom slider: the snap marks are placed from the thumb the 
     expect(code.timeline).toMatch(/style=\{\{ width: SPAN_TRACK_W, height: 22 \}\}/)
   })
 })
+
+/* ── 9. the legend and the links (B3c) ────────────────────────────────────── */
+/** The legend's tone swatches, as TimelineLegend's table writes them. */
+const legendTones = (src) => {
+  const table = src.match(/const LEGEND_TONES = \[([\s\S]*?)\n\]/)
+  return table
+    ? [...table[1].matchAll(/shape: '(\w+)',\s*status: (?:'(\w+)'|undefined),\s*critical: '(true|false)'/g)]
+        .map(([, shape, status, critical]) => ({ shape, status, critical }))
+    : []
+}
+/** Rules that set a stroke: a CSS stroke beats an SVG attribute. */
+const strokeRules = (css) => rulesOf(css).filter(({ body }) => /(?:^|;)\s*stroke(?:-dasharray)?\s*:/.test(body)).map((r) => r.sel.trim())
+
+describe('the legend reads the bars\' own tone rules, and a link keeps its colour in the JSX', () => {
+  it('every legend swatch names a shape, a status and a critical flag the tone table paints (no status: the shape\'s default)', () => {
+    const tones = legendTones(source.timeline)
+    expect(tones).toHaveLength(8)
+    for (const { shape, status, critical } of tones) {
+      expect(toneValues('data-shape'), shape).toContain(shape)
+      if (status) expect(toneValues('data-status', shape), `${shape} ${status}`).toContain(status)
+      if (critical === 'true') expect(toneValues('data-critical')).toContain('true')
+    }
+    // The swatch wears the tone class itself, so it reads the very rules a bar does.
+    expect(code.timeline).toMatch(/className="rounded-control rb-tl-tone rb-tl-legend-swatch"/)
+  })
+  it('no rule sets a stroke: a link\'s colour and dash are keyed on its kind in DependencyOverlay', () => {
+    expect(strokeRules(sheet)).toEqual([])
+    expect(code.timeline).toMatch(/strokeDasharray=\{DASH_BY_KIND\[e\.kind\]\}/)
+    expect(code.timeline).toMatch(/const DASH_BY_KIND = \{ phase: '5 3', task: undefined \}/)
+  })
+  it('CONTROL: a swatch naming a status nobody paints fails; a stroke rule is found', () => {
+    const fake = "const LEGEND_TONES = [\n  { key: 'x', label: 'X', shape: 'task', status: 'mystery', critical: 'false', title: 'x' },\n]"
+    const [t] = legendTones(fake)
+    expect(t).toEqual({ shape: 'task', status: 'mystery', critical: 'false' })
+    expect(toneValues('data-status', 'task')).not.toContain(t.status)
+    expect(strokeRules('@layer components { .rb-tl-dep { stroke: var(--color-ink-2); } }')).toEqual(['.rb-tl-dep'])
+    expect(strokeRules('@layer components { .rb-tl-dep { cursor: pointer; } }')).toEqual([])
+  })
+})

@@ -126,9 +126,17 @@ async function hoverPair(shape, which) {
   const chart = page.locator('[data-chart-body] > .rb-tl-chart-row, [data-chart-body] > .rb-tl-chart-dz').nth(idx);
   const target = which === 'label' ? label : chart;
   const box = await target.boundingBox();
-  // A chart row: hover its empty right end, away from any bar.
-  const x = which === 'label' ? box.x + box.width - 20 : Math.min(W - 40, box.x + box.width - 40);
-  await page.mouse.move(x, box.y + box.height / 2);
+  const y = box.y + box.height / 2;
+  // A chart row: a point where the row ITSELF is what the pointer hits —
+  // not a bar, a link, the pet's corner or the pane's scrollbar.
+  const x = which === 'label'
+    ? box.x + box.width - 20
+    : await target.evaluate((el, yy) => {
+        for (let px = window.innerWidth - 120; px > 260; px -= 16) if (document.elementFromPoint(px, yy) === el) return px;
+        return null;
+      }, y);
+  if (x == null) return 'NO (no bare point on the chart row)';
+  await page.mouse.move(x, y);
   await sleep(120);
   const read = (el) => el.evaluate((e) => `${e.dataset.hover}:${getComputedStyle(e).backgroundColor}`);
   const [a, b] = [await read(label), await read(chart)];

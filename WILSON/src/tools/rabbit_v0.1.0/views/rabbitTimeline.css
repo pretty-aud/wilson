@@ -99,11 +99,12 @@
                                       (a subgroup with no status),
                                       data-critical = true|false: the palette
      .rb-tl-ov-bar                    data-writable = true: grab (else pointer)
-     .rb-tl-bar                       data-shape = phase: 2px + dark ring, a 600
-                                      label; = subgroup: 1.5px dashed, a 600
-                                      label; data-writable = true: grab /
+     .rb-tl-bar                       data-shape = phase: a 600 label;
+                                      = subgroup: dashed, a 600 label;
+                                      data-writable = true: grab /
                                       grabbing, edges ew-resize (else pointer)
-     .rb-tl-dep-handle                data-kind = phase|task: cyan | orange
+     .rb-tl-legend-swatch             .rb-tl-tone's attributes: a bar's tone
+                                      in the legend (B3c)
      .rb-tl-dz, .rb-tl-chart-dz       data-writable, data-hover, data-drop-hover
                                       = true|false: "+ New task" rows, dim and
                                       not-allowed when not writable, tinted on
@@ -120,7 +121,8 @@
      .rb-tl-chart-row                 data-shape: phase / subgroup banding;
                                       data-hover = true: the label row's twin;
                                       data-drop-hover = true: the drop fill
-     .rb-tl-ghost                     data-shape = phase|task: 2px | 1px dashed
+     .rb-tl-ghost                     (no variant: a phase's ghost is told by
+                                      its taller box since B3c)
      .rb-tl-dep                       data-writable = true|false: pointer | default
      .rb-tl-ed-title                  data-milestone = true|false: amber | orange
      (the zoom toolbar's undo pair, zoom, grouping and sort are the kit's
@@ -317,42 +319,71 @@
   .rb-tl-span-range::-moz-range-track { height: 4px; border-radius: 9999px; background-color: var(--color-rule); }
   .rb-tl-span-range::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 9999px; background-color: var(--color-signal); }
 
-  /* ═══ The bars' tone (barTone(), transcribed) ═══════════════════════════
-     On every minimap bar (OverviewBar) and every gantt bar (DetailBar). A
-     tone is three channels, ground / edge / ink, set here as custom
-     properties and read by the bars below. A task's tone is its status (in
-     progress on the critical path is one step hotter); a phase's is its
-     status, unset meaning not started; a subgroup's is its status when it
-     has one and its lifecycle (data-life) when it has none. An unset or
+  /* ═══ The bars' tone — stage 2 (B3c) ═══════════════════════════════════
+     On every minimap bar (OverviewBar), every gantt bar (DetailBar) and the
+     legend's swatches (TimelineLegend), so the legend can never disagree
+     with a bar. A tone is three channels, ground / edge / ink, set here as
+     custom properties and read by the bars below. It was 23 rules over some
+     forty hexes (amber, fuchsia, zinc, three greens, two reds); it is the
+     kit's five status tones (StatusDot's STATUS map: signal, warning,
+     success, danger, neutral), each in one of three weights:
+
+       outline  the paper, the tone as the edge, the tone as the ink
+                (neutral: ink-3's edge, ink-2 or the ink)
+       fill     20% of the tone mixed into the paper, its edge, the ink
+       strong   36% (40% for the critical path), its edge, the ink
+
+     Every ink clears 4.5:1 on its ground: the ink on the hottest fill
+     (signal 40%) is 9.2:1, on success 36% 6.4:1, warning 36% 7.2:1; the
+     outline inks on the paper are 5.04 (ink-3) to 9.0 (danger).
+
+     A TASK follows the kit map: not started / waiting to start = neutral
+     outline; in progress = signal fill, strong on the critical path (it was
+     one step hotter, and still is); pending review = warning fill and needs
+     revisions = warning strong (it was fuchsia, TL-14: the two stay apart by
+     weight, not by a sixth hue); on hold = warning outline; approved =
+     success fill and final = success strong; blocked = danger outline;
+     omitted = the rule's edge, ink-3.
+
+     🚨 A PHASE'S STATUSES ARE NOT IN THE KIT MAP, SO B3c DECIDED THEM
+     (hand-off §3): `active` is IN PROGRESS, the signal fill, the orange it
+     always was (the kit's `active` is a PROJECT's, and success);
+     `delayed` is the warning outline (it was amber on the paper);
+     `completed` has RECEDED, a 7% screen of the ink under ink-3's edge, its
+     name ink-2 (it was Tailwind zinc, the one cool neutral in the app,
+     TL-14). A group row's bar (subgroup) reads the same words: its status
+     in progress / completed / on hold as a phase's active / completed /
+     delayed; with no status its dates decide (active = in progress,
+     upcoming = not started, completed = completed). An unset or
      unrecognised status is the shape's default: the shape's first rule. */
-  .rb-tl-tone[data-shape="task"]                                   { --rb-tl-bg: #1c1917; --rb-tl-border: #57534e; --rb-tl-fg: #a8a29e; }
-  .rb-tl-tone[data-shape="task"][data-status="in_progress"]        { --rb-tl-bg: #7c2d12; --rb-tl-border: #fb923c; --rb-tl-fg: #fed7aa; }
-  .rb-tl-tone[data-shape="task"][data-status="in_progress"][data-critical="true"] { --rb-tl-bg: #9a3412; --rb-tl-border: #fb923c; --rb-tl-fg: #fff7ed; }
-  .rb-tl-tone[data-shape="task"][data-status="pending_review"]     { --rb-tl-bg: #451a03; --rb-tl-border: #fbbf24; --rb-tl-fg: #fef3c7; }
-  .rb-tl-tone[data-shape="task"][data-status="needs_revisions"]    { --rb-tl-bg: #4a1942; --rb-tl-border: #e879f9; --rb-tl-fg: #fae8ff; }
-  .rb-tl-tone[data-shape="task"][data-status="approved"]           { --rb-tl-bg: #052e16; --rb-tl-border: #4ade80; --rb-tl-fg: #dcfce7; }
-  .rb-tl-tone[data-shape="task"][data-status="final"]              { --rb-tl-bg: #14532d; --rb-tl-border: #22c55e; --rb-tl-fg: #bbf7d0; }
-  .rb-tl-tone[data-shape="task"][data-status="blocked"]            { --rb-tl-bg: #1c1917; --rb-tl-border: #ef4444; --rb-tl-fg: #fca5a5; }
-  .rb-tl-tone[data-shape="task"][data-status="on_hold"]            { --rb-tl-bg: #1c1917; --rb-tl-border: #d97706; --rb-tl-fg: #fcd34d; }
-  .rb-tl-tone[data-shape="task"][data-status="omitted"]            { --rb-tl-bg: #1c1917; --rb-tl-border: #292524; --rb-tl-fg: #57534e; }
-  .rb-tl-tone[data-shape="task"][data-status="waiting_to_start"]   { --rb-tl-bg: #1c1917; --rb-tl-border: #57534e; --rb-tl-fg: #a8a29e; }
-  .rb-tl-tone[data-shape="phase"]                                  { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #d6d3d1; }
-  .rb-tl-tone[data-shape="phase"][data-status="completed"]         { --rb-tl-bg: #27272a; --rb-tl-border: #52525b; --rb-tl-fg: #a1a1aa; }
-  .rb-tl-tone[data-shape="phase"][data-status="delayed"]           { --rb-tl-bg: #1c1917; --rb-tl-border: #b45309; --rb-tl-fg: #fcd34d; }
-  .rb-tl-tone[data-shape="phase"][data-status="active"]            { --rb-tl-bg: #7c2d12; --rb-tl-border: #fb923c; --rb-tl-fg: #fff7ed; }
-  .rb-tl-tone[data-shape="subgroup"]                               { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #d6d3d1; }
-  .rb-tl-tone[data-shape="subgroup"][data-status="in_progress"]    { --rb-tl-bg: #451a03; --rb-tl-border: #fb923c; --rb-tl-fg: #fff7ed; }
-  .rb-tl-tone[data-shape="subgroup"][data-status="completed"]      { --rb-tl-bg: #052e16; --rb-tl-border: #22c55e; --rb-tl-fg: #dcfce7; }
-  .rb-tl-tone[data-shape="subgroup"][data-status="on_hold"]        { --rb-tl-bg: #1c1917; --rb-tl-border: #d97706; --rb-tl-fg: #fcd34d; }
-  .rb-tl-tone[data-shape="subgroup"][data-life="completed"]        { --rb-tl-bg: #292524; --rb-tl-border: #57534e; --rb-tl-fg: #78716c; }
-  .rb-tl-tone[data-shape="subgroup"][data-life="upcoming"]         { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #a8a29e; }
-  .rb-tl-tone[data-shape="subgroup"][data-life="active"]           { --rb-tl-bg: #451a03; --rb-tl-border: #f59e0b; --rb-tl-fg: #fef3c7; }
+  .rb-tl-tone[data-shape="task"]                                   { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink-2); }
+  .rb-tl-tone[data-shape="task"][data-status="in_progress"]        { --rb-tl-bg: color-mix(in srgb, var(--color-signal) 20%, var(--color-paper)); --rb-tl-border: var(--color-signal); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="task"][data-status="in_progress"][data-critical="true"] { --rb-tl-bg: color-mix(in srgb, var(--color-signal) 40%, var(--color-paper)); --rb-tl-border: var(--color-signal); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="task"][data-status="pending_review"]     { --rb-tl-bg: color-mix(in srgb, var(--color-warning) 20%, var(--color-paper)); --rb-tl-border: var(--color-warning); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="task"][data-status="needs_revisions"]    { --rb-tl-bg: color-mix(in srgb, var(--color-warning) 36%, var(--color-paper)); --rb-tl-border: var(--color-warning); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="task"][data-status="approved"]           { --rb-tl-bg: color-mix(in srgb, var(--color-success) 20%, var(--color-paper)); --rb-tl-border: var(--color-success); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="task"][data-status="final"]              { --rb-tl-bg: color-mix(in srgb, var(--color-success) 36%, var(--color-paper)); --rb-tl-border: var(--color-success); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="task"][data-status="blocked"]            { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-danger); --rb-tl-fg: var(--color-danger); }
+  .rb-tl-tone[data-shape="task"][data-status="on_hold"]            { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-warning); --rb-tl-fg: var(--color-warning); }
+  .rb-tl-tone[data-shape="task"][data-status="omitted"]            { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-rule); --rb-tl-fg: var(--color-ink-3); }
+  .rb-tl-tone[data-shape="task"][data-status="waiting_to_start"]   { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink-2); }
+  .rb-tl-tone[data-shape="phase"]                                  { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="phase"][data-status="completed"]         { --rb-tl-bg: color-mix(in srgb, var(--color-ink) 7%, var(--color-paper)); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink-2); }
+  .rb-tl-tone[data-shape="phase"][data-status="delayed"]           { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-warning); --rb-tl-fg: var(--color-warning); }
+  .rb-tl-tone[data-shape="phase"][data-status="active"]            { --rb-tl-bg: color-mix(in srgb, var(--color-signal) 20%, var(--color-paper)); --rb-tl-border: var(--color-signal); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="subgroup"]                               { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="subgroup"][data-status="in_progress"]    { --rb-tl-bg: color-mix(in srgb, var(--color-signal) 20%, var(--color-paper)); --rb-tl-border: var(--color-signal); --rb-tl-fg: var(--color-ink); }
+  .rb-tl-tone[data-shape="subgroup"][data-status="completed"]      { --rb-tl-bg: color-mix(in srgb, var(--color-ink) 7%, var(--color-paper)); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink-2); }
+  .rb-tl-tone[data-shape="subgroup"][data-status="on_hold"]        { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-warning); --rb-tl-fg: var(--color-warning); }
+  .rb-tl-tone[data-shape="subgroup"][data-life="completed"]        { --rb-tl-bg: color-mix(in srgb, var(--color-ink) 7%, var(--color-paper)); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink-2); }
+  .rb-tl-tone[data-shape="subgroup"][data-life="upcoming"]         { --rb-tl-bg: var(--color-paper); --rb-tl-border: var(--color-ink-3); --rb-tl-fg: var(--color-ink-2); }
+  .rb-tl-tone[data-shape="subgroup"][data-life="active"]           { --rb-tl-bg: color-mix(in srgb, var(--color-signal) 20%, var(--color-paper)); --rb-tl-border: var(--color-signal); --rb-tl-fg: var(--color-ink); }
 
   /* A minimap bar: its tone under a 1px edge; a writer grabs it, a reader
      clicks it. B3b: the phase bar's 2px edge and its lifted shadow and
      white bevel went (§3.3: one hairline, one shadow for floating surfaces
      only). The minimap draws phases only, so the 2px distinguished a phase
-     from nothing here; the gantt keeps its phase / task distinction. */
+     from nothing here. */
   .rb-tl-ov-bar {
     background-color: var(--rb-tl-bg);
     border-width: 1px;
@@ -362,10 +393,14 @@
   }
   .rb-tl-ov-bar[data-writable="true"] { cursor: grab; }
 
-  /* A gantt bar: a phase 2px with a dark ring, a subgroup 1.5px dashed, a
-     task 1px; a writer grabs it (grabbing while pressed) and its edges
-     resize, a reader's edges take the bar's own pointer. The label is the
-     tone's ink, 600 on a phase and on a subgroup. */
+  /* A gantt bar: one 1px edge in its tone, a subgroup's dashed; a writer
+     grabs it (grabbing while pressed) and its edges resize, a reader's
+     edges take the bar's own pointer. The label is the tone's ink, 600 on a
+     phase and on a subgroup (T2's marker: two named rules, walkthrough
+     question). B3c: the phase bar's 2px edge and its dark ring went (§3.3:
+     one hairline, no shadow on a docked object) — a phase is told from a
+     task by its row's band on both halves, its taller bar (inline), its 600
+     label and its palette; a subgroup's 1.5px dashed edge is a 1px dash. */
   .rb-tl-bar {
     background-color: var(--rb-tl-bg);
     border-width: 1px;
@@ -373,8 +408,7 @@
     border-color: var(--rb-tl-border);
     cursor: pointer;
   }
-  .rb-tl-bar[data-shape="phase"] { border-width: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); }
-  .rb-tl-bar[data-shape="subgroup"] { border-width: 1.5px; border-style: dashed; }
+  .rb-tl-bar[data-shape="subgroup"] { border-style: dashed; }
   .rb-tl-bar[data-writable="true"] { cursor: grab; }
   .rb-tl-bar[data-writable="true"]:active { cursor: grabbing; }
   .rb-tl-bar-edge { cursor: inherit; }
@@ -383,10 +417,38 @@
   .rb-tl-bar[data-shape="phase"] > .rb-tl-bar-label { font-weight: 600; }
   .rb-tl-bar[data-shape="subgroup"] > .rb-tl-bar-label { font-weight: 600; }
 
-  /* The dependency grip past a bar's right edge: cyan links phases,
-     orange links tasks. */
-  .rb-tl-dep-handle { background-color: #fb923c; }
-  .rb-tl-dep-handle[data-kind="phase"] { background-color: #22d3ee; }
+  /* The dependency grip past a bar's right edge: the signal, the one active
+     affordance, for either kind (it was orange for a task and cyan for a
+     phase, TL-14; the kind of link it makes shows in the link it draws,
+     solid or dashed). Keyed off the bar by a 1px paper edge (its 2px dark
+     edge and its ring went, §3.3). */
+  .rb-tl-dep-handle { background-color: var(--color-signal); border: 1px solid var(--color-paper); }
+
+  /* ═══ The legend (TimelineLegend) — stage 2 (B3c) ══════════════════════
+     One line between the minimap and the detail toolbar, on the page
+     gutter the toolbar uses, ruled below like the strips around it. Words
+     at the Caption step in ink-2 (8.49:1); a tone swatch is a small bar
+     reading the bars' own tone (`.rb-tl-tone` above), a key date the
+     warning diamond (a key date without its own colour), today the danger
+     line (the chart's one red line), a link its ink-2 line and head. It
+     wraps rather than clip on a window narrower than it. */
+  .rb-tl-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 4px;
+    margin: 0;
+    padding: 4px var(--spacing-gutter);
+    list-style: none;
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-tl-legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--color-ink-2); }
+  .rb-tl-legend-swatch { flex: none; width: 16px; height: 10px; background-color: var(--rb-tl-bg); border: 1px solid var(--rb-tl-border); }
+  .rb-tl-legend-ms { flex: none; width: 8px; height: 8px; margin: 0 1px; transform: rotate(45deg); background-color: var(--color-warning); }
+  .rb-tl-legend-today { flex: none; width: 2px; height: 12px; background-color: var(--color-danger); }
+  .rb-tl-legend-link { flex: none; }
 
   /* ═══ The label gutter (DetailPane) ════════════════════════════════════
      TL-03: a gantt row is ONE row across the label gutter and the chart —
@@ -504,9 +566,14 @@
     outline-offset: -1px;
   }
 
-  /* A contained bar's ghost while its phase is dragged: 2px for a phase. */
-  .rb-tl-ghost { border: 1px dashed #fb923c; }
-  .rb-tl-ghost[data-shape="phase"] { border-width: 2px; }
+  /* A contained bar's ghost while its phase is dragged: a tint of the
+     signal inside a 1px dashed signal line (the tint was inline). A phase's
+     ghost was 2px against a task's 1px; B3c drew both at 1px, the phase's
+     told by its taller box (inline, its bar's geometry). */
+  .rb-tl-ghost {
+    background-color: color-mix(in srgb, var(--color-signal) 18%, transparent);
+    border: 1px dashed var(--color-signal);
+  }
 
   /* A dependency arrow: the pointer only where a click can remove it. */
   .rb-tl-dep { cursor: default; }
