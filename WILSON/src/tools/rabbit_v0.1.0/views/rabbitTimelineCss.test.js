@@ -189,14 +189,19 @@ describe('the sheet keys on values the JSX can produce', () => {
     expect(entryActionMeta({ action: 'delete', diff: { old: { title: 'x' } } })).toBe(ACTION_META.delete)
     expect(entryActionMeta({ action: 'update', diff: { deleted_at: { old: null, new: '2026-09-01' } } })).toBe(ACTION_META.delete)
     expect(entryActionMeta({ action: 'update', diff: { deleted_at: { old: '2026-09-01', new: null } } })).toBe(RESTORE_META)
-    // Stage 1 transcribes the table's colours; stage 2 maps them to tokens
-    // and rewrites this pin.
+    // Stage 1 transcribed the table's colours; stage 2 (B3c) maps each to a
+    // token: created and restored the success ink (the same #4ade80 the
+    // table names), deleted the danger ink (the same #fca5a5), edited — the
+    // common case — ink-2 (it was the orange), anything else ink-3.
     const colourOf = (sel) => (rulesOf(sheet).find((r) => selectorsOf(r.sel).includes(sel))?.body.match(/(?:^|;)\s*color:\s*([^;]+)/) || [])[1]?.trim()
-    expect(colourOf('.rb-hist-action[data-action="create"]')).toBe(ACTION_META.create.color)
-    expect(colourOf('.rb-hist-action[data-action="update"]')).toBe(ACTION_META.update.color)
-    expect(colourOf('.rb-hist-action[data-action="delete"]')).toBe(ACTION_META.delete.color)
-    expect(colourOf('.rb-hist-action[data-action="restore"]')).toBe(RESTORE_META.color)
-    expect(colourOf('.rb-hist-action')).toBe(entryActionMeta({ action: 'mystery' }).color)
+    expect(colourOf('.rb-hist-action[data-action="create"]')).toBe('var(--color-success)')
+    expect(colourOf('.rb-hist-action[data-action="update"]')).toBe('var(--color-ink-2)')
+    expect(colourOf('.rb-hist-action[data-action="delete"]')).toBe('var(--color-danger)')
+    expect(colourOf('.rb-hist-action[data-action="restore"]')).toBe('var(--color-success)')
+    expect(colourOf('.rb-hist-action')).toBe('var(--color-ink-3)')
+    expect(THEME['color-success']).toBe(ACTION_META.create.color)
+    expect(THEME['color-success']).toBe(RESTORE_META.color)
+    expect(THEME['color-danger']).toBe(ACTION_META.delete.color)
   })
   it('CONTROL: each fires on a value nobody sets, a class nobody wears and an operator; each passes the real shape', () => {
     const src = "<div className=\"rb-tl-x\" data-on={on ? 'true' : 'false'} />"

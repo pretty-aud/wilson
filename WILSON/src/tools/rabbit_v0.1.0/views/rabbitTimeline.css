@@ -738,19 +738,40 @@
   .rb-tl-band-icon,
   .rb-tl-band-title { color: var(--color-ink-3); }
 
-  /* ═══ EditHistoryDrawer ═════════════════════════════════════════════════ */
+  /* ═══ EditHistoryDrawer — stage 2 (B3c) ═════════════════════════════════
+     The kit Drawer (xl, 420) holds the chrome: the title bar's offset, the
+     raised paper, the hairline, the header and footer (TL-24). Here: the
+     entity line under the header, ink-2; each entry a card on the paper
+     under the rule (it was #292524 under #44403c); in a card the actor the
+     ink at 600, the time the mono in ink-3, a snapshot's summary ink-2, a
+     diff's field ink-3, its old value ink-2 struck through in the rule, the
+     arrow ink-3, its new value the ink. The walk's three failures here were
+     #78716c (3.65:1), #57534e (2.29:1) and #78716c on #292524 (3.16:1); ink-3
+     is 5.04:1 on the paper and 4.69:1 on the raised paper. */
+  .rb-hist-entity { color: var(--color-ink-2); }
+  .rb-hist-entry { background-color: var(--color-paper); border: 1px solid var(--color-rule); }
+  .rb-hist-actor { color: var(--color-ink); }
+  .rb-hist-when { color: var(--color-ink-3); }
+  .rb-hist-summary { color: var(--color-ink-2); }
+  .rb-hist-field { color: var(--color-ink-3); }
+  .rb-hist-from { color: var(--color-ink-2); text-decoration: line-through; text-decoration-color: var(--color-ink-3); }
+  .rb-hist-arrow { color: var(--color-ink-3); }
+  .rb-hist-to { color: var(--color-ink); }
+  .rb-hist-more, .rb-hist-foot { color: var(--color-ink-3); }
 
   /* Refresh while the list loads, an entry's revert while it runs: the icon
      turns. The kit's own `ui-spin` keyframes (index.css), which are
      Tailwind's `spin` — the same turn — owned by the kit, so they cannot be
      tree-shaken away with the last `animate-spin` in the app. */
   .rb-hist-spin[data-spinning="true"] { animation: ui-spin 1s linear infinite; }
-  /* An entry's action badge, in its action's colour (editHistoryFormat.js's
-     ACTION_META and RESTORE_META, transcribed): created and restored green,
-     edited orange, deleted red, anything else grey. */
-  .rb-hist-action { color: #a8a29e; border: 1px solid #a8a29e; opacity: 0.9; }
+  /* An entry's action badge, its word and hairline in one tone: created and
+     restored the success ink, deleted the danger ink, edited — the common
+     case — ink-2, anything else ink-3. It was ACTION_META's hexes (edited
+     orange) at 90% opacity; the map's `color` fields are unused since B3's
+     extraction and are editHistoryFormat.js's to delete, not this lane's. */
+  .rb-hist-action { color: var(--color-ink-3); border: 1px solid var(--color-ink-3); }
   .rb-hist-action[data-action="create"],
-  .rb-hist-action[data-action="restore"] { color: #4ade80; border-color: #4ade80; }
-  .rb-hist-action[data-action="update"] { color: #fb923c; border-color: #fb923c; }
-  .rb-hist-action[data-action="delete"] { color: #fca5a5; border-color: #fca5a5; }
+  .rb-hist-action[data-action="restore"] { color: var(--color-success); border-color: var(--color-success); }
+  .rb-hist-action[data-action="update"] { color: var(--color-ink-2); border-color: var(--color-ink-2); }
+  .rb-hist-action[data-action="delete"] { color: var(--color-danger); border-color: var(--color-danger); }
 }
