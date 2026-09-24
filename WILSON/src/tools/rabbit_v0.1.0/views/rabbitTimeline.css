@@ -137,7 +137,7 @@
      .rb-tl-help-item                 data-active = true|false: the open page
                                       raised, orange, 600, edged | lightens
                                       under the pointer
-     .rb-tl-tile                      data-danger = true|false: a tile's inks
+     (the summary band's figures are the kit's Stat since B3b)
    EditHistoryDrawer
      .rb-hist-spin                    data-spinning = true|false: turning
      .rb-hist-action                  data-action = create|update|delete|
@@ -533,15 +533,13 @@
     border-color: oklch(70.5% 0.213 47.604);        /* orange-500 */
   }
 
-  /* ═══ The summary band (SummaryTile) ════════════════════════════════════ */
-
-  /* A tile's icon, figure and label; "Blocked" above zero is danger. */
-  .rb-tl-tile-icon { color: #57534e; }
-  .rb-tl-tile-value { color: #fb923c; }
-  .rb-tl-tile-label { color: #d6d3d1; }
-  .rb-tl-tile[data-danger="true"] .rb-tl-tile-icon { color: #ef4444; }
-  .rb-tl-tile[data-danger="true"] .rb-tl-tile-value,
-  .rb-tl-tile[data-danger="true"] .rb-tl-tile-label { color: #fca5a5; }
+  /* ═══ The summary band (SummaryBand) — stage 2 (B3b) ════════════════════
+     The band on the paper under the rule; its title at the Label step in
+     ink-3 (it was 3.65:1). The eight figures are the kit's Stat (TL-07), so
+     their inks, and Blocked's danger tone, live in index.css now. */
+  .rb-tl-band { background-color: var(--color-paper); border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-band-icon,
+  .rb-tl-band-title { color: var(--color-ink-3); }
 
   /* ═══ EditHistoryDrawer ═════════════════════════════════════════════════ */
 

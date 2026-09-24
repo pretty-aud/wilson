@@ -48,10 +48,10 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
-  CalendarDays, GitBranch, Layers, Boxes, ListChecks,
+  CalendarDays, Layers, Boxes, ListChecks,
   AlertTriangle, Plus, X, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown,
   Settings as SettingsIcon, HelpCircle, Lock, Unlock, Crosshair,
-  Undo2, Redo2, Maximize2, Briefcase, Upload, Download, Check,
+  Undo2, Redo2, Maximize2, Upload, Download, Check,
   Users, Film, Gamepad2, Sparkles, Diamond,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
@@ -94,6 +94,7 @@ import { IconButton } from '../../../ui/IconButton'
 import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Tabs } from '../../../ui/Tabs'
+import { Stat } from '../../../ui/Stat'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -5613,54 +5614,44 @@ function SummaryBand({
   const zoomLabel = minimapZoomDays != null ? spanLabel(minimapZoomDays) : ''
 
   return (
-    <div
-      className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
-      style={{ borderBottom: '1px solid #292524', backgroundColor: '#1c1917' }}
-    >
+    <div className="flex items-center gap-2 px-6 py-2 flex-shrink-0 rb-tl-band">
       {/* Title */}
-      <CalendarDays className="w-4 h-4 flex-shrink-0" style={{ color: '#57534e' }} />
-      <span className="text-label uppercase font-semibold flex-shrink-0" style={{ color: '#78716c' }}>
+      <CalendarDays className="w-4 h-4 flex-shrink-0 rb-tl-band-icon" aria-hidden="true" />
+      <span className="text-label uppercase flex-shrink-0 rb-tl-band-title">
         Timeline
       </span>
 
-      <div className="flex items-center gap-2 flex-wrap min-w-0 ml-4">
-        <SummaryTile icon={Layers}        label="Phases"        value={summary.phases} />
-        <SummaryTile icon={Boxes}         label="Assets"        value={summary.assets} />
-        <SummaryTile icon={ListChecks}    label="Tasks"         value={summary.tasks} />
-        <SummaryTile icon={GitBranch}     label="Critical"      value={summary.critical} />
-        <SummaryTile icon={AlertTriangle} label="Blocked"       value={summary.blocked} tone={summary.blocked > 0 ? 'danger' : undefined} />
-        <SummaryTile icon={CalendarDays}  label="Span"          value={`${summary.spanDays} d`} />
-        <SummaryTile icon={Briefcase}     label="Working"       value={`${summary.workingDays} d`} />
-        <SummaryTile icon={CalendarDays}  label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
+      {/* The eight figures on the kit's Stat (TL-07; its third caller after
+          the Summary and Tasks views): the name above at the Label step, the
+          figure below in the mono at tabular figures, so the numbers read as
+          figures and not as one more line of chrome. No icons — one glyph
+          used to stand for three metrics. Blocked above zero puts its figure
+          in the danger tone, as the tile did. */}
+      <div className="flex items-center gap-x-4 gap-y-2 flex-wrap min-w-0 ml-4">
+        <Stat label="Phases"        value={summary.phases} />
+        <Stat label="Assets"        value={summary.assets} />
+        <Stat label="Tasks"         value={summary.tasks} />
+        <Stat label="Critical"      value={summary.critical} />
+        <Stat label="Blocked"       value={summary.blocked} valueTone={summary.blocked > 0 ? 'danger' : undefined} />
+        <Stat label="Span"          value={`${summary.spanDays} d`} />
+        <Stat label="Working"       value={`${summary.workingDays} d`} />
+        <Stat label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
       </div>
 
       {/* Minimap controls — right-aligned. Fit + Today buttons sit
           on the LEFT of the slider so the mouse travels the same
           distance from the summary tiles to reach them. Slider is
           ~half the previous width (120px) with snap tick marks
-          rendered above the track at 1y/2y/5y. */}
+          rendered above the track at 1y/2y/5y. Fit and Today are the
+          kit's secondary Button, their titles unchanged. */}
       {onMinimapZoomChange && (
         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            onClick={onMinimapFitProject}
-            title="Fit minimap to project start/end"
-            className="flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors"
-            style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
-          >
-            <Maximize2 className="w-3 h-3" />
+          <Button size="sm" icon={Maximize2} onClick={onMinimapFitProject} title="Fit minimap to project start/end">
             Fit
-          </button>
-          <button
-            type="button"
-            onClick={onMinimapCenterToday}
-            title="Center minimap on today"
-            className="flex items-center gap-1 px-2 py-1 text-dense rounded-control transition-colors"
-            style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
-          >
-            <Crosshair className="w-3 h-3" />
+          </Button>
+          <Button size="sm" icon={Crosshair} onClick={onMinimapCenterToday} title="Center minimap on today">
             Today
-          </button>
+          </Button>
           <span className="text-label uppercase ml-1 rb-tl-span-label">
             Zoom
           </span>
@@ -5707,19 +5698,6 @@ function SummaryBand({
     is exact only while they agree. */
 const SPAN_TRACK_W = 195
 const SPAN_THUMB_W = 14
-
-function SummaryTile({ icon: Icon, label, value, tone }) {
-  // Danger (a blocked count above zero) or not: `.rb-tl-tile` in
-  // rabbitTimeline.css holds both sets of inks (UI overhaul B3, values
-  // unchanged from the lookup this function used to carry).
-  return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1 rb-tl-tile" data-danger={tone === 'danger' ? 'true' : 'false'}>
-      <Icon className="w-3 h-3 rb-tl-tile-icon" />
-      <span className="text-dense rb-tl-tile-value">{value}</span>
-      <span className="text-label uppercase rb-tl-tile-label">{label}</span>
-    </div>
-  )
-}
 
 // ─── Lifecycle state classification ───────────────────────────
 //
