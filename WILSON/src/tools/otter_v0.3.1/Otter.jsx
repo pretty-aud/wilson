@@ -5563,21 +5563,25 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   function renderClearConfirm() {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-semibold text-h1 mb-2">Clear All Data</h3>
-          <p className="text-stone-400 text-body mb-6">This will delete ALL courses, subjects, and progress. Are you sure?</p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowClearConfirm(false)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-            <button onClick={async () => {
+      <Dialog
+        title="Clear all data"
+        width="confirm"
+        busy={confirmBusy}
+        onClose={() => setShowClearConfirm(false)}
+        footer={(
+          <>
+            <Button onClick={() => setShowClearConfirm(false)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(async () => {
               for (const sw of softwareList) { await otterFetch(`/api/software/${sw.slug}`, { method: 'DELETE' }); }
               setActiveSoftwareSlug(null); setActiveSoftware(null); setSubjectList([]); setActiveSubjectSlug(null); setActiveSubject(null);
               setSoftwareHotkeys(null); setSoftwareFunctions(null); setActiveProgress(null); setReferenceUrls([]);
               invalidateCache(); loadSoftwareList(); setShowClearConfirm(false); setCurrentView('library');
-            }} className="flex-1 bg-red-700 text-white border border-red-800 py-2 rounded-control hover:bg-red-800 transition-colors text-body font-semibold">Clear Everything</button>
-          </div>
-        </div>
-      </div>
+            })}>Clear everything</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">This will delete ALL courses, subjects, and progress. Are you sure?</p>
+      </Dialog>
     );
   }
 
