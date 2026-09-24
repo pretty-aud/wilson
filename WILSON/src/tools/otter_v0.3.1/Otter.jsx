@@ -4456,7 +4456,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 <a href={src.url} target="_blank" rel="noopener noreferrer" className="otter-source">
                   <ExternalLink className="otter-source-icon" aria-hidden="true" />
                   <span className="otter-source-text">
-                    <h3 className="otter-source-title">{src.title || 'Untitled Source'}</h3>
+                    <h3 className="otter-source-title">{src.title || 'Untitled source'}</h3>
                     <span className="otter-source-url">{src.url}</span>
                   </span>
                 </a>
@@ -5211,7 +5211,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <h3 className="otter-ref-section-title">{cat.category}</h3>
               <div className="otter-ref-cards">
                 {cat.nodes.map((node, j) => (
-                  <div key={j} className="otter-fn-card">
+                  <div key={j} className="otter-fn-card otter-node-card">
                     <div className="otter-node-name">{node.name}</div>
                     <p className="otter-fn-desc">{node.description}</p>
 
