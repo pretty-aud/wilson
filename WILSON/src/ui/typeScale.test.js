@@ -241,13 +241,35 @@ const CSS_SHORTHAND = /(?<![-\w])font\s*:/gi;
  *  `--measure-body`, 45ch, which holds 61-66 (63.5 on average, twelve lines of
  *  English at the Body step); a literal must sit in the same measured band,
  *  44-46ch. */
-const CSS_MEASURE = /max-width\s*:\s*(?:(?:4[4-6])ch\b|var\(--measure-body\))/i;
+/* 🚨 A LOOKBEHIND, as CSS_SHORTHAND has: without it `--max-width:` — a custom
+   property that sets nothing — read as the measure (A3 review round 1). */
+const CSS_MEASURE = /(?<![-\w])max-width\s*:\s*(?:(?:4[4-6])ch\b|var\(--measure-body\))/i;
 /** The band itself, so the token cannot drift out of it unnoticed. */
 const MEASURE_TOKEN = /--measure-body:\s*(4[4-6])ch\s*;/;
 /** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
  *  keeps §3.1's number read as `ch` until P1 decides; pinned so it cannot
  *  drift either. */
 const MEASURE_READING_TOKEN = /--measure-reading:\s*(6[0-6])ch\s*;/;
+/** A selector list split on its TOP-LEVEL commas only: a comma inside
+ *  `:is(…)` belongs to one selector. `split(',')` read
+ *  `.lesson-content :is(h1, h2, h3, blockquote) :is(ul, p, ol)` — a measure
+ *  on quoted paragraphs only — as containing a direct `p` (A3 review round 1:
+ *  the round-one defeat of T1's guard, back through a different door). */
+function splitSelectors(list) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (const ch of list) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+/** The `.lesson-content` rules in O.T.T.E.R.'s own sheet (A3 put one there),
+ *  swept like index.css's: a rule the index.css sweep cannot see is a rule
+ *  that can undo everything it checks. */
+const otterLessonRules = () => extractLessonRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'));
 
 /**
  * Every `.lesson-content` rule in `index.css`.
@@ -600,7 +622,7 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     const selectorOf = (r) => r.slice(0, r.indexOf('{')).trim();
     const DIRECT_P = /^\.lesson-content\s+(?:p|:is\([^)]*\bp\b[^)]*\))\s*(?:,|$)/;
     const prose = lessonRules().filter((r) =>
-      selectorOf(r).split(',').some((one) => DIRECT_P.test(one.trim().startsWith('.lesson-content')
+      splitSelectors(selectorOf(r)).some((one) => DIRECT_P.test(one.trim().startsWith('.lesson-content')
         ? one.trim() : `.lesson-content ${one.trim()}`)));
     expect(prose.length, 'no .lesson-content rule selects paragraphs directly').toBeGreaterThan(0);
     expect(prose.some((r) => CSS_MEASURE.test(r)),
@@ -610,6 +632,75 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       .toMatch(MEASURE_TOKEN);
     expect(readFileSync('src/index.css', 'utf8'), '--measure-reading is outside §3.1s band')
       .toMatch(MEASURE_READING_TOKEN);
+  });
+
+  it('the Body measure is the ONLY measure on the lesson surface, in either sheet (A3)', () => {
+    /* A3 review round 1: the assertion above proves a correct max-width
+       EXISTS, not that it wins. Survivors: a later `.lesson-content p {
+       max-width: 66ch }` (same specificity, later, so it wins); a
+       `max-inline-size` beside the token; the token redefined on the surface
+       or in otter.css; a 74ch rule in otter.css, which the index.css sweep
+       never read. */
+    const bad = [];
+    for (const r of [...lessonRules(), ...otterLessonRules()]) {
+      for (const m of r.matchAll(/(?<![-\w])(max-width|max-inline-size)\s*:\s*([^;}]+)/gi)) {
+        if (m[2].trim() !== 'var(--measure-body)') bad.push(`${r.slice(0, r.indexOf('{')).trim()}  ${m[1]}: ${m[2].trim()}`);
+      }
+    }
+    expect(bad, `a second measure on the lesson surface:\n${bad.join('\n')}`).toEqual([]);
+    const defs = ['src/index.css', 'src/tools/otter_v0.3.1/otter.css']
+      .map((f) => (readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').match(/--measure-body\s*:/g) || []).length);
+    expect(defs, '--measure-body is declared once, in @theme, and nowhere else').toEqual([1, 0]);
+  });
+
+  it("otter.css's lesson rules pass the same sweeps as index.css's (A3)", () => {
+    const css = otterLessonRules().join('\n');
+    expect(otterLessonRules().length, 'the sweep reads otter.css (it holds one lesson rule)').toBeGreaterThan(0);
+    for (const [re, what] of [[CSS_OFF_SIZE, 'size'], [CSS_OFF_LEADING, 'leading'], [CSS_OFF_WEIGHT, 'weight'], [CSS_SHORTHAND, 'shorthand']]) {
+      expect(css.match(re) || [], `otter.css lesson rules: off-token ${what}`).toEqual([]);
+    }
+  });
+
+  it('the lesson surface is on the tokens: the ink ladder, two grounds, one hairline, one radius, the 4px grid (A3)', () => {
+    /* O5 as a positive pin, not a hex count: every ink is the ladder's, every
+       ground a paper, every edge one hairline, every radius the control's,
+       every margin and padding a px step on the 4px grid. The hex row could
+       not see `rgb(251 191 36)` (the amber `strong` back) or a `thick`
+       border, a `box-shadow` edge, a 2px radius or a rem margin — all of
+       which survived A3's first guards. */
+    const lessonTokenViolations = (rules) => {
+      const bad = [];
+      for (const r of rules) {
+        const sel = r.slice(0, r.indexOf('{')).trim();
+        for (const m of r.slice(r.indexOf('{') + 1).matchAll(/(?:^|;)\s*([-\w]+)\s*:\s*([^;}]+)/g)) {
+          const prop = m[1].toLowerCase();
+          const v = m[2].trim().toLowerCase().replace(/\s*!\s*important$/, '');
+          const why =
+            prop === 'color' && !/^(var\(--color-ink(-2|-3)?\)|inherit)$/.test(v) ? 'an ink off the ladder'
+            : /^background(-color)?$/.test(prop) && !/^(var\(--color-paper-(raised|recessed)\)|transparent|none)$/.test(v) ? 'a ground off the tokens'
+            : /^border(-(top|right|bottom|left))?(-width)?$/.test(prop) && !/^(1px( solid var\(--color-(rule|ink-3)\))?|0|none)$/.test(v) ? 'not one hairline'
+            : prop === 'border-radius' && v !== 'var(--radius-control)' ? 'a radius off the two'
+            : /^(box-shadow|outline|text-shadow)$/.test(prop) ? 'a shadow or an outline'
+            : /^(margin|padding)(-(top|right|bottom|left))?$/.test(prop)
+              && !v.split(/\s+/).every((t) => t === '0' || /^\d+px$/.test(t) && parseInt(t, 10) % 4 === 0) ? 'spacing off the 4px grid'
+            : null;
+          if (why) bad.push(`${sel}  ${prop}: ${v}  (${why})`);
+        }
+      }
+      return bad;
+    };
+    const bad = lessonTokenViolations([...lessonRules(), ...otterLessonRules()]);
+    expect(bad, `the lesson surface off its tokens:\n${bad.join('\n')}`).toEqual([]);
+    // CONTROL: the same judge over the mutants that survived round one — each
+    // must be caught, one violation apiece.
+    const planted = lessonTokenViolations(extractLessonRules(`
+      .lesson-content strong { color: rgb(251 191 36); }
+      .lesson-content blockquote { border-left: thick solid var(--color-ink-3); }
+      .lesson-content h2 { box-shadow: inset 3px 0 0 var(--color-ink-3); }
+      .lesson-content pre { border-radius: 2px; }
+      .lesson-content p { margin: 0.75rem 0; }
+    `));
+    expect(planted, planted.join('\n')).toHaveLength(5);
   });
 
   it('CONTROL: the whole pipeline reports a planted defect, not just the regex', () => {
@@ -622,7 +713,7 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        already re-run their real pipelines; this is the third. */
     const clean = `
       .lesson-content h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); }
-      .lesson-content p { font-size: var(--text-body); max-width: var(--measure-reading); }
+      .lesson-content p { font-size: var(--text-body); max-width: var(--measure-body); }
     `;
     expect(extractLessonRules(clean).length).toBe(2);
     expect(extractLessonRules(clean).join('\n').match(CSS_OFF_SIZE)).toBe(null);
@@ -700,7 +791,7 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     }
     for (const s of ['max-width: 74ch;', 'max-width: 66ch;', 'max-width: 60ch;', 'max-width: 43ch;',
       'max-width: 4ch;', 'max-width: 145ch;', 'max-width: 45chx;', 'max-width: 45.5ch;',
-      'max-width: var(--measure-reading);']) {
+      'max-width: var(--measure-reading);', '--max-width: var(--measure-body);']) {
       expect(CSS_MEASURE.test(s), s).toBe(false);
     }
     expect(MEASURE_TOKEN.test('  --measure-body: 45ch;')).toBe(true);
@@ -790,7 +881,10 @@ describe('surface tokens (§3.3, §3.4, C9)', () => {
     // `border-white bg-white/20` on O.T.T.E.R.'s checkbox indicator is a
     // selected-state fill on the DARK surface, not a ground. `well-light` is a
     // warm screen for `#f4a261` and would make the selection invisible there.
-    const hits = sweep(WHITE_GROUND, ({ file }) => file !== 'src/tools/otter_v0.3.1/Otter.jsx');
+    // A3 review round 1: the exemption was the whole of Otter.jsx, so a white
+    // ground anywhere in the tool passed. It is that one ternary now.
+    const hits = sweep(WHITE_GROUND, ({ file, near }) => !(file === 'src/tools/otter_v0.3.1/Otter.jsx'
+      && /selected \? 'border-white bg-white\/20'/.test(near)));
     expect(hits, `white grounds:\n${hits.join('\n')}`).toEqual([]);
   });
 
@@ -1958,9 +2052,10 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
 
   it('the four page stylesheets write no hex and no off-scale size', () => {
     // C8 and C7, on the surfaces T3 swept. Everything the two rows still
-    // report is inside `src/index.css`, in `.lesson-content` (T1's by plan §5
-    // lane A3) and `.companion-chat-md` (the agent panel's, lane A — `index.css`
-    // says so; it is not the pet's sprite, so C5 does not cover it; V1).
+    // report is inside `src/index.css`, in `.companion-chat-md` (the agent
+    // panel's, P1's — `index.css` says so; it is not the pet's sprite, so C5
+    // does not cover it; V1). `.lesson-content` reports nothing since A3
+    // (2026-09-24).
     for (const label of ['hex colour outside @theme', 'font-size off the scale']) {
       const row = cssRow(label);
       const where = row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`))
@@ -2145,8 +2240,9 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(cssRow('border >= 2px').hits).toBeGreaterThan(0);
     /* 🚨 NOT the hex row, which the first draft used here. Round one caught
        that it ties this control to work T3 says belongs to someone else:
-       every one of those 28 hexes is inside `.lesson-content` or
-       `.companion-chat-md`, so the control would go RED on the day lane A3
+       every one of those 28 hexes (9 since A3, all `.companion-chat-md`) was
+       inside `.lesson-content` or `.companion-chat-md`, so the control would
+       have gone RED on the day lane A3
        finishes its own surface. A denominator must not be an unfinished
        defect count. `@theme` is the stable positive instead — it is excluded
        POSITIONALLY rather than by value, so counting its hexes proves the

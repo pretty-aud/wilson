@@ -269,8 +269,8 @@ export const CSS_PATTERNS = [
                            "one 2px signal underline", and its own comment
                            cites C6 for why the edge is transparent, not a fill
                      1269  the Toast / Banner tone edge
-                2227–2254  `.lesson-content` and `.companion-chat-md` — T1's
-                           by plan §5 and the pet's by C5, not swept here
+                     2356  `.companion-chat-md` — the agent panel's (P1), not
+                           swept here; `.lesson-content`'s four went with A3
        settings.css   109  the Settings tab underline (same contract)
                 429/448  a semantic left edge on the danger button and the
                          status block

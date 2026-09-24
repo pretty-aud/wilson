@@ -133,7 +133,9 @@ const REGISTRY = [
   // and the Sources view off the lesson sidebar. Functions is NOT here: the
   // fixture course is software, and the Functions view needs a
   // coding-language course, so on fixtures its button lands on Hotkeys.
-  P('otter-course', '/otter', { steps: ['DaVinci Resolve 19'], expect: { text: 'Editing on the Edit page' } }),
+  // The course page's OWN element: a subject's title also appears in Sidebar 1
+  // the moment the course opens there, so a text proof proved the sidebar.
+  P('otter-course', '/otter', { steps: ['DaVinci Resolve 19'], expect: { selector: '.otter-subject-card' } }),
   P('otter-sources', '/otter', { steps: ['@lesson', 'Sources'], expect: { text: 'Works cited' } }),
   P('otter-settings', '/otter', { steps: ['Tool settings'], expect: { dialog: true } }),
   P('otter-search', '/otter', { steps: ['Search'], expect: { dialog: true } }),
@@ -221,8 +223,9 @@ const KNOWN = {
   dialogFit: [],
   /* V1-02 — C6: text on an orange ground under its threshold. Keyed on the
      screen and the element's own quoted text, generated from both walks.
-     O.T.T.E.R.'s "+ New", "All" and its count repeat on every one of its
-     views. (D.O.G.'s step badges "1" / "2" were here on every D.O.G. screen;
+     (O.T.T.E.R.'s "+ New", "All" and its count repeated on every one of its
+     views until A3 took the fills away, 2026-09-24. D.O.G.'s step badges
+     "1" / "2" were here on every D.O.G. screen;
      A1 took the fill away and deleted the lines, 2026-09-23; History
      import/export's "Export" mode went with A2's kit Tabs.) The fix
      is the rule, not the ink (§3.2, Q16): a filled PRIMARY takes
@@ -320,7 +323,16 @@ const KNOWN = {
 };
 /* `text` is REQUIRED: a key-only entry would excuse everything of its kind on
    the screen, which is the silent-green shape this lane keeps hitting. */
-const isKnown = (kind, key, text) => KNOWN[kind].some((k) => k.key === key && typeof k.text === 'string' && (text || '').includes(k.text));
+/* Which KNOWN entries matched something this run, so the close can name the
+   ones that matched nothing on a screen it walked. A3 review round 1: 39 C6
+   rows stayed filed for 25 commits after their defect was gone, and nothing
+   said so. Reported, never failed. */
+const MATCHED = new Set();
+const isKnown = (kind, key, text) => KNOWN[kind].some((k) => {
+  const hit = k.key === key && typeof k.text === 'string' && (text || '').includes(k.text);
+  if (hit) MATCHED.add(k);
+  return hit;
+});
 /* Unnamed controls, per icon: known only if the EXACT icon is listed for this
    screen and the count has not grown. Returns the ones that are new. */
 function newAnon(key, anon) {
@@ -328,6 +340,7 @@ function newAnon(key, anon) {
   for (const a of anon) (byIcon[a.split(' ')[0]] ||= []).push(a);
   return Object.entries(byIcon).flatMap(([icon, list]) => {
     const k = KNOWN.anon.find((x) => x.key === key && x.text === icon);
+    if (k) MATCHED.add(k);
     return k && list.length <= k.n ? [] : list;
   });
 }
@@ -517,7 +530,9 @@ async function visit(ctx, entry) {
      A C6 row is a contrast failure whose ground is orange; the rest of the
      contrast census stays a report. */
   const c6 = census.contrast.filter((d) => { const m = d.match(/ on #([0-9a-f]{6}) /); return m && isOrange(m[1]); });
-  const nestedKnown = KNOWN.nested.find((x) => x.key === k)?.n ?? 0;
+  const nestedEntry = KNOWN.nested.find((x) => x.key === k);
+  if (nestedEntry && nested > 0) MATCHED.add(nestedEntry);
+  const nestedKnown = nestedEntry?.n ?? 0;
   const news = {
     face: faces.off.filter((r) => !isKnown('face', k, r.text)),
     weight: rules.weight.filter((r) => !isKnown('weight', k, r.text)),
@@ -653,6 +668,17 @@ const faceTotal = {};
 for (const r of REPORT) for (const [f, n] of Object.entries(r.faces)) faceTotal[f] = (faceTotal[f] || 0) + n;
 if (!FAST) console.log(`\n— glyphs drawn, all screens — ${Object.entries(faceTotal).map(([f, n]) => `${f} ${n}`).join(' · ')}`);
 
+{
+  const walked = new Set(entries.map((e) => e.key));
+  const stale = Object.entries(KNOWN)
+    .filter(([kind]) => !(FAST && kind === 'face'))
+    .flatMap(([kind, list]) => list.filter((x) => walked.has(x.key) && !MATCHED.has(x))
+      .map((x) => `${kind.padEnd(10)} ${x.key.padEnd(24)} ${x.text ?? ''}${x.n != null ? ` (n=${x.n})` : ''}`));
+  if (stale.length) {
+    console.log(`\n— stale KNOWN: ${stale.length} filed entr${stale.length === 1 ? 'y' : 'ies'} matched nothing on a screen this run walked — delete the line if its defect is gone —`);
+    for (const s of stale) console.log(`  ${s}`);
+  }
+}
 if (FAILED.length) {
   console.log(`\n🚨 ${FAILED.length} of ${entries.length} screens did not come back clean: ${FAILED.join(', ')}`);
   process.exit(1);
