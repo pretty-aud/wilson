@@ -597,8 +597,9 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        `src/index.css` end to end: the pipeline control below exercises
        `extractLessonRules` over synthetic strings and never touches the
        cached real-file reader. It is a denominator, and the selector list
-       under it carries the specification. */
-    expect(lessonRules().length).toBe(17);
+       under it carries the specification. 18 since A3 review round 2: the
+       table's own scroll box, `.lesson-content .lesson-table`. */
+    expect(lessonRules().length).toBe(18);
     const css = lessonCss();
     /* 🚨 A BOUNDARY, BECAUSE `.lesson-content p` IS A SUBSTRING OF
        `.lesson-content pre`. Round one wrote the list with `' p '` — it saw
@@ -716,6 +717,14 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     expect(otterFrameRules().map((r) => r.slice(0, r.indexOf('{')).trim()),
       'the frame sweep reads the page, the title, the cards and the foot row')
       .toEqual(expect.arrayContaining(['.otter-study-page', '.otter-lesson-title', '.otter-lesson-card', '.otter-lesson-foot']));
+    // …and each part of the frame DECLARES the length. The judge above passes
+    // a part with no max-width at all, and that is how the breadcrumb ran
+    // 212px past the prose after round one (review round 2).
+    for (const cls of ['otter-crumbs', 'otter-lesson-title', 'otter-lesson-card', 'otter-lesson-foot']) {
+      expect(LESSON_PAGE_CLASSES, `.${cls} is no longer on the lesson page: update this list`).toContain(cls);
+      expect(otterFrameRules().some((r) => r.startsWith(`.${cls}`) && /(?<![-\w])max-width\s*:\s*var\(--measure-body-len\)\s*[;}]/.test(r)),
+        `.${cls} does not stop on the prose's edge`).toBe(true);
+    }
     // Registered: unregistered, the property holds the TOKENS `45ch` and every
     // element that reads it resolves them in its own font again.
     const index = readFileSync('src/index.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ');

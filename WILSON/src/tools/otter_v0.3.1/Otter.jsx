@@ -71,8 +71,11 @@ import {
 //  oneDark's block style is inline and would draw a second well inside it —
 //  a cool hsl(220) ground, its own padding, margin and radius, Fira Code —
 //  so this object takes all of that away and keeps only the app's mono. The
-//  syntax colours on the tokens inside are data and stay the theme's.
+//  syntax colours on the tokens inside are data and stay the theme's, but
+//  for the comments (LESSON_CODE_THEME, below).
 //  (A3 review round 1 measured the first version: two nested wells.)
+//  The box is as wide as its code, so a scrolled line ends 16px inside the
+//  well as an untagged fence's does (it ended on the edge — round 2).
 // ═══════════════════════════════════════════════════════════════════
 const LESSON_CODE_BLOCK = {
   background: 'transparent',
@@ -82,10 +85,22 @@ const LESSON_CODE_BLOCK = {
   padding: 0,
   margin: 0,
   overflow: 'visible',
+  width: 'max-content',
+  minWidth: '100%',
   textShadow: 'none',
   fontFamily: 'var(--font-mono)',
   fontSize: 'var(--text-dense)',
   lineHeight: 'var(--text-dense--line-height)',
+};
+// oneDark draws comments in hsl(220 10% 40%): 3.27:1 on the well at 13px,
+// the one text on the lesson page under AA (A3 review round 2). The third
+// ink is the app's own quiet text and measures 5.70:1 there. Its colours are
+// inline styles, so they are changed in the theme object, not in CSS.
+const LESSON_CODE_THEME = {
+  ...oneDark,
+  comment: { ...oneDark.comment, color: 'var(--color-ink-3)' },
+  prolog: { ...oneDark.prolog, color: 'var(--color-ink-3)' },
+  cdata: { ...oneDark.cdata, color: 'var(--color-ink-3)' },
 };
 const LESSON_CODE_TEXT = {
   fontFamily: 'var(--font-mono)',
@@ -4567,7 +4582,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   // .lesson-content styles it.
                   return !inline && match ? (
                     <SyntaxHighlighter
-                      style={oneDark}
+                      style={LESSON_CODE_THEME}
                       language={match[1]}
                       PreTag="div"
                       customStyle={LESSON_CODE_BLOCK}
@@ -4575,7 +4590,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {...props}
                     >{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
                   ) : (<code {...props} className={className}>{children}</code>);
-                }
+                },
+                // A table scrolls inside this box when its columns cannot fit
+                // the reading container, not the pane (A3 review round 2).
+                table({ node, ...props }) {
+                  return <div className="lesson-table"><table {...props} /></div>;
+                },
               }}>
                 {(() => {
                   let content = selectedLesson.content || '';

@@ -427,7 +427,10 @@
      course page and Sources (A3 review round 1). So the block is top-aligned
      and the actions — md controls, 36px, every one of them — rise by half
      the difference between the H2 line (16 x 1.3) and the control. */
-  .otter-view { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
+  /* The scroll gutter is kept whether or not a view scrolls, so a centred
+     page does not move half a scrollbar sideways between a long view and a
+     short one (the lesson against Sources: 5px — A3 review round 2). */
+  .otter-view { height: 100%; overflow-y: auto; scrollbar-gutter: stable; background-color: var(--color-paper); }
   .otter-view-page { margin: 0 auto; padding: var(--spacing-gutter); }
   .otter-view-page[data-width='data'] { max-width: var(--width-data-max); }
   .otter-view-page[data-width='reading'] { max-width: var(--width-reading); }
@@ -1053,7 +1056,7 @@
      (index.css registers it), so the title, the cards and the foot row
      inherit the paragraph's 45ch as a length. Their own `ch` would be their
      own font's: the title's was 615px against the paragraph's 418. */
-  .otter-study { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
+  .otter-study { height: 100%; overflow-y: auto; scrollbar-gutter: stable; background-color: var(--color-paper); }
   .otter-study-page {
     max-width: var(--width-reading);
     margin: 0 auto;
@@ -1063,6 +1066,8 @@
     --measure-body-len: var(--measure-body);
   }
   .otter-crumbs {
+    max-width: var(--measure-body-len);
+    overflow-wrap: anywhere;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -1076,6 +1081,7 @@
   .otter-crumb-current { color: var(--color-ink-2); }
   .otter-lesson-title {
     max-width: var(--measure-body-len);
+    overflow-wrap: anywhere;
     margin-bottom: 8px;
     font-size: var(--text-h1);
     line-height: var(--text-h1--line-height);
@@ -1088,6 +1094,7 @@
      comes out of the width — border-box). Its text is the Body step. */
   .ui-card.otter-lesson-card {
     max-width: var(--measure-body-len);
+    overflow-wrap: anywhere;
     margin-bottom: 16px;
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
@@ -1102,16 +1109,20 @@
      centres the check on the TEXT exactly (measured: both at +10px). */
   .otter-takeaway-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 3px; color: var(--color-ink-3); }
   .otter-practice { color: var(--color-ink-2); }
+  /* It wraps, the step buttons keeping the right: at the smallest window
+     zoomed to 120% (853px) the three buttons need 381px and the pane gives
+     365 (A3 review round 2). */
   .otter-lesson-foot {
     max-width: var(--measure-body-len);
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
     padding-top: 16px;
     border-top: 1px solid var(--color-rule);
   }
-  .otter-lesson-steps { display: flex; gap: 8px; }
+  .otter-lesson-steps { display: flex; gap: 8px; margin-left: auto; }
   .otter-complete[data-complete='true'] > svg { color: var(--color-success); }
 
   /* ═══ THE COURSE BADGES (CourseBadges.jsx) — the kit's Badge ══════════

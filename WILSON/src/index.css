@@ -2261,7 +2261,8 @@ select option {
        h1, h2        ink    16/600  15.45:1   (h1 demoted one step, O32)
        h3            ink    14/600  15.45:1
        p, li         ink-2  14/400   8.49:1
-       strong        ink-2  14/600   8.49:1   (differs from h3 in ink, and
+       strong        600, its context's ink   (ink-2 in body text, 8.49:1:
+                                              it differs from h3 in ink and
                                               from its sentence in weight)
        em            the ink of its context, italic
        code          ink on paper-raised, mono 13   14.29:1
@@ -2306,12 +2307,18 @@ select option {
    CHARACTERS of Geist at the Body step (66ch held 95 — see @theme), resolved
    once, above. On the prose only: a table or a code block is data and keeps
    the container. A list's and a quote's own inset comes out of the same
-   width (border-box), so every right edge is the paragraph's. */
-.lesson-content :is(h1, h2, h3, p, ul, ol, blockquote) { max-width: var(--measure-body-len); }
+   width (border-box), so every right edge is the paragraph's. A word longer
+   than the measure breaks rather than running past it: at 418px a long
+   identifier in a heading ran 137px past the edge, and at 1024 it scrolled
+   the pane (A3 review round 2). Not in a table (it scrolls, below). */
+.lesson-content :is(h1, h2, h3, p, ul, ol, blockquote) { max-width: var(--measure-body-len); overflow-wrap: anywhere; }
 /* h1 and h2 set the same step on purpose (O32): the lesson's title is the
-   page's one H1, and a `#` the generator leaves in the body after the title
-   is stripped is a section, not a second title. Seven steps leave no room
-   between H2 and H3 for a third heading size (A3 hand-off, question). */
+   page's top heading (an <h2> under the tool's <h1>, drawn at the H1 step),
+   and a `#` the generator leaves in the body after the title is stripped is
+   a section, not a second title. Seven steps leave no room between H2 and
+   H3 for a third heading size (A3 hand-off, question). The body's `#` still
+   renders an <h1> under the title's <h2>, an outline that predates A3
+   (hand-off §4, for P1). */
 .lesson-content h1 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); font-weight: var(--text-h2--font-weight); margin: 24px 0 8px; color: var(--color-ink); }
 .lesson-content h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); font-weight: var(--text-h2--font-weight); margin: 24px 0 8px; color: var(--color-ink); }
 .lesson-content h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); font-weight: var(--text-h3--font-weight); margin: 16px 0 8px; color: var(--color-ink); }
@@ -2321,11 +2328,13 @@ select option {
    indented paragraphs. */
 .lesson-content ul, .lesson-content ol { margin: 8px 0; padding-left: 24px; list-style: revert; color: var(--color-ink-2); }
 .lesson-content li { margin: 4px 0; line-height: var(--text-body--line-height); }
-/* Emphasis is WEIGHT, in the body's own ink — so a bolded phrase is set
-   apart from its sentence without matching an h3 (ink, 600, on its own
-   line) and without the amber that out-shouted every heading. Italic keeps
-   the body's ink too: it used to be a dimmer grey, which de-emphasised. */
-.lesson-content strong { font-weight: 600; color: var(--color-ink-2); }
+/* Emphasis is WEIGHT, in the ink of its context — in a sentence the body's
+   ink-2, so a bolded phrase is set apart from it without matching an h3
+   (ink, 600, on its own line) and without the amber that out-shouted every
+   heading; in a heading, a table header or a link, the ink (a fixed ink-2
+   dimmed the bold words there — A3 review round 2). Italic keeps its
+   context's ink too: it used to be a dimmer grey, which de-emphasised. */
+.lesson-content strong { font-weight: 600; color: inherit; }
 .lesson-content em { font-style: italic; color: inherit; }
 /* Inline code: the mono, the ink, a paper-raised chip on one hairline. A
    fence's <code>, tagged or not, sits inside react-markdown's <pre> and is
@@ -2357,7 +2366,14 @@ select option {
 }
 .lesson-content blockquote { margin: 12px 0; padding-left: 12px; border-left: 1px solid var(--color-ink-3); color: var(--color-ink-2); }
 .lesson-content a { color: var(--color-ink); text-decoration: underline; text-underline-offset: 2px; }
-.lesson-content table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+/* A table is data: it takes the width its cells need, up to the reading
+   container, wrapping its cells to fit; one whose columns cannot fit (long
+   identifiers) scrolls inside its own box — Otter.jsx wraps each table in
+   `.lesson-table` — and never the pane. `width: 100%` stretched a
+   two-column table to 672px and let a six-column one push the pane
+   sideways (A3 review round 2). */
+.lesson-content .lesson-table { margin: 12px 0; overflow-x: auto; }
+.lesson-content table { border-collapse: collapse; }
 /* A markdown table is data, so it takes Dense — the step §3.1 gives "table
    cells". The header takes the second weight rather than the Label step,
    because Label is UPPER (§3.1, Q2) and a `th` here renders the AUTHOR's
