@@ -82,12 +82,25 @@ const DIALOG_RAW = read('./ShareCourseDialog.jsx')
 const OTTER_RAW  = read('../Otter.jsx')
 
 const MENU   = stripComments(MENU_RAW)
+// A3 (2026-09-24): the trigger's colour and hover moved out of its className
+// into O.T.T.E.R.'s sheet, so that is where contrast and concealment are read.
+const SHEET_RAW = read('../otter.css')
+const SHEET = SHEET_RAW.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+/** Every rule in otter.css whose selector names the trigger, as [selector, body]. */
+function triggerRules() {
+  return [...SHEET.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, sel]) => /\.otter-row-menu-trigger(?![\w-])/.test(sel))
+    .map(([, sel, body]) => [sel.trim(), body])
+}
+/** Tailwind v4's stone-400 and stone-600, as the extraction transcribed them. */
+const STONE_400 = 'oklch(70.9% 0.01 56.259)'
+const STONE_600 = 'oklch(44.4% 0.011 73.639)'
 const DIALOG = stripComments(DIALOG_RAW)
 const OTTER  = stripComments(OTTER_RAW)
 
 /** The className string of CourseRowMenu's "⋯" trigger, executable form only. */
 function triggerClassName() {
-  const anchor = MENU.indexOf('hover:text-orange-400 hover:bg-stone-700')
+  const anchor = MENU.indexOf('otter-row-menu-trigger')
   if (anchor === -1) return null
   const open = MENU.lastIndexOf('className={`', anchor)
   if (open === -1) return null
@@ -190,12 +203,29 @@ describe('the "⋯" trigger is findable', () => {
     expect(triggerClassName()).not.toMatch(CONCEALED)
   })
 
+  it('is not concealed by the sheet its colour moved to either', () => {
+    // A3: the trigger is styled from otter.css now, so concealment could come
+    // back as a declaration no class scan sees.
+    const rules = triggerRules()
+    expect(rules.length, 'the trigger has no rule in otter.css').toBeGreaterThan(0)
+    for (const [sel, body] of rules) {
+      expect(body, sel).not.toMatch(/opacity\s*:\s*0(?![.\d])|visibility\s*:\s*hidden|display\s*:\s*none|scale\(\s*0\s*\)/)
+    }
+  })
+
   it('meets the 3:1 contrast minimum for a UI component', () => {
     const cls = triggerClassName()
     // stone-600 (#57534e) on the hovered stone-700 sidebar row measures 1.35:1.
     // stone-400 (#a8a29e) measures 4.08:1 there and higher on the darker two.
-    expect(cls, 'the trigger must not go back to stone-600').not.toContain('text-stone-600')
-    expect(cls).toContain('text-stone-400')
+    // A3: the ink is the sheet's now, and a colour utility left on the
+    // element would beat the sheet's layer — so the class list must carry
+    // none, and the rest rule must be stone-400.
+    expect(cls, 'a text colour utility on the trigger would override the sheet')
+      .not.toMatch(/(?<![\w:-])text-(stone|orange|white|black)/)
+    const rest = triggerRules().filter(([sel]) => /^\.otter-row-menu-trigger$/.test(sel))
+    expect(rest.length, 'the trigger needs exactly one rest rule').toBe(1)
+    expect(rest[0][1], 'the trigger must not go back to stone-600').not.toContain(STONE_600)
+    expect(rest[0][1]).toContain(STONE_400)
   })
 
   it('meets the 24x24 target-size minimum in both densities', () => {

@@ -341,4 +341,24 @@
     color: oklch(95.4% 0.038 75.164);                       /* text-orange-100 */
   }
 
+  /* ═══ EXTRACTION — THE ROW MENU'S TRIGGER (components/CourseRowMenu.jsx)
+     stone-400 at rest (PHASE 5's measured 4.08:1 on a hovered stone-700 row;
+     it had been stone-600 at 1.35:1), orange-400 on a stone-700 fill on hover.
+     Its size is not a state (compact or not) and stays a utility.
+
+     🚨 THE OPEN BRANCH WAS DEAD. The ternary added text-orange-400 while the
+     menu is open, but text-stone-400 sat on the same element and Tailwind
+     emits it later, so it won: measured before this commit, an open trigger
+     renders stone-400 on no fill, exactly its rest state. `data-open` names
+     the branch; no rule gives it a look here, because none ever rendered.
+     shareDiscoverability.test.js reads this rule for the contrast floor and
+     for concealment, since the class list no longer carries either. */
+  .otter-row-menu-trigger {
+    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
+  }
+  .otter-row-menu-trigger:hover {
+    color: oklch(75% 0.183 55.934);                         /* hover:text-orange-400 */
+    background-color: oklch(37.4% 0.01 67.558);             /* hover:bg-stone-700 */
+  }
+
 }

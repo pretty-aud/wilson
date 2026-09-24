@@ -162,9 +162,10 @@ export default function CourseRowMenu({
         //   4.08:1 on stone-700 and better on the darker two.
         //   Padding takes the hit box to 24x24 (compact: 12px icon + p-1.5) and
         //   30x30 (14px icon + p-2), clearing WCAG 2.2 2.5.8. It was 16x16/22x22.
-        className={`shrink-0 rounded-control text-stone-400 hover:text-orange-400 hover:bg-stone-700 transition-colors ${
+        className={`otter-row-menu-trigger shrink-0 rounded-control transition-colors ${
           compact ? 'p-1.5' : 'p-2'
-        } ${open ? 'text-orange-400' : ''}`}
+        }`}
+        data-open={open ? 'true' : undefined}
       >
         <MoreHorizontal className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
       </button>
