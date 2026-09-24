@@ -104,26 +104,6 @@
     color: oklch(55.3% 0.013 58.071);                     /* text-stone-500 */
   }
 
-  /* ═══ EXTRACTION — THE STUDY VIEW (renderStudyView) ═════════════════════
-     Mark complete, two branches:
-       complete   green-200 on green-800, a green-700 edge; no hover
-       default    stone-300 on stone-700, a stone-600 edge; stone-600 on hover
-     Previous and Next carry only a static `disabled:` variant, the inline
-     code style and the stub screen's bar are constants, not states. */
-  .otter-complete {
-    color: oklch(86.9% 0.005 56.366);                     /* text-stone-300 */
-    background-color: oklch(37.4% 0.01 67.558);           /* bg-stone-700 */
-    border-color: oklch(44.4% 0.011 73.639);              /* border-stone-600 */
-  }
-  .otter-complete:not([data-complete='true']):hover {
-    background-color: oklch(44.4% 0.011 73.639);          /* hover:bg-stone-600 */
-  }
-  .otter-complete[data-complete='true'] {
-    color: oklch(92.5% 0.084 155.995);                    /* text-green-200 */
-    background-color: oklch(44.8% 0.119 151.328);         /* bg-green-800 */
-    border-color: oklch(52.7% 0.154 150.069);             /* border-green-700 */
-  }
-
   /* ═══ EXTRACTION — THE PROMPT VIEW (renderPromptInput) ═════════════════
      The radio CARD, drawn twice with one pair of branches (Mode: course or
      subject; Who is this for: personal or shared):
@@ -568,6 +548,65 @@
     border-top: 1px solid var(--color-rule);
   }
   .otter-sources-link:hover { background-color: var(--color-hover); color: var(--color-ink); }
+
+  /* ═══ THE LESSON PAGE (renderStudyView) ═══════════════════════════════
+     The reading surface (.lesson-content, in index.css) and its frame: a
+     720px reading container on the page gutter (§3.3's reading measure;
+     tables and code run to it, prose stops at --measure-body), the
+     breadcrumb at Caption in the third ink with the current lesson in the
+     second, the lesson's title at the H1 step, Key takeaways and the
+     practice exercise as the kit's Card ON THE PROSE'S MEASURE, and the
+     foot row on the kit's Buttons. */
+  .otter-study { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
+  .otter-study-page { max-width: var(--width-reading); padding: var(--spacing-gutter); }
+  .otter-crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-crumb-sep { width: 12px; height: 12px; flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-crumb-current { color: var(--color-ink-2); }
+  .otter-lesson-title {
+    max-width: var(--measure-body);
+    margin-bottom: 8px;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-study .lesson-content { margin-bottom: 24px; }
+  /* The measure is set in ch at the Body step, so a card at the Body step
+     reads the same 45ch the paragraph above it does: the right edges line
+     up (the card's padding comes out of the width — border-box). */
+  .ui-card.otter-lesson-card {
+    max-width: var(--measure-body);
+    margin-bottom: 16px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+  }
+  .otter-lesson-card .ui-card-title { display: flex; align-items: center; gap: 8px; }
+  .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-takeaways { display: flex; flex-direction: column; gap: 4px; color: var(--color-ink-2); }
+  .otter-takeaways > li { display: flex; align-items: flex-start; gap: 8px; }
+  /* The bullet's 14px glyph sits on the first line's centre: (21 - 14) / 2. */
+  .otter-takeaway-mark { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 3.5px; color: var(--color-ink-3); }
+  .otter-practice { color: var(--color-ink-2); }
+  .otter-lesson-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .otter-lesson-steps { display: flex; gap: 8px; }
+  .otter-complete[data-complete='true'] > svg { color: var(--color-success); }
 
   /* ═══ THE COURSE BADGES (CourseBadges.jsx) — the kit's Badge ══════════
      Origin (Standard, Shared by you, From <name>, Yours), Private and Read

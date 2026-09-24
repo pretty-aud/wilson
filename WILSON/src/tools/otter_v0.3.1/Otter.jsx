@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -62,6 +62,29 @@ import {
   courseMatchesFilter, canWriteCourse, canReadCourse, findStandardByName,
   VISIBILITY_META, filtersFor,
 } from './components/otterSharing.js';
+
+// ═══════════════════════════════════════════════════════════════════
+//  THE LESSON'S CODE BLOCK (A3): oneDark's block style is inline, so a class
+//  cannot reach it; these two objects are the tokens it is dressed in.
+// ═══════════════════════════════════════════════════════════════════
+const LESSON_CODE_BLOCK = {
+  background: 'var(--color-paper-recessed)',
+  color: 'var(--color-ink-2)',
+  border: '1px solid var(--color-rule)',
+  borderRadius: 'var(--radius-control)',
+  padding: '12px 16px',
+  margin: '12px 0',
+  textShadow: 'none',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-dense)',
+  lineHeight: 'var(--text-dense--line-height)',
+};
+const LESSON_CODE_TEXT = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-dense)',
+  lineHeight: 'var(--text-dense--line-height)',
+  whiteSpace: 'pre',
+};
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -4520,25 +4543,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const currentSection = activeSubject?.sections?.find(s => s.lessons?.some(l => l.id === selectedLessonId));
 
     return (
-      <div className="h-full overflow-y-auto bg-stone-900">
+      <div className="otter-study">
         {selectedLesson ? (
-          <div className="p-6 max-w-4xl">
-            <div className="flex items-center gap-1.5 text-dense mb-2 flex-wrap">
-              <span className="text-orange-400/70 font-semibold">{activeSoftware?.name}</span>
-              <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
-              <span className="text-stone-500">{activeSubject?.title}</span>
-              {currentSection && <><ChevronRight className="w-3 h-3 text-stone-600 shrink-0" /><span className="text-stone-500">{currentSection.title}</span></>}
-              <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
-              <span className="text-stone-400">{selectedLesson.title}</span>
-            </div>
-            <h2 className="text-h1 font-semibold text-orange-400 mb-1">{selectedLesson.title}</h2>
-            <div className="lesson-content mb-8">
+          <div className="otter-study-page">
+            <nav className="otter-crumbs" aria-label="Where this lesson sits">
+              <span>{activeSoftware?.name}</span>
+              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              <span>{activeSubject?.title}</span>
+              {currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span>{currentSection.title}</span></>}
+              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              <span className="otter-crumb-current">{selectedLesson.title}</span>
+            </nav>
+            {/* The reading surface's own title, at the H1 step: the one 20px
+                line on it. The markdown's headings sit one step below (O32),
+                so a stray "# heading" in a lesson can no longer read as the
+                page starting over. */}
+            <h2 className="otter-lesson-title">{selectedLesson.title}</h2>
+            <div className="lesson-content">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                 code({ node, inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
+                  // A3: the fenced block is dressed from tokens here, because
+                  // oneDark's inline styles (a cool hsl(220) ground, Fira
+                  // Code, 1em padding) beat any class. The syntax colours
+                  // inside are data and stay the theme's. Inline code carries
+                  // no style of its own any more: .lesson-content styles it.
                   return !inline && match ? (
-                    <SyntaxHighlighter style={oneDark} language={match[1]} PreTag="div" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                  ) : (<code {...props} className={className} style={{ background: '#292524', color: '#fb923c', padding: '0.15rem 0.4rem', borderRadius: '2px' }}>{children}</code>);
+                    <SyntaxHighlighter
+                      style={oneDark}
+                      language={match[1]}
+                      PreTag="div"
+                      customStyle={LESSON_CODE_BLOCK}
+                      codeTagProps={{ className: `language-${match[1]}`, style: LESSON_CODE_TEXT }}
+                      {...props}
+                    >{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
+                  ) : (<code {...props} className={className}>{children}</code>);
                 }
               }}>
                 {(() => {
@@ -4553,42 +4592,55 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 })()}
               </ReactMarkdown>
             </div>
+            {/* Key takeaways and the practice exercise are siblings of the
+                prose, so they were the one thing still running the pane's
+                full width beside a measured paragraph (T1's question 2).
+                Both are the kit's Card now, on the same measure. */}
             {selectedLesson.key_takeaways?.length > 0 && (
-              <div className="bg-stone-800 border border-orange-600 rounded-control p-4 mb-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <h3 className="text-orange-400 font-semibold text-h3 mb-2 flex items-center gap-2"><Star className="w-4 h-4" /> Key Takeaways</h3>
-                <ul className="space-y-1">
+              <Card
+                className="otter-lesson-card"
+                title={<><Star className="otter-card-icon" aria-hidden="true" /> Key takeaways</>}
+              >
+                <ul className="otter-takeaways">
                   {selectedLesson.key_takeaways.map((t, i) => (
-                    <li key={i} className="text-stone-300 text-body flex items-start gap-2"><Check className="w-3 h-3 text-orange-500 mt-1 shrink-0" /> {t}</li>
+                    <li key={i}><Check className="otter-takeaway-mark" aria-hidden="true" /> {t}</li>
                   ))}
                 </ul>
-              </div>
+              </Card>
             )}
             {selectedLesson.practice_prompt && (
-              <div className="bg-stone-800 border border-stone-600 rounded-control p-4 mb-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <h3 className="text-stone-300 font-semibold text-h3 mb-2 flex items-center gap-2"><Lightbulb className="w-4 h-4 text-yellow-500" /> Practice Exercise</h3>
-                <p className="text-stone-400 text-body">{selectedLesson.practice_prompt}</p>
-              </div>
+              <Card
+                className="otter-lesson-card"
+                title={<><Lightbulb className="otter-card-icon" aria-hidden="true" /> Practice exercise</>}
+              >
+                <p className="otter-practice">{selectedLesson.practice_prompt}</p>
+              </Card>
             )}
-            <div className="flex items-center justify-between border-t border-stone-700 pt-4">
-              <button onClick={() => toggleLessonComplete(selectedLesson.id)}
-                className="otter-complete flex items-center gap-2 px-4 py-2 rounded-control border font-semibold text-body transition-colors"
-                data-complete={completedLessons.includes(selectedLesson.id) ? 'true' : undefined}>
-                <Check className="w-4 h-4" /> {completedLessons.includes(selectedLesson.id) ? 'Completed' : 'Mark Complete'}
-              </button>
-              <div className="flex gap-2">
-                <button disabled={currentIdx <= 0} onClick={() => navigateLesson(-1)}
-                  className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
-                  <ArrowLeft className="w-4 h-4" /> Previous
-                </button>
-                <button disabled={currentIdx >= allLessons.length - 1} onClick={() => navigateLesson(1)}
-                  className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
-                  Next <ArrowRight className="w-4 h-4" />
-                </button>
+            <div className="otter-lesson-foot">
+              {/* Done or not is said by the label and the check, not by a
+                  green fill used nowhere else in the tool (O31). */}
+              <Button
+                variant="secondary"
+                Icon={Check}
+                onClick={() => toggleLessonComplete(selectedLesson.id)}
+                aria-pressed={completedLessons.includes(selectedLesson.id)}
+                className="otter-complete"
+                data-complete={completedLessons.includes(selectedLesson.id) ? 'true' : undefined}
+              >
+                {completedLessons.includes(selectedLesson.id) ? 'Completed' : 'Mark complete'}
+              </Button>
+              <div className="otter-lesson-steps">
+                <Button variant="secondary" Icon={ArrowLeft} disabled={currentIdx <= 0} onClick={() => navigateLesson(-1)}>
+                  Previous
+                </Button>
+                <Button variant="primary" disabled={currentIdx >= allLessons.length - 1} onClick={() => navigateLesson(1)}>
+                  Next <ArrowRight aria-hidden="true" />
+                </Button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-stone-500">Select a lesson from the sidebar.</div>
+          <EmptyState title="Select a lesson from the sidebar." />
         )}
       </div>
     );

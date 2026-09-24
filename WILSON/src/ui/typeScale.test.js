@@ -234,12 +234,20 @@ const CSS_OFF_WEIGHT = new RegExp(
    nothing under it. Asking "is this the property `font` and not `font-size`"
    needs no delimiter list at all. */
 const CSS_SHORTHAND = /(?<![-\w])font\s*:/gi;
-/** §3.1: "Measure 60 to 66ch, set in `ch`." Either the literal or the token
- *  that carries it — `--measure-reading` is 66ch and is asserted to be in the
- *  band by its own case below, so a rule reading it is in the band too. */
-const CSS_MEASURE = /max-width\s*:\s*(?:(?:6[0-6])ch\b|var\(--measure-reading\))/i;
+/** §3.1: "Measure 60 to 66ch" — a count of CHARACTERS a line. A3 (2026-09-24)
+ *  measured what the unit does in Geist: `ch` is the zero's width, 0.673em,
+ *  against an average glyph of about 0.47em, so 60-66ch holds 86-95 characters
+ *  — the defect review O4 named, not its fix. The lesson prose reads
+ *  `--measure-body`, 45ch, which holds 61-66 (63.5 on average, twelve lines of
+ *  English at the Body step); a literal must sit in the same measured band,
+ *  44-46ch. */
+const CSS_MEASURE = /max-width\s*:\s*(?:(?:4[4-6])ch\b|var\(--measure-body\))/i;
 /** The band itself, so the token cannot drift out of it unnoticed. */
-const MEASURE_TOKEN = /--measure-reading:\s*(6[0-6])ch\s*;/;
+const MEASURE_TOKEN = /--measure-body:\s*(4[4-6])ch\s*;/;
+/** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
+ *  keeps §3.1's number read as `ch` until P1 decides; pinned so it cannot
+ *  drift either. */
+const MEASURE_READING_TOKEN = /--measure-reading:\s*(6[0-6])ch\s*;/;
 
 /**
  * Every `.lesson-content` rule in `index.css`.
@@ -596,10 +604,12 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
         ? one.trim() : `.lesson-content ${one.trim()}`)));
     expect(prose.length, 'no .lesson-content rule selects paragraphs directly').toBeGreaterThan(0);
     expect(prose.some((r) => CSS_MEASURE.test(r)),
-      `no rule selecting p directly carries a 60-66ch measure:\n${prose.map(selectorOf).join('\n')}`)
+      `no rule selecting p directly carries the Body measure (--measure-body, 44-46ch):\n${prose.map(selectorOf).join('\n')}`)
       .toBe(true);
-    expect(readFileSync('src/index.css', 'utf8'), '--measure-reading is outside §3.1s band')
+    expect(readFileSync('src/index.css', 'utf8'), '--measure-body is outside the measured band')
       .toMatch(MEASURE_TOKEN);
+    expect(readFileSync('src/index.css', 'utf8'), '--measure-reading is outside §3.1s band')
+      .toMatch(MEASURE_READING_TOKEN);
   });
 
   it('CONTROL: the whole pipeline reports a planted defect, not just the regex', () => {
@@ -682,17 +692,21 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     }
 
     // The measure has a BAND, so both edges have to be checked: 74ch was the
-    // real before-value and it must not satisfy the assertion.
-    for (const s of ['max-width: 66ch;', 'max-width: 60ch;', 'max-width:63ch;',
-      'max-width: var(--measure-reading);']) {
+    // real before-value, and 66ch / 60ch — §3.1's number read as `ch` — hold
+    // 95 and 86 characters of Geist, which is the defect, not the fix (A3).
+    for (const s of ['max-width: 45ch;', 'max-width: 44ch;', 'max-width:46ch;',
+      'max-width: var(--measure-body);']) {
       expect(CSS_MEASURE.test(s), s).toBe(true);
     }
-    for (const s of ['max-width: 74ch;', 'max-width: 59ch;', 'max-width: 6ch;',
-      'max-width: 160ch;', 'max-width: 66chx;', 'max-width: 66.5ch;']) {
+    for (const s of ['max-width: 74ch;', 'max-width: 66ch;', 'max-width: 60ch;', 'max-width: 43ch;',
+      'max-width: 4ch;', 'max-width: 145ch;', 'max-width: 45chx;', 'max-width: 45.5ch;',
+      'max-width: var(--measure-reading);']) {
       expect(CSS_MEASURE.test(s), s).toBe(false);
     }
-    expect(MEASURE_TOKEN.test('  --measure-reading: 66ch;')).toBe(true);
-    expect(MEASURE_TOKEN.test('  --measure-reading: 74ch;')).toBe(false);
+    expect(MEASURE_TOKEN.test('  --measure-body: 45ch;')).toBe(true);
+    expect(MEASURE_TOKEN.test('  --measure-body: 66ch;')).toBe(false);
+    expect(MEASURE_READING_TOKEN.test('  --measure-reading: 66ch;')).toBe(true);
+    expect(MEASURE_READING_TOKEN.test('  --measure-reading: 74ch;')).toBe(false);
   });
 });
 
@@ -1996,8 +2010,9 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
        structural 2px border there would have passed (A1 review round 1). */
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row', 'exact'],   // F2 Row's "highlighted" edge: a page open in a tab
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab', 'exact'],      // the kit's tab underline, on the closable wrapper (A1-KR-1)
-    // T1's and the pet's, not swept by this bundle (plan §5 lane A3, C5).
-    ['src/index.css', '.lesson-content'],
+    // The agent panel's companion chat (P1's; C5 adjacency), not swept by
+    // lane A. `.lesson-content` left this list with A3 (2026-09-24): it has
+    // no 2px border now, so one appearing there is a defect again.
     ['src/index.css', '.companion-chat-md'],
   ];
   /* The selector of the rule that holds the declaration at `offset`: it sits
