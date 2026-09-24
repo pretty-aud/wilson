@@ -134,11 +134,11 @@ const REGISTRY = [
   // fixture course is software, and the Functions view needs a
   // coding-language course, so on fixtures its button lands on Hotkeys.
   P('otter-course', '/otter', { steps: ['DaVinci Resolve 19'], expect: { text: 'Editing on the Edit page' } }),
-  P('otter-sources', '/otter', { steps: ['@lesson', 'Sources'], expect: { text: 'Works Cited' } }),
+  P('otter-sources', '/otter', { steps: ['@lesson', 'Sources'], expect: { text: 'Works cited' } }),
   P('otter-settings', '/otter', { steps: ['Tool settings'], expect: { dialog: true } }),
   P('otter-search', '/otter', { steps: ['Search'], expect: { dialog: true } }),
   P('otter-quiz', '/otter', { steps: ['Quiz'], expect: { text: 'Quiz Center' } }),
-  P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard Shortcuts' } }),
+  P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard shortcuts' } }),   // A3: sentence case (Q2)
   P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes Reference' } }),
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),

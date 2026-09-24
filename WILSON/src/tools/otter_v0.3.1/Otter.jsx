@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -4407,47 +4407,39 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderSourcesView() {
     if (!activeSubject || !activeSubject.sources?.length) {
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto text-center py-20">
-            <BookOpen className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-            <p className="text-stone-500">No sources available for this subject.</p>
-            <button onClick={() => setCurrentView('study')} className="mt-4 text-orange-400 hover:text-orange-300 text-body">← Back to lessons</button>
-          </div>
-        </div>
+        <EmptyState icon={BookOpen} title="No sources available for this subject.">
+          <Button variant="ghost" Icon={ArrowLeft} onClick={() => setCurrentView('study')}>Back to lessons</Button>
+        </EmptyState>
       );
     }
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-h1 font-semibold text-orange-400">Works Cited</h2>
-              <p className="text-stone-500 text-body">{activeSubject.title} — {activeSubject.sources.length} source{activeSubject.sources.length !== 1 ? 's' : ''}</p>
-            </div>
-            <button onClick={() => setCurrentView('study')}
-              className="flex items-center gap-2 text-stone-400 hover:text-orange-400 transition-colors text-body">
-              <ArrowLeft className="w-4 h-4" /> Back to lessons
-            </button>
-          </div>
-          <div className="space-y-3">
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="reading">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            description={<span className="otter-count">{activeSubject.title} — {activeSubject.sources.length} source{activeSubject.sources.length !== 1 ? 's' : ''}</span>}
+            actions={<Button variant="ghost" Icon={ArrowLeft} onClick={() => setCurrentView('study')}>Back to lessons</Button>}
+          >
+            Works cited
+          </SectionTitle>
+          <ul className="otter-sources">
             {activeSubject.sources.map((src, i) => (
-              <a key={i} href={src.url} target="_blank" rel="noopener noreferrer"
-                className="block bg-stone-800 border border-stone-600 rounded-control p-4 hover:border-orange-500 transition-colors group shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <div className="flex items-start gap-3">
-                  <ExternalLink className="w-4 h-4 text-stone-500 group-hover:text-orange-400 shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-h3 font-semibold text-orange-400 transition-colors">{src.title || 'Untitled Source'}</h3>
-                    <p className="text-dense text-stone-500 truncate mt-1">{src.url}</p>
-                  </div>
-                </div>
-              </a>
+              <li key={i}>
+                <a href={src.url} target="_blank" rel="noopener noreferrer" className="otter-source">
+                  <ExternalLink className="otter-source-icon" aria-hidden="true" />
+                  <span className="otter-source-text">
+                    <span className="otter-source-title">{src.title || 'Untitled Source'}</span>
+                    <span className="otter-source-url">{src.url}</span>
+                  </span>
+                </a>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </div>
     );
   }
-
   // ═══════════════════════════════════════════════════════════════
   //  STUDY VIEW
   // ═══════════════════════════════════════════════════════════════
@@ -4972,7 +4964,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const softwareApps = softwareList.filter(sw => sw.type !== 'coding_language');
 
     if (!activeSoftwareSlug) {
-      return <div className="flex items-center justify-center h-full text-stone-500">Select a software or language from the toolbar to get started.</div>;
+      return <EmptyState icon={Keyboard} title="Select a software or language from the toolbar to get started." />;
     }
 
     if (isCodingLang) {
@@ -4986,46 +4978,51 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         : allFuncs;
 
       return (
-        <div className="h-full overflow-y-auto p-6" ref={functionScrollRef}>
-          <div className="max-w-5xl mx-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-h1 font-semibold text-orange-400">Functions Reference</h2>
-              <div className="relative">
-                <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input type="text" value={functionSearch} onChange={e => setFunctionSearch(e.target.value)} placeholder="Search functions..."
-                  className="bg-stone-800 text-white border border-stone-600 rounded-control pl-9 pr-3 py-2 text-body focus:border-orange-500 transition-colors w-64" />
-              </div>
-            </div>
-            <div className="flex items-center gap-3 mb-6">
-              <Braces className="w-4 h-4 text-stone-500 shrink-0" />
-              <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-                className="bg-stone-800 text-white border border-stone-600 rounded-control px-3 py-2 text-body focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-                {codingLanguages.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
-              </select>
-              <span className="text-stone-500 text-body">-- Built-in functions, methods & constructs</span>
+        <div className="otter-view" ref={functionScrollRef}>
+          <div className="otter-view-page" data-width="data">
+            <SectionTitle
+              rule={false}
+              className="otter-view-title"
+              actions={
+                <div className="otter-search">
+                  <Search className="otter-search-icon" aria-hidden="true" />
+                  <input type="text" value={functionSearch} onChange={e => setFunctionSearch(e.target.value)} placeholder="Search functions..."
+                    className="ui-input otter-search-input" data-surface="dark" />
+                </div>
+              }
+            >
+              Functions reference
+            </SectionTitle>
+            <div className="otter-ref-picker">
+              <Braces className="otter-ref-picker-icon" aria-hidden="true" />
+              <Select
+                value={activeSoftwareSlug || ''}
+                onChange={(v) => { if (v) selectSoftware(v); }}
+                options={codingLanguages.map(sw => ({ value: sw.slug, label: sw.name }))}
+                aria-label="Language"
+              />
+              <span className="otter-ref-picker-note">— Built-in functions, methods &amp; constructs</span>
             </div>
             {filtered.length === 0 ? (
-              <div className="text-center py-12">
-                <Braces className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-                <p className="text-stone-500">{allFuncs.length === 0 ? 'No functions documented yet. Generate subject content to populate the functions reference.' : 'No functions matching your search.'}</p>
-              </div>
+              allFuncs.length === 0
+                ? <EmptyState icon={Braces} title="No functions documented yet." body="Generate subject content to populate the functions reference." />
+                : <EmptyState icon={Braces} title="No functions matching your search." />
             ) : filtered.map((cat, i) => (
-              <div key={i} className="mb-8" data-cat-id={`func-cat-${i}`}>
-                <h3 className="text-orange-400 font-semibold text-h3 mb-3">{cat.category}</h3>
-                <div className="space-y-3">
+              <section key={i} className="otter-ref-section" data-cat-id={`func-cat-${i}`}>
+                <h3 className="otter-ref-section-title">{cat.category}</h3>
+                <div className="otter-ref-cards">
                   {cat.functions.map((f, j) => (
-                    <div key={j} className="bg-stone-800 border border-stone-600 rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                      <code className="font-mono font-semibold text-h3" style={{ color: '#fb923c' }}>{f.name}</code>
-                      {f.syntax && <pre className="border rounded-control px-3 py-2 mb-3 mt-2 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                      {f.parameters && <div className="mb-2"><span className="text-label font-semibold uppercase block mb-1" style={{ color: '#78716c' }}>Parameters:</span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                      {f.returns && <div className="mb-2"><span className="text-label font-semibold uppercase" style={{ color: '#78716c' }}>Returns: </span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                      {f.description && <p className="text-dense mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                      {f.example && <pre className="border rounded-control px-3 py-2 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
+                    <div key={j} className="otter-fn-card">
+                      <code className="otter-fn-name">{f.name}</code>
+                      {f.syntax && <pre className="otter-code-well">{f.syntax}</pre>}
+                      {f.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{f.parameters}</span></div>}
+                      {f.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{f.returns}</span></div>}
+                      {f.description && <p className="otter-fn-desc">{f.description}</p>}
+                      {f.example && <pre className="otter-code-well">{f.example}</pre>}
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
         </div>
@@ -5033,7 +5030,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
 
     // Software hotkeys
-    if (!softwareHotkeys) return <div className="flex items-center justify-center h-full text-stone-500">Loading hotkeys...</div>;
+    if (!softwareHotkeys) return <div className="otter-center"><Loading label="Loading hotkeys" /></div>;
     const hotkeys = (softwareHotkeys.categories || []).filter(cat => cat && Array.isArray(cat.shortcuts));
     const filteredHk = hotkeySearch
       ? hotkeys.map(cat => ({ ...cat, shortcuts: cat.shortcuts.filter(s =>
@@ -5044,55 +5041,60 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       : hotkeys;
 
     return (
-      <div className="h-full overflow-y-auto p-6" ref={hotkeyScrollRef}>
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-h1 font-semibold text-orange-400">Keyboard Shortcuts</h2>
-            <div className="relative">
-              <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" value={hotkeySearch} onChange={e => setHotkeySearch(e.target.value)} placeholder="Search shortcuts..."
-                className="bg-stone-800 text-white border border-stone-600 rounded-control pl-9 pr-3 py-2 text-body focus:border-orange-500 transition-colors w-64" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mb-6">
-            <Keyboard className="w-4 h-4 text-stone-500 shrink-0" />
-            <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-              className="bg-stone-800 text-white border border-stone-600 rounded-control px-3 py-2 text-body focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-              {softwareApps.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
-            </select>
+      <div className="otter-view" ref={hotkeyScrollRef}>
+        <div className="otter-view-page" data-width="data">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            actions={
+              <div className="otter-search">
+                  <Search className="otter-search-icon" aria-hidden="true" />
+                  <input type="text" value={hotkeySearch} onChange={e => setHotkeySearch(e.target.value)} placeholder="Search shortcuts..."
+                    className="ui-input otter-search-input" data-surface="dark" />
+                </div>
+            }
+          >
+            Keyboard shortcuts
+          </SectionTitle>
+          <div className="otter-ref-picker">
+            <Keyboard className="otter-ref-picker-icon" aria-hidden="true" />
+            <Select
+              value={activeSoftwareSlug || ''}
+              onChange={(v) => { if (v) selectSoftware(v); }}
+              options={softwareApps.map(sw => ({ value: sw.slug, label: sw.name }))}
+              aria-label="Software"
+            />
           </div>
           {filteredHk.length === 0 ? (
-            <div className="text-center py-12">
-              <Keyboard className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-              <p className="text-stone-500">{hotkeys.length === 0 ? 'No keyboard shortcuts available yet.' : 'No shortcuts matching your search.'}</p>
-            </div>
+            <EmptyState icon={Keyboard} title={hotkeys.length === 0 ? 'No keyboard shortcuts available yet.' : 'No shortcuts matching your search.'} />
           ) : filteredHk.map((cat, i) => (
-            <div key={i} className="mb-6" data-cat-id={`hk-cat-${i}`}>
-              <h3 className="text-orange-400 font-semibold text-h3 mb-2">{cat.category}</h3>
-              <div className="bg-stone-800 border border-stone-600 rounded-control overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <table className="w-full">
-                  <thead>
-                    <tr style={{ background: '#44403c' }}>
-                      <th className="text-left text-label font-semibold uppercase p-3 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                      <th className="text-left text-label font-semibold uppercase p-3 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                      <th className="text-left text-label font-semibold uppercase p-3 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                      <th className="text-left text-label font-semibold uppercase p-3 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cat.shortcuts.map((s, j) => (
-                      <tr key={j} className="border-b border-stone-700 last:border-0 hover:bg-stone-700/50 transition-colors">
-                        <td className="p-3 text-body" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-control text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-control text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                        <td className="p-3 text-dense" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <section key={i} className="otter-ref-section" data-cat-id={`hk-cat-${i}`}>
+              <h3 className="otter-ref-section-title">{cat.category}</h3>
+              {/* The kit's Table: a real <table>, fixed layout, so every
+                  header sits on its column (the walk measured "Windows" and
+                  "Mac" 9px off theirs); keys are the kit's Kbd. */}
+              <Card pad={false} className="otter-hk-card">
+                <Table
+                  head={
+                    <Row>
+                      <Th width="36%">Action</Th>
+                      <Th width="20%">Windows</Th>
+                      <Th width="20%">Mac</Th>
+                      <Th>Notes</Th>
+                    </Row>
+                  }
+                >
+                  {cat.shortcuts.map((s, j) => (
+                    <Row key={j}>
+                      <Td>{s.action}</Td>
+                      <Td><Kbd>{s.windows}</Kbd></Td>
+                      <Td><Kbd>{s.mac}</Kbd></Td>
+                      <Td className="otter-hk-notes">{s.notes || '\u2014'}</Td>
+                    </Row>
+                  ))}
+                </Table>
+              </Card>
+            </section>
           ))}
         </div>
       </div>

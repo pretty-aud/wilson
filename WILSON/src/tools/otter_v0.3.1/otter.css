@@ -711,6 +711,115 @@
   .otter-levels { display: flex; gap: 8px; }
   .ui-btn.otter-generate { width: 100%; margin-top: 24px; }
 
+  /* ═══ THE REFERENCE VIEWS — Sources, Hotkeys, Functions ════════════════
+     Titled like every view; the search is the kit's input with its icon
+     inside; the course pickers are the kit's Select. Shortcut groups are
+     the kit's Table in a flush Card (a real table, fixed layout, the Label
+     step head) with the keys in the kit's Kbd; function cards and sources
+     are the Card surface, code in the code well (paper-recessed). No orange
+     on any of it: names are the ink, notes and URLs the third ink. */
+  .otter-center { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--color-ink-2); }
+  .otter-search { position: relative; }
+  .otter-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    transform: translateY(-50%);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  .ui-input.otter-search-input { width: 256px; padding-left: 32px; }
+  .otter-ref-picker { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .otter-ref-picker .ui-input { width: auto; min-width: 200px; }
+  .otter-ref-picker-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-ref-picker-note { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-3); }
+  .otter-ref-section { margin-bottom: 32px; }
+  .otter-ref-section-title {
+    margin-bottom: 12px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-ref-cards { display: flex; flex-direction: column; gap: 12px; }
+  .otter-hk-notes { color: var(--color-ink-3); }
+  .otter-fn-card {
+    padding: 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-fn-name {
+    font-family: var(--font-mono);
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-code-well {
+    margin: 8px 0 12px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-fn-part { margin-bottom: 8px; }
+  .otter-fn-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .otter-fn-text,
+  .otter-fn-desc {
+    white-space: pre-wrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-fn-desc { margin-bottom: 8px; }
+  .otter-sources { display: flex; flex-direction: column; gap: 12px; }
+  .otter-source {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .otter-source:hover { border-color: var(--color-ink-3); }
+  .otter-source-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; margin-top: 2px; color: var(--color-ink-3); }
+  .otter-source-text { display: flex; flex-direction: column; min-width: 0; }
+  .otter-source-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-source-url {
+    margin-top: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
   /* ═══ GENERATION IN PROGRESS — Q22, O15, O16 ══════════════════════════
      One idiom for "O.T.T.E.R. is writing", on the prompt screen and on an
      outline's page: the phase with a turning spinner, the elapsed time in
@@ -934,7 +1043,8 @@
     .otter-add-subject, .otter-rail, .otter-rail-icon,
     .otter-group-row, .otter-section-row, .otter-lesson-row, .otter-sources-link,
     .otter-progress-fill, .otter-course-card, .otter-subject-card,
-    .otter-subject-card .otter-subject-card-delete, .otter-radio-card, .otter-sw-option { transition: none; }
+    .otter-subject-card .otter-subject-card-delete, .otter-radio-card, .otter-sw-option,
+    .otter-source { transition: none; }
   }
 
 }
