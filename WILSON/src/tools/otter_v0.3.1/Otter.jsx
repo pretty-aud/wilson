@@ -4604,7 +4604,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             )}
             <div className="flex items-center justify-between border-t border-stone-700 pt-4">
               <button onClick={() => toggleLessonComplete(selectedLesson.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-control border font-semibold text-body transition-colors ${completedLessons.includes(selectedLesson.id) ? 'bg-green-800 text-green-200 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600 hover:bg-stone-600'}`}>
+                className="otter-complete flex items-center gap-2 px-4 py-2 rounded-control border font-semibold text-body transition-colors"
+                data-complete={completedLessons.includes(selectedLesson.id) ? 'true' : undefined}>
                 <Check className="w-4 h-4" /> {completedLessons.includes(selectedLesson.id) ? 'Completed' : 'Mark Complete'}
               </button>
               <div className="flex gap-2">

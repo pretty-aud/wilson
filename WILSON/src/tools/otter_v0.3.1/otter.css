@@ -214,4 +214,24 @@
     color: oklch(55.3% 0.013 58.071);                     /* text-stone-500 */
   }
 
+  /* ═══ EXTRACTION — THE STUDY VIEW (renderStudyView) ═════════════════════
+     Mark complete, two branches:
+       complete   green-200 on green-800, a green-700 edge; no hover
+       default    stone-300 on stone-700, a stone-600 edge; stone-600 on hover
+     Previous and Next carry only a static `disabled:` variant, the inline
+     code style and the stub screen's bar are constants, not states. */
+  .otter-complete {
+    color: oklch(86.9% 0.005 56.366);                     /* text-stone-300 */
+    background-color: oklch(37.4% 0.01 67.558);           /* bg-stone-700 */
+    border-color: oklch(44.4% 0.011 73.639);              /* border-stone-600 */
+  }
+  .otter-complete:not([data-complete='true']):hover {
+    background-color: oklch(44.4% 0.011 73.639);          /* hover:bg-stone-600 */
+  }
+  .otter-complete[data-complete='true'] {
+    color: oklch(92.5% 0.084 155.995);                    /* text-green-200 */
+    background-color: oklch(44.8% 0.119 151.328);         /* bg-green-800 */
+    border-color: oklch(52.7% 0.154 150.069);             /* border-green-700 */
+  }
+
 }
