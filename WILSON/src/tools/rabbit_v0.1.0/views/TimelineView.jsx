@@ -49,7 +49,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
   CalendarDays, GitBranch, ZoomIn, ZoomOut, Layers, Boxes, ListChecks,
-  AlertTriangle, Plus, X, Trash2, Save, ChevronRight, ChevronDown,
+  AlertTriangle, Plus, X, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown,
   Settings as SettingsIcon, HelpCircle, Lock, Unlock, Crosshair,
   Undo2, Redo2, Maximize2, Briefcase, Upload, Download, Check,
   Users, Film, Gamepad2, Sparkles, Diamond,
@@ -87,6 +87,10 @@ import {
 // UI overhaul B3: every state this file used to decide inline (hover, drop
 // target, selected, locked, dragging, a bar's tone) is a named variant there.
 import './rabbitTimeline.css'
+// UI overhaul B3 (Q22, the minimap as a priority): the minimap's rows, axis,
+// span readout and snap marks, computed and tested outside this file.
+import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth } from './timelineMinimap.js'
+import { IconButton } from '../../../ui/IconButton'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -111,12 +115,12 @@ const ROW_PX_BY_ZOOM = {
 const DEFAULT_ROW_PX  = 30
 const HEADER_PX        = 44
 const LABEL_W          = 240
-const OVERVIEW_HEIGHT  = 160
+// The minimap: a 24px axis, a body sized by minimapLayout() (124px, the old
+// fixed body, up to five phases; taller past that so no phase is ever cut,
+// timelineMinimap.js), a 10px scrollbar and 2px of border: 160px at rest.
 const OVERVIEW_HEADER  = 24
 const OVERVIEW_SCROLLBAR_H = 10                   // infinite-wrap horizontal scrollbar
 const OVERVIEW_ROW_PX       = 14                  // legacy fallback / OverviewBar baseline
-const OVERVIEW_PHASE_ROW_PX = 22                  // taller rows for phase bars in minimap
-const OVERVIEW_TASK_ROW_PX  = 11                  // shorter rows for task bars in minimap
 const EDGE_GRAB_PX     = 6
 const MIN_DRAG_PX      = 4
 
@@ -936,8 +940,23 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
 // ============================================================
 // OverviewPane — minimap + frame
 // ============================================================
+//
+// UI overhaul B3 (Q22, "every phase drawn, no silent truncation after six,
+// legible labels"). Exported so timelineMinimapRender.test.jsx can mount it
+// and count what it draws against the data. What that test reads, and so
+// what this component must keep writing:
+//   data-minimap-body        the body, its inline height = minimapLayout().bodyH
+//   data-minimap-row=<id>    one per phase, inline top / height, inside the body
+//   data-minimap-bar         the phase's bar (OverviewBar)
+//   data-minimap-edge        before | after: a phase wholly off the window,
+//                            marked at that edge instead of an empty row
+//   data-minimap-name        a phase's name, Caption step, while rows are 18px+
+//   data-minimap-tick-label  an axis label, Caption step, in a parent whose
+//                            inline `left` is the tick's
+// scripts/timeline-minimap-count.mjs counts the same in the running app, at
+// every zoom; it finds the bars by their `title`, which is unchanged.
 
-const OverviewPane = forwardRef(function OverviewPane({
+export const OverviewPane = forwardRef(function OverviewPane({
   groupBy, phases, assets, tasks, schedule, criticalSet,
   span, dayPx, sortOrder,
   visibleStartDate, visibleEndDate,
@@ -1126,43 +1145,43 @@ const OverviewPane = forwardRef(function OverviewPane({
   const frameOffLeft  = frameRightDays < 0
   const frameOffRight = frameLeftDays  > span.days
 
-  // Variable-height layout for the minimap — phase rows are taller
-  // than task rows so the phase bars read as "bigger / more
-  // important" at a glance. We pre-compute each row's top and
-  // height so the containment overlay can share the same layout.
+  // Every phase gets a row (Q22). The minimap draws phases only
+  // (buildOverviewRows emits no task rows), so every row has the one
+  // height minimapLayout() gives this many phases: 22px up to five, the
+  // old picture; shorter, then a taller body, past that — never a row
+  // below the body's bottom edge, which is how the sixth phase used to
+  // vanish. The containment overlay shares the same layout.
+  const layout = useMemo(() => minimapLayout(overviewRows.length), [overviewRows.length])
   const rowLayouts = useMemo(() => {
-    const out = []
-    let y = 0
-    for (let i = 0; i < overviewRows.length; i++) {
-      const r = overviewRows[i]
-      const h = r.kind === 'phase' ? OVERVIEW_PHASE_ROW_PX : OVERVIEW_TASK_ROW_PX
-      out.push({ top: y, height: h })
-      y += h
-    }
-    return { items: out, totalHeight: y }
-  }, [overviewRows])
+    const items = overviewRows.map((_, i) => ({ top: i * layout.rowH, height: layout.rowH }))
+    return { items, totalHeight: items.length * layout.rowH }
+  }, [overviewRows, layout.rowH])
   const innerH = rowLayouts.totalHeight
-  const ticks = useMemo(() => buildOverviewTicks(span.start, span.days), [span.start, span.days])
+  const bodyW = span.days * dayPx
+  // A line at every month, a label on a stride that leaves every label its
+  // own room, the year written where it changes (V1-07: the labels used to
+  // print over each other at the default span).
+  const { ticks } = useMemo(() => minimapTicks(span.start, span.days, dayPx), [span.start, span.days, dayPx])
+  // The hover card, for a phase's bar and for its edge marker alike.
+  const phaseHover = (r) => ({
+    enter: (e) => { if (r.kind === 'phase') setHoverPopup({ row: r, x: e.clientX, y: e.clientY }) },
+    move: (e) => { if (r.kind === 'phase') setHoverPopup({ row: r, x: e.clientX, y: e.clientY }) },
+    leave: () => { setHoverPopup(prev => (prev && prev.row.key === r.key) ? null : prev) },
+  })
 
   return (
     <div
       ref={forwardedRef}
-      className="flex-shrink-0 relative"
+      className="flex-shrink-0 relative rb-tl-ov"
       style={{
-        height: OVERVIEW_HEIGHT,
-        backgroundColor: '#1c1917',
-        borderBottom: '1px solid #292524',
+        height: OVERVIEW_HEADER + layout.bodyH + OVERVIEW_SCROLLBAR_H + 2,
         overflow: 'hidden',
       }}
     >
       {/* Axis header */}
       <div
-        className="relative w-full"
-        style={{
-          height: OVERVIEW_HEADER,
-          backgroundColor: '#1c1917',
-          borderBottom: '1px solid #292524',
-        }}
+        className="relative w-full rb-tl-ov-axis"
+        style={{ height: OVERVIEW_HEADER }}
       >
         {ticks.map(tick => (
           <div
@@ -1173,23 +1192,24 @@ const OverviewPane = forwardRef(function OverviewPane({
               left: tick.offset * dayPx,
             }}
           >
-            <span className="text-dense whitespace-nowrap rb-tl-ov-tick-label">
-              {tick.label}
-            </span>
+            {tick.label && (
+              <span data-minimap-tick-label className="text-caption whitespace-nowrap rb-tl-ov-tick-label">
+                {tick.label}
+              </span>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Body — bars + frame + pan cursor.
-          Height = OVERVIEW_HEIGHT − header − scrollbar − 2 (pane
-          border-bottom), so the frame's orange border and the row
-          bars are never clipped by the bottom pane border. */}
+      {/* Body — bars + frame + pan cursor. Its height is minimapLayout()'s
+          bodyH: every row lies wholly inside it, whatever the phase count. */}
       <div
         ref={bgRef}
+        data-minimap-body
         className="relative w-full rb-tl-ov-body"
         data-panning={isPanning ? 'true' : 'false'}
         style={{
-          height: OVERVIEW_HEIGHT - OVERVIEW_HEADER - OVERVIEW_SCROLLBAR_H - 2,
+          height: layout.bodyH,
           overflow: 'hidden',
         }}
         onMouseDown={handleBackgroundMouseDown}
@@ -1215,34 +1235,33 @@ const OverviewPane = forwardRef(function OverviewPane({
               minimap's current visible span. */}
           {todayLeft >= 0 && todayLeft <= span.days * dayPx && (
             <div
-              className="absolute top-0 bottom-0 pointer-events-none"
-              style={{ left: todayLeft, width: 1, backgroundColor: '#fca5a5', zIndex: 4 }}
+              className="absolute top-0 bottom-0 pointer-events-none rb-tl-ov-today"
+              style={{ left: todayLeft, width: 1 }}
             />
           )}
 
-          {/* Milestone lines in minimap */}
+          {/* Milestone lines in minimap. A key date's colour is data: it
+              reaches the sheet as --rb-tl-ms (warning amber without one). They
+              sit above the frame's outline (7), which sits above the bars. */}
           {milestones.map(ms => {
             const msDate = parseDate(ms.date)
             if (!msDate) return null
             const msDays = daysBetween(span.start, msDate)
             if (msDays < 0 || msDays > span.days) return null
             const msX = msDays * dayPx
-            const msColor = ms.color || '#f59e0b'
             return (
-              <div key={`ovr-ms-${ms.id}`} className="absolute top-0 bottom-0" style={{ left: msX, width: 1, zIndex: 7 }}>
-                <div className="absolute top-0 bottom-0 pointer-events-none" style={{ width: 1, backgroundColor: msColor, opacity: 0.5 }} />
+              <div key={`ovr-ms-${ms.id}`} className="absolute top-0 bottom-0" style={{ left: msX, width: 1, zIndex: 8 }}>
+                <div className="absolute top-0 bottom-0 pointer-events-none rb-tl-ov-ms-line" style={{ width: 1, '--rb-tl-ms': ms.color }} />
                 <div
                   data-minimap-nojump="1"
-                  className="pointer-events-auto cursor-pointer"
+                  className="pointer-events-auto cursor-pointer rb-tl-ov-ms"
                   onMouseEnter={(e) => setHoverPopup({ row: { kind: 'milestone', label: ms.title, milestone: ms, start: msDate }, x: e.clientX, y: e.clientY })}
                   onMouseMove={(e) => setHoverPopup(prev => prev?.row?.kind === 'milestone' && prev.row.milestone?.id === ms.id ? { ...prev, x: e.clientX, y: e.clientY } : prev)}
                   onMouseLeave={() => setHoverPopup(prev => prev?.row?.milestone?.id === ms.id ? null : prev)}
                   style={{
                     position: 'absolute', top: -2, left: -5, width: 11, height: 11,
-                    backgroundColor: msColor,
                     transform: 'rotate(45deg)',
-                    border: '1.5px solid rgba(0,0,0,0.4)',
-                    boxShadow: `0 0 3px ${msColor}66`,
+                    '--rb-tl-ms': ms.color,
                   }}
                 />
               </div>
@@ -1260,24 +1279,38 @@ const OverviewPane = forwardRef(function OverviewPane({
             dayPx={dayPx}
           />
 
-          {/* Rows */}
+          {/* Rows — one per phase (data-minimap-row), each wholly inside
+              the body. A phase on the window draws its bar; a phase wholly
+              off it draws an edge marker at the side it went to (never an
+              empty row); a phase without dates keeps its name. Names ride
+              the row while rows are 18px or taller (the hover card keeps
+              every name at any size). */}
           {overviewRows.map((r, i) => {
-            const layout = rowLayouts.items[i]
+            const rowLayout = rowLayouts.items[i]
+            const box = r.start && r.end ? overviewBarBox(r, span, dayPx) : null
+            // offWindow() by date, and by pixel for a bar that meets an edge
+            // without a visible pixel of its own.
+            const side = box && (offWindow(r.start, r.end, span.start, span.end)
+              || (box.left + box.width <= 0 ? 'before' : box.left >= bodyW ? 'after' : null))
+            const name = r.label || 'Untitled phase'
+            const hover = phaseHover(r)
+            const place = layout.named && box && !side ? minimapNamePlace(box, bodyW, name) : null
             return (
               <div
                 key={r.key}
+                data-minimap-row={r.phaseId}
                 className="absolute left-0 right-0"
                 style={{
-                  top: layout.top,
-                  height: layout.height,
+                  top: rowLayout.top,
+                  height: rowLayout.height,
                 }}
               >
-                {r.start && r.end && (
+                {box && !side && (
                   <OverviewBar
                     row={r}
                     span={span}
                     dayPx={dayPx}
-                    rowH={layout.height}
+                    rowH={rowLayout.height}
                     critical={r.kind === 'task' && criticalSet.has(r.task?.id)}
                     onUpdateTask={onUpdateTask}
                     onUpdatePhase={onUpdatePhase}
@@ -1285,20 +1318,41 @@ const OverviewPane = forwardRef(function OverviewPane({
                     onEditPhase={onEditPhase}
                     canWrite={canWrite}
                     writeReason={writeReason}
-                    onHoverEnter={(e) => {
-                      if (r.kind === 'phase') {
-                        setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                    onHoverMove={(e) => {
-                      if (r.kind === 'phase') {
-                        setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                    onHoverLeave={() => {
-                      setHoverPopup(prev => (prev && prev.row.key === r.key) ? null : prev)
-                    }}
+                    onHoverEnter={hover.enter}
+                    onHoverMove={hover.move}
+                    onHoverLeave={hover.leave}
                   />
+                )}
+                {side && (
+                  <MinimapEdge
+                    row={r}
+                    side={side}
+                    rowH={rowLayout.height}
+                    name={layout.named ? name : null}
+                    onHoverEnter={hover.enter}
+                    onHoverMove={hover.move}
+                    onHoverLeave={hover.leave}
+                  />
+                )}
+                {place && (
+                  <span
+                    data-minimap-name
+                    className="absolute text-caption truncate rb-tl-ov-name"
+                    data-place={place.where}
+                    style={place.style}
+                  >
+                    {name}
+                  </span>
+                )}
+                {!box && layout.named && (
+                  <span
+                    data-minimap-name
+                    className="absolute text-caption truncate rb-tl-ov-name"
+                    data-place="undated"
+                    style={{ left: 6, maxWidth: Math.max(0, bodyW - 12) }}
+                  >
+                    {name} · no dates
+                  </span>
                 )}
               </div>
             )
@@ -1309,26 +1363,39 @@ const OverviewPane = forwardRef(function OverviewPane({
               current minimap span. When it's off-screen we hide
               the frame entirely and show an edge arrow instead. */}
           {!frameOffLeft && !frameOffRight && (
-            <div
-              data-minimap-nojump="1"
-              className="absolute cursor-grab active:cursor-grabbing"
-              style={{
-                left: frameLeft,
-                width: Math.max(8, frameWidth),
-                // Leave a 1px gutter top and bottom so the 2px
-                // orange border is fully visible (the old top:0 /
-                // bottom:0 layout let the bottom border get clipped
-                // under the OverviewPane's own border-bottom).
-                top: 1,
-                bottom: 1,
-                border: '1px solid rgba(251, 146, 60, 0.5)',
-                backgroundColor: 'rgba(251, 146, 60, 0.06)',
-                borderRadius: 2,
-                zIndex: 5,
-              }}
-              onMouseDown={handleFrameMouseDown}
-              title="Drag to scroll the detail pane"
-            />
+            <>
+              {/* The frame you DRAG: below the bars (zIndex 5), so a bar
+                  inside the window still takes its own click and drag
+                  (review risk 5); it carries the window's tint. 1px in
+                  from the body's top and bottom, as it always was: that
+                  is its hit area, unchanged. */}
+              <div
+                data-minimap-nojump="1"
+                className="absolute cursor-grab active:cursor-grabbing rb-tl-ov-frame"
+                style={{
+                  left: frameLeft,
+                  width: Math.max(8, frameWidth),
+                  top: 1,
+                  bottom: 1,
+                  zIndex: 5,
+                }}
+                onMouseDown={handleFrameMouseDown}
+                title="Drag to scroll the detail pane"
+              />
+              {/* The frame you SEE (TL-18): its outline, a separate layer
+                  ABOVE the bars that takes no pointer events, so it reads
+                  over them and changes no hit test. The same box. */}
+              <div
+                aria-hidden="true"
+                className="absolute rb-tl-ov-frame-edge"
+                style={{
+                  left: frameLeft,
+                  width: Math.max(8, frameWidth),
+                  top: 1,
+                  bottom: 1,
+                }}
+              />
+            </>
           )}
         </div>
       </div>
@@ -1340,8 +1407,8 @@ const OverviewPane = forwardRef(function OverviewPane({
           the center visually — but the timeline keeps scrolling in
           the same direction, giving an "infinite" feel. This is
           what Notion's timeline scrollbar does. The bar sits at
-          exactly OVERVIEW_SCROLLBAR_H pixels tall so the sibling
-          body + scrollbar + 2px pane border add up to OVERVIEW_HEIGHT. */}
+          exactly OVERVIEW_SCROLLBAR_H pixels tall; the pane's height
+          is the axis + the body + this bar + 2px of border. */}
       <MinimapScrollbar
         dayPx={dayPx}
         height={OVERVIEW_SCROLLBAR_H}
@@ -1352,107 +1419,92 @@ const OverviewPane = forwardRef(function OverviewPane({
           window is completely outside the minimap's current view,
           show a small arrow at the corresponding edge so the user
           knows which way to pan/zoom to find it. Clicking the
-          arrow centers the minimap on the detail window. */}
+          arrow centers the minimap on the detail window. The kit's
+          IconButton (its title is its name), on a docked chip so it
+          reads over the bars (review TL-13: never an orange fill). */}
       {frameOffLeft && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
-          }}
-          title="Detail view is off-screen (left) — click to pan"
-          className="absolute flex items-center justify-center rounded-control"
-          style={{
-            left: 4,
-            top: OVERVIEW_HEADER + 4,
-            width: 22,
-            height: 22,
-            color: '#fff7ed',
-            backgroundColor: '#ea580c',
-            border: '1px solid #c2410c',
-            zIndex: 7,
-          }}
-        >
-          <ChevronRight className="w-3.5 h-3.5" style={{ transform: 'rotate(180deg)' }} />
-        </button>
+        <span className="absolute rb-tl-ov-away" data-side="before" style={{ top: OVERVIEW_HEADER + 4 }}>
+          <IconButton
+            size="sm"
+            icon={ChevronLeft}
+            title="Detail view is off-screen (left) — click to pan"
+            onClick={(e) => {
+              e.stopPropagation()
+              onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
+            }}
+          />
+        </span>
       )}
       {frameOffRight && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
-          }}
-          title="Detail view is off-screen (right) — click to pan"
-          className="absolute flex items-center justify-center rounded-control"
-          style={{
-            right: 4,
-            top: OVERVIEW_HEADER + 4,
-            width: 22,
-            height: 22,
-            color: '#fff7ed',
-            backgroundColor: '#ea580c',
-            border: '1px solid #c2410c',
-            zIndex: 7,
-          }}
-        >
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+        <span className="absolute rb-tl-ov-away" data-side="after" style={{ top: OVERVIEW_HEADER + 4 }}>
+          <IconButton
+            size="sm"
+            icon={ChevronRight}
+            title="Detail view is off-screen (right) — click to pan"
+            onClick={(e) => {
+              e.stopPropagation()
+              onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
+            }}
+          />
+        </span>
       )}
 
       {/* Phase hover tooltip — fixed-position popup anchored to
           the cursor. Shows the phase name, task count, and date
           range. Only renders when the user is hovering a phase
-          row in this minimap. */}
-      {/* T2: the popup carries the family for its whole subtree — a phase
-          name, a task count and a date range. T0's mono map reads that as
-          "a row of figures with a name column" and KEEPS it, for the reason
-          round one learned the hard way on the Breakdown table: one name in
-          the mono costs less than four figures out of it, and the figures are
-          the ones that have to line up. */}
+          row (its bar or its edge marker) or a key date in this
+          minimap. B3 (TL-38): the kit's floating surface, one
+          chrome for both; the hovered object's colour is a mark
+          inside it (a phase's tone, a key date's own diamond),
+          never the card's border. The name is sans; the count and
+          the dates are figures, so they keep the mono (Q4). */}
       {hoverPopup && (hoverPopup.row?.kind === 'phase' || hoverPopup.row?.kind === 'milestone') && (
         <div
-          className="fixed pointer-events-none rounded-control shadow-lg font-mono rb-tl-pop"
+          className="fixed pointer-events-none rb-tl-pop"
           data-kind={hoverPopup.row.kind === 'milestone' ? 'milestone' : 'phase'}
           style={{
             left: hoverPopup.x + 14,
             top:  hoverPopup.y + 14,
-            backgroundColor: '#1c1917',
             // A key date's own colour is user data: handed to the sheet, which
-            // falls back to amber when there is none.
+            // falls back to the warning amber when there is none.
             '--rb-tl-ms': hoverPopup.row.milestone?.color,
-            padding: '6px 10px',
-            zIndex: 9999,
-            maxWidth: 320,
           }}
         >
           {hoverPopup.row.kind === 'milestone' ? (
             <>
-              <div className="flex items-center gap-1.5">
-                <Diamond className="w-3 h-3 flex-shrink-0 rb-tl-pop-ms" />
-                <div className="text-dense font-semibold truncate rb-tl-pop-ms">
+              <div className="flex items-center gap-2">
+                <Diamond className="w-3 h-3 flex-shrink-0 rb-tl-pop-ms" aria-hidden="true" />
+                <div className="text-dense font-semibold truncate rb-tl-pop-title">
                   {hoverPopup.row.label || 'Untitled milestone'}
                 </div>
               </div>
               {hoverPopup.row.milestone?.description && (
-                <div className="text-dense mt-1 truncate" style={{ color: '#d6d3d1' }}>{hoverPopup.row.milestone.description}</div>
+                <div className="text-caption mt-1 truncate rb-tl-pop-text">{hoverPopup.row.milestone.description}</div>
               )}
-              <div className="text-dense mt-0.5" style={{ color: '#a8a29e' }}>
+              <div className="text-caption font-mono tabular-nums mt-0.5 rb-tl-pop-meta">
                 {hoverPopup.row.start ? formatTooltipDate(hoverPopup.row.start) : '— no date —'}
               </div>
               {hoverPopup.row.milestone?.isProjectBound && (
-                <div className="text-label mt-0.5 uppercase" style={{ color: '#78716c' }}>project bound</div>
+                <div className="text-label mt-1 uppercase rb-tl-pop-meta">project bound</div>
               )}
             </>
           ) : (
             <>
-              <div className="text-label font-semibold uppercase truncate" style={{ color: '#fb923c' }}>
-                {hoverPopup.row.label || 'Untitled phase'}
+              <div className="flex items-center gap-2">
+                <span
+                  className="flex-shrink-0 rb-tl-tone rb-tl-pop-dot"
+                  data-shape="phase"
+                  data-status={hoverPopup.row.phase?.status || undefined}
+                  aria-hidden="true"
+                />
+                <div className="text-dense font-semibold truncate rb-tl-pop-title">
+                  {hoverPopup.row.label || 'Untitled phase'}
+                </div>
               </div>
-              <div className="text-dense mt-1" style={{ color: '#d6d3d1' }}>
+              <div className="text-caption font-mono tabular-nums mt-1 rb-tl-pop-text">
                 {hoverPopup.row.taskCount ?? 0} task{(hoverPopup.row.taskCount ?? 0) === 1 ? '' : 's'}
               </div>
-              <div className="text-dense" style={{ color: '#a8a29e' }}>
+              <div className="text-caption font-mono tabular-nums rb-tl-pop-meta">
                 {hoverPopup.row.start && hoverPopup.row.end
                   ? `${formatTooltipDate(hoverPopup.row.start)} → ${formatTooltipDate(hoverPopup.row.end)}`
                   : '— no dates —'}
@@ -1464,6 +1516,66 @@ const OverviewPane = forwardRef(function OverviewPane({
     </div>
   )
 })
+
+// ── Minimap geometry, shared so the bar and its name cannot disagree ──
+
+/** A minimap bar's box in the body's pixels (OverviewBar draws exactly this). */
+function overviewBarBox(row, span, dayPx) {
+  const offsetDays = daysBetween(span.start, row.start)
+  const lengthDays = Math.max(0.5, daysBetween(row.start, row.end))
+  return { left: offsetDays * dayPx, width: Math.max(2, lengthDays * dayPx) }
+}
+
+/** Where a drawn bar's name goes: inside the bar's visible part when it fits
+    there with 6px either side (by estimateWidth(), which is at or above the
+    real width, so a name placed inside never overflows), else after the bar,
+    else before it, else wherever there is most room, truncated. Returns the
+    inline geometry and which it chose (the sheet inks a name on a bar and a
+    name on the paper differently). */
+const NAME_PAD = 6
+function minimapNamePlace(box, bodyW, name) {
+  const need = estimateWidth(name)
+  const visL = Math.max(0, box.left)
+  const visR = Math.min(bodyW, box.left + box.width)
+  const room = {
+    inside: visR - visL - 2 * NAME_PAD,
+    after: bodyW - visR - 2 * NAME_PAD,
+    before: visL - 2 * NAME_PAD,
+  }
+  const where = ['inside', 'after', 'before'].find((k) => room[k] >= need)
+    || ['inside', 'after', 'before'].reduce((a, b) => (room[b] > room[a] ? b : a))
+  const maxWidth = Math.max(0, room[where])
+  if (where === 'before') return { where, style: { right: bodyW - visL + NAME_PAD, maxWidth } }
+  return { where, style: { left: (where === 'inside' ? visL : visR) + NAME_PAD, maxWidth } }
+}
+
+/** A phase wholly outside the minimap window: a mark in its tone at the edge
+    it went past, and its name beside the mark while rows are 18px or taller.
+    Not a control: it takes the hover card, and a press on it pans or jumps
+    exactly as the empty row under it always did (no data-minimap-nojump). */
+function MinimapEdge({ row, side, rowH, name, onHoverEnter, onHoverMove, onHoverLeave }) {
+  const barH = Math.max(4, rowH - 4)
+  return (
+    <div
+      data-minimap-edge={side}
+      className="absolute flex items-center rb-tl-ov-edge"
+      data-side={side}
+      style={{ top: 2, height: barH }}
+      onMouseEnter={onHoverEnter}
+      onMouseMove={onHoverMove}
+      onMouseLeave={onHoverLeave}
+    >
+      <span
+        className="rb-tl-tone rb-tl-ov-edge-mark"
+        data-shape="phase"
+        data-status={row.phase?.status || undefined}
+      />
+      {name && (
+        <span data-minimap-name className="text-caption truncate rb-tl-ov-edge-name">{name}</span>
+      )}
+    </div>
+  )
+}
 
 // Short human date for hover popups: "Apr 8, 2026"
 function formatTooltipDate(d) {
@@ -1558,12 +1670,9 @@ function MinimapScrollbar({ dayPx, height, onPan }) {
       ref={trackRef}
       onMouseDown={onTrackMouseDown}
       data-minimap-nojump="1"
-      className="relative w-full"
+      className="relative w-full rb-tl-mm-track"
       style={{
         height,
-        backgroundColor: '#0c0a09',
-        borderTop: '1px solid #292524',
-        cursor: 'default',
         userSelect: 'none',
       }}
     >
@@ -1576,7 +1685,6 @@ function MinimapScrollbar({ dayPx, height, onPan }) {
           bottom: 2,
           left: `calc(50% + ${thumbOffset}px - ${THUMB_W / 2}px)`,
           width: THUMB_W,
-          border: '1px solid #44403c',
         }}
         title="Drag to pan the timeline — keeps scrolling past the edges"
       />
@@ -1724,10 +1832,9 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
 // ============================================================
 
 function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdatePhase, onEditTask, onEditPhase, canWrite = true, writeReason = null, onHoverEnter, onHoverMove, onHoverLeave }) {
-  const offsetDays = daysBetween(span.start, row.start)
-  const lengthDays = Math.max(0.5, daysBetween(row.start, row.end))
-  const left  = offsetDays * dayPx
-  const width = Math.max(2, lengthDays * dayPx)
+  // The box OverviewPane placed this bar's name against (one helper, so the
+  // name and the bar cannot disagree).
+  const { left, width } = overviewBarBox(row, span, dayPx)
   // Fall back to legacy constant if the parent didn't pass a row
   // height (e.g. during the first paint or from legacy callers).
   const effectiveRowH = rowH || OVERVIEW_ROW_PX
@@ -1807,6 +1914,7 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
       onMouseMove={onHoverMove}
       onMouseLeave={onHoverLeave}
       data-minimap-nojump="1"
+      data-minimap-bar
       className="absolute rounded-control rb-tl-tone rb-tl-ov-bar"
       data-shape={isPhase ? 'phase' : 'task'}
       data-status={toneStatus}
@@ -1818,8 +1926,10 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
         height: barH,
         // Lift bars above the visible-window frame (zIndex 5) so
         // hover/click still hit the bar even when it sits inside
-        // the orange frame rectangle. The frame's empty whitespace
+        // the frame rectangle. The frame's empty whitespace
         // remains draggable because it still occupies the gaps.
+        // The frame's OUTLINE (zIndex 7) is drawn above the bars
+        // and takes no pointer events (B3, TL-18).
         zIndex: 6,
       }}
       title={canWrite
@@ -5606,13 +5716,12 @@ function SummaryBand({
     onMinimapZoomChange?.(snapped)
   }
 
-  // Friendly label for the current zoom level.
-  let zoomLabel = ''
-  if (minimapZoomDays != null) {
-    if (minimapZoomDays <= 200)       zoomLabel = `${Math.round(minimapZoomDays / 30)} mo`
-    else if (minimapZoomDays <= 800)  zoomLabel = `${(minimapZoomDays / 365).toFixed(1)} yr`
-    else                               zoomLabel = `${Math.round(minimapZoomDays / 365)} yr`
-  }
+  // The span the minimap draws, as a reader would say it, to one decimal
+  // (spanLabel): it used to round 2.35 years to "2 yr", and Fit on a
+  // 137-day project — under the slider's own six-month end, where the
+  // thumb pins — to "5 mo". Fit's behaviour is unchanged (C1); the readout
+  // now says what is drawn.
+  const zoomLabel = minimapZoomDays != null ? spanLabel(minimapZoomDays) : ''
 
   return (
     <div
@@ -5663,11 +5772,24 @@ function SummaryBand({
             <Crosshair className="w-3 h-3" />
             Today
           </button>
-          <span className="text-label uppercase ml-1" style={{ color: '#78716c' }}>
+          <span className="text-label uppercase ml-1 rb-tl-span-label">
             Zoom
           </span>
-          <span className="text-dense" style={{ color: '#78716c' }}>6mo</span>
-          <div className="relative" style={{ width: 195, height: 22 }}>
+          <span className="text-caption rb-tl-span-end">{spanLabel(minimapMinDays)}</span>
+          <div className="relative" style={{ width: SPAN_TRACK_W, height: 22 }}>
+            {/* Snap stop lines at 1 / 2 / 5 years — BEHIND the input, each
+                placed by snapLeft() from the thumb's styled width
+                (SPAN_THUMB_W, which the sheet gives the thumb), so a mark
+                and the value it marks are the same pixel; the thumb covers
+                a mark when it lands on it. The old overlay guessed "the
+                typical thumb half-width" (8px) on a native thumb. */}
+            {(minimapSnapDays || []).map(s => (
+              <div
+                key={`line-${s}`}
+                className="absolute pointer-events-none rb-tl-span-snap"
+                style={{ left: snapLeft(s, minimapMinDays, minimapMaxDays, SPAN_TRACK_W, SPAN_THUMB_W) }}
+              />
+            ))}
             <input
               type="range"
               min={minimapMinDays}
@@ -5676,57 +5798,12 @@ function SummaryBand({
               value={minimapZoomDays ?? minimapMinDays}
               onInput={handleSliderInput}
               onChange={handleSliderInput}
-              className="absolute inset-x-0 inset-y-0 w-full h-full"
-              style={{ accentColor: '#fb923c' }}
+              className="absolute inset-x-0 inset-y-0 rb-tl-span-range"
               title={`Minimap span: ${zoomLabel}`}
             />
-            {/* Snap stop lines — short vertical marks contained
-                inside the slider track. Drawn on top of the input
-                with pointer-events:none so the slider stays fully
-                interactive. The thumb visibly "absorbs" each line
-                when the value lands on a snap point. Padding on
-                the sides matches the typical thumb half-width so
-                the lines align with the track, not the container
-                edges. */}
-            {/* Snap stop lines — thin orange vertical lines
-                fully contained within the track height. No fill,
-                no glow — just a 1px orange stroke. */}
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                left: 8,
-                right: 8,
-                top: '50%',
-                height: 8,
-                transform: 'translateY(-50%)',
-              }}
-            >
-              {(minimapSnapDays || []).map(s => {
-                const range = Math.max(1, minimapMaxDays - minimapMinDays)
-                const pct = ((s - minimapMinDays) / range) * 100
-                return (
-                  <div
-                    key={`line-${s}`}
-                    className="absolute"
-                    style={{
-                      left: `${pct}%`,
-                      top: 0,
-                      bottom: 0,
-                      width: 1,
-                      transform: 'translateX(-50%)',
-                      backgroundColor: '#fb923c',
-                      opacity: 0.7,
-                    }}
-                  />
-                )
-              })}
-            </div>
           </div>
-          <span className="text-dense" style={{ color: '#78716c' }}>5yr</span>
-          <span
-            className="text-dense font-mono tabular-nums"
-            style={{ color: '#fb923c', minWidth: 48, textAlign: 'right' }}
-          >
+          <span className="text-caption rb-tl-span-end">{spanLabel(minimapMaxDays)}</span>
+          <span className="text-dense font-mono tabular-nums rb-tl-span-value">
             {zoomLabel}
           </span>
         </div>
@@ -5734,6 +5811,13 @@ function SummaryBand({
     </div>
   )
 }
+
+/** The minimap zoom slider's track and thumb, in px. The thumb's width is
+    also set in rabbitTimeline.css (`.rb-tl-span-range`'s thumb), and
+    rabbitTimelineCss.test.js holds the two to the same number: snapLeft()
+    is exact only while they agree. */
+const SPAN_TRACK_W = 195
+const SPAN_THUMB_W = 14
 
 function SummaryTile({ icon: Icon, label, value, tone }) {
   // Danger (a blocked count above zero) or not: `.rb-tl-tile` in
@@ -6996,23 +7080,10 @@ function buildAxisTicks(start, totalDays, zoom) {
   return out
 }
 
-// Overview ticks: month boundaries with year labels.
-// Does NOT force-emit a tick at i === 0 — that created ugly stub
-// labels when the minimap span started mid-month.
-function buildOverviewTicks(start, totalDays) {
-  const out = []
-  for (let i = 0; i <= totalDays; i++) {
-    const d = addDays(start, i)
-    if (d.getDate() !== 1) continue
-    out.push({
-      key: i,
-      offset: i,
-      label: formatMonth(d),
-      major: d.getMonth() === 0,
-    })
-  }
-  return out
-}
+// Overview ticks: timelineMinimap.js's minimapTicks() since B3 (a line at
+// every month boundary, as before, and a label on a stride that leaves every
+// label its own room). Like the function it replaces, it does not force a
+// tick at i === 0, which made stub labels when a span started mid-month.
 
 // Aggregates for the SummaryBand.
 function buildSummary({ phases, assets, tasks, schedule, criticalSet, holidays }) {

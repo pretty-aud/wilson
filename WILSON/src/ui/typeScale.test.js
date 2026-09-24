@@ -2022,9 +2022,13 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-history-row', 'exact'],   // F2 Row's "highlighted" edge: a page open in a tab
     ['src/tools/deck-outline-generator_v0.514/dog.css', '.dog-page-tab', 'exact'],      // the kit's tab underline, on the closable wrapper (A1-KR-1)
     /* B3, 2026-09-24 — the Timeline's stage-1 sheet: four shape indicators,
-       each the shipped look transcribed (plan §5), none structural. EXACT. */
-    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ov-bar[data-shape="phase"]', 'exact'],  // a phase bar is 2px against a task's 1px, in the minimap…
-    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-bar[data-shape="phase"]', 'exact'],     // …and in the gantt
+       each the shipped look transcribed (plan §5), none structural. EXACT.
+       B3b: the minimap's phase bar left this list (its stage 2 draws it 1px:
+       the minimap draws phases only, so its 2px told a phase from nothing),
+       and the minimap frame's outline joined it — the navigator's one
+       selection, §3.2's 2px selected edge, on its two sides (TL-18). */
+    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ov-frame-edge', 'exact'],               // the minimap's visible window: its two 2px signal sides
+    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-bar[data-shape="phase"]', 'exact'],     // a phase bar is 2px against a task's 1px, in the gantt
     ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ghost[data-shape="phase"]', 'exact'],   // and so is its ghost while its parent phase is dragged
     ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-row', 'exact'],                         // a label row's left edge: orange phase, stone subgroup, none for a task
     // The agent panel's companion chat (P1's; C5 adjacency), not swept by

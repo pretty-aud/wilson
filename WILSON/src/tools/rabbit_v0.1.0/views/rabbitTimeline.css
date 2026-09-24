@@ -29,6 +29,8 @@
 
    STAGE 2, the restyle: every value a token. Until it lands this sheet is
    the one registered stylesheet allowed its hexes (typeScale.test.js).
+   B3b lands it surface by surface; a section whose banner says "stage 2"
+   holds no hex (the minimap first, Q22).
 
    THE PROPERTY MOVES WHOLE. A rule in `components` loses to any utility on
    its element and to any inline style, so when a branch changed a
@@ -82,17 +84,21 @@
      .rb-tl-ov-tick, .rb-tl-ov-grid   data-major = true|false: a year's month
                                       is lighter (tick edge and label, divider)
      .rb-tl-ov-body                   data-panning = true|false: grabbing | grab
-     .rb-tl-pop                       data-kind = phase|milestone: orange edge |
-                                      the key date's colour, amber without one
-     .rb-tl-mm-thumb                  data-dragging = true|false: orange,
-                                      grabbing, no fade | stone, grab, fade
+     .rb-tl-ov-name                   data-place = inside|after|before|undated:
+                                      ink on its bar | ink-2 beside it | ink-3
+     .rb-tl-ov-edge, .rb-tl-ov-away   data-side = before|after: which edge
+                                      (an off-window phase's wedge points out)
+     .rb-tl-pop                       data-kind = phase|milestone: the key
+                                      date's colour on its diamond (amber
+                                      without one); the card is one chrome
+     .rb-tl-mm-thumb                  data-dragging = true|false: signal,
+                                      grabbing, no fade | scroll thumb, grab
      .rb-tl-tone (both kinds of bar)  data-shape = task|phase|subgroup,
                                       data-status = the stored status,
                                       data-life = completed|upcoming|active
                                       (a subgroup with no status),
                                       data-critical = true|false: the palette
-     .rb-tl-ov-bar                    data-shape = phase: 2px, lifted shadow;
-                                      data-writable = true: grab (else pointer)
+     .rb-tl-ov-bar                    data-writable = true: grab (else pointer)
      .rb-tl-bar                       data-shape = phase: 2px + dark ring, a 600
                                       label; = subgroup: 1.5px dashed, a 600
                                       label; data-writable = true: grab /
@@ -143,34 +149,171 @@
 
 @layer components {
 
-  /* ═══ The minimap (OverviewPane) ═══════════════════════════════════════ */
-
-  /* The month axis: a major tick is lighter, edge and label. */
-  .rb-tl-ov-tick { border-left: 1px solid #292524; }
-  .rb-tl-ov-tick[data-major="true"] { border-left-color: #44403c; }
-  .rb-tl-ov-tick-label { color: #57534e; }
-  .rb-tl-ov-tick[data-major="true"] .rb-tl-ov-tick-label { color: #a8a29e; }
+  /* ═══ The minimap (OverviewPane) — stage 2 (B3b) ═════════════════════════
+     Q22: every phase drawn, no silent truncation, legible labels. Tokens
+     only. The pane and its axis on the paper under the rule; a month's line
+     a screen of the ink (6%), a year's the rule; axis labels at the Caption
+     step (the JSX sets it), a month in ink-3 and a year in ink-2 (5.04 and
+     8.49:1 on paper; they were 2.29:1 at 13px, printing over each other). */
+  .rb-tl-ov { background-color: var(--color-paper); border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-ov-axis { border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-ov-tick { border-left: 1px solid color-mix(in srgb, var(--color-ink) 6%, transparent); }
+  .rb-tl-ov-tick[data-major="true"] { border-left-color: var(--color-rule); }
+  .rb-tl-ov-tick-label { color: var(--color-ink-3); }
+  .rb-tl-ov-tick[data-major="true"] .rb-tl-ov-tick-label { color: var(--color-ink-2); }
 
   /* The body pans: grab, and grabbing while a pan is under way. */
   .rb-tl-ov-body { cursor: grab; }
   .rb-tl-ov-body[data-panning="true"] { cursor: grabbing; }
 
-  /* The month dividers through the body. */
-  .rb-tl-ov-grid { background-color: #292524; opacity: 0.5; }
-  .rb-tl-ov-grid[data-major="true"] { background-color: #44403c; opacity: 0.7; }
+  /* The month dividers through the body; a year's is the rule. */
+  .rb-tl-ov-grid { background-color: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+  .rb-tl-ov-grid[data-major="true"] { background-color: var(--color-rule); }
 
-  /* The hover popup: a phase's orange edge, or a key date's own colour
-     (--rb-tl-ms, set on the popup from the key date) with the amber a key
-     date without one falls back to. The var rides in the shorthand, so an
-     unreadable colour drops the whole border, as the inline one did. */
-  .rb-tl-pop { border: 1px solid #fb923c; }
-  .rb-tl-pop[data-kind="milestone"] { border: 1px solid var(--rb-tl-ms, #f59e0b); }
-  .rb-tl-pop[data-kind="milestone"] .rb-tl-pop-ms { color: var(--rb-tl-ms, #f59e0b); }
+  /* Today: the danger ink, the value it always had (#fca5a5) — the chart's
+     one red line; the legend names it. */
+  .rb-tl-ov-today { z-index: 4; background-color: var(--color-danger); }
 
-  /* The infinite scrollbar's thumb (MinimapScrollbar): orange and without
-     its fade while it is dragged. */
-  .rb-tl-mm-thumb { background-color: #57534e; cursor: grab; transition: background-color 0.15s ease; }
-  .rb-tl-mm-thumb[data-dragging="true"] { background-color: #fb923c; cursor: grabbing; transition: none; }
+  /* A key date: its own colour (--rb-tl-ms, set on the element from the key
+     date — data), the warning amber without one. The line at half strength;
+     the diamond keyed off the bars by a paper hairline. Its 1.5px dark edge
+     and its glow went (§3.3: one shadow, floating surfaces only). */
+  .rb-tl-ov-ms-line { opacity: 0.5; background-color: var(--rb-tl-ms, var(--color-warning)); }
+  .rb-tl-ov-ms { background-color: var(--rb-tl-ms, var(--color-warning)); border: 1px solid var(--color-paper); }
+
+  /* The frame (TL-18). The one you DRAG, under the bars (zIndex 5, inline),
+     is the window's tint, a 10% screen of the signal (the kit's 16% tint
+     was a heavy block over a wide window). The one you SEE is its outline,
+     a layer ABOVE the bars that takes no pointer events, so it reads over
+     them and moves no hit test: the signal, 2px on the sides — the
+     navigator's one selection, §3.2's selected edge — and 1px along the
+     top and bottom. It was a 1px line at 50% under the bars (2.88:1). */
+  .rb-tl-ov-frame { background-color: color-mix(in srgb, var(--color-signal) 10%, transparent); border-radius: var(--radius-control); }
+  .rb-tl-ov-frame-edge {
+    z-index: 7;
+    pointer-events: none;
+    border: 1px solid var(--color-signal);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-radius: var(--radius-control);
+  }
+
+  /* A phase's name (Q22), while rows are 18px or taller: centred on its
+     row, above its bar, taking no pointer events (a press lands on the bar,
+     or on the row under it, exactly as before). On the bar, the ink; on the
+     paper beside a bar too short to hold it, ink-2; a phase without dates,
+     ink-3. */
+  .rb-tl-ov-name {
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 6;
+    pointer-events: none;
+    color: var(--color-ink-2);
+  }
+  .rb-tl-ov-name[data-place="inside"] { color: var(--color-ink); }
+  .rb-tl-ov-name[data-place="undated"] { color: var(--color-ink-3); }
+
+  /* A phase wholly off the window (Q22: never an empty row): a wedge in its
+     tone, pinned to the edge it went past and pointing that way, its name
+     beside it while rows carry names. It takes the hover card and nothing
+     else. */
+  .rb-tl-ov-edge { z-index: 6; gap: 4px; max-width: 45%; }
+  .rb-tl-ov-edge[data-side="before"] { left: 2px; }
+  .rb-tl-ov-edge[data-side="after"] { right: 2px; flex-direction: row-reverse; }
+  .rb-tl-ov-edge-mark {
+    flex: none;
+    align-self: stretch;
+    width: 6px;
+    background-color: var(--rb-tl-border);
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
+  }
+  .rb-tl-ov-edge[data-side="after"] > .rb-tl-ov-edge-mark { clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .rb-tl-ov-edge-name { min-width: 0; color: var(--color-ink-2); }
+
+  /* The two off-frame arrows: the kit IconButton (a ghost), on a docked
+     chip — raised paper under a hairline — so it reads over the bars. They
+     were orange fills under a near-white glyph (TL-13). */
+  .rb-tl-ov-away {
+    z-index: 7;
+    line-height: 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-tl-ov-away[data-side="before"] { left: 4px; }
+  .rb-tl-ov-away[data-side="after"] { right: 4px; }
+
+  /* The hover card (TL-38): the kit's floating surface — raised paper, the
+     rule, the float radius, the one shadow — the same chrome for a phase and
+     a key date. The hovered object's colour is a mark inside it (a phase's
+     tone as a dot; a key date's own colour on its diamond, --rb-tl-ms, set on
+     the card), never the card's border. Title in the ink, the task count in
+     ink-2, dates and tags in ink-3 (4.66:1 on raised paper). */
+  .rb-tl-pop {
+    z-index: 9999;
+    max-width: 320px;
+    padding: 8px 12px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-tl-pop-title { color: var(--color-ink); }
+  .rb-tl-pop-text { color: var(--color-ink-2); }
+  .rb-tl-pop-meta { color: var(--color-ink-3); }
+  .rb-tl-pop-dot { width: 8px; height: 8px; border-radius: 9999px; background-color: var(--rb-tl-border); }
+  .rb-tl-pop[data-kind="milestone"] .rb-tl-pop-ms { color: var(--rb-tl-ms, var(--color-warning)); }
+
+  /* The infinite scrollbar (MinimapScrollbar): a recessed track under the
+     rule; its thumb the app's scroll thumb, the signal while dragged. */
+  .rb-tl-mm-track { cursor: default; background-color: var(--color-paper-recessed); border-top: 1px solid var(--color-rule); }
+  .rb-tl-mm-thumb {
+    cursor: grab;
+    background-color: var(--color-scroll-thumb);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-tl-mm-thumb[data-dragging="true"] { cursor: grabbing; background-color: var(--color-scroll-thumb-hover); transition: none; }
+
+  /* The minimap's zoom, in the summary band (TL-37: three sizes and four
+     colours in 200px). "Zoom" at the Label step and the scale's two ends at
+     the Caption step, all ink-3; the readout, a figure, in the ink. The
+     slider in the kit's shapes: a hairline track, a 14px signal thumb —
+     SPAN_THUMB_W in TimelineView.jsx, from which snapLeft() places the snap
+     marks, so the two numbers must agree (rabbitTimelineCss.test.js) — and
+     the marks in ink-3, behind the thumb. */
+  .rb-tl-span-label,
+  .rb-tl-span-end { color: var(--color-ink-3); }
+  .rb-tl-span-value { min-width: 48px; text-align: right; color: var(--color-ink); }
+  .rb-tl-span-snap {
+    top: 50%;
+    width: 1px;
+    height: 10px;
+    transform: translate(-50%, -50%);
+    background-color: var(--color-ink-3);
+  }
+  .rb-tl-span-range {
+    width: 100%;
+    height: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .rb-tl-span-range::-webkit-slider-runnable-track { height: 4px; border-radius: 9999px; background-color: var(--color-rule); }
+  .rb-tl-span-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border: none;
+    border-radius: 9999px;
+    background-color: var(--color-signal);
+  }
+  .rb-tl-span-range::-moz-range-track { height: 4px; border-radius: 9999px; background-color: var(--color-rule); }
+  .rb-tl-span-range::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 9999px; background-color: var(--color-signal); }
 
   /* ═══ The bars' tone (barTone(), transcribed) ═══════════════════════════
      On every minimap bar (OverviewBar) and every gantt bar (DetailBar). A
@@ -203,18 +346,17 @@
   .rb-tl-tone[data-shape="subgroup"][data-life="upcoming"]         { --rb-tl-bg: #1c1917; --rb-tl-border: #78716c; --rb-tl-fg: #a8a29e; }
   .rb-tl-tone[data-shape="subgroup"][data-life="active"]           { --rb-tl-bg: #451a03; --rb-tl-border: #f59e0b; --rb-tl-fg: #fef3c7; }
 
-  /* A minimap bar: a phase is drawn 2px with a lifted shadow; a writer
-     grabs it, a reader clicks it. */
+  /* A minimap bar: its tone under a 1px edge; a writer grabs it, a reader
+     clicks it. B3b: the phase bar's 2px edge and its lifted shadow and
+     white bevel went (§3.3: one hairline, one shadow for floating surfaces
+     only). The minimap draws phases only, so the 2px distinguished a phase
+     from nothing here; the gantt keeps its phase / task distinction. */
   .rb-tl-ov-bar {
     background-color: var(--rb-tl-bg);
     border-width: 1px;
     border-style: solid;
     border-color: var(--rb-tl-border);
     cursor: pointer;
-  }
-  .rb-tl-ov-bar[data-shape="phase"] {
-    border-width: 2px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
   .rb-tl-ov-bar[data-writable="true"] { cursor: grab; }
 

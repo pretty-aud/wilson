@@ -3,12 +3,12 @@
 // The Timeline minimap, RENDERED (UI overhaul B3, Audrey's Q22: "every phase
 // drawn, no silent truncation after six, legible labels").
 //
-// ⏸ PENDING — B3's hand-off (docs/sessions/handoffs/ui-b3-2026-09-24.md §4).
-// This file is NOT run: vitest includes `*.test.{js,jsx}` only. It is the DOM
-// contract the minimap wiring must meet, written before the wiring. The
-// session that exports OverviewPane and wires it to timelineMinimap.js
-// renames it to timelineMinimapRender.test.jsx in the same commit, and it
-// must pass there unedited except where the hand-off says it may change.
+// Written by B3 as a PENDING contract (timelineMinimapRender.pending.jsx),
+// before the wiring; B3b wired OverviewPane to timelineMinimap.js and renamed
+// it here in the same commit. ONE edit, to an assumption about the
+// environment rather than the DOM: jsdom has no ResizeObserver, which the
+// minimap's scrollbar (MinimapScrollbar) creates on mount, so the stub
+// below. Every assertion is B3's, unedited.
 //
 // Mounts the real OverviewPane with N phases and counts what it draws against
 // the data. jsdom has no layout, so every position is read where the
@@ -29,6 +29,11 @@ vi.mock('../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrit
 vi.mock('../components/FileManager', () => ({ default: () => null }))
 vi.mock('../components/TaskDetailPopup', () => ({ default: () => null }))
 vi.mock('../../../components/TaskTemplates/TaskTemplateManager', () => ({ default: () => null }))
+
+// jsdom has no layout and so no ResizeObserver; MinimapScrollbar measures its
+// track with one. Nothing here reads that width (the scrollbar's thumb is not
+// part of the contract), so a no-op observer is the whole of it.
+globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
 
 const { OverviewPane } = await import('./TimelineView.jsx')
 const { minimapLayout, estimateWidth, LABEL_GAP } = await import('./timelineMinimap.js')
