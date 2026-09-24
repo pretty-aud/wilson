@@ -5586,18 +5586,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   }
 
   function renderDuplicateModal() {
+    // Unreachable today: nothing sets showDuplicateModal truthy (the import
+    // path never raises it, and handleDuplicateResolve only clears it). A4
+    // restyled it with the other confirms so it is right the day it opens.
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[440px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-semibold text-h1 mb-2">Duplicate Found</h3>
-          <p className="text-stone-400 text-body mb-6">A course with this name already exists.</p>
-          <div className="space-y-2">
-            <button onClick={() => handleDuplicateResolve('replace')} className="w-full bg-orange-600 text-white border border-orange-700 py-2 rounded-control hover:bg-orange-700 transition-colors text-body font-semibold">Replace Existing</button>
-            <button onClick={() => handleDuplicateResolve('keep')} className="w-full bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Keep Both</button>
-            <button onClick={() => handleDuplicateResolve('cancel')} className="w-full bg-stone-700 text-stone-400 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        title="Duplicate found"
+        width="confirm"
+        onClose={() => handleDuplicateResolve('cancel')}
+        footer={(
+          <>
+            <Button onClick={() => handleDuplicateResolve('cancel')}>Cancel</Button>
+            <Button onClick={() => handleDuplicateResolve('keep')}>Keep both</Button>
+            <Button variant="primary" onClick={() => handleDuplicateResolve('replace')}>Replace existing</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">A course with this name already exists.</p>
+      </Dialog>
     );
   }
 }
