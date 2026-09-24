@@ -142,7 +142,7 @@ const REGISTRY = [
   P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes Reference' } }),
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
-  P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New Software Course' } }),
+  P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New software course' } }),   // A3: sentence case (Q2)
   P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import Data' } }),
 
   // R.A.B.B.I.T. — the nine tabs with the project open, then what opens off them.
@@ -210,10 +210,10 @@ const KNOWN = {
   face: [
     { key: 'otter-lesson', text: 'Project Settings → M' },
     { key: 'otter-lesson', text: 'The is fixed the mom' },
-    { key: 'otter-new-course', text: '○ Add Subject' },
+    { key: 'otter-new-course', text: '○ Add subject' },
     { key: 'otter-new-course', text: '○ Share with the com' },
     { key: 'otter-new-course', text: '● Just for me' },
-    { key: 'otter-new-course', text: '● New Course' },
+    { key: 'otter-new-course', text: '● New course' },
   ],
   weight: [],
   upper: [],

@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -4155,40 +4155,46 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const standardMatch = findStandardByName(softwareList, softwareNameInput);
 
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-h1 font-semibold text-orange-400 mb-2">
-            {isCourseMode ? (isExistingSoftware ? `Add Subjects to ${exactMatch.name}` : 'New Software Course') : `Add Subject to ${activeSoftware?.name || 'Software'}`}
-          </h2>
-          <p className="text-stone-400 mb-6">
-            {isCourseMode
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="reading">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            description={isCourseMode
               ? (isExistingSoftware
                 ? `${exactMatch.name} already exists. New subjects will be added to the existing course (basics will be skipped).`
                 : 'Enter the software or language name. O.T.T.E.R. will generate a course outline with 5-10 subject stubs.')
               : 'Describe the topic you want to add. O.T.T.E.R. will generate a focused single-subject lesson.'}
-          </p>
-          <div className="bg-stone-800 border border-stone-600 rounded-control p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
+          >
+            {isCourseMode ? (isExistingSoftware ? `Add subjects to ${exactMatch.name}` : 'New software course') : `Add subject to ${activeSoftware?.name || 'Software'}`}
+          </SectionTitle>
+          {/* The form's controls wear the kit's CSS contract (ui-input, the
+              Field label) on their own elements rather than becoming the kit's
+              Input: that component brings Escape-reverts-the-edit, a new
+              behaviour on this form (C1). The labels stay unassociated, as
+              they were — htmlFor would make each one a new click target. */}
+          <div className="otter-form-card">
             {/* Mode selector */}
-            <label className="block text-label font-semibold text-orange-400 mb-2 uppercase">Mode</label>
-            <div className="flex gap-3 mb-5">
+            <label className="ui-field-label otter-form-label">Mode</label>
+            <div className="otter-radio-row">
               <button onClick={() => setPromptMode('course')} disabled={generating}
-                className="otter-radio-card flex-1 p-3 rounded-control border transition-colors text-left"
+                className="otter-radio-card"
                 data-selected={isCourseMode ? 'true' : undefined}>
-                <div className="font-semibold text-h3">{isCourseMode ? '\u25CF ' : '\u25CB '}New Course</div>
-                <div className="text-dense mt-1 text-stone-400">Generate 5-10 subject outlines for a software/language.</div>
+                <div className="otter-radio-title">{isCourseMode ? '\u25CF ' : '\u25CB '}New course</div>
+                <div className="otter-radio-desc">Generate 5-10 subject outlines for a software/language.</div>
               </button>
               <button onClick={() => setPromptMode('subject')} disabled={generating}
-                className="otter-radio-card flex-1 p-3 rounded-control border transition-colors text-left"
+                className="otter-radio-card"
                 data-selected={!isCourseMode ? 'true' : undefined}>
-                <div className="font-semibold text-h3">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add Subject</div>
-                <div className="text-dense mt-1 text-stone-400">Focused single-topic lesson added to existing course.</div>
+                <div className="otter-radio-title">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add subject</div>
+                <div className="otter-radio-desc">Focused single-topic lesson added to existing course.</div>
               </button>
             </div>
 
             {/* Software name input with autocomplete (course mode) */}
             {isCourseMode && (
-              <div className="relative mb-4">
-                <label className="block text-label font-semibold text-orange-400 mb-1 uppercase">Software / Language Name</label>
+              <div className="otter-form-field otter-autocomplete">
+                <label className="ui-field-label otter-form-label">Software / Language name</label>
                 <input
                   ref={softwareInputRef} type="text" value={softwareNameInput}
                   onChange={e => { setSoftwareNameInput(e.target.value); setShowSoftwareDropdown(true); }}
@@ -4196,22 +4202,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   onBlur={() => setTimeout(() => setShowSoftwareDropdown(false), 200)}
                   placeholder="e.g., Python, Blender, Photoshop..."
                   disabled={generating}
-                  className="w-full bg-stone-950 text-white border border-stone-600 rounded-control px-3 py-2 text-body focus:border-orange-500 transition-colors placeholder-stone-600"
+                  className="ui-input"
+                  data-surface="dark"
                 />
                 {showSoftwareDropdown && softwareNameInput.trim() && filteredSoftware.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-stone-700 border border-stone-600 rounded-control shadow-lg z-50 max-h-[200px] overflow-y-auto">
+                  <div className="otter-autocomplete-list">
                     {filteredSoftware.map(sw => (
                       <button key={sw.slug}
                         onMouseDown={(e) => { e.preventDefault(); setSoftwareNameInput(sw.name); setShowSoftwareDropdown(false); }}
-                        className="otter-sw-option w-full text-left px-3 py-2 text-body hover:bg-stone-600 transition-colors flex items-center justify-between"
+                        className="otter-sw-option"
                         data-match={sw.name.toLowerCase() === softwareNameLower ? 'true' : undefined}>
                         <span>{sw.name}</span>
-                        <span className="text-stone-500 text-caption">{sw.subject_count} subjects</span>
+                        <span className="otter-sw-option-count">{sw.subject_count} subjects</span>
                       </button>
                     ))}
                   </div>
                 )}
-                {isExistingSoftware && <p className="text-orange-400/70 text-dense mt-1">Existing course -- new subjects will be added, basics skipped.</p>}
+                {isExistingSoftware && <p className="otter-form-hint">Existing course — new subjects will be added, basics skipped.</p>}
 
                 {/* ── The fork offer ──────────────────────────────────────────
                     Inline in the flow the user is already in, the moment the
@@ -4222,35 +4229,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     already settled; this is the cheaper and better answer.
                     (Von Restorff: the ONE highlighted block on this screen.) */}
                 {cloudMode && standardMatch && !standardMatch.is_own && (
-                  <div className="mt-3 bg-orange-600/10 border border-orange-600/50 rounded-control p-3">
-                    <div className="flex items-start gap-2">
-                      <ShieldCheck className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-orange-300 text-dense font-semibold mb-0.5">
-                          Your company already has a course for this
-                        </p>
-                        <p className="text-stone-400 text-dense mb-2">
-                          &ldquo;{standardMatch.name}&rdquo; is the company standard
-                          ({standardMatch.subject_count} subjects). Start from that instead of
-                          generating a new one — you get your own copy to edit, and you can send
-                          your improvements back.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => forkCourse(standardMatch)}
-                            disabled={forkBusy || generating}
-                            className="flex items-center gap-1.5 bg-orange-600 text-white border border-orange-700 px-3 py-1.5 rounded-control hover:bg-orange-700 transition-colors text-dense font-semibold disabled:opacity-50"
-                          >
-                            {forkBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
-                            Use the company standard
-                          </button>
-                          <span className="text-stone-600 text-caption self-center">
-                            or carry on below to generate your own
-                          </span>
-                        </div>
-                      </div>
+                  <Banner tone="info" Icon={ShieldCheck} className="otter-fork-offer">
+                    <p className="otter-fork-title">Your company already has a course for this</p>
+                    <p className="otter-fork-body">
+                      &ldquo;{standardMatch.name}&rdquo; is the company standard
+                      ({standardMatch.subject_count} subjects). Start from that instead of
+                      generating a new one — you get your own copy to edit, and you can send
+                      your improvements back.
+                    </p>
+                    <div className="otter-fork-actions">
+                      <Button variant="primary" size="sm" onClick={() => forkCourse(standardMatch)} disabled={forkBusy || generating}>
+                        {forkBusy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
+                        Use the company standard
+                      </Button>
+                      <span className="otter-form-hint">or carry on below to generate your own</span>
                     </div>
-                  </div>
+                  </Banner>
                 )}
               </div>
             )}
@@ -4263,11 +4257,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 afterwards from the course's own menu, by an admin, rather than
                 being a third choice everyone has to reason past here. */}
             {isCourseMode && cloudMode && !isExistingSoftware && (
-              <div className="mb-4">
-                <label className="block text-label font-semibold text-orange-400 mb-1 uppercase">
+              <div className="otter-form-field">
+                <label className="ui-field-label otter-form-label">
                   Who is this for?
                 </label>
-                <div className="flex gap-3">
+                <div className="otter-radio-row">
                   {['personal', 'shared'].map(tier => {
                     const meta = VISIBILITY_META[tier];
                     const active = newCourseVisibility === tier;
@@ -4276,16 +4270,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         key={tier}
                         onClick={() => setNewCourseVisibility(tier)}
                         disabled={generating}
-                        className="otter-radio-card flex-1 p-3 rounded-control border transition-colors text-left"
+                        className="otter-radio-card"
                         data-selected={active ? 'true' : undefined}
                       >
-                        <div className="font-semibold text-h3">{active ? '● ' : '○ '}{meta.label}</div>
-                        <div className="text-dense mt-1 text-stone-400">{meta.blurb}</div>
+                        <div className="otter-radio-title">{active ? '● ' : '○ '}{meta.label}</div>
+                        <div className="otter-radio-desc">{meta.blurb}</div>
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-stone-600 text-dense mt-1">
+                <p className="otter-form-hint">
                   You can change this later from the course&apos;s menu.
                 </p>
               </div>
@@ -4293,13 +4287,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
             {/* Subject mode: software dropdown selector */}
             {!isCourseMode && (
-              <div className="relative mb-4">
-                <label className="block text-label font-semibold text-orange-400 mb-1 uppercase">Software / Language</label>
+              <div className="otter-form-field">
+                <label className="ui-field-label otter-form-label">Software / Language</label>
                 {softwareList.length === 0 ? (
-                  <p className="text-stone-500 text-body">No courses yet. Create a course first.</p>
+                  <p className="otter-form-hint">No courses yet. Create a course first.</p>
                 ) : (
                   <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }} disabled={generating}
-                    className="w-full bg-stone-950 text-white border border-stone-600 rounded-control px-3 py-2 text-body focus:border-orange-500 transition-colors">
+                    className="ui-input" data-surface="dark">
                     <option value="" disabled>Select a software/language...</option>
                     {softwareList.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
                   </select>
@@ -4308,69 +4302,71 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             )}
 
             {/* Prompt textarea */}
-            <label className="block text-label font-semibold text-orange-400 mb-2 uppercase">
-              {isCourseMode ? 'Description (optional)' : 'What specific topic?'}
-            </label>
-            <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
-              placeholder={isCourseMode ? "e.g., Focus on game development workflow..." : "e.g., List comprehensions in Python..."}
-              className="w-full h-32 bg-stone-950 text-white border border-stone-600 rounded-control p-4 resize-none focus:border-orange-500 transition-colors placeholder-stone-600"
-              disabled={generating} />
+            <div className="otter-form-field">
+              <label className="ui-field-label otter-form-label">
+                {isCourseMode ? 'Description (optional)' : 'What specific topic?'}
+              </label>
+              <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
+                placeholder={isCourseMode ? "e.g., Focus on game development workflow..." : "e.g., List comprehensions in Python..."}
+                className="ui-input otter-prompt-textarea"
+                data-surface="dark"
+                disabled={generating} />
+            </div>
 
             {/* Reference URLs */}
-            <label className="block text-label font-semibold text-orange-400 mt-4 mb-2 uppercase">Reference URLs (optional)</label>
-            <p className="text-stone-500 text-dense mb-2">Add URLs for O.T.T.E.R. to reference when creating lessons. Reduces web search time.</p>
-            <div className="flex gap-2 mb-2">
-              <input type="text" value={referenceUrlInput}
-                onChange={e => setReferenceUrlInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReferenceUrl(); } }}
-                placeholder="https://docs.example.com/guide"
-                disabled={generating || fetchingUrl}
-                className="flex-1 bg-stone-950 text-white border border-stone-600 rounded-control px-3 py-1.5 text-body focus:border-orange-500 transition-colors placeholder-stone-600" />
-              <button onClick={addReferenceUrl} disabled={generating || fetchingUrl || !referenceUrlInput.trim()}
-                className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 transition-colors text-body disabled:opacity-50 flex items-center gap-1">
-                {fetchingUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Add
-              </button>
-            </div>
-            {referenceUrls.length > 0 && (
-              <div className="space-y-1 mb-3">
-                {referenceUrls.map((ref, i) => (
-                  <div key={i} className="flex items-center gap-2 bg-stone-900 border border-stone-700 rounded-control px-2 py-1 text-dense">
-                    <Link className="w-3 h-3 text-stone-500 shrink-0" />
-                    <span className="otter-ref-title truncate flex-1" data-error={ref.error ? 'true' : undefined}>{ref.title || ref.url}</span>
-                    {ref.error && <span className="text-red-500 text-dense">Failed</span>}
-                    {!ref.error && <Check className="w-3 h-3 text-green-500 shrink-0" />}
-                    <button onClick={() => {
-                        const updated = referenceUrls.filter((_, j) => j !== i);
-                        setReferenceUrls(updated);
-                        saveReferenceUrls(updated);
-                      }}
-                      className="text-stone-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
-                  </div>
-                ))}
+            <div className="otter-form-field">
+              <label className="ui-field-label otter-form-label">Reference URLs (optional)</label>
+              <p className="otter-form-hint otter-form-hint-above">Add URLs for O.T.T.E.R. to reference when creating lessons. Reduces web search time.</p>
+              <div className="otter-ref-add">
+                <input type="text" value={referenceUrlInput}
+                  onChange={e => setReferenceUrlInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReferenceUrl(); } }}
+                  placeholder="https://docs.example.com/guide"
+                  disabled={generating || fetchingUrl}
+                  className="ui-input"
+                  data-surface="dark" />
+                <Button variant="secondary" onClick={addReferenceUrl} disabled={generating || fetchingUrl || !referenceUrlInput.trim()}>
+                  {fetchingUrl ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />} Add
+                </Button>
               </div>
-            )}
+              {referenceUrls.length > 0 && (
+                <ul className="otter-refs">
+                  {referenceUrls.map((ref, i) => (
+                    <li key={i} className="otter-ref">
+                      <Link className="otter-ref-icon" aria-hidden="true" />
+                      <span className="otter-ref-title" data-error={ref.error ? 'true' : undefined}>{ref.title || ref.url}</span>
+                      {ref.error && <span className="otter-ref-failed">Failed</span>}
+                      {!ref.error && <Check className="otter-ref-ok" aria-hidden="true" />}
+                      <IconButton
+                        size="sm"
+                        icon={X}
+                        title="Remove this reference"
+                        onClick={() => {
+                          const updated = referenceUrls.filter((_, j) => j !== i);
+                          setReferenceUrls(updated);
+                          saveReferenceUrls(updated);
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             {/* Skill level */}
-            <div className="mt-4 flex items-center gap-4">
-              <div>
-                <label className="block text-label font-semibold text-orange-400 mb-1 uppercase">Skill Level</label>
-                <div className="flex gap-2">
-                  {['beginner', 'intermediate', 'advanced'].map(level => (
-                    <button key={level} onClick={() => setSkillLevel(level)} disabled={generating}
-                      className="otter-level px-3 py-1.5 rounded-control text-body font-semibold border transition-colors"
-                      data-selected={skillLevel === level ? 'true' : undefined}>
-                      {level}
-                    </button>
-                  ))}
-                </div>
+            <div className="otter-form-field">
+              <label className="ui-field-label otter-form-label">Skill level</label>
+              <div className="otter-levels" role="group" aria-label="Skill level">
+                {['beginner', 'intermediate', 'advanced'].map(level => (
+                  <Chip key={level} active={skillLevel === level} onClick={() => setSkillLevel(level)} disabled={generating}>
+                    {level}
+                  </Chip>
+                ))}
               </div>
             </div>
 
             {genError && (
-              <div className="mt-4 bg-red-900/30 border border-red-700 rounded-control p-3 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <p className="text-red-300 text-body">{genError}</p>
-              </div>
+              <Banner tone="danger" Icon={AlertCircle} className="otter-gen-error">{genError}</Banner>
             )}
 
             {/* Q22 (Audrey, 2026-09-11): the fabricated percentage is removed —
@@ -4389,12 +4385,15 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             )}
 
             {!generating && (
-              <button onClick={isCourseMode ? generateCourse : generateSingleSubject}
+              <Button
+                variant="primary"
+                className="otter-generate"
+                onClick={isCourseMode ? generateCourse : generateSingleSubject}
                 disabled={isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug)}
-                className="otter-generate mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-control border font-semibold text-body transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <GraduationCap className="w-5 h-5" />
-                {isCourseMode ? (isExistingSoftware ? 'Add Subjects to Existing Course' : 'Generate Course Outline') : 'Generate Subject'}
-              </button>
+              >
+                <GraduationCap aria-hidden="true" />
+                {isCourseMode ? (isExistingSoftware ? 'Add subjects to existing course' : 'Generate course outline') : 'Generate subject'}
+              </Button>
             )}
           </div>
         </div>

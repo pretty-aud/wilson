@@ -39,68 +39,6 @@
 
 @layer components {
 
-  /* ═══ EXTRACTION — THE PROMPT VIEW (renderPromptInput) ═════════════════
-     The radio CARD, drawn twice with one pair of branches (Mode: course or
-     subject; Who is this for: personal or shared):
-       selected   white on orange-600 at 15%, an orange-500 edge
-       default    stone-400 on stone-900, a stone-600 edge; stone-500 on hover
-     The course autocomplete's option: orange-400 at 600 when it matches the
-     typed name exactly, stone-300 otherwise (its hover is a static utility).
-     A reference URL's title: red-400 when it failed to load, else stone-300.
-     A skill LEVEL button:
-       selected   white on orange-600, an orange-700 edge
-       default    stone-400 on stone-700, a stone-600 edge; stone-500 on hover
-     Generate: its ternary's condition IS its `disabled` prop, so
-       :disabled  stone-500 on stone-700, a stone-600 edge, not-allowed
-       enabled    white on orange-600, an orange-700 edge; orange-700 on hover */
-  .otter-radio-card {
-    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
-    background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
-    border-color: oklch(44.4% 0.011 73.639);                /* border-stone-600 */
-  }
-  .otter-radio-card:not([data-selected='true']):hover {
-    border-color: oklch(55.3% 0.013 58.071);                /* hover:border-stone-500 */
-  }
-  .otter-radio-card[data-selected='true'] {
-    color: white;                                           /* text-white */
-    background-color: color-mix(in oklab, oklch(64.6% 0.222 41.116) 15%, transparent); /* bg-orange-600/15 */
-    border-color: oklch(70.5% 0.213 47.604);                /* border-orange-500 */
-  }
-  .otter-sw-option { color: oklch(86.9% 0.005 56.366); }  /* text-stone-300 */
-  .otter-sw-option[data-match='true'] {
-    color: oklch(75% 0.183 55.934);                         /* text-orange-400 */
-    font-weight: 600;                                       /* font-semibold */
-  }
-  .otter-ref-title { color: oklch(86.9% 0.005 56.366); }  /* text-stone-300 */
-  .otter-ref-title[data-error='true'] { color: oklch(70.4% 0.191 22.216); } /* text-red-400 */
-  .otter-level {
-    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
-    background-color: oklch(37.4% 0.01 67.558);             /* bg-stone-700 */
-    border-color: oklch(44.4% 0.011 73.639);                /* border-stone-600 */
-  }
-  .otter-level:not([data-selected='true']):hover {
-    border-color: oklch(55.3% 0.013 58.071);                /* hover:border-stone-500 */
-  }
-  .otter-level[data-selected='true'] {
-    color: white;                                           /* text-white */
-    background-color: oklch(64.6% 0.222 41.116);            /* bg-orange-600 */
-    border-color: oklch(55.3% 0.195 38.402);                /* border-orange-700 */
-  }
-  .otter-generate {
-    color: white;                                           /* text-white */
-    background-color: oklch(64.6% 0.222 41.116);            /* bg-orange-600 */
-    border-color: oklch(55.3% 0.195 38.402);                /* border-orange-700 */
-  }
-  .otter-generate:hover:not(:disabled) {
-    background-color: oklch(55.3% 0.195 38.402);            /* hover:bg-orange-700 */
-  }
-  .otter-generate:disabled {
-    color: oklch(55.3% 0.013 58.071);                       /* text-stone-500 */
-    background-color: oklch(37.4% 0.01 67.558);             /* bg-stone-700 */
-    border-color: oklch(44.4% 0.011 73.639);                /* border-stone-600 */
-    cursor: not-allowed;                                    /* cursor-not-allowed */
-  }
-
   /* ═══ EXTRACTION — THE REFERENCE VIEWS (renderHotkeys, renderNodes) ════
      The one ternary: a Nodes system tab (Geometry Nodes, Shader Nodes…),
        active   orange-400 on stone-900, an orange-500 underline; no hover
@@ -652,6 +590,127 @@
     color: var(--color-danger);
   }
 
+  /* ═══ THE PROMPT VIEW (renderPromptInput) ═════════════════════════════
+     The generate form, on the reading measure (720), titled like every
+     other view. Its fields keep their own elements and wear the kit's CSS:
+     `ui-input` for the inputs, the select and the textarea (paper-raised,
+     one hairline, Dense, the focus ring), the Field label's Label step for
+     the seven labels (O25: they were two sizes in orange, with two gaps).
+     The radio card (O26, drawn twice) takes the kit's ONE selected
+     treatment — the Chip's: the signal tint and a 1px signal edge, the ink
+     unchanged — instead of white on an orange wash; the skill level is the
+     kit's Chip itself; Generate and the fork offer's action are the
+     primary Button (white on signal-fill, 5.18:1 — white on orange-600 was
+     3.58:1); the fork offer is the kit's Banner. */
+  .otter-form-card {
+    padding: 24px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-form-label { display: block; margin-bottom: 8px; }
+  .otter-form-field { position: relative; margin-top: 20px; }
+  .otter-form-hint {
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-form-hint-above { margin: -4px 0 8px; }
+  .otter-radio-row { display: flex; gap: 12px; }
+  .otter-radio-card {
+    flex: 1 1 0;
+    padding: 12px;
+    text-align: left;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .otter-radio-card:not([data-selected='true']):hover:not(:disabled) { border-color: var(--color-ink-3); }
+  .otter-radio-card[data-selected='true'] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    border-color: var(--color-signal);
+  }
+  .otter-radio-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+  }
+  .otter-radio-desc {
+    margin-top: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-autocomplete-list {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    margin-top: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .otter-sw-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: var(--control-sm);
+    padding: 0 12px;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-sw-option:hover { background-color: var(--color-hover); }
+  .otter-sw-option[data-match='true'] { color: var(--color-ink); font-weight: 600; }
+  .otter-sw-option-count {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-banner.otter-fork-offer { margin-top: 12px; }
+  .otter-fork-title { font-weight: 600; color: var(--color-ink); }
+  .otter-fork-body { margin-top: 2px; color: var(--color-ink-2); }
+  .otter-fork-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .otter-fork-actions .otter-form-hint { margin-top: 0; }
+  .ui-input.otter-prompt-textarea { height: 128px; padding: 8px 12px; resize: none; }
+  .otter-ref-add { display: flex; gap: 8px; }
+  .otter-refs { display: flex; flex-direction: column; margin-top: 8px; }
+  .otter-ref {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--row-dense);
+    padding: 0 0 0 8px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+  }
+  .otter-ref-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-ref-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-2); }
+  .otter-ref-title[data-error='true'] { color: var(--color-danger); }
+  .otter-ref-failed { color: var(--color-danger); }
+  .otter-ref-ok { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-success); }
+  .otter-levels { display: flex; gap: 8px; }
+  .ui-btn.otter-generate { width: 100%; margin-top: 24px; }
+
   /* ═══ GENERATION IN PROGRESS — Q22, O15, O16 ══════════════════════════
      One idiom for "O.T.T.E.R. is writing", on the prompt screen and on an
      outline's page: the phase with a turning spinner, the elapsed time in
@@ -875,7 +934,7 @@
     .otter-add-subject, .otter-rail, .otter-rail-icon,
     .otter-group-row, .otter-section-row, .otter-lesson-row, .otter-sources-link,
     .otter-progress-fill, .otter-course-card, .otter-subject-card,
-    .otter-subject-card .otter-subject-card-delete { transition: none; }
+    .otter-subject-card .otter-subject-card-delete, .otter-radio-card, .otter-sw-option { transition: none; }
   }
 
 }
