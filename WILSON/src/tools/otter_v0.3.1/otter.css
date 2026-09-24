@@ -39,51 +39,6 @@
 
 @layer components {
 
-  /* ═══ EXTRACTION — SIDEBAR 1, courses and subjects (renderSoftwareSidebar)
-     The course NAME, three branches, first match wins:
-       not openable (an admin's metadata-only row)   stone-600
-       the active course                             orange-400
-       default                                       stone-400
-     so `data-openable='false'` is declared last and beats `data-active`. */
-  .otter-course-name { color: oklch(70.9% 0.01 56.259); }                 /* text-stone-400 */
-  .otter-course-name[data-active='true'] { color: oklch(75% 0.183 55.934); } /* text-orange-400 */
-  .otter-course-name[data-openable='false'] { color: oklch(44.4% 0.011 73.639); } /* text-stone-600 */
-
-  /* A SUBJECT row, three branches, first match wins:
-       active   orange-400, 600, an orange-500 left edge, black at 15%; no hover
-       stub     stone-500 at 50%; hover stone-400 on stone-700 at 50%
-       default  stone-400 at 80%; hover stone-300 on stone-700 at 50%
-     The edge's 2px WIDTH stays a utility; its colour moved. */
-  .otter-subject-row {
-    color: color-mix(in oklab, oklch(70.9% 0.01 56.259) 80%, transparent);  /* text-stone-400/80 */
-    border-left-color: transparent;
-  }
-  .otter-subject-row:not([data-active='true']):hover {
-    color: oklch(86.9% 0.005 56.366);                                       /* hover:text-stone-300 */
-    background-color: color-mix(in oklab, oklch(37.4% 0.01 67.558) 50%, transparent); /* hover:bg-stone-700/50 */
-  }
-  .otter-subject-row[data-stub='true'] {
-    color: color-mix(in oklab, oklch(55.3% 0.013 58.071) 50%, transparent); /* text-stone-500/50 */
-  }
-  .otter-subject-row[data-stub='true']:not([data-active='true']):hover {
-    color: oklch(70.9% 0.01 56.259);                                        /* hover:text-stone-400 */
-  }
-  .otter-subject-row[data-active='true'] {
-    color: oklch(75% 0.183 55.934);                                         /* text-orange-400 */
-    font-weight: 600;                                                       /* font-semibold */
-    border-left-color: oklch(70.5% 0.213 47.604);                           /* border-orange-500 */
-    background-color: color-mix(in oklab, black 15%, transparent);          /* bg-black/15 */
-  }
-
-  /* The subject's delete: hidden until its row is hovered (the row's
-     `group/sub`), stone-600, red-400 on its own hover. */
-  .otter-subject-delete {
-    opacity: 0;
-    color: oklch(44.4% 0.011 73.639);                                       /* text-stone-600 */
-  }
-  .otter-subject-row:hover .otter-subject-delete { opacity: 1; }          /* group-hover/sub:opacity-100 */
-  .otter-subject-delete:hover { color: oklch(70.4% 0.191 22.216); }       /* hover:text-red-400 */
-
   /* ═══ EXTRACTION — SIDEBAR 2, the lesson list (renderLessonSidebar) ════
      A lesson row, two branches:
        active   orange-400 on stone-900, an orange-500 left edge; no hover
@@ -369,5 +324,195 @@
   }
   .ui-tabs.otter-nav-tabs > .ui-tab:last-child { margin-left: auto; }
   .otter-nav-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+
+  /* ═══ SIDEBAR 1 — courses and subjects, the kit's Panel (sm, 200) ══════
+     Review O9, O21, O22, O35. The panel is the kit's: no fill, one hairline,
+     a 32px Label-step header holding the collapse control, with a hairline
+     under it as D.O.G.'s sidebar has (the old column was stone-800 with
+     eight hairline values inside it). Only the course list scrolls: New and
+     the chips stay put, as they did.
+     Two row heights on the 4px unit (O35): a course 32px, a subject 28px.
+       course    Dense, the author's own casing (O9: it was uppercased at
+                 the Label step), ink-2; the open course ink at 600; a
+                 metadata-only course the third ink, never an opacity
+       subject   Dense, ink-2; a stub the third ink; the open subject the
+                 kit Row's selected treatment — the signal tint and a 2px
+                 signal edge, drawn inset so the row never moves
+     The subject's number is data: the mono, tabular, the third ink (O36). */
+  .ui-panel.otter-courses > .ui-panel-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .otter-courses .ui-panel-head { border-bottom: 1px solid var(--color-rule); }
+  .otter-courses-new {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .otter-courses-new > .ui-btn { width: 100%; }
+  .otter-course-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+  .otter-course-row {
+    display: flex;
+    align-items: center;
+    height: var(--row-dense);
+    padding-right: 4px;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-course-row:hover { background-color: var(--color-hover); }
+  .otter-course-open {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px 0 12px;
+    text-align: left;
+    color: var(--color-ink-2);
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .otter-course-open:disabled { cursor: default; }
+  .otter-course-chevron {
+    display: inline-block;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    flex-shrink: 0;
+    color: var(--color-ink-3);
+  }
+  .otter-course-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+  }
+  .otter-course-row[data-active='true'] .otter-course-open { color: var(--color-ink); }
+  .otter-course-row[data-active='true'] .otter-course-name { font-weight: 600; }
+  .otter-course-row[data-openable='false'] .otter-course-open { color: var(--color-ink-3); }
+  .otter-course-menu { display: inline-flex; flex-shrink: 0; }
+
+  .otter-subjects { padding-bottom: 4px; }
+  .otter-subject-row {
+    display: flex;
+    align-items: center;
+    height: var(--control-sm);
+    padding-right: 4px;
+    color: var(--color-ink-2);
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .otter-subject-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .otter-subject-row[data-stub='true'] { color: var(--color-ink-3); }
+  .otter-subject-row[data-active='true'][data-active='true'] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .otter-subject-row[data-active='true'] .otter-subject-label { font-weight: 600; }
+  .otter-subject-open {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 4px 0 32px;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .otter-subject-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .otter-subject-order {
+    margin-right: 4px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    color: var(--color-ink-3);
+  }
+  .otter-subject-outline { margin-left: 4px; color: var(--color-ink-3); }
+  /* The delete keeps its slot at every moment (the row never reflows), is
+     revealed on the row's hover as before and now on KEYBOARD focus too —
+     `:has(:focus-visible)`, not `:focus-within`, which a mouse click also
+     matches (A1 hand-off §5 trap 2). */
+  .otter-subject-row .otter-subject-delete {
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out,
+      background-color var(--duration-state) ease-out,
+      color var(--duration-state) ease-out;
+  }
+  .otter-subject-row:hover .otter-subject-delete,
+  .otter-subject-row:has(:focus-visible) .otter-subject-delete { opacity: 1; }
+  .otter-add-subject {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: var(--control-sm);
+    padding: 0 8px 0 32px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .otter-add-subject:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .otter-add-subject-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .otter-subjects-note {
+    padding: 6px 8px 6px 32px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-style: italic;
+    color: var(--color-ink-3);
+  }
+
+  /* The collapsed rail (SidebarCollapse.jsx): a full-height 24px target, a
+     hairline, the chevron in a 32px slot so it sits where the header's
+     collapse button sits. The paper ground, like the panel it reopens. */
+  .otter-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 24px;
+    flex-shrink: 0;
+    background-color: var(--color-paper);
+    border: 0;
+    border-right: 1px solid var(--color-rule);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-rail:hover { background-color: var(--color-hover); }
+  .otter-rail-slot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: var(--panel-header);
+  }
+  .otter-rail-icon {
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    transition: color var(--duration-state) ease-out;
+  }
+  .otter-rail:hover .otter-rail-icon { color: var(--color-ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .otter-course-row, .otter-subject-row, .otter-subject-row .otter-subject-delete,
+    .otter-add-subject, .otter-rail, .otter-rail-icon { transition: none; }
+  }
 
 }

@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -3464,14 +3464,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
 
     return (
-      <aside className="w-[200px] shrink-0 bg-stone-800 border-r border-stone-600 overflow-hidden flex flex-col">
-        <SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />
-        <button
-          onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-body font-semibold text-white bg-orange-600 hover:bg-orange-700 border-b border-stone-600 transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" /> New
-        </button>
+      <Panel
+        width="sm"
+        className="otter-courses"
+        title="Courses"
+        actions={<SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />}
+      >
+        <div className="otter-courses-new">
+          <Button
+            variant="primary"
+            size="sm"
+            Icon={Plus}
+            onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
+          >
+            New
+          </Button>
+        </div>
         {/* Tier filters. Cloud only: signed out there is one user, one tier and
             no trash, so a chip strip would be pure noise in local mode. */}
         {cloudMode && (
@@ -3482,7 +3490,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             counts={filterCounts}
           />
         )}
-        <div className="flex-1 overflow-y-auto">
+        <div className="otter-course-list">
           {courseFilter === 'trash' ? (
             <TrashSidebarList
               rows={trashRows}
@@ -3493,22 +3501,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               onRestore={restoreTrashRow}
             />
           ) : softwareList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
-              <Plus className="w-8 h-8 text-stone-600 mb-2" />
-              <p className="text-stone-500 text-dense mb-3">No courses yet</p>
-              <p className="text-stone-600 text-dense">Click &quot;New&quot; above to create your first course</p>
-            </div>
+            <EmptyState icon={Plus} title="No courses yet" body='Click "New" above to create your first course' compact />
           ) : visibleCourses.length === 0 ? (
             // A filter that silently shows an empty column reads as data loss.
-            <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
-              <p className="text-stone-500 text-dense mb-2">Nothing here yet</p>
-              <button
-                onClick={() => setCourseFilter('all')}
-                className="text-orange-400 hover:text-orange-300 text-dense underline"
-              >
-                Show all courses
-              </button>
-            </div>
+            <EmptyState title="Nothing here yet" compact>
+              <Button variant="ghost" size="sm" onClick={() => setCourseFilter('all')}>Show all courses</Button>
+            </EmptyState>
           ) : (
             [...visibleCourses].sort((a, b) => {
               const aIsLang = a.type === 'coding_language' ? 1 : 0;
@@ -3525,11 +3523,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div key={sw.slug}>
                   {/* Was a single full-width <button>; it is now a row so the
-                      actions menu can sit beside the label. Same padding, same
-                      border, same hover — visually unchanged. */}
+                      actions menu can sit beside the label. */}
                   <div
-                    className="group/course w-full flex items-center transition-colors hover:bg-stone-700"
-                    style={{ borderBottom: '1px solid rgba(87,83,78,0.3)' }}
+                    className="otter-course-row"
+                    data-active={isActive ? 'true' : undefined}
+                    data-openable={openable ? undefined : 'false'}
                   >
                     <button
                       onClick={() => {
@@ -3547,21 +3545,17 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       }}
                       disabled={!openable}
                       title={openable ? sw.name : `${sw.name} — private to ${sw.owner_label || 'its owner'}`}
-                      className="flex-1 min-w-0 text-left pl-3 pr-1 py-2.5 flex items-center gap-2 disabled:cursor-default"
+                      className="otter-course-open"
                     >
                       {!openable
-                        ? <span className="w-3 h-3 flex-shrink-0" />
+                        ? <span className="otter-course-chevron" aria-hidden="true" />
                         : isExpanded
-                          ? <ChevronDown className="w-3 h-3 text-orange-400 flex-shrink-0" />
-                          : <ChevronRight className="w-3 h-3 text-stone-500 flex-shrink-0" />
+                          ? <ChevronDown className="otter-course-chevron" aria-hidden="true" />
+                          : <ChevronRight className="otter-course-chevron" aria-hidden="true" />
                       }
-                      <span
-                        className="otter-course-name text-label font-semibold uppercase truncate"
-                        data-openable={openable ? undefined : 'false'}
-                        data-active={isActive ? 'true' : undefined}
-                      >
-                        {sw.name}
-                      </span>
+                      {/* The course's own name, as its author wrote it (review
+                          O9): Dense, sentence case, never uppercased. */}
+                      <span className="otter-course-name">{sw.name}</span>
                       {cloudMode && <VisibilityBadge course={sw} compact />}
                     </button>
                     {/* PHASE 5: was `opacity-0 group-hover/course:opacity-100`.
@@ -3570,7 +3564,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         company-library model — the literal reason Audrey could
                         not find how to submit a course. Always visible now. */}
                     {cloudMode && (
-                      <span className="pr-1">
+                      <span className="otter-course-menu">
                         <CourseRowMenu
                           course={sw}
                           role={appRole}
@@ -3584,14 +3578,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     )}
                   </div>
                   {isExpanded && (
-                    <div style={{ backgroundColor: 'rgba(0,0,0,0.12)' }}>
+                    <div className="otter-subjects">
                       {subjectList.map(sub => {
                         const isSubActive = activeSubjectSlug === sub.slug;
                         const isStub = sub.is_stub;
                         return (
                           <div
                             key={sub.slug}
-                            className="otter-subject-row group/sub flex items-center transition-colors border-l-2"
+                            className="otter-subject-row"
                             data-active={isSubActive ? 'true' : undefined}
                             data-stub={isStub ? 'true' : undefined}
                           >
@@ -3601,28 +3595,29 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                 if (!isStub) setCurrentView('study');
                                 else setCurrentView('library');
                               }}
-                              className="flex-1 text-left py-1.5 pl-6 pr-1 text-dense min-w-0"
+                              className="otter-subject-open"
                             >
-                              <span className="truncate block">
-                                {sub.subject_order != null && <span className="text-orange-500 font-semibold text-dense mr-1">{String(sub.subject_order).padStart(2, '0')} ·</span>}
+                              <span className="otter-subject-label">
+                                {sub.subject_order != null && <span className="otter-subject-order">{String(sub.subject_order).padStart(2, '0')} ·</span>}
                                 {sub.title}
-                                {isStub && <span className="text-stone-600 ml-1">[outline]</span>}
+                                {isStub && <span className="otter-subject-outline">[outline]</span>}
                               </span>
                             </button>
                             {/* Session 11 item 7: the adapter now returns a
                                 clean 403 instead of a fabricated success, but
                                 the control should not be here at all. */}
                             {rowCanWrite && (
-                              <button
+                              <IconButton
+                                size="sm"
+                                icon={Trash2}
+                                danger
+                                title="Delete subject"
+                                className="otter-subject-delete"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title });
                                 }}
-                                className="otter-subject-delete p-1 mr-1 transition-[color,background-color,border-color,opacity] shrink-0"
-                                title="Delete subject"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              />
                             )}
                           </div>
                         );
@@ -3630,14 +3625,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {rowCanWrite ? (
                         <button
                           onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                          className="w-full text-left py-1.5 text-dense text-stone-600 hover:text-stone-400 transition-colors flex items-center gap-1"
-                          style={{ paddingLeft: '24px', paddingRight: '8px' }}
+                          className="otter-add-subject"
                         >
-                          <Plus className="w-2.5 h-2.5" /> Add subject
+                          <Plus className="otter-add-subject-icon" aria-hidden="true" /> Add subject
                         </button>
                       ) : (
                         // Answers the question the missing buttons raise.
-                        <p className="py-1.5 text-dense text-stone-600 italic" style={{ paddingLeft: '24px', paddingRight: '8px' }}>
+                        <p className="otter-subjects-note">
                           Read only — study it, or make your own copy.
                         </p>
                       )}
@@ -3648,7 +3642,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             })
           )}
         </div>
-      </aside>
+      </Panel>
     );
   }
 
