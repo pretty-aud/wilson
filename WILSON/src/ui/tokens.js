@@ -104,6 +104,8 @@ export const THEME = Object.freeze({
   'width-data-max': '1240px',
   'measure-reading': '66ch',
   'measure-prose-max': '72ch',
+  // A3-KR-1: 60-66 CHARACTERS of Geist at the Body step (see @theme).
+  'measure-body': '45ch',
   // density
   'control-sm': '28px',
   'control-md': '36px',

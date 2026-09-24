@@ -126,6 +126,15 @@
   --width-data-max: 1240px;
   --measure-reading: 66ch;
   --measure-prose-max: 72ch;
+  /* A3 kit request A3-KR-1 (2026-09-24). §3.1's "60 to 66" is a count of
+     CHARACTERS per line; `ch` is the width of the ZERO, and Geist's zero is
+     0.673em (9.42px at the 14px Body step) against an average glyph of about
+     0.47em. Measured on 12 lines of English prose in O.T.T.E.R.'s lesson pane:
+     66ch = 613px = 95 characters a line, 60ch = 86, 45ch = 61 to 66 (63.5 on
+     average). So the Body step's measure, in Geist, is 45ch. The two tokens
+     above keep their values; which surfaces should move to this one is P1's
+     question (A3 hand-off). */
+  --measure-body: 45ch;
 
   /* ── Density (§3.3) ────────────────────────────────────────────────── */
   --control-sm: 28px;
