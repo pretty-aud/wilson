@@ -467,3 +467,32 @@ describe('the legend reads the bars\' own tone rules, and a link keeps its colou
     expect(strokeRules('@layer components { .rb-tl-dep { cursor: pointer; } }')).toEqual([])
   })
 })
+
+/* ── 10. W9: the five confirms on the kit Dialog (B3c) ────────────────────── */
+/** A native confirm, called bare or on window, in comment-stripped code. */
+const nativeConfirms = (src) => (normal(jsCode(src)).match(/(?:^|[^\w.])(?:window\.)?confirm\(/g) || []).length
+
+describe('W9: no native confirm is left, and each question asks on the kit Dialog in its old words', () => {
+  it('neither B3 file calls confirm()', () => {
+    expect(nativeConfirms(source.timeline)).toBe(0)
+    expect(nativeConfirms(source.history)).toBe(0)
+  })
+  it('"Remove this dependency?" is still asked only inside the write gate, and the answer is checked against it again', () => {
+    expect(code.timeline).toMatch(/if \(!canWrite\) return\s*onAskUnlink\?\.\(e\.id\)/)
+    expect(code.timeline).toMatch(/onAskUnlink=\{canWrite \? setAskUnlinkId : null\}/)
+    expect(code.timeline).toMatch(/if \(canWrite\) onUnlinkDependency\?\.\(id\)/)
+    expect(code.timeline).toMatch(/title="Remove this dependency\?"/)
+  })
+  it('the task editor\'s four delete questions keep the old confirms\' words (the question as the title, the second sentence as the body)', () => {
+    for (const words of ['Delete this milestone?', 'Delete this asset?', 'Tasks linked to it will lose their asset reference.',
+      'Delete this phase?', 'Tasks linked to it will become orphans.', 'Delete this task?']) {
+      expect(source.timeline, words).toContain(`'${words}'`)
+    }
+    expect(code.timeline).toMatch(/<Dialog\s+width="confirm"\s+title=\{askDelete\.title\}/)
+  })
+  it('CONTROL: a bare or a window confirm is counted; a method named confirm on another object is not', () => {
+    expect(nativeConfirms("if (confirm('x')) go()")).toBe(1)
+    expect(nativeConfirms("if (window.confirm('x')) go()")).toBe(1)
+    expect(nativeConfirms("dialog.confirm('x'); const confirmed = 1")).toBe(0)
+  })
+})

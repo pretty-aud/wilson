@@ -2242,6 +2242,9 @@ function DetailPane({
   // A visual state only: no click, drag or drop reads it. The drop-zone
   // rows keep their own shared hover, dropZoneHover above.
   const [hoverRowKey, setHoverRowKey] = useState(null)
+  // W9 (B3c): the dependency a click asked to remove, while the kit Dialog
+  // asks "Remove this dependency?" (it was window.confirm inside the SVG).
+  const [askUnlinkId, setAskUnlinkId] = useState(null)
   const suppressNextClickRef = useRef(false)
 
   // ─── Drag preview state for ghost overlays ───────────────
@@ -2398,6 +2401,7 @@ function DetailPane({
   }
 
   return (
+    <>
     <div
       ref={scrollRef}
       id={DETAIL_PANEL_ID}
@@ -3039,6 +3043,7 @@ function DetailPane({
               depDrag={depDrag}
               depRewire={depRewire}
               onUnlinkDependency={canWrite ? onUnlinkDependency : null}
+              onAskUnlink={canWrite ? setAskUnlinkId : null}
               onBeginDepRewire={canWrite ? beginDependencyRewire : null}
               canWrite={canWrite}
               taskDragPreview={reparentTaskPreview}
@@ -3069,6 +3074,34 @@ function DetailPane({
         </div>
       )}
     </div>
+
+    {/* W9 (B3c): "Remove this dependency?" on the kit Dialog, a sibling of
+        the pane so no click inside it reaches the pane's handlers. Still
+        INSIDE the write gate (S29): the arrow asks only when canWrite, and
+        the answer is checked against it again before anything is removed. */}
+    {askUnlinkId && (
+      <Dialog
+        width="confirm"
+        title="Remove this dependency?"
+        onClose={() => setAskUnlinkId(null)}
+        footer={(
+          <>
+            <Button autoFocus onClick={() => setAskUnlinkId(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const id = askUnlinkId
+                setAskUnlinkId(null)
+                if (canWrite) onUnlinkDependency?.(id)
+              }}
+            >
+              Remove dependency
+            </Button>
+          </>
+        )}
+      />
+    )}
+    </>
   )
 }
 
@@ -3296,7 +3329,7 @@ function ContainmentOverlay({ rows, span, dayPx, rowPx, dayToX, chartW, chartH }
 function DependencyOverlay({
   visibleDeps, rows, span, dayPx, rowPx, dayToX, chartW, chartH,
   depDrag, depRewire,
-  onUnlinkDependency, onBeginDepRewire,
+  onUnlinkDependency, onBeginDepRewire, onAskUnlink,
   canWrite = true,
   taskDragPreview, phaseDragPreview, phaseDragAffectedIds,
 }) {
@@ -3474,7 +3507,9 @@ function DependencyOverlay({
                 // nothing is the S23 "the button does nothing" bug with an
                 // extra step.
                 if (!canWrite) return
-                if (confirm('Remove this dependency?')) onUnlinkDependency?.(e.id)
+                // W9 (B3c): asked on the kit Dialog DetailPane renders (an
+                // SVG cannot hold one); still inside the gate above.
+                onAskUnlink?.(e.id)
               }}
             >
               <title>{canWrite ? 'Click to remove dependency' : 'Dependency (read only)'}</title>
@@ -4267,34 +4302,40 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     }
   }
 
-  async function handleDelete() {
+  // W9 (B3c): the four deletes ask on the kit Dialog, not window.confirm.
+  // Each question is the old confirm's, word for word, as the title; the
+  // second sentence two of them carried is the body. Nothing is deleted
+  // until the answer, exactly as before; an editor with no id to delete
+  // closes as it always did.
+  const [askDelete, setAskDelete] = useState(null)
+  const DELETE_ASK = {
+    milestone: { id: editor.milestoneId, title: 'Delete this milestone?', body: null, label: 'Delete milestone' },
+    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Tasks linked to it will lose their asset reference.', label: 'Delete asset' },
+    phase:     { id: editor.phaseId,     title: 'Delete this phase?', body: 'Tasks linked to it will become orphans.', label: 'Delete phase' },
+    task:      { id: editor.taskId,      title: 'Delete this task?', body: null, label: 'Delete task' },
+  }
+
+  function handleDelete() {
+    if (!canWrite) { setError(writeReason); return }
+    setError(null)
+    const ask = DELETE_ASK[editor.mode]
+    if (!ask?.id) { onClose(); return }
+    setAskDelete(ask)
+  }
+
+  async function performDelete() {
+    setAskDelete(null)
     if (!canWrite) { setError(writeReason); return }
     setSaving(true)
     setError(null)
     try {
       if (editor.mode === 'milestone' && editor.milestoneId) {
-        if (!confirm('Delete this milestone?')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteMilestone(editor.milestoneId)
       } else if (editor.mode === 'asset' && editor.assetId) {
-        if (!confirm('Delete this asset? Tasks linked to it will lose their asset reference.')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteAsset(editor.assetId)
       } else if (editor.mode === 'phase' && editor.phaseId) {
-        if (!confirm('Delete this phase? Tasks linked to it will become orphans.')) {
-          setSaving(false)
-          return
-        }
         await ctx.deletePhase(editor.phaseId)
       } else if (editor.mode === 'task' && editor.taskId) {
-        if (!confirm('Delete this task?')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteTask(editor.taskId)
       }
       onClose()
@@ -4306,6 +4347,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ backgroundColor: 'rgba(28, 25, 23, 0.75)' }}
@@ -4838,6 +4880,25 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         </div>
       </div>
     </div>
+
+    {/* W9 (B3c): the delete question, a sibling of the editor so a click in
+        it never reaches the editor's backdrop (which closes the editor). */}
+    {askDelete && (
+      <Dialog
+        width="confirm"
+        title={askDelete.title}
+        onClose={() => setAskDelete(null)}
+        footer={(
+          <>
+            <Button autoFocus onClick={() => setAskDelete(null)}>Cancel</Button>
+            <Button variant="danger" onClick={performDelete}>{askDelete.label}</Button>
+          </>
+        )}
+      >
+        {askDelete.body && <p className="text-body rb-tl-ask-body">{askDelete.body}</p>}
+      </Dialog>
+    )}
+    </>
   )
 }
 

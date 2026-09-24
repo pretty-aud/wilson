@@ -624,6 +624,10 @@
   /* ═══ The task editor (TaskEditor) ═════════════════════════════════════ */
   .rb-tl-ed-title { color: #fb923c; }
   .rb-tl-ed-title[data-milestone="true"] { color: #f59e0b; }
+  /* W9 (B3c): the second sentence of a delete question, in the kit Dialog
+     (its ground is the raised paper): ink-2, 8.49:1. The editor's own
+     chrome is V2's / P1's (hand-off). */
+  .rb-tl-ask-body { color: var(--color-ink-2); }
 
   /* ═══ The zoom toolbar (DetailZoomToolbar) — stage 2 (B3b) ══════════════
      The kit's Toolbar, Tabs, Button and IconButton carry every state now
