@@ -125,6 +125,7 @@ export const THEME = Object.freeze({
   'panel-sm': '200px',
   'panel-md': '240px',
   'panel-lg': '300px',
+  'panel-xl': '420px',
   'dialog-confirm': '400px',
   'dialog-form': '560px',
   'dialog-reading': '720px',
@@ -271,7 +272,7 @@ export const PANEL_HEADER = px('panel-header')
 export const SHORTCUT_BAR = px('shortcut-bar')
 export const TITLEBAR = px('titlebar')
 export const ICON = Object.freeze({ sm: px('icon-sm'), md: px('icon-md'), lg: px('icon-lg') })
-export const PANEL = Object.freeze({ sm: px('panel-sm'), md: px('panel-md'), lg: px('panel-lg') })
+export const PANEL = Object.freeze({ sm: px('panel-sm'), md: px('panel-md'), lg: px('panel-lg'), xl: px('panel-xl') })
 export const DIALOG = Object.freeze({
   confirm: px('dialog-confirm'),
   form: px('dialog-form'),

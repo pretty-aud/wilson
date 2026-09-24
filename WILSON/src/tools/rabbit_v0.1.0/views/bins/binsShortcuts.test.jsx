@@ -63,11 +63,13 @@ describe('every hint the bar carried is in Help', () => {
     }
   })
 
-  it('Help\'s text clears 4.5:1 on its real grounds — the modal\'s #292524 and a card\'s paper-raised (round 2)', () => {
-    // The Help modal is TimelineView's (B3) and its ground is bg-stone-800,
-    // #292524, measured by pixel in round two. Round one had measured the
-    // section title on the paper and set it in the signal: 4.26:1 here.
-    const MODAL = '#292524'
+  it('Help\'s text clears 4.5:1 on its real grounds — the Help Dialog\'s paper-raised and a card\'s paper-raised', () => {
+    // The Help modal is TimelineView's (B3). Since B3c it is the kit's
+    // Dialog, whose ground is paper-raised (.ui-dialog in index.css); it was
+    // bg-stone-800, #292524, measured by pixel in B6's round two. Round one
+    // had measured the section title on the paper and set it in the signal:
+    // 4.26:1 on #292524.
+    const MODAL = PAPER_RAISED
     const INKS = { 'text-ink': INK, 'text-ink-2': INK_2, 'text-ink-3': INK_3, 'text-signal': SIGNAL }
     const inkOf = (el) => {
       const c = [...el.classList].find(x => x in INKS)

@@ -160,6 +160,9 @@
   --panel-sm: 200px;
   --panel-md: 240px;
   --panel-lg: 300px;
+  /* B3c-KR-1: a drawer that reads a log or a form beside the page — R.A.B.B.I.T.'s
+     edit history and its Timeline settings (review TL-24: "this surface wants 420"). */
+  --panel-xl: 420px;
   --dialog-confirm: 400px;
   --dialog-form: 560px;
   --dialog-reading: 720px;
@@ -1820,6 +1823,7 @@ select option {
   .ui-drawer[data-width="sm"] { width: var(--panel-sm); }
   .ui-drawer[data-width="md"] { width: var(--panel-md); }
   .ui-drawer[data-width="lg"] { width: var(--panel-lg); }
+  .ui-drawer[data-width="xl"] { width: var(--panel-xl); }
   .ui-drawer-head {
     display: flex;
     align-items: center;

@@ -189,14 +189,19 @@ describe('the sheet keys on values the JSX can produce', () => {
     expect(entryActionMeta({ action: 'delete', diff: { old: { title: 'x' } } })).toBe(ACTION_META.delete)
     expect(entryActionMeta({ action: 'update', diff: { deleted_at: { old: null, new: '2026-09-01' } } })).toBe(ACTION_META.delete)
     expect(entryActionMeta({ action: 'update', diff: { deleted_at: { old: '2026-09-01', new: null } } })).toBe(RESTORE_META)
-    // Stage 1 transcribes the table's colours; stage 2 maps them to tokens
-    // and rewrites this pin.
+    // Stage 1 transcribed the table's colours; stage 2 (B3c) maps each to a
+    // token: created and restored the success ink (the same #4ade80 the
+    // table names), deleted the danger ink (the same #fca5a5), edited — the
+    // common case — ink-2 (it was the orange), anything else ink-3.
     const colourOf = (sel) => (rulesOf(sheet).find((r) => selectorsOf(r.sel).includes(sel))?.body.match(/(?:^|;)\s*color:\s*([^;]+)/) || [])[1]?.trim()
-    expect(colourOf('.rb-hist-action[data-action="create"]')).toBe(ACTION_META.create.color)
-    expect(colourOf('.rb-hist-action[data-action="update"]')).toBe(ACTION_META.update.color)
-    expect(colourOf('.rb-hist-action[data-action="delete"]')).toBe(ACTION_META.delete.color)
-    expect(colourOf('.rb-hist-action[data-action="restore"]')).toBe(RESTORE_META.color)
-    expect(colourOf('.rb-hist-action')).toBe(entryActionMeta({ action: 'mystery' }).color)
+    expect(colourOf('.rb-hist-action[data-action="create"]')).toBe('var(--color-success)')
+    expect(colourOf('.rb-hist-action[data-action="update"]')).toBe('var(--color-ink-2)')
+    expect(colourOf('.rb-hist-action[data-action="delete"]')).toBe('var(--color-danger)')
+    expect(colourOf('.rb-hist-action[data-action="restore"]')).toBe('var(--color-success)')
+    expect(colourOf('.rb-hist-action')).toBe('var(--color-ink-3)')
+    expect(THEME['color-success']).toBe(ACTION_META.create.color)
+    expect(THEME['color-success']).toBe(RESTORE_META.color)
+    expect(THEME['color-danger']).toBe(ACTION_META.delete.color)
   })
   it('CONTROL: each fires on a value nobody sets, a class nobody wears and an operator; each passes the real shape', () => {
     const src = "<div className=\"rb-tl-x\" data-on={on ? 'true' : 'false'} />"
@@ -344,8 +349,10 @@ describe('the state extraction holds in both B3 files', () => {
     // date's line and on its diamond as well (they were inline hex before);
     // readAwayFromSetter below holds each read to a rule that names its
     // setter's own class.
+    // B3c: the gantt's key-date line and diamond set it too (they were an
+    // inline hex with a glow), after the minimap's and the hover card's.
     const setters = [...code.timeline.matchAll(/'--rb-tl-ms'\s*:\s*([^,}\n]+)/g)].map((m) => m[1].trim())
-    expect(setters).toEqual(['ms.color', 'ms.color', 'hoverPopup.row.milestone?.color'])
+    expect(setters).toEqual(['ms.color', 'ms.color', 'hoverPopup.row.milestone?.color', 'ms.color', 'ms.color'])
     expect(undefinedProperties(sheet, indexCss, Object.values(source))).toEqual([])
     expect(readAwayFromSetter(sheet, Object.values(source))).toEqual([])
     // The fallback is a token now, the warning ink — the same amber (#f59e0b)
@@ -419,5 +426,73 @@ describe('the minimap zoom slider: the snap marks are placed from the thumb the 
     }
     expect(code.timeline).toMatch(/snapLeft\(s, minimapMinDays, minimapMaxDays, SPAN_TRACK_W, SPAN_THUMB_W\)/)
     expect(code.timeline).toMatch(/style=\{\{ width: SPAN_TRACK_W, height: 22 \}\}/)
+  })
+})
+
+/* ── 9. the legend and the links (B3c) ────────────────────────────────────── */
+/** The legend's tone swatches, as TimelineLegend's table writes them. */
+const legendTones = (src) => {
+  const table = src.match(/const LEGEND_TONES = \[([\s\S]*?)\n\]/)
+  return table
+    ? [...table[1].matchAll(/shape: '(\w+)',\s*status: (?:'(\w+)'|undefined),\s*critical: '(true|false)'/g)]
+        .map(([, shape, status, critical]) => ({ shape, status, critical }))
+    : []
+}
+/** Rules that set a stroke: a CSS stroke beats an SVG attribute. */
+const strokeRules = (css) => rulesOf(css).filter(({ body }) => /(?:^|;)\s*stroke(?:-dasharray)?\s*:/.test(body)).map((r) => r.sel.trim())
+
+describe('the legend reads the bars\' own tone rules, and a link keeps its colour in the JSX', () => {
+  it('every legend swatch names a shape, a status and a critical flag the tone table paints (no status: the shape\'s default)', () => {
+    const tones = legendTones(source.timeline)
+    expect(tones).toHaveLength(8)
+    for (const { shape, status, critical } of tones) {
+      expect(toneValues('data-shape'), shape).toContain(shape)
+      if (status) expect(toneValues('data-status', shape), `${shape} ${status}`).toContain(status)
+      if (critical === 'true') expect(toneValues('data-critical')).toContain('true')
+    }
+    // The swatch wears the tone class itself, so it reads the very rules a bar does.
+    expect(code.timeline).toMatch(/className="rounded-control rb-tl-tone rb-tl-legend-swatch"/)
+  })
+  it('no rule sets a stroke: a link\'s colour and dash are keyed on its kind in DependencyOverlay', () => {
+    expect(strokeRules(sheet)).toEqual([])
+    expect(code.timeline).toMatch(/strokeDasharray=\{DASH_BY_KIND\[e\.kind\]\}/)
+    expect(code.timeline).toMatch(/const DASH_BY_KIND = \{ phase: '5 3', task: undefined \}/)
+  })
+  it('CONTROL: a swatch naming a status nobody paints fails; a stroke rule is found', () => {
+    const fake = "const LEGEND_TONES = [\n  { key: 'x', label: 'X', shape: 'task', status: 'mystery', critical: 'false', title: 'x' },\n]"
+    const [t] = legendTones(fake)
+    expect(t).toEqual({ shape: 'task', status: 'mystery', critical: 'false' })
+    expect(toneValues('data-status', 'task')).not.toContain(t.status)
+    expect(strokeRules('@layer components { .rb-tl-dep { stroke: var(--color-ink-2); } }')).toEqual(['.rb-tl-dep'])
+    expect(strokeRules('@layer components { .rb-tl-dep { cursor: pointer; } }')).toEqual([])
+  })
+})
+
+/* ── 10. W9: the five confirms on the kit Dialog (B3c) ────────────────────── */
+/** A native confirm, called bare or on window, in comment-stripped code. */
+const nativeConfirms = (src) => (normal(jsCode(src)).match(/(?:^|[^\w.])(?:window\.)?confirm\(/g) || []).length
+
+describe('W9: no native confirm is left, and each question asks on the kit Dialog in its old words', () => {
+  it('neither B3 file calls confirm()', () => {
+    expect(nativeConfirms(source.timeline)).toBe(0)
+    expect(nativeConfirms(source.history)).toBe(0)
+  })
+  it('"Remove this dependency?" is still asked only inside the write gate, and the answer is checked against it again', () => {
+    expect(code.timeline).toMatch(/if \(!canWrite\) return\s*onAskUnlink\?\.\(e\.id\)/)
+    expect(code.timeline).toMatch(/onAskUnlink=\{canWrite \? setAskUnlinkId : null\}/)
+    expect(code.timeline).toMatch(/if \(canWrite\) onUnlinkDependency\?\.\(id\)/)
+    expect(code.timeline).toMatch(/title="Remove this dependency\?"/)
+  })
+  it('the task editor\'s four delete questions keep the old confirms\' words (the question as the title, the second sentence as the body)', () => {
+    for (const words of ['Delete this milestone?', 'Delete this asset?', 'Tasks linked to it will lose their asset reference.',
+      'Delete this phase?', 'Tasks linked to it will become orphans.', 'Delete this task?']) {
+      expect(source.timeline, words).toContain(`'${words}'`)
+    }
+    expect(code.timeline).toMatch(/<Dialog\s+width="confirm"\s+title=\{askDelete\.title\}/)
+  })
+  it('CONTROL: a bare or a window confirm is counted; a method named confirm on another object is not', () => {
+    expect(nativeConfirms("if (confirm('x')) go()")).toBe(1)
+    expect(nativeConfirms("if (window.confirm('x')) go()")).toBe(1)
+    expect(nativeConfirms("dialog.confirm('x'); const confirmed = 1")).toBe(0)
   })
 })

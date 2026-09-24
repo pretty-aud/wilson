@@ -14,12 +14,21 @@
 // gates on the UI are presentation-only, per the permissions layer's
 // contract — the entity write policies are the enforcement.
 //
-// z-[70]: above the entity detail popups (z-50) and their nested pickers
-// (z-[60]) so History can be opened on top of either.
+// UI overhaul B3c (TL-24): the kit Drawer, xl (420, B3c-KR-1), with its
+// backdrop (a click there closed it, and still does) and Escape. It clears
+// the Electron title bar through the kit's --titlebar-offset; it used to
+// slide under it. It sits at the kit's z-index 60, above the entity detail
+// popups (z-50) it is opened from; it was z-[70] to clear their nested
+// pickers (z-[60]) too, which close when History is opened.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { History, RefreshCw, RotateCcw, X } from 'lucide-react'
+import { RefreshCw, RotateCcw, X } from 'lucide-react'
+import { Drawer } from '../../../ui/Drawer'
+import { IconButton } from '../../../ui/IconButton'
+import { Banner } from '../../../ui/Banner'
+import { Loading } from '../../../ui/Loading'
+import { EmptyState } from '../../../ui/EmptyState'
 import { useRabbit } from '../state/RabbitProvider'
 import { usePermissions } from '../../../permissions/usePermissions'
 import {
@@ -82,102 +91,77 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
   }, [revertingId, revertHistoryEntry, load])
 
   return (
-    <>
-      <div className="fixed inset-0 z-[70]" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div className="fixed top-0 right-0 bottom-0 z-[70] flex flex-col"
-        style={{ width: 420, backgroundColor: '#1c1917', borderLeft: '2px solid #ea580c', boxShadow: '0 0 60px rgba(0,0,0,0.5)' }}
-        role="dialog" aria-label="Edit history">
-
-        {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
-          style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
-          <History className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-          <div className="flex-1 min-w-0">
-            <div className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
-              Edit history
-            </div>
-            <div className="text-dense truncate" style={{ color: '#78716c' }}>
-              {ENTITY_LABELS[entityType] || entityType}{entityLabel ? ` · ${entityLabel}` : ''}
-            </div>
-          </div>
-          <button type="button" onClick={load} title="Refresh"
-            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
-            <RefreshCw className="w-3.5 h-3.5 rb-hist-spin" data-spinning={loading ? 'true' : 'false'} />
-          </button>
-          <button type="button" onClick={onClose} title="Close"
-            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
-          {!cloudMode ? (
-            <div className="text-dense px-3 py-4 rounded-control"
-              style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
-              Edit history is only recorded in cloud (supabase) mode. The
-              current adapter ({adapterMode}) does not capture changes.
-            </div>
-          ) : error ? (
-            <div className="text-caption px-3 py-4 rounded-control"
-              style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
-              Could not load history: {error}
-            </div>
-          ) : loading && entries.length === 0 ? (
-            <div className="text-dense px-3 py-4" style={{ color: '#78716c' }}>
-              Loading…
-            </div>
-          ) : entries.length === 0 ? (
-            <div className="text-caption px-3 py-4" style={{ color: '#78716c' }}>
-              No recorded changes in the last 90 days.
-            </div>
-          ) : (
-            <>
-              {revertError && (
-                <div className="text-caption px-3 py-2 rounded-control"
-                  style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
-                  Revert failed: {revertError}
-                </div>
-              )}
-              {entries.map(entry => (
-                <HistoryEntry
-                  key={entry.id}
-                  entry={entry}
-                  onRevert={mayRevert && canRevertEntry(entry) ? handleRevert : null}
-                  reverting={revertingId === entry.id}
-                  disabled={revertingId != null}
-                />
-              ))}
-              {entries.length >= 100 && (
-                <div className="text-caption px-3 py-2 text-center" style={{ color: '#78716c' }}>
-                  Showing the latest 100 changes — older entries exist within
-                  the retention window.
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-4 py-2 flex-shrink-0 text-caption"
-          style={{ color: '#57534e', borderTop: '1px solid #44403c' }}>
+    <Drawer
+      open
+      onClose={onClose}
+      backdrop
+      width="xl"
+      title="Edit history"
+      label="Edit history"
+      className="rb-hist"
+      actions={
+        <>
+          <IconButton size="sm" title="Refresh" onClick={load}>
+            <RefreshCw aria-hidden="true" className="rb-hist-spin" data-spinning={loading ? 'true' : 'false'} />
+          </IconButton>
+          <IconButton size="sm" icon={X} title="Close" onClick={onClose} />
+        </>
+      }
+      footer={
+        <p className="text-caption rb-hist-foot">
           History is kept for 90 days. Reverts are ordinary edits — they
           appear here too, and Ctrl+Z undoes them.
+        </p>
+      }
+    >
+      <div className="flex flex-col gap-2">
+        <div className="text-dense truncate rb-hist-entity">
+          {ENTITY_LABELS[entityType] || entityType}{entityLabel ? ` · ${entityLabel}` : ''}
         </div>
+        {!cloudMode ? (
+          <Banner tone="info">
+            Edit history is only recorded in cloud (supabase) mode. The
+            current adapter ({adapterMode}) does not capture changes.
+          </Banner>
+        ) : error ? (
+          <Banner tone="danger">Could not load history: {error}</Banner>
+        ) : loading && entries.length === 0 ? (
+          <Loading label="Loading history" />
+        ) : entries.length === 0 ? (
+          <EmptyState compact title="No recorded changes in the last 90 days." />
+        ) : (
+          <>
+            {revertError && <Banner tone="danger">Revert failed: {revertError}</Banner>}
+            {entries.map(entry => (
+              <HistoryEntry
+                key={entry.id}
+                entry={entry}
+                onRevert={mayRevert && canRevertEntry(entry) ? handleRevert : null}
+                reverting={revertingId === entry.id}
+                disabled={revertingId != null}
+              />
+            ))}
+            {entries.length >= 100 && (
+              <div className="text-caption px-3 py-2 text-center rb-hist-more">
+                Showing the latest 100 changes — older entries exist within
+                the retention window.
+              </div>
+            )}
+          </>
+        )}
       </div>
-    </>
+    </Drawer>
   )
 }
 
 function HistoryEntry({ entry, onRevert, reverting, disabled }) {
   // entryActionMeta classifies soft-delete transitions as Deleted / Restored.
-  const meta = entryActionMeta(entry) || { label: entry.action, color: '#a8a29e' }
+  const meta = entryActionMeta(entry) || { label: entry.action }
   const lines = diffLines(entry)
   const summary = entry.action !== 'update' ? snapshotSummary(entry) : null
 
   return (
-    <div className="rounded-control px-3 py-2.5 flex flex-col gap-1.5"
-      style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
+    <div className="rounded-control px-3 py-2.5 flex flex-col gap-1.5 rb-hist-entry">
       <div className="flex items-center gap-2">
         <span className="text-label uppercase font-semibold px-1.5 py-0.5 rounded-control flex-shrink-0 rb-hist-action"
           data-action={meta === ACTION_META.create ? 'create'
@@ -186,28 +170,21 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
             : meta === RESTORE_META ? 'restore' : 'other'}>
           {meta.label}
         </span>
-        <span className="text-dense font-semibold truncate flex-1" style={{ color: '#d6d3d1' }}>
+        <span className="text-dense font-semibold truncate flex-1 rb-hist-actor">
           {actorName(entry)}
         </span>
-        <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
+        <span className="text-dense font-mono tabular-nums flex-shrink-0 rb-hist-when">
           {formatHistoryTimestamp(entry.created_at)}
         </span>
         {onRevert && (
-          <button
-            type="button"
-            onClick={() => onRevert(entry)}
-            disabled={disabled}
-            title={revertActionLabel(entry)}
-            className="p-1 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0 disabled:opacity-40"
-            style={{ color: '#fb923c' }}
-          >
-            <RotateCcw className="w-3.5 h-3.5 rb-hist-spin" data-spinning={reverting ? 'true' : 'false'} />
-          </button>
+          <IconButton size="sm" title={revertActionLabel(entry)} onClick={() => onRevert(entry)} disabled={disabled}>
+            <RotateCcw aria-hidden="true" className="rb-hist-spin" data-spinning={reverting ? 'true' : 'false'} />
+          </IconButton>
         )}
       </div>
 
       {summary && (
-        <div className="text-dense truncate" style={{ color: '#a8a29e' }} title={summary}>
+        <div className="text-dense truncate rb-hist-summary" title={summary}>
           {summary}
         </div>
       )}
@@ -216,12 +193,12 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
         <div className="flex flex-col gap-1">
           {lines.map(l => (
             <div key={l.field} className="text-dense flex items-baseline gap-1.5 min-w-0">
-              <span className="flex-shrink-0" style={{ color: '#78716c' }}>{l.field}:</span>
-              <span className="truncate" style={{ color: '#a8a29e', textDecoration: 'line-through', textDecorationColor: '#57534e' }} title={l.from}>
+              <span className="flex-shrink-0 rb-hist-field">{l.field}:</span>
+              <span className="truncate rb-hist-from" title={l.from}>
                 {l.from}
               </span>
-              <span className="flex-shrink-0" style={{ color: '#57534e' }}>&rarr;</span>
-              <span className="truncate" style={{ color: '#d6d3d1' }} title={l.to}>{l.to}</span>
+              <span className="flex-shrink-0 rb-hist-arrow">&rarr;</span>
+              <span className="truncate rb-hist-to" title={l.to}>{l.to}</span>
             </div>
           ))}
         </div>

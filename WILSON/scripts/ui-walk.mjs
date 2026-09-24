@@ -320,7 +320,6 @@ const KNOWN = {
     { key: 'rabbit-assets', text: 'lucide-trash2', n: 15 },
     { key: 'rabbit-budget', text: 'no-icon', n: 1 },
     { key: 'rabbit-control-panel', text: 'lucide-trash2', n: 32 },
-    { key: 'rabbit-help', text: 'lucide-x', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },
     { key: 'rabbit-scene-detail', text: 'lucide-trash2', n: 3 },

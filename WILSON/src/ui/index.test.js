@@ -99,7 +99,7 @@ describe('every exported component has a caller, or is on the list', () => {
     // Panel came off this list with A1 (2026-09-23): D.O.G.'s deck-outline
     // sidebar is its first caller. A3 and C1 still owe their four sidebars.
     // Drawer came off this list with A2 (2026-09-23): D.O.G.'s settings
-    // slide-out is its first caller. B3 still owes EditHistoryDrawer (TL-24).
+    // slide-out is its first caller. B3c's EditHistoryDrawer is its second (TL-24).
     // Stat came off this list when B1 integrated (2026-09-23): the Summary
     // band's four tiles and its budget snapshot render the kit's Stat. B2's
     // four Tasks tiles are its second caller, still to come.

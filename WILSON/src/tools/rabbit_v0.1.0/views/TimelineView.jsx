@@ -95,6 +95,7 @@ import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Tabs } from '../../../ui/Tabs'
 import { Stat } from '../../../ui/Stat'
+import { Dialog } from '../../../ui/Dialog'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -781,6 +782,9 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         writeReason={writeReason}
         milestones={allMilestones}
       />
+
+      {/* ── The legend, once, for both charts (B3c) ── */}
+      <TimelineLegend />
 
       {/* ── Detail-pane zoom toolbar (sits between minimap + gantt) ── */}
       <DetailZoomToolbar
@@ -1742,7 +1746,9 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
   const totalH = rowLayouts?.totalHeight ?? rows.length * OVERVIEW_ROW_PX
   // The SVG covers the entire body area; child x positions come
   // from row.start dates × dayPx.
-  const RAIL_COLOR = '#a8a29e'
+  // B3c: the gantt's containment rail (a 40% screen of the ink). The
+  // minimap emits phase rows only, so this draws nothing today (B3b).
+  const RAIL_COLOR = 'color-mix(in srgb, var(--color-ink) 40%, var(--color-paper))'
   const RAIL_WIDTH = 1
 
   // Helper: compute the X pixel of a row's bar left edge.
@@ -2173,9 +2179,12 @@ function DetailPane({
       previewEl.style.position = 'absolute'
       previewEl.style.top = '4px'
       previewEl.style.bottom = '4px'
-      previewEl.style.borderRadius = '2px'
-      previewEl.style.backgroundColor = 'rgba(234, 88, 12, 0.25)'
-      previewEl.style.border = '1px dashed #fb923c'
+      // The drawn task's preview, on the kit's tokens (B3c): a tint of the
+      // signal in a 1px dashed signal line, the control radius. Built
+      // imperatively because it lives only for the drag.
+      previewEl.style.borderRadius = 'var(--radius-control)'
+      previewEl.style.backgroundColor = 'color-mix(in srgb, var(--color-signal) 25%, transparent)'
+      previewEl.style.border = '1px dashed var(--color-signal)'
       previewEl.style.pointerEvents = 'none'
       previewEl.style.zIndex = '6'
       containerEl.appendChild(previewEl)
@@ -2227,6 +2236,15 @@ function DetailPane({
   const [reparentHoverPhaseId, setReparentHoverPhaseId] = useState(null)
   const [reparentGhost, setReparentGhost] = useState(null)  // { x, y, label }
   const [dropZoneHover, setDropZoneHover] = useState(null)  // { phaseId, mouseX }
+  // The row under the pointer, by its key, so the label half and the chart
+  // half of a phase or task row light up together (TL-03: one row, one
+  // hover — the label row's hover never painted, the chart row had none).
+  // A visual state only: no click, drag or drop reads it. The drop-zone
+  // rows keep their own shared hover, dropZoneHover above.
+  const [hoverRowKey, setHoverRowKey] = useState(null)
+  // W9 (B3c): the dependency a click asked to remove, while the kit Dialog
+  // asks "Remove this dependency?" (it was window.confirm inside the SVG).
+  const [askUnlinkId, setAskUnlinkId] = useState(null)
   const suppressNextClickRef = useRef(false)
 
   // ─── Drag preview state for ghost overlays ───────────────
@@ -2383,43 +2401,33 @@ function DetailPane({
   }
 
   return (
+    <>
     <div
       ref={scrollRef}
       id={DETAIL_PANEL_ID}
       role="tabpanel"
       aria-label="Gantt"
-      className="flex-1 overflow-auto relative"
-      style={{ backgroundColor: '#1c1917' }}
+      className="flex-1 overflow-auto relative rb-tl-gantt"
     >
       <div className="flex" style={{ minWidth: LABEL_W + effectiveChartW }}>
-        {/* Sticky label column */}
+        {/* Sticky label column. Its edge is the rule (TL-03: it was
+            #292524 on #1c1917, 1.15:1 — no edge at all). */}
         <div
-          className="flex-shrink-0 sticky left-0 z-20"
-          style={{
-            width: LABEL_W,
-            backgroundColor: '#1c1917',
-            borderRight: '1px solid #292524',
-          }}
+          className="flex-shrink-0 sticky left-0 z-20 rb-tl-gutter"
+          style={{ width: LABEL_W }}
         >
           <div
-            className="flex items-end px-3 pb-2 sticky top-0 z-10"
-            style={{
-              height: HEADER_PX,
-              borderBottom: '1px solid #292524',
-              backgroundColor: '#1c1917',
-            }}
+            className="flex items-end px-3 pb-2 sticky top-0 z-10 rb-tl-gutter-head"
+            style={{ height: HEADER_PX }}
           >
-            <span className="text-label uppercase" style={{ color: '#57534e' }}>
+            <span className="text-label uppercase rb-tl-gutter-title">
               Phase / Task
             </span>
           </div>
           {rows.length === 0 ? (
             <div
-              className="flex items-center justify-center text-center px-4 text-dense"
-              style={{
-                height: 80,
-                color: '#78716c',
-              }}
+              className="flex items-center justify-center text-center px-4 text-dense rb-tl-gutter-empty"
+              style={{ height: 80 }}
             >
               {canWrite ? 'No phases yet — click + Phase' : 'No phases yet'}
             </div>
@@ -2453,7 +2461,6 @@ function DetailPane({
                   data-drop-hover={isReparentHoverDz ? 'true' : 'false'}
                   style={{
                     height: rowPx,
-                    borderBottom: '1px solid transparent',
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
                     // Session 29: denied stays dimmed and never lights up on
@@ -2476,16 +2483,18 @@ function DetailPane({
                     // (the colours below keep it faint, which is what she asked
                     // for — "the faint + new task in the left side table"), and
                     // denied keeps the dimming, so the two finally differ.
-                    // (That opacity, the hover tint and the drop-target fill
-                    // are `.rb-tl-dz` in rabbitTimeline.css since UI overhaul
-                    // B3, values unchanged.)
+                    // (The dimming, the hover tint, the drop-target fill and
+                    // the rule under the row are `.rb-tl-dz` in
+                    // rabbitTimeline.css: B3 moved them there unchanged, B3c
+                    // put them on tokens — allowed reads ink-2, denied the
+                    // disabled ink, so the two still differ.)
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
                   title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
                 >
-                  {/* Icon stays stone-500 (3.65:1 — a glyph, so the 3:1 floor
-                      applies); the LABEL is stone-400 (6.8:1) because 4.5:1 is
-                      the floor for text. Both are existing palette values. */}
+                  {/* The icon is a glyph (the 3:1 floor), the LABEL text
+                      (4.5:1): their inks are the sheet's, `.rb-tl-dz-icon`
+                      and `.rb-tl-dz-label`. */}
                   <Plus
                     className="w-3 h-3 mr-1.5 rb-tl-dz-icon"
                   />
@@ -2517,12 +2526,15 @@ function DetailPane({
                 data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
                 data-grab={isTaskRow && canWrite ? 'true' : 'false'}
                 data-drop-hover={isHoverTarget ? 'true' : 'false'}
+                data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                 style={{
                   height: rowPx,
                   paddingLeft: (6 + depth * INDENT_UNIT + 20),
                   paddingRight: 8,
                   userSelect: 'none',
                 }}
+                onMouseEnter={() => setHoverRowKey(r.key)}
+                onMouseLeave={() => setHoverRowKey(k => (k === r.key ? null : k))}
                 onMouseDown={isTaskRow ? (e) => startTaskDrag(e, r.task) : undefined}
                 onClick={() => handleRowClick(r)}
                 title={isTaskRow
@@ -2542,7 +2554,7 @@ function DetailPane({
                       e.stopPropagation()
                       onToggleCollapse?.(r.phase)
                     }}
-                    className="absolute flex items-center justify-center rounded-control hover:bg-stone-800 rb-tl-row-chevron"
+                    className="absolute flex items-center justify-center rounded-control rb-tl-row-chevron"
                     style={{
                       left: 4 + depth * INDENT_UNIT,
                       top: (rowPx - 16) / 2,
@@ -2571,12 +2583,8 @@ function DetailPane({
         <div className="relative" style={{ width: effectiveChartW }}>
           {/* Time axis */}
           <div
-            className="relative sticky top-0 z-10"
-            style={{
-              height: HEADER_PX,
-              borderBottom: '1px solid #292524',
-              backgroundColor: '#1c1917',
-            }}
+            className="relative sticky top-0 z-10 rb-tl-axis"
+            style={{ height: HEADER_PX }}
           >
             {ticks.map(tick => {
               if (dayMask && dayMask.mask[tick.offset]?.hidden) return null
@@ -2593,8 +2601,8 @@ function DetailPane({
                 >
                   {tick.topLabel && (
                     <span
-                      className="text-dense whitespace-nowrap"
-                      style={{ color: '#fb923c', marginTop: 4, lineHeight: 1 }}
+                      className="text-dense whitespace-nowrap rb-tl-axis-top"
+                      style={{ marginTop: 4, lineHeight: 1 }}
                     >
                       {tick.topLabel}
                     </span>
@@ -2651,12 +2659,10 @@ function DetailPane({
                 return (
                   <div
                     key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#57534e',
-                      opacity: 0.5,
                     }}
                   />
                 )
@@ -2667,12 +2673,10 @@ function DetailPane({
                 return (
                   <div
                     key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-month"
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#44403c',
-                      opacity: 0.4,
                     }}
                   />
                 )
@@ -2686,7 +2690,6 @@ function DetailPane({
                   style={{
                     left: dayToX(i),
                     width: 1,
-                    opacity: 0.4,
                   }}
                 />
               )
@@ -2695,11 +2698,10 @@ function DetailPane({
             {/* Today line */}
             {todayDays >= 0 && todayDays <= totalDays && (!dayMask || !dayMask.mask[todayDays]?.hidden) && (
               <div
-                className="absolute top-0 bottom-0 pointer-events-none"
+                className="absolute top-0 bottom-0 pointer-events-none rb-tl-today"
                 style={{
                   left: dayToX(todayDays),
                   width: Math.max(2, dayPx > 8 ? 2 : 1),
-                  backgroundColor: '#fca5a5',
                   zIndex: 5,
                 }}
                 title="Today"
@@ -2714,25 +2716,27 @@ function DetailPane({
               if (msDays < 0 || msDays > totalDays) return null
               if (dayMask && dayMask.mask[msDays]?.hidden) return null
               const msX = dayToX(msDays)
-              const msColor = ms.color || '#f59e0b'
+              // B3c: the key date's own colour reaches the sheet as data
+              // (`--rb-tl-ms`, the minimap's spelling); the warning amber
+              // without one is the sheet's fallback. The glow and the dark
+              // 1.5px edge went (§3.3; TL-20).
               return (
                 <div key={`ms-${ms.id}`} className="absolute top-0 pointer-events-none" style={{ left: msX, zIndex: 8 }}>
                   {/* Vertical dashed line */}
                   <div
-                    className="absolute"
+                    className="absolute rb-tl-ms-line"
                     style={{
                       top: 0,
                       bottom: 0,
                       left: 0,
                       width: 1.5,
                       height: rows.length * rowPx,
-                      backgroundImage: `repeating-linear-gradient(to bottom, ${msColor} 0, ${msColor} 4px, transparent 4px, transparent 8px)`,
-                      opacity: 0.5,
+                      '--rb-tl-ms': ms.color,
                     }}
                   />
                   {/* Diamond marker at top */}
                   <div
-                    className="pointer-events-auto cursor-pointer"
+                    className="pointer-events-auto cursor-pointer rb-tl-ms"
                     onClick={() => !ms.isProjectBound && onEditMilestone?.(ms)}
                     title={`${ms.title}${ms.description ? ' — ' + ms.description : ''}${ms.isProjectBound ? ' (project bound)' : ''}`}
                     style={{
@@ -2741,11 +2745,9 @@ function DetailPane({
                       left: -6,
                       width: 13,
                       height: 13,
-                      backgroundColor: msColor,
-                      border: '1.5px solid rgba(0,0,0,0.5)',
                       transform: 'rotate(45deg)',
-                      boxShadow: `0 0 4px ${msColor}66`,
                       zIndex: 9,
+                      '--rb-tl-ms': ms.color,
                     }}
                   />
                 </div>
@@ -2755,8 +2757,7 @@ function DetailPane({
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
-                className="absolute inset-0 flex items-center justify-center text-center px-6 text-dense"
-                style={{ color: '#57534e', fontStyle: 'italic' }}
+                className="absolute inset-0 flex items-center justify-center text-center px-6 text-dense italic rb-tl-chart-empty"
               >
                 {/* Session 29 — the empty state was instructions. Telling a
                     read-only user to "drag on the overview to draw a task" and
@@ -2825,7 +2826,6 @@ function DetailPane({
                     style={{
                       top: i * rowPx,
                       height: rowPx,
-                      borderBottom: '1px dashed #44403c',
                     }}
                     aria-disabled={canWrite ? undefined : 'true'}
                     title={canWrite ? undefined : writeReason || undefined}
@@ -2839,7 +2839,7 @@ function DetailPane({
                         the reason. */}
                     {(isDzHover || isReparentHoverDz) && canWrite && (
                       <div
-                        className="absolute rounded-control flex items-center justify-center pointer-events-none"
+                        className="absolute rounded-control flex items-center justify-center pointer-events-none rb-tl-dz-ghost"
                         style={{
                           left: mouseXInChart != null
                             ? Math.max(0, mouseXInChart - ghostWidth / 2)
@@ -2849,13 +2849,10 @@ function DetailPane({
                           width: ghostWidth,
                           top: 4,
                           height: rowPx - 8,
-                          backgroundColor: 'rgba(234, 88, 12, 0.22)',
-                          border: '1.5px dashed #fb923c',
                         }}
                       >
                         <span
-                          className="text-dense italic truncate px-2"
-                          style={{ color: '#fdba74' }}
+                          className="text-dense italic truncate px-2 rb-tl-dz-ghost-label"
                         >
                           + New task
                         </span>
@@ -2886,11 +2883,13 @@ function DetailPane({
                   className="absolute left-0 right-0 rb-tl-chart-row"
                   data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
                   data-drop-hover={isChartHoverTarget ? 'true' : 'false'}
+                  data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                   style={{
                     top: i * rowPx,
                     height: rowPx,
-                    borderBottom: '1px solid #1c1917',
                   }}
+                  onMouseEnter={() => setHoverRowKey(r.key)}
+                  onMouseLeave={() => setHoverRowKey(k => (k === r.key ? null : k))}
                   onMouseDown={r.kind === 'asset' ? undefined : makeBackgroundMouseDown(r)}
                 >
                   {r.kind === 'phase' && r.start && r.end && (
@@ -2971,13 +2970,11 @@ function DetailPane({
                     <div
                       key={`pdg-${r.key}`}
                       className="absolute rounded-control rb-tl-ghost"
-                      data-shape={isPhase ? 'phase' : 'task'}
                       style={{
                         top:  i * rowPx + (isPhase ? 3 : 5),
                         height: isPhase ? rowPx - 6 : rowPx - 10,
                         left,
                         width,
-                        backgroundColor: 'rgba(234, 88, 12, 0.18)',
                       }}
                     />
                   )
@@ -3004,14 +3001,12 @@ function DetailPane({
                 const width = Math.max(6, right - left)
                 return (
                   <div
-                    className="absolute rounded-control pointer-events-none"
+                    className="absolute rounded-control pointer-events-none rb-tl-reparent-ghost"
                     style={{
                       top: targetIdx * rowPx + 5,
                       height: rowPx - 10,
                       left,
                       width,
-                      backgroundColor: 'rgba(234, 88, 12, 0.32)',
-                      border: '1.5px dashed #fb923c',
                       zIndex: 9,
                     }}
                   />
@@ -3048,6 +3043,7 @@ function DetailPane({
               depDrag={depDrag}
               depRewire={depRewire}
               onUnlinkDependency={canWrite ? onUnlinkDependency : null}
+              onAskUnlink={canWrite ? setAskUnlinkId : null}
               onBeginDepRewire={canWrite ? beginDependencyRewire : null}
               canWrite={canWrite}
               taskDragPreview={reparentTaskPreview}
@@ -3062,13 +3058,10 @@ function DetailPane({
           the user is dragging a task onto another phase row. */}
       {reparentGhost && (
         <div
-          className="fixed pointer-events-none rounded-control shadow-lg text-dense"
+          className="fixed pointer-events-none rounded-control text-dense rb-tl-reparent-chip"
           style={{
             left: reparentGhost.x + 12,
             top:  reparentGhost.y + 12,
-            backgroundColor: '#7c2d12',
-            border: '1px dashed #fb923c',
-            color: '#fff7ed',
             padding: '4px 10px',
             zIndex: 9999,
             maxWidth: 280,
@@ -3081,6 +3074,34 @@ function DetailPane({
         </div>
       )}
     </div>
+
+    {/* W9 (B3c): "Remove this dependency?" on the kit Dialog, a sibling of
+        the pane so no click inside it reaches the pane's handlers. Still
+        INSIDE the write gate (S29): the arrow asks only when canWrite, and
+        the answer is checked against it again before anything is removed. */}
+    {askUnlinkId && (
+      <Dialog
+        width="confirm"
+        title="Remove this dependency?"
+        onClose={() => setAskUnlinkId(null)}
+        footer={(
+          <>
+            <Button autoFocus onClick={() => setAskUnlinkId(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const id = askUnlinkId
+                setAskUnlinkId(null)
+                if (canWrite) onUnlinkDependency?.(id)
+              }}
+            >
+              Remove dependency
+            </Button>
+          </>
+        )}
+      />
+    )}
+    </>
   )
 }
 
@@ -3112,9 +3133,13 @@ function DetailPane({
 // to them).
 function ContainmentOverlay({ rows, span, dayPx, rowPx, dayToX, chartW, chartH }) {
   if (!dayToX) dayToX = (d) => d * dayPx
-  const LINE_COLOR = '#d6d3d1'     // stone-300 — high contrast on dark
+  // B3c: a 40% screen of the ink into the paper (3.5:1), the structure
+  // receding under the dependency links (ink-2, 8.49:1) it shares the chart
+  // with — it was stone-300, brighter than any link, and at ink-3 the two
+  // grey line families read as one.
+  const LINE_COLOR = 'color-mix(in srgb, var(--color-ink) 40%, var(--color-paper))'
   const LINE_WIDTH = 1.6
-  const SHADOW_COLOR = '#1c1917'
+  const SHADOW_COLOR = 'var(--color-paper)'
   const RAIL_INSET = 22            // how far inside the phase bar the rail starts
   const ARROW_GAP  = 4             // gap between elbow tip and child bar
 
@@ -3293,19 +3318,26 @@ function ContainmentOverlay({ rows, span, dayPx, rowPx, dayToX, chartW, chartH }
 // The rubber-band preview (while dragging a new dep) is a
 // dashed line following the cursor.
 //
-// Colors:
-//   task → task  : orange (#fb923c)    — RABBIT's primary accent
-//   phase → phase: cyan   (#22d3ee)    — high contrast vs orange
+// Colors (UI overhaul B3c, TL-14 — the palette decision is in the hand-off):
+//   a link is ink-2 (the ink at 72%), keyed on its kind in THIS component,
+//   never by a CSS `stroke` rule (which would override the attribute):
+//   task → task   solid
+//   phase → phase dashed (5 3)
+//   They were orange (#fb923c) and cyan (#22d3ee); cyan was the one cool hue
+//   in the chrome. The rubber band while a link is drawn is the signal: the
+//   one active state.
 function DependencyOverlay({
   visibleDeps, rows, span, dayPx, rowPx, dayToX, chartW, chartH,
   depDrag, depRewire,
-  onUnlinkDependency, onBeginDepRewire,
+  onUnlinkDependency, onBeginDepRewire, onAskUnlink,
   canWrite = true,
   taskDragPreview, phaseDragPreview, phaseDragAffectedIds,
 }) {
   if (!dayToX) dayToX = (d) => d * dayPx
-  const TASK_COLOR  = '#fb923c'
-  const PHASE_COLOR = '#22d3ee'
+  const TASK_COLOR  = 'var(--color-ink-2)'
+  const PHASE_COLOR = 'var(--color-ink-2)'
+  const DASH_BY_KIND = { phase: '5 3', task: undefined }
+  const DRAW_COLOR  = 'var(--color-signal)'
 
   // Live drag delta (days) to apply to a row's endpoints so the
   // dependency line follows the ghost of a moving task / phase.
@@ -3416,14 +3448,14 @@ function DependencyOverlay({
             is near-white, fading through the kind's accent
             color, fading to fully transparent at the edge. */}
         <radialGradient id="rabbit-pulse-glow-task" cx="50%" cy="50%" r="50%">
-          <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-          <stop offset="25%"  stopColor="#fff7ed" stopOpacity="0.95" />
+          <stop offset="0%"   stopColor="var(--color-ink)" stopOpacity="1" />
+          <stop offset="25%"  stopColor="var(--color-ink)" stopOpacity="0.95" />
           <stop offset="55%"  stopColor={TASK_COLOR} stopOpacity="0.75" />
           <stop offset="100%" stopColor={TASK_COLOR} stopOpacity="0" />
         </radialGradient>
         <radialGradient id="rabbit-pulse-glow-phase" cx="50%" cy="50%" r="50%">
-          <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-          <stop offset="25%"  stopColor="#ecfeff" stopOpacity="0.95" />
+          <stop offset="0%"   stopColor="var(--color-ink)" stopOpacity="1" />
+          <stop offset="25%"  stopColor="var(--color-ink)" stopOpacity="0.95" />
           <stop offset="55%"  stopColor={PHASE_COLOR} stopOpacity="0.75" />
           <stop offset="100%" stopColor={PHASE_COLOR} stopOpacity="0" />
         </radialGradient>
@@ -3449,7 +3481,7 @@ function DependencyOverlay({
             <path
               d={d}
               fill="none"
-              stroke="#1c1917"
+              stroke="var(--color-paper)"
               strokeWidth={3.2}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -3460,6 +3492,7 @@ function DependencyOverlay({
               d={d}
               fill="none"
               stroke={stroke}
+              strokeDasharray={DASH_BY_KIND[e.kind]}
               strokeWidth={1.8}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -3474,7 +3507,9 @@ function DependencyOverlay({
                 // nothing is the S23 "the button does nothing" bug with an
                 // extra step.
                 if (!canWrite) return
-                if (confirm('Remove this dependency?')) onUnlinkDependency?.(e.id)
+                // W9 (B3c): asked on the kit Dialog DetailPane renders (an
+                // SVG cannot hold one); still inside the gate above.
+                onAskUnlink?.(e.id)
               }}
             >
               <title>{canWrite ? 'Click to remove dependency' : 'Dependency (read only)'}</title>
@@ -3536,8 +3571,8 @@ function DependencyOverlay({
                     repeatCount="indefinite"
                   />
                 </circle>
-                {/* Tiny solid white core so the head reads sharp */}
-                <circle r={1.3} fill="#ffffff">
+                {/* Tiny solid core in the ink so the head reads sharp */}
+                <circle r={1.3} fill="var(--color-ink)">
                   <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
                   <animate
                     attributeName="opacity"
@@ -3560,7 +3595,7 @@ function DependencyOverlay({
           y1={depDrag.startY}
           x2={depDrag.curX}
           y2={depDrag.curY}
-          stroke={depDrag.fromKind === 'phase' ? PHASE_COLOR : TASK_COLOR}
+          stroke={DRAW_COLOR}
           strokeWidth={1.8}
           strokeDasharray="4 4"
           strokeLinecap="round"
@@ -3965,7 +4000,13 @@ function DetailBar({
            of a `[data-shape="subgroup"]` bar and of a `[data-shape="phase"]`
            bar, both 600), so the marker survives un-collapsed. The four
            channels above and barTone's palette moved there too, values
-           unchanged; the line numbers above are the pre-B3 file's. */
+           unchanged; the line numbers above are the pre-B3 file's.
+
+           📌 B3c (stage 2): the 2px phase edge, its dark ring and the
+           subgroup's 1.5px went (§3.3, one hairline; a subgroup keeps its
+           DASH). A phase is now told from a task by its row's band on both
+           halves, its taller box, this 600 and its palette; the ternary and
+           its two named rules stay, the marker unchanged. */
         <span
           className="text-dense truncate pointer-events-none overflow-hidden rb-tl-bar-label"
         >
@@ -3974,9 +4015,10 @@ function DetailBar({
       )}
       {/* Dependency-drag handle — sits OUTSIDE the bar, just past
           its right edge, so it no longer overlaps the 6px resize
-          grab zone at the bar's right edge. Color matches the kind
-          of dependency it will create: orange for task→task, cyan
-          for phase→phase. */}
+          grab zone at the bar's right edge. B3c: the signal for either
+          kind (it was orange for task→task and cyan for phase→phase);
+          the kind shows in the link it draws, solid or dashed. Its look
+          is `.rb-tl-dep-handle` in rabbitTimeline.css. */}
       {/* Session 29 — withheld from a read-only caller. This is a hover-revealed
           GRIP, not a persistent control: a greyed dot that only materialises
           when you hover and then refuses to drag teaches nothing, and the bar's
@@ -4000,17 +4042,14 @@ function DetailBar({
           onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
           onMouseLeave={scheduleHoverOff}
           className="absolute rounded-full rb-tl-dep-handle"
-          data-kind={phaseStyle ? 'phase' : 'task'}
           style={{
             right: -22,
             top: '50%',
             transform: 'translateY(-50%)',
             width: 14,
             height: 14,
-            border: '2px solid #1c1917',
             cursor: 'crosshair',
             zIndex: 6,
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
           }}
           title="Drag to link a dependency"
         />
@@ -4263,34 +4302,40 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     }
   }
 
-  async function handleDelete() {
+  // W9 (B3c): the four deletes ask on the kit Dialog, not window.confirm.
+  // Each question is the old confirm's, word for word, as the title; the
+  // second sentence two of them carried is the body. Nothing is deleted
+  // until the answer, exactly as before; an editor with no id to delete
+  // closes as it always did.
+  const [askDelete, setAskDelete] = useState(null)
+  const DELETE_ASK = {
+    milestone: { id: editor.milestoneId, title: 'Delete this milestone?', body: null, label: 'Delete milestone' },
+    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Tasks linked to it will lose their asset reference.', label: 'Delete asset' },
+    phase:     { id: editor.phaseId,     title: 'Delete this phase?', body: 'Tasks linked to it will become orphans.', label: 'Delete phase' },
+    task:      { id: editor.taskId,      title: 'Delete this task?', body: null, label: 'Delete task' },
+  }
+
+  function handleDelete() {
+    if (!canWrite) { setError(writeReason); return }
+    setError(null)
+    const ask = DELETE_ASK[editor.mode]
+    if (!ask?.id) { onClose(); return }
+    setAskDelete(ask)
+  }
+
+  async function performDelete() {
+    setAskDelete(null)
     if (!canWrite) { setError(writeReason); return }
     setSaving(true)
     setError(null)
     try {
       if (editor.mode === 'milestone' && editor.milestoneId) {
-        if (!confirm('Delete this milestone?')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteMilestone(editor.milestoneId)
       } else if (editor.mode === 'asset' && editor.assetId) {
-        if (!confirm('Delete this asset? Tasks linked to it will lose their asset reference.')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteAsset(editor.assetId)
       } else if (editor.mode === 'phase' && editor.phaseId) {
-        if (!confirm('Delete this phase? Tasks linked to it will become orphans.')) {
-          setSaving(false)
-          return
-        }
         await ctx.deletePhase(editor.phaseId)
       } else if (editor.mode === 'task' && editor.taskId) {
-        if (!confirm('Delete this task?')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteTask(editor.taskId)
       }
       onClose()
@@ -4302,6 +4347,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ backgroundColor: 'rgba(28, 25, 23, 0.75)' }}
@@ -4834,6 +4880,25 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         </div>
       </div>
     </div>
+
+    {/* W9 (B3c): the delete question, a sibling of the editor so a click in
+        it never reaches the editor's backdrop (which closes the editor). */}
+    {askDelete && (
+      <Dialog
+        width="confirm"
+        title={askDelete.title}
+        onClose={() => setAskDelete(null)}
+        footer={(
+          <>
+            <Button autoFocus onClick={() => setAskDelete(null)}>Cancel</Button>
+            <Button variant="danger" onClick={performDelete}>{askDelete.label}</Button>
+          </>
+        )}
+      >
+        {askDelete.body && <p className="text-body rb-tl-ask-body">{askDelete.body}</p>}
+      </Dialog>
+    )}
+    </>
   )
 }
 
@@ -4999,7 +5064,12 @@ function DetailZoomToolbar({
     ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
   ].map(({ id, icon: Icon, title }) => ({ id, title, label: <Icon className="w-3.5 h-3.5" aria-hidden="true" /> }))
   return (
+    /* `wrap` (B3c): the kit's second line for a window narrower than the
+       bar. Its two groups are 1007px, so at the 1024px the window allows
+       the create buttons overprinted the sort pair by 31px (measured); at
+       1280 and up it is one line at the same 44px, unchanged. */
     <Toolbar
+      wrap
       right={
         <>
           {groupBy === 'phase' && (
@@ -5523,57 +5593,115 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
 }
 
 // ============================================================
-// HelpModal — 850×82vh modal with sidebar + content (DOG/OTTER pattern)
-// Exported so Rabbit.jsx can render it outside TimelineView.
+// HelpModal — the kit's Dialog (reading, 720), the one D.O.G.'s Help
+// uses (UI overhaul B3c): a sidebar of pages and the page, two columns
+// that scroll on their own at a fixed height, so changing page does not
+// resize it. It was an 850px hand-rolled modal with its own backdrop,
+// header and close button; the Dialog brings Escape (Q17, ruled), the
+// modal stack and focus management, and keeps the backdrop click that
+// closed it. Exported so Rabbit.jsx can render it outside TimelineView.
 // ============================================================
 export function HelpModal({ helpPage, setHelpPage, onClose }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div
-        className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col"
-        style={{ width: '850px', height: '82vh' }}
-      >
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <HelpCircle className="w-5 h-5 text-orange-400" />
-            <span className="font-semibold text-orange-400">
-              Help & Documentation
-            </span>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-            <X className="w-5 h-5 text-stone-400" />
-          </button>
+    <Dialog
+      title="Help & documentation"
+      onClose={onClose}
+      dismissOnBackdrop
+      width="reading"
+      className="rb-tl-help"
+    >
+      <nav className="rb-tl-help-side" aria-label="Help contents">
+        <div className="rb-tl-help-list">
+          {RABBIT_HELP_SIDEBAR_ITEMS.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setHelpPage(item.id)}
+              className="rb-tl-help-item"
+              data-active={helpPage === item.id ? 'true' : 'false'}
+              aria-current={helpPage === item.id ? 'page' : undefined}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
-        <div className="flex-1 flex overflow-hidden">
-          <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto py-2 flex flex-col">
-            <div className="flex-1">
-              {RABBIT_HELP_SIDEBAR_ITEMS.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setHelpPage(item.id)}
-                  className="w-full text-left px-3 py-1.5 text-dense transition-colors border-l-2 rb-tl-help-item"
-                  data-active={helpPage === item.id ? 'true' : 'false'}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="px-3 py-2 border-t border-stone-800">
-              <span className="text-dense text-stone-500">RABBIT v0.1.0</span>
-            </div>
-          </nav>
-          <div className="flex-1 overflow-y-auto p-5">
-            <RabbitHelpContent helpPage={helpPage} theme="dark" />
-          </div>
-        </div>
+        <div className="rb-tl-help-version">RABBIT v0.1.0</div>
+      </nav>
+      <div className="rb-tl-help-content">
+        <RabbitHelpContent helpPage={helpPage} theme="dark" />
       </div>
-    </div>
+    </Dialog>
   )
 }
 
 // ZoomControls — the legacy zoom strip DetailZoomToolbar replaced — had no
 // caller and carried a sixth active-state idiom; B3b deleted it (TL-36).
+
+// ============================================================
+// TimelineLegend — what the bars' tones and the chart's marks mean
+// (UI overhaul B3c; plan §5 B3, "the legend, once"). ONE component,
+// drawn once, on its own line between the minimap and the detail toolbar,
+// so it serves both charts. Every swatch wears `.rb-tl-tone` with the very
+// attributes a bar carries, so the legend reads the bars' own rules and
+// cannot disagree with a bar. A list of words, not a control: nothing in it
+// takes a click (C1).
+//
+// Placement, measured (hand-off §3): the detail toolbar has 385px free at
+// 1440x900, 225 at 1280 and is already 31px over at 1024; the summary band
+// fits one line at 1280 only with 16px between figures (B3b). The legend is
+// about 900px, so neither holds it and it takes its own line; it wraps
+// rather than clip on a window narrower than it.
+// ============================================================
+const LEGEND_TONES = [
+  { key: 'not-started', label: 'Not started', shape: 'task',  status: undefined,        critical: 'false', title: 'Not started or waiting to start; a phase with no status' },
+  { key: 'in-progress', label: 'In progress', shape: 'task',  status: 'in_progress',    critical: 'false', title: 'In progress; an active phase' },
+  { key: 'critical',    label: 'Critical',    shape: 'task',  status: 'in_progress',    critical: 'true',  title: 'In progress on the critical path' },
+  { key: 'review',      label: 'Review',      shape: 'task',  status: 'pending_review', critical: 'false', title: 'Pending review; needs revisions is the stronger fill' },
+  { key: 'on-hold',     label: 'On hold',     shape: 'task',  status: 'on_hold',        critical: 'false', title: 'On hold; a delayed phase' },
+  { key: 'blocked',     label: 'Blocked',     shape: 'task',  status: 'blocked',        critical: 'false', title: 'Blocked' },
+  { key: 'done',        label: 'Done',        shape: 'task',  status: 'approved',       critical: 'false', title: 'Approved; final is the stronger fill' },
+  { key: 'completed',   label: 'Completed',   shape: 'phase', status: 'completed',      critical: 'false', title: 'A completed phase or group' },
+]
+const LEGEND_LINKS = [
+  { key: 'task-link',  label: 'Task link',  dash: undefined, title: 'A dependency between two tasks' },
+  { key: 'phase-link', label: 'Phase link', dash: '5 3',     title: 'A dependency between two phases' },
+]
+
+function TimelineLegend() {
+  return (
+    <ul className="text-caption rb-tl-legend" aria-label="Legend">
+      {LEGEND_TONES.map(t => (
+        <li key={t.key} className="rb-tl-legend-item" title={t.title}>
+          <span
+            aria-hidden="true"
+            className="rounded-control rb-tl-tone rb-tl-legend-swatch"
+            data-shape={t.shape}
+            data-status={t.status}
+            data-critical={t.critical}
+          />
+          {t.label}
+        </li>
+      ))}
+      <li className="rb-tl-legend-item" title="A key date, in its own colour when it has one">
+        <span aria-hidden="true" className="rb-tl-legend-ms" />
+        Key date
+      </li>
+      <li className="rb-tl-legend-item" title="Today">
+        <span aria-hidden="true" className="rb-tl-legend-today" />
+        Today
+      </li>
+      {LEGEND_LINKS.map(l => (
+        <li key={l.key} className="rb-tl-legend-item" title={l.title}>
+          <svg aria-hidden="true" className="rb-tl-legend-link" width="20" height="8" viewBox="0 0 20 8">
+            <line x1="0" y1="4" x2="15" y2="4" stroke="var(--color-ink-2)" strokeWidth="1.5" strokeDasharray={l.dash} />
+            <path d="M 14 1 L 19 4 L 14 7 z" fill="var(--color-ink-2)" />
+          </svg>
+          {l.label}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 // ============================================================
 // SummaryBand
