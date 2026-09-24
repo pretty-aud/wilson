@@ -995,7 +995,11 @@ select option {
     border-color: var(--chip-edge, var(--color-signal));
   }
   .ui-chip:disabled { color: var(--color-ink-3); cursor: not-allowed; }
-  .ui-chip-count { color: var(--color-ink-3); font-weight: 400; letter-spacing: 0; }
+  /* A3-KR-2 (2026-09-24): the count is a figure, so it does not inherit the
+     chip's capitals — a count at 11px with capitals and no tracking reads,
+     to ui-walk and to §3.1, as a Label that lost its tracking. A3 is the
+     first caller that passes `count` (O.T.T.E.R.'s course filters). */
+  .ui-chip-count { color: var(--color-ink-3); font-weight: 400; letter-spacing: 0; text-transform: none; }
   .ui-chip[data-active="true"] .ui-chip-count { color: var(--color-ink-2); }
 
   /* ── The light Chip (D1 kit request 4) ────────────────────────────────
