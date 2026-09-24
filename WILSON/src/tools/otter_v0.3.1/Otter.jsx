@@ -234,6 +234,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(null);
   const [importDragOver, setImportDragOver] = useState(false);
+  const importFileRef = useRef(null);
 
   // ── Undo/Redo for subject deletions ──
   const [deletedSubjectsStack, setDeletedSubjectsStack] = useState([]);
@@ -5458,24 +5459,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   //  MODALS
   // ═══════════════════════════════════════════════════════════════
   function renderImportModal() {
+    // A4: the kit's Dialog (review O27). It was a 480px box of its own with
+    // a hard offset shadow and a full-width Cancel under the drop zone; the
+    // Cancel is the footer's now, and "Choose file" is a kit Button that
+    // opens the same hidden file input (a <label> around it before, which
+    // the keyboard could not reach — A2 made D.O.G.'s pickers Buttons too).
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowImportModal(false)}>
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[480px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-semibold text-h1 mb-4">Import Data</h3>
-          <div className={`border border-dashed rounded-control p-8 text-center transition-colors ${importDragOver ? 'border-orange-500 bg-orange-600/10' : 'border-stone-600'}`}
-            onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
-            onDragLeave={() => setImportDragOver(false)}
-            onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
-            <FileJson className="w-10 h-10 text-stone-500 mx-auto mb-3" />
-            <p className="text-stone-400 mb-3">Drag and drop a .json file here</p>
-            <label className="inline-flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-4 py-2 rounded-control cursor-pointer hover:bg-stone-600 transition-colors text-body">
-              <Upload className="w-4 h-4" /> Choose File
-              <input type="file" accept=".json" className="hidden" onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
-            </label>
-          </div>
-          <button onClick={() => setShowImportModal(false)} className="mt-4 w-full bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
+      <Dialog
+        title="Import data"
+        width="form"
+        dismissOnBackdrop
+        onClose={() => setShowImportModal(false)}
+        footer={<Button onClick={() => setShowImportModal(false)}>Cancel</Button>}
+      >
+        <div className="otter-dropzone" data-over={importDragOver}
+          onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
+          onDragLeave={() => setImportDragOver(false)}
+          onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
+          <FileJson className="otter-dropzone-icon" aria-hidden="true" />
+          <p className="otter-dropzone-text">Drag and drop a .json file here</p>
+          <Button icon={Upload} onClick={() => importFileRef.current?.click()}>Choose file</Button>
+          <input ref={importFileRef} type="file" accept=".json" className="hidden" tabIndex={-1} aria-hidden="true"
+            onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
         </div>
-      </div>
+      </Dialog>
     );
   }
 

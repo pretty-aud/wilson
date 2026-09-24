@@ -145,7 +145,7 @@ const REGISTRY = [
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
   P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New software course' } }),   // A3: sentence case (Q2)
-  P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import Data' } }),
+  P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import data' } }),   // A4: sentence case (Q2)
   // A4: the overlays the walk lacked, each proven open by its own panel's
   // text (never text the page already showed). Openers only: nothing here
   // confirms, deletes, clears, shares or restores. Not walkable on the

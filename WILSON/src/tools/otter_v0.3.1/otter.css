@@ -1279,9 +1279,35 @@
     padding: 24px;
   }
 
+  /* ═══ IMPORT — the kit's Dialog (form, 560) ══════════════════════════
+     Review O27: a 480px box of its own with a hard offset shadow. The drop
+     zone keeps its dashed edge and its one state, a file dragged over it:
+     the signal edge and tint (it was orange-500 on an orange-600 wash). The
+     icon is the empty state's 24px (it was 40, off §3.3's three sizes). */
+  .otter-dropzone {
+    padding: 32px;
+    text-align: center;
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-control);
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .otter-dropzone[data-over='true'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .otter-dropzone-icon {
+    display: block;
+    width: var(--icon-lg);
+    height: var(--icon-lg);
+    margin: 0 auto 12px;
+    color: var(--color-ink-3);
+  }
+  .otter-dropzone-text { margin-bottom: 12px; color: var(--color-ink-2); }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
+    .otter-dropzone { transition: none; }
   }
 
 }
