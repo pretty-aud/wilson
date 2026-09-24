@@ -249,6 +249,17 @@
   }
   .otter-add-subject:hover { color: var(--color-ink); background-color: var(--color-hover); }
   .otter-add-subject-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  /* A row inside a list that scrolls, or a panel body that clips, draws its
+     focus ring INSIDE itself: the kit's ring sits 1px outside the element,
+     and the list clipped 3px off its left side on every row and off the top
+     of the first (A3 review round 2). */
+  :is(.otter-course-open, .otter-subject-open, .otter-add-subject,
+    .otter-group-row, .otter-section-row, .otter-lesson-row, .otter-sources-link):focus-visible { outline-offset: -2px; }
+  /* The same for the two icon buttons that sit flush with a clipping edge:
+     the panel head's collapse control under the nav bar, and a course row's
+     menu on the list's first row (1.5px and 1px cut off their tops). */
+  .otter-courses .ui-panel-head .ui-iconbtn:focus-visible,
+  .otter-course-list .ui-iconbtn:focus-visible { outline-offset: -2px; }
   .otter-subjects-note {
     padding: 6px 8px 6px 32px;
     font-size: var(--text-dense);
@@ -490,6 +501,7 @@
      starts 16px in (the card's padding), so it needs 28px of right padding
      to clear it — 32 leaves 4px between them. */
   .otter-course-card-title {
+    overflow-wrap: anywhere;
     padding-right: 32px;
     margin-bottom: 8px;
     font-size: var(--text-h3);
@@ -704,9 +716,11 @@
   }
   .ui-banner.otter-fork-offer > svg { margin-top: 1px; }
   .otter-fork-title { font-weight: 600; color: var(--color-ink); }
-  .otter-fork-body { margin-top: 2px; color: var(--color-ink-2); }
+  .otter-fork-body { margin-top: 4px; color: var(--color-ink-2); }
   .otter-fork-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-  .otter-fork-actions .otter-form-hint { margin-top: 0; }
+  /* The hint sits on the Banner's tint, not on the card: the third ink
+     measured 3.84:1 there at 12px (A3 review round 2). The second: 6.47:1. */
+  .otter-fork-actions .otter-form-hint { margin-top: 0; color: var(--color-ink-2); }
   .ui-input.otter-prompt-textarea { height: 128px; padding: 8px 12px; resize: none; }
   .otter-ref-add { display: flex; gap: 8px; }
   .otter-refs { display: flex; flex-direction: column; margin-top: 8px; }
@@ -768,7 +782,15 @@
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
   }
+  /* A block with its own 8px under it, so every part below the name sits
+     8px under it — a code well's 8px top margin collapses into this one.
+     As an inline <code> the parts sat 0px under its line box when a
+     function had no syntax, and the card's top inset read 20 against 17 at
+     the bottom (A3 review round 2). */
   .otter-fn-name {
+    display: block;
+    margin-bottom: 8px;
+    overflow-wrap: anywhere;
     font-family: var(--font-mono);
     font-size: var(--text-h3);
     line-height: var(--text-h3--line-height);
@@ -802,9 +824,13 @@
     text-transform: uppercase;
     color: var(--color-ink-3);
   }
+  /* A word longer than the card breaks rather than spilling out of it: a
+     215-character path ran 300px past the card and scrolled the view at
+     1024 (A3 review round 2). The code well keeps its own scroll. */
   .otter-fn-text,
   .otter-fn-desc {
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
     color: var(--color-ink-2);
@@ -825,6 +851,7 @@
   .otter-source-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; margin-top: 2px; color: var(--color-ink-3); }
   .otter-source-text { display: flex; flex-direction: column; min-width: 0; }
   .otter-source-title {
+    overflow-wrap: anywhere;
     font-size: var(--text-h3);
     line-height: var(--text-h3--line-height);
     font-weight: var(--text-h3--font-weight);
@@ -849,6 +876,7 @@
   .ui-tabs.otter-system-tabs { margin-bottom: 24px; border-bottom: 1px solid var(--color-rule); }
   .otter-node-name {
     margin-bottom: 8px;
+    overflow-wrap: anywhere;
     font-size: var(--text-h3);
     line-height: var(--text-h3--line-height);
     font-weight: var(--text-h3--font-weight);
@@ -861,16 +889,24 @@
      on one left edge, the three on one baseline. As flex rows each
      description started where its own badge ended — four left edges in one
      list, a fifth for the outputs — and the badge's word sat 1.5px under its
-     row (A3 review round 1, on injected data). A grid does not collapse
-     margins, so the notes take no top margin of their own: the gap above
-     them is the ports' 12 or the description's 8, as it was. */
+     row (A3 review round 1, on injected data).
+     The card's parts are spaced by the grid's own 8px row gap, not by their
+     margins: a grid does not collapse margins, so the margins double-counted
+     (16px under a name when the description was empty) or pushed the card's
+     inset (25px under a name-only node — A3 review round 2). A port section
+     after a port section, and the notes after one, take 4px more: the 12
+     they had. The description renders even when a node has none, so an
+     empty one is not drawn and opens no gap. */
   .otter-node-card {
     display: grid;
     grid-template-columns: 112px max-content minmax(0, 1fr);
     column-gap: 8px;
+    row-gap: 8px;
   }
   .otter-node-card > * { grid-column: 1 / -1; min-width: 0; }
-  .otter-node-card > .otter-node-notes { margin-top: 0; }
+  .otter-node-card > :is(.otter-node-name, .otter-fn-desc, .otter-node-ports, .otter-node-notes) { margin-top: 0; margin-bottom: 0; }
+  .otter-node-card > .otter-node-ports + :is(.otter-node-ports, .otter-node-notes) { margin-top: 4px; }
+  .otter-node-card > .otter-fn-desc:empty { display: none; }
   .otter-node-ports,
   .otter-node-port-list,
   .otter-node-port {
@@ -886,18 +922,24 @@
     line-height: var(--text-caption--line-height);
   }
   .otter-node-port-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink); }
-  .otter-node-port-desc { min-width: 0; color: var(--color-ink-2); }
+  .otter-node-port-desc { min-width: 0; overflow-wrap: anywhere; color: var(--color-ink-2); }
   /* The word is the data colour lifted 15% toward the ink: #818cf8 (Integer)
      was 4.48:1 at 11px on its own wash, the only one of the fifteen under
      AA. The hue stays the map's (Q9); the wash and the hairline keep the
      unmixed colour. */
+  /* A badge hugs its word, and the column is the widest one's — up to
+     160px, as the origin badge's, past which the word ellipsizes: one
+     41-character type left its card's descriptions a 34px column (A3 review
+     round 2). The map's own words are all under 100px. */
   .ui-badge.otter-node-type {
-    justify-self: start; /* a badge hugs its word; the column is the widest one's */
+    justify-self: start;
+    max-width: 160px;
     color: color-mix(in srgb, var(--node-color) 85%, var(--color-ink));
     border-color: color-mix(in srgb, var(--node-color) 25%, transparent);
     background-color: color-mix(in srgb, var(--node-color) 12.5%, transparent);
   }
   .otter-node-notes {
+    overflow-wrap: anywhere;
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid var(--color-rule);

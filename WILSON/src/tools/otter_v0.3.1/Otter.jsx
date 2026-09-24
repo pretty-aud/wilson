@@ -135,7 +135,7 @@ function NodeTypeBadge({ type }) {
   const color = NODE_TYPE_COLORS[type] || NODE_TYPE_COLORS.Any;
   return (
     <Badge className="otter-node-type" style={{ '--node-color': color }}>
-      {type || 'Any'}
+      <span className="otter-badge-label">{type || 'Any'}</span>
     </Badge>
   );
 }
@@ -4470,10 +4470,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <li key={i}>
                 <a href={src.url} target="_blank" rel="noopener noreferrer" className="otter-source">
                   <ExternalLink className="otter-source-icon" aria-hidden="true" />
-                  <span className="otter-source-text">
+                  <div className="otter-source-text">
                     <h3 className="otter-source-title">{src.title || 'Untitled source'}</h3>
                     <span className="otter-source-url">{src.url}</span>
-                  </span>
+                  </div>
                 </a>
               </li>
             ))}
