@@ -3082,48 +3082,43 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             />
           </div>
           </div>
+          {/* ── GENERATION QUEUE INDICATOR ──
+              A3 (review O15): inside <main>, 24px from its bottom-left corner,
+              so it tracks the sidebars. It was fixed at left 440px — the
+              content edge only while both sidebars were open at their old
+              widths — and hovered 48px up over a bar 8px tall. */}
+          {generatingSubjects.size > 0 && (
+            <div className="otter-queue" role="status" aria-label="Generating">
+              <div className="otter-queue-head">
+                <Loader2 className="animate-spin" aria-hidden="true" /> Generating ({generatingSubjects.size})
+              </div>
+              <div className="otter-queue-list">
+                {Array.from(generatingSubjects.entries()).map(([slug, entry]) => (
+                  <div key={slug} className="otter-queue-row">
+                    <div className="otter-queue-text">
+                      <p className="otter-queue-title">{entry.title}</p>
+                      <p className="otter-queue-meta">
+                        {entry.cancelled ? (
+                          <span className="otter-queue-cancelling">Cancelling...</span>
+                        ) : (
+                          <>
+                            <span>{entry.phase}</span>
+                            <span aria-hidden="true">&bull;</span>
+                            <span className="otter-queue-time">{Math.floor((entry.elapsed || 0) / 60)}:{String((entry.elapsed || 0) % 60).padStart(2, '0')}</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    {!entry.cancelled && (
+                      <IconButton size="sm" icon={X} danger title="Cancel generation" onClick={() => cancelGeneration(slug)} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </main>
       </div>
-
-      {/* ── GENERATION QUEUE INDICATOR ── */}
-      {generatingSubjects.size > 0 && (
-        <div className="fixed bottom-12 left-[440px] z-30 w-[280px] bg-stone-800 border border-stone-600 rounded-control shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] overflow-hidden">
-          <div className="bg-stone-700 px-3 py-1.5 flex items-center justify-between">
-            <span className="text-orange-400 text-dense font-semibold flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" /> Generating ({generatingSubjects.size})
-            </span>
-          </div>
-          <div className="max-h-[200px] overflow-y-auto">
-            {Array.from(generatingSubjects.entries()).map(([slug, entry]) => (
-              <div key={slug} className="px-3 py-2 border-t border-stone-700 flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-dense font-semibold truncate">{entry.title}</p>
-                  <p className="text-stone-400 text-dense flex items-center gap-1">
-                    {entry.cancelled ? (
-                      <span className="text-red-400">Cancelling...</span>
-                    ) : (
-                      <>
-                        <span>{entry.phase}</span>
-                        <span className="text-stone-600">&bull;</span>
-                        <span className="font-mono">{Math.floor((entry.elapsed || 0) / 60)}:{String((entry.elapsed || 0) % 60).padStart(2, '0')}</span>
-                      </>
-                    )}
-                  </p>
-                </div>
-                {!entry.cancelled && (
-                  <button
-                    onClick={() => cancelGeneration(slug)}
-                    className="p-1 hover:bg-stone-600 rounded-control text-stone-400 hover:text-red-400 transition-colors shrink-0"
-                    title="Cancel generation"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── SETTINGS PANEL ── */}
       {settingsOpen && renderSettingsPanel()}
@@ -4378,29 +4373,20 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               </div>
             )}
 
-            {generating && (() => {
-              // Time-based progress estimation
-              let pct = 5;
-              if (genElapsed >= 2) pct = 15;
-              if (genElapsed >= 5) pct = 30;
-              if (genElapsed >= 8) pct = 45;
-              if (genElapsed >= 12) pct = 60;
-              if (genElapsed >= 18) pct = 72;
-              if (genElapsed >= 25) pct = 82;
-              if (genElapsed >= 35) pct = 88;
-              if (genElapsed >= 45) pct = 92;
-              return (
-                <div className="mt-6 bg-stone-900 border border-stone-600 rounded-control p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-orange-400 text-h3 font-semibold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genPhase}</span>
-                    <span className="text-stone-400 text-body font-mono">{formatTime(genElapsed)}</span>
-                  </div>
-                  <div className="w-full bg-stone-700 rounded-control h-2 overflow-hidden border border-stone-600">
-                    <div className="h-full bg-orange-500 transition-[width] duration-1000 ease-out" style={{ width: `${pct}%` }} />
-                  </div>
+            {/* Q22 (Audrey, 2026-09-11): the fabricated percentage is removed —
+                the bar stays, the number goes. The fill used to climb a
+                hard-coded ladder of elapsed seconds (5, 15, 30 … 92 percent)
+                that no generation reports; it now says only "working", and
+                the phase and the timer, the two honest signals, stay. */}
+            {generating && (
+              <div className="otter-gen">
+                <div className="otter-gen-head">
+                  <span className="otter-gen-phase"><Loader2 className="animate-spin" aria-hidden="true" /> {genPhase}</span>
+                  <span className="otter-gen-time">{formatTime(genElapsed)}</span>
                 </div>
-              );
-            })()}
+                <div className="otter-gen-bar" aria-hidden="true"><div className="otter-gen-sweep" /></div>
+              </div>
+            )}
 
             {!generating && (
               <button onClick={isCourseMode ? generateCourse : generateSingleSubject}
@@ -4472,54 +4458,56 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
     if (activeSubject.is_stub) {
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center gap-1.5 text-dense mb-2">
-              <span className="text-orange-400/70 font-semibold">{activeSoftware?.name}</span>
-              <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
-              <span className="text-stone-400">{activeSubject.title}</span>
-              <span className="text-stone-600 ml-1">[outline]</span>
-            </div>
-            <h2 className="text-h1 font-semibold text-orange-400 mb-2">{activeSubject.title}</h2>
-            <p className="text-stone-400 mb-6">{activeSubject.description}</p>
-            <div className="bg-stone-800 border border-dashed border-stone-600 rounded-control p-6 mb-6">
-              <h3 className="text-stone-300 font-semibold text-h3 mb-4">Section Outlines</h3>
+        <div className="otter-view">
+          <div className="otter-view-page" data-width="reading">
+            <nav className="otter-crumbs" aria-label="Where this subject sits">
+              <span>{activeSoftware?.name}</span>
+              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              <span className="otter-crumb-current">{activeSubject.title}</span>
+              <span>[outline]</span>
+            </nav>
+            <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
+              {activeSubject.title}
+            </SectionTitle>
+            <Card title="Section outlines" className="otter-outline-card">
               {activeSubject.section_outlines?.length > 0 ? (
-                <div className="space-y-3">
+                <ul className="otter-outlines">
                   {activeSubject.section_outlines.map((outline, i) => (
-                    <div key={i} className="bg-stone-900 border border-stone-700 rounded-control p-3">
-                      <h4 className="text-white font-semibold text-h3">{outline.title}</h4>
-                      <p className="text-stone-400 text-dense mt-1">{outline.description}</p>
-                      <span className="text-stone-500 text-caption">{outline.lesson_count} lessons planned</span>
-                    </div>
+                    <li key={i} className="otter-outline">
+                      <h4 className="otter-outline-title">{outline.title}</h4>
+                      <p className="otter-outline-desc">{outline.description}</p>
+                      <span className="otter-outline-meta">{outline.lesson_count} lessons planned</span>
+                    </li>
                   ))}
-                </div>
-              ) : <p className="text-stone-500 text-body">No section outlines available.</p>}
-            </div>
-            <button onClick={() => generateSubjectContent(activeSubject.slug)} disabled={generatingSubjects.has(activeSubject.slug)}
-              className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-3 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors text-body font-semibold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50">
-              {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="w-5 h-5 animate-spin" /> : <GraduationCap className="w-5 h-5" />}
-              {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate Full Content'}
-            </button>
+                </ul>
+              ) : <p className="otter-outline-desc">No section outlines available.</p>}
+            </Card>
+            <Button
+              variant="primary"
+              className="otter-generate-full"
+              onClick={() => generateSubjectContent(activeSubject.slug)}
+              disabled={generatingSubjects.has(activeSubject.slug)}
+            >
+              {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+              {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate full content'}
+            </Button>
             {generatingSubjects.has(activeSubject.slug) && (() => {
               const genEntry = generatingSubjects.get(activeSubject.slug);
               return (
-                <div className="mt-4 bg-stone-900 border border-stone-600 rounded-control p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-orange-400 text-h3 font-semibold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genEntry?.phase || 'Working...'}</span>
-                    <span className="text-stone-400 text-body font-mono">{Math.floor((genEntry?.elapsed || 0) / 60)}:{String((genEntry?.elapsed || 0) % 60).padStart(2, '0')}</span>
+                // The same progress as the prompt screen's (O16: one idiom,
+                // not three). This bar sat at 100 percent, pulsing, which
+                // read as finished while the work was still running.
+                <div className="otter-gen">
+                  <div className="otter-gen-head">
+                    <span className="otter-gen-phase"><Loader2 className="animate-spin" aria-hidden="true" /> {genEntry?.phase || 'Working...'}</span>
+                    <span className="otter-gen-time">{Math.floor((genEntry?.elapsed || 0) / 60)}:{String((genEntry?.elapsed || 0) % 60).padStart(2, '0')}</span>
                   </div>
-                  <div className="w-full bg-stone-700 rounded-control h-2 overflow-hidden border border-stone-600">
-                    <div className="h-full bg-orange-500 animate-pulse" style={{ width: '100%', opacity: 0.6 }} />
-                  </div>
+                  <div className="otter-gen-bar" aria-hidden="true"><div className="otter-gen-sweep" /></div>
                 </div>
               );
             })()}
             {genError && (
-              <div className="mt-4 bg-red-900/30 border border-red-700 rounded-control p-3 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <p className="text-red-300 text-body">{genError}</p>
-              </div>
+              <Banner tone="danger" Icon={AlertCircle} className="otter-gen-error">{genError}</Banner>
             )}
           </div>
         </div>

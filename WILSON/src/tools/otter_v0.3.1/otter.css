@@ -652,6 +652,142 @@
     color: var(--color-danger);
   }
 
+  /* ═══ GENERATION IN PROGRESS — Q22, O15, O16 ══════════════════════════
+     One idiom for "O.T.T.E.R. is writing", on the prompt screen and on an
+     outline's page: the phase with a turning spinner, the elapsed time in
+     the mono, and a bar that SWEEPS rather than fills. The prompt screen's
+     bar climbed a ladder of elapsed seconds to 92 percent that nothing
+     measured (Q22: removed, the bar stays); the outline page's sat at 100
+     percent, pulsing, reading as finished while it ran. Like the kit's
+     spinner, the sweep keeps moving under reduced motion: an indeterminate
+     wait has no end state to jump to. The neutral fill: progress is not
+     one of the signal's jobs. */
+  .otter-gen {
+    margin-top: 24px;
+    padding: 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-gen-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .otter-gen-phase {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-gen-phase > svg { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-gen-time {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .otter-gen-bar {
+    position: relative;
+    height: 4px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-rule);
+    overflow: hidden;
+  }
+  .otter-gen-sweep {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 30%;
+    border-radius: var(--radius-control);
+    background-color: var(--color-ink-2);
+    animation: otter-gen-sweep 1.4s cubic-bezier(0.2, 0, 0, 1) infinite;
+  }
+  .ui-banner.otter-gen-error { margin-top: 16px; }
+
+  /* The outline page (a subject that is still a stub). */
+  .ui-card.otter-outline-card { margin-bottom: 16px; border-style: dashed; }
+  .otter-outlines { display: flex; flex-direction: column; }
+  .otter-outline { padding: 12px 0; border-top: 1px solid var(--color-rule); }
+  .otter-outline:first-child { padding-top: 0; border-top: 0; }
+  .otter-outline-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-outline-desc {
+    margin-top: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-outline-meta {
+    display: block;
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-btn.otter-generate-full { width: 100%; }
+
+  /* The queue: a floating surface (paper-raised, 6px, the one shadow) in
+     the content region's corner, so the sidebars move it. */
+  .otter-queue {
+    position: absolute;
+    left: var(--spacing-gutter);
+    bottom: var(--spacing-gutter);
+    z-index: 30;
+    width: 280px;
+    overflow: hidden;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .otter-queue-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--panel-header);
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .otter-queue-head > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .otter-queue-list { max-height: 200px; overflow-y: auto; }
+  .otter-queue-row { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; }
+  .otter-queue-row + .otter-queue-row { border-top: 1px solid var(--color-rule); }
+  .otter-queue-text { flex: 1 1 auto; min-width: 0; }
+  .otter-queue-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-queue-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-queue-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .otter-queue-cancelling { color: var(--color-danger); }
+
   /* ═══ THE LESSON PAGE (renderStudyView) ═══════════════════════════════
      The reading surface (.lesson-content, in index.css) and its frame: a
      720px reading container on the page gutter (§3.3's reading measure;
@@ -742,4 +878,11 @@
     .otter-subject-card .otter-subject-card-delete { transition: none; }
   }
 
+}
+
+/* Outside the layer, as dog.css keeps its own keyframes: the sweep of the
+   generation bar (Q22). */
+@keyframes otter-gen-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
 }
