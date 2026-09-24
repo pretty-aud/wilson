@@ -3782,11 +3782,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <button
                     key={lesson.id}
                     onClick={() => { setSelectedLessonId(lesson.id); setCurrentView('study'); }}
-                    className={`w-full text-left pl-7 pr-3 py-1.5 text-dense flex items-center gap-2 transition-colors ${
-                      isActive
-                        ? 'bg-stone-900 text-orange-400 border-l-2 border-orange-500'
-                        : 'text-stone-400 hover:text-stone-300 hover:bg-stone-800 border-l-2 border-transparent'
-                    }`}
+                    className="otter-lesson-row w-full text-left pl-7 pr-3 py-1.5 text-dense flex items-center gap-2 transition-colors border-l-2"
+                    data-active={isActive ? 'true' : undefined}
                   >
                     {isComplete
                       ? <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />

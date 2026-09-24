@@ -127,4 +127,26 @@
   .otter-subject-row:hover .otter-subject-delete { opacity: 1; }          /* group-hover/sub:opacity-100 */
   .otter-subject-delete:hover { color: oklch(70.4% 0.191 22.216); }       /* hover:text-red-400 */
 
+  /* ═══ EXTRACTION — SIDEBAR 2, the lesson list (renderLessonSidebar) ════
+     A lesson row, two branches:
+       active   orange-400 on stone-900, an orange-500 left edge; no hover
+       default  stone-400; hover stone-300 on stone-800
+     Both branches carried the 2px left edge, so its width stays a utility.
+     The hotkey-group and node-group lists in the same function carry no
+     state (a static hover only), and the sidebar's #1f1c1a ground is an
+     inline constant, not a state — both are the restyle's. */
+  .otter-lesson-row {
+    color: oklch(70.9% 0.01 56.259);                  /* text-stone-400 */
+    border-left-color: transparent;                   /* border-transparent */
+  }
+  .otter-lesson-row:not([data-active='true']):hover {
+    color: oklch(86.9% 0.005 56.366);                 /* hover:text-stone-300 */
+    background-color: oklch(26.8% 0.007 34.298);      /* hover:bg-stone-800 */
+  }
+  .otter-lesson-row[data-active='true'] {
+    color: oklch(75% 0.183 55.934);                   /* text-orange-400 */
+    background-color: oklch(21.6% 0.006 56.043);      /* bg-stone-900 */
+    border-left-color: oklch(70.5% 0.213 47.604);     /* border-orange-500 */
+  }
+
 }
