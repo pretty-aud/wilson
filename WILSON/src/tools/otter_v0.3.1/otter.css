@@ -39,71 +39,6 @@
 
 @layer components {
 
-  /* ═══ EXTRACTION — THE LIBRARY (renderLibrary) ═════════════════════════
-     Two cards, each a container ternary and a title ternary on ONE
-     condition, so the title keys on its card's attribute:
-
-     the SUBJECT card (the course page)
-       stub     a dashed stone-600 edge, no hover; title stone-400
-       default  a stone-600 edge, orange-500 on hover, a pointer; title
-                white, orange-400 while the card is hovered
-     and its delete, hidden until the card is hovered, stone-600, red-400
-     on a stone-700 fill on its own hover.
-
-     the COURSE card (the library)
-       not openable  a dashed stone-700 edge, the default cursor; title
-                     stone-500
-       default       a stone-600 edge, orange-500 on hover, a pointer;
-                     title white, orange-400 while the card is hovered
-
-     🚨 The border utility moved here WITH the colour: it sets the border
-     style too, and a utility beats this layer, so leaving it on the element
-     would have drawn the dashed branches solid. */
-  .otter-subject-card {
-    border: 1px solid oklch(44.4% 0.011 73.639);          /* border border-stone-600 */
-  }
-  .otter-subject-card:not([data-stub='true']) { cursor: pointer; }
-  .otter-subject-card:not([data-stub='true']):hover {
-    border-color: oklch(70.5% 0.213 47.604);              /* hover:border-orange-500 */
-  }
-  .otter-subject-card[data-stub='true'] { border-style: dashed; }
-  .otter-subject-card-title { color: white; }           /* text-white */
-  .otter-subject-card:not([data-stub='true']):hover .otter-subject-card-title {
-    color: oklch(75% 0.183 55.934);                       /* group-hover:text-orange-400 */
-  }
-  .otter-subject-card[data-stub='true'] .otter-subject-card-title {
-    color: oklch(70.9% 0.01 56.259);                      /* text-stone-400 */
-  }
-  .otter-subject-card-delete {
-    opacity: 0;
-    color: oklch(44.4% 0.011 73.639);                     /* text-stone-600 */
-  }
-  .otter-subject-card:hover .otter-subject-card-delete { opacity: 1; } /* group-hover:opacity-100 */
-  .otter-subject-card-delete:hover {
-    color: oklch(70.4% 0.191 22.216);                     /* hover:text-red-400 */
-    background-color: oklch(37.4% 0.01 67.558);           /* hover:bg-stone-700 */
-  }
-
-  .otter-course-card {
-    border: 1px solid oklch(44.4% 0.011 73.639);          /* border border-stone-600 */
-    cursor: pointer;
-  }
-  .otter-course-card:not([data-openable='false']):hover {
-    border-color: oklch(70.5% 0.213 47.604);              /* hover:border-orange-500 */
-  }
-  .otter-course-card[data-openable='false'] {
-    border-style: dashed;
-    border-color: oklch(37.4% 0.01 67.558);               /* border-stone-700 */
-    cursor: default;
-  }
-  .otter-course-card-title { color: white; }            /* text-white */
-  .otter-course-card:not([data-openable='false']):hover .otter-course-card-title {
-    color: oklch(75% 0.183 55.934);                       /* group-hover:text-orange-400 */
-  }
-  .otter-course-card[data-openable='false'] .otter-course-card-title {
-    color: oklch(55.3% 0.013 58.071);                     /* text-stone-500 */
-  }
-
   /* ═══ EXTRACTION — THE PROMPT VIEW (renderPromptInput) ═════════════════
      The radio CARD, drawn twice with one pair of branches (Mode: course or
      subject; Who is this for: personal or shared):
@@ -549,6 +484,174 @@
   }
   .otter-sources-link:hover { background-color: var(--color-hover); color: var(--color-ink); }
 
+  /* ═══ THE VIEWS' SCAFFOLD — one page, one view-title treatment (O3) ════
+     Every O.T.T.E.R. view that titled itself did so four ways (O3): 24px
+     orange floating in the padding, an 18px orange header bar, white with an
+     icon, 16px grey in a bar. Each is now the kit's SectionTitle — H2 in the
+     one ink — on the page gutter, its actions on the right, centred on the
+     title's line (the kit bottom-aligns them for a multi-line description;
+     these headers are one line plus a caption, so centre reads true). */
+  .otter-view { height: 100%; overflow-y: auto; background-color: var(--color-paper); }
+  .otter-view-page { margin: 0 auto; padding: var(--spacing-gutter); }
+  .otter-view-page[data-width='data'] { max-width: var(--width-data-max); }
+  .otter-view-page[data-width='reading'] { max-width: var(--width-reading); }
+  .ui-section.otter-view-title { padding-top: 0; margin-bottom: 24px; align-items: center; }
+  .otter-view-title .ui-section-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .otter-view-meta .otter-owner { margin-left: 8px; }
+  .otter-count { font-variant-numeric: tabular-nums; }
+  .ui-banner.otter-banner { margin-bottom: 16px; }
+
+  /* ═══ THE LIBRARY AND THE COURSE PAGE (renderLibrary) ═════════════════
+     Course cards and subject cards: the kit Card's surface (paper-raised,
+     one hairline, the control radius) with no hard-offset shadow (§3.3:
+     a docked surface gets a hairline and nothing else). Hover lifts the
+     hairline to the third ink — the orange edge and orange title are gone,
+     the signal is not a hover colour. A card title is H3 (§3.1: "card
+     titles"); a subject's number is data (the mono, Caption, the third ink,
+     no chip — O36); counts and dates are tabular. The grid keeps its
+     breakpoints: one column, two at 768px, three at 1024px. */
+  .otter-card-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  @media (min-width: 768px) { .otter-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (min-width: 1024px) { .otter-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .otter-shelf + .otter-shelf { margin-top: 32px; }
+  .otter-shelf-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-shelf-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-shelf-title .otter-count {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    color: var(--color-ink-3);
+  }
+
+  .otter-course-card,
+  .otter-subject-card {
+    position: relative;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .otter-course-card { padding: 16px; }
+  .otter-course-card:not([data-openable='false']):hover { border-color: var(--color-ink-3); }
+  .otter-course-card[data-openable='false'] { border-style: dashed; cursor: default; }
+  .otter-course-card-menu { position: absolute; top: 8px; right: 8px; }
+  /* The trigger is the kit IconButton's md square (36px) at 8px from the
+     card's edge, so its left edge is 44px in; the title's content box
+     starts 16px in (the card's padding), so it needs 28px of right padding
+     to clear it — 32 leaves 4px between them. */
+  .otter-course-card-title {
+    padding-right: 32px;
+    margin-bottom: 8px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-course-card[data-openable='false'] .otter-course-card-title { color: var(--color-ink-3); }
+  .otter-course-card-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .otter-course-card-meta,
+  .otter-course-card-date {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-course-card-date { margin-top: 4px; }
+
+  .otter-subject-card { display: flex; flex-direction: column; height: 200px; }
+  .otter-subject-card:hover { border-color: var(--color-ink-3); }
+  .otter-subject-card[data-stub='true'] { border-style: dashed; cursor: auto; }
+  .otter-subject-card[data-stub='true']:hover { border-color: var(--color-rule); }
+  .otter-subject-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 12px 8px 16px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .otter-subject-card-order {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-badge.otter-outline-badge { border-style: dashed; }
+  /* The delete keeps its place (it is always in the flow), revealed on the
+     card's hover as before and on keyboard focus — :has(:focus-visible),
+     not :focus-within, which a mouse click also matches (A1 trap 2). */
+  .otter-subject-card .otter-subject-card-delete {
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out,
+      background-color var(--duration-state) ease-out,
+      color var(--duration-state) ease-out;
+  }
+  .otter-subject-card:hover .otter-subject-card-delete,
+  .otter-subject-card:has(:focus-visible) .otter-subject-card-delete { opacity: 1; }
+  .otter-subject-card-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding: 12px 16px; }
+  .otter-subject-card-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-bottom: 4px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-subject-card[data-stub='true'] .otter-subject-card-title { color: var(--color-ink-2); }
+  .otter-subject-card-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    cursor: default;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-spacer { flex: 1 1 auto; }
+  .otter-subject-card-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-subject-card-note {
+    margin-top: 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-style: italic;
+    color: var(--color-ink-3);
+  }
+  .otter-subject-card-generate { margin-top: 8px; }
+  .otter-subject-card-generate > .ui-btn { width: 100%; }
+  .otter-subject-card-error {
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-danger);
+  }
+
   /* ═══ THE LESSON PAGE (renderStudyView) ═══════════════════════════════
      The reading surface (.lesson-content, in index.css) and its frame: a
      720px reading container on the page gutter (§3.3's reading measure;
@@ -635,7 +738,8 @@
     .otter-course-row, .otter-subject-row, .otter-subject-row .otter-subject-delete,
     .otter-add-subject, .otter-rail, .otter-rail-icon,
     .otter-group-row, .otter-section-row, .otter-lesson-row, .otter-sources-link,
-    .otter-progress-fill { transition: none; }
+    .otter-progress-fill, .otter-course-card, .otter-subject-card,
+    .otter-subject-card .otter-subject-card-delete { transition: none; }
   }
 
 }

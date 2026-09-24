@@ -108,7 +108,7 @@ const REGISTRY = [
   // the shell's (excluded) — "R.A.B.B.I.T." here is Home's own button.
   P('home', '/', { homeCaps: true, expect: { text: 'R.A.B.B.I.T.' } }),
   P('dog', '/dog', { expect: { text: 'Generate page outline' } }),   // A1: sentence case (Q2)
-  P('otter', '/otter', { expect: { text: 'New Course' } }),
+  P('otter', '/otter', { expect: { text: 'New course' } }),   // A3: sentence case (Q2)
   P('rabbit', '/rabbit', { expect: { text: 'Salt Hours' } }),
   P('settings', '/settings', { expect: { text: 'Version and updates' } }),
   P('projects', '/project-manager', { expect: { text: 'Salt Hours' } }),
@@ -142,7 +142,7 @@ const REGISTRY = [
   P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes Reference' } }),
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
-  P('otter-new-course', '/otter', { steps: ['New Course'], expect: { text: 'New Software Course' } }),
+  P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New Software Course' } }),
   P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import Data' } }),
 
   // R.A.B.B.I.T. — the nine tabs with the project open, then what opens off them.

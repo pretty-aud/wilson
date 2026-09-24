@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -3810,28 +3810,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // lesson the Session 10 adapter work was built around.
   function renderSharingBanner() {
     if (!sharingNotice && !sharingError) return null;
+    // A3: the kit's Banner — one strip, a tone, the dismiss as its action.
     if (sharingError) {
       return (
-        <div className="mb-4 bg-red-900/30 border border-red-700 rounded-control p-3 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-          <p className="text-red-300 text-body flex-1">{sharingError}</p>
-          <button onClick={() => setSharingError(null)} className="text-red-400 hover:text-red-200 text-dense font-semibold">
-            Dismiss
-          </button>
-        </div>
+        <Banner
+          tone="danger"
+          Icon={AlertCircle}
+          className="otter-banner"
+          action={<Button variant="ghost" size="sm" onClick={() => setSharingError(null)}>Dismiss</Button>}
+        >
+          {sharingError}
+        </Banner>
       );
     }
     return (
-      <div className="mb-4 bg-green-900/25 border border-green-800 rounded-control p-3 flex items-center gap-2">
-        <Check className="w-4 h-4 text-green-400 shrink-0" />
-        <p className="text-green-300 text-body flex-1">{sharingNotice}</p>
-        <button onClick={() => setSharingNotice(null)} className="text-green-400 hover:text-green-200 text-dense font-semibold">
-          Dismiss
-        </button>
-      </div>
+      <Banner
+        tone="success"
+        Icon={Check}
+        className="otter-banner"
+        action={<Button variant="ghost" size="sm" onClick={() => setSharingNotice(null)}>Dismiss</Button>}
+      >
+        {sharingNotice}
+      </Banner>
     );
   }
-
   // ═══════════════════════════════════════════════════════════════
   //  LIBRARY VIEW
   // ═══════════════════════════════════════════════════════════════
@@ -3852,160 +3854,152 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
     if (activeSoftwareSlug && activeSoftware) {
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="max-w-6xl mx-auto">
+        <div className="otter-view">
+          <div className="otter-view-page" data-width="data">
             {renderSharingBanner()}
-            <div className="flex items-center justify-between mb-6">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-h1 font-semibold text-orange-400">{activeSoftware.name}</h2>
-                  {cloudMode && <VisibilityBadge course={activeCourseRow} />}
-                  {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
-                  {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
-                </div>
-                <p className="text-stone-500 text-body flex items-center gap-2">
-                  <span>
-                    {subjectList.length} subjects
-                    {activeCanWrite ? ' -- Click to study, hover to manage or remove' : ' -- Click to study'}
-                  </span>
+            {/* One view-title treatment across O.T.T.E.R. (review O3): the
+                kit's SectionTitle, H2 in the one ink, actions on the right. */}
+            <SectionTitle
+              rule={false}
+              className="otter-view-title"
+              description={
+                <span className="otter-view-meta">
+                  <span className="otter-count">{subjectList.length} subjects</span>
+                  {activeCanWrite ? ' — Click to study, hover to manage or remove' : ' — Click to study'}
                   {cloudMode && <OwnerBadge course={activeCourseRow} />}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                {/* activeCourseRow is looked up in softwareList while this pane
-                    branches on activeSoftware, and the two can briefly disagree
-                    (a course removed from the index by another device, an
-                    in-flight reload). Rendering the menu against null would give
-                    every action an undefined course. */}
-                {cloudMode && activeCourseRow && (
-                  <CourseRowMenu
-                    course={activeCourseRow}
-                    role={appRole}
-                    onShare={setShareDialogCourse}
-                    onSuggestChange={setCrDialogCourse}
-                    onFork={(c) => forkCourse(c)}
-                    onTrash={(c) => setShowDeleteConfirm(c.slug)}
-                  />
-                )}
-                {activeCanWrite && subjectList.some(s => s.is_stub) && (
-                  <button
-                    onClick={() => {
-                      const stubs = subjectList.filter(s => s.is_stub && !generatingSubjects.has(s.slug));
-                      for (const stub of stubs) {
-                        if (genQueueCancelledRef.current.has(stub.slug)) continue;
-                        generateSubjectContent(stub.slug, { skipNavigation: true });
-                      }
-                    }}
-                    disabled={subjectList.filter(s => s.is_stub).every(s => generatingSubjects.has(s.slug))}
-                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-1.5 rounded-control hover:bg-stone-600 transition-colors text-body disabled:opacity-50"
-                  >
-                    {generatingSubjects.size > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
-                    Generate All Outlines
-                  </button>
-                )}
-                {activeCanWrite && (
-                  <button
-                    onClick={() => setShowImportModal(true)}
-                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-1.5 rounded-control hover:bg-stone-600 transition-colors text-body"
-                  >
-                    <Upload className="w-4 h-4" /> Import
-                  </button>
-                )}
-                {activeCanWrite ? (
-                  <button
-                    onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                    className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors font-semibold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
-                  >
-                    <Plus className="w-5 h-5" /> Add Subject
-                  </button>
-                ) : activeCanRead && cloudMode && (
-                  // The useful action on a course you cannot edit: take your own
-                  // copy. Turns a dead end into the flow the model intends.
-                  <button
-                    onClick={() => forkCourse(activeCourseRow)}
-                    disabled={forkBusy}
-                    className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors font-semibold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50"
-                  >
-                    {forkBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <FolderOpen className="w-5 h-5" />}
-                    Make my own copy
-                  </button>
-                )}
-              </div>
-            </div>
+                </span>
+              }
+              actions={
+                <>
+                  {/* activeCourseRow is looked up in softwareList while this pane
+                      branches on activeSoftware, and the two can briefly disagree
+                      (a course removed from the index by another device, an
+                      in-flight reload). Rendering the menu against null would give
+                      every action an undefined course. */}
+                  {cloudMode && activeCourseRow && (
+                    <CourseRowMenu
+                      course={activeCourseRow}
+                      role={appRole}
+                      onShare={setShareDialogCourse}
+                      onSuggestChange={setCrDialogCourse}
+                      onFork={(c) => forkCourse(c)}
+                      onTrash={(c) => setShowDeleteConfirm(c.slug)}
+                    />
+                  )}
+                  {activeCanWrite && subjectList.some(s => s.is_stub) && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        const stubs = subjectList.filter(s => s.is_stub && !generatingSubjects.has(s.slug));
+                        for (const stub of stubs) {
+                          if (genQueueCancelledRef.current.has(stub.slug)) continue;
+                          generateSubjectContent(stub.slug, { skipNavigation: true });
+                        }
+                      }}
+                      disabled={subjectList.filter(s => s.is_stub).every(s => generatingSubjects.has(s.slug))}
+                    >
+                      {generatingSubjects.size > 0 ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+                      Generate all outlines
+                    </Button>
+                  )}
+                  {activeCanWrite && (
+                    <Button variant="secondary" Icon={Upload} onClick={() => setShowImportModal(true)}>
+                      Import
+                    </Button>
+                  )}
+                  {activeCanWrite ? (
+                    <Button
+                      variant="primary"
+                      Icon={Plus}
+                      onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
+                    >
+                      Add subject
+                    </Button>
+                  ) : activeCanRead && cloudMode && (
+                    // The useful action on a course you cannot edit: take your own
+                    // copy. Turns a dead end into the flow the model intends.
+                    <Button variant="primary" onClick={() => forkCourse(activeCourseRow)} disabled={forkBusy}>
+                      {forkBusy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
+                      Make my own copy
+                    </Button>
+                  )}
+                </>
+              }
+            >
+              {activeSoftware.name}
+              {cloudMode && <VisibilityBadge course={activeCourseRow} />}
+              {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
+              {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
+            </SectionTitle>
             {subjectList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-                <h3 className="text-h1 font-semibold text-orange-400 mb-2">No subjects yet</h3>
-                <p className="text-stone-500 mb-6">Add a subject to start learning about {activeSoftware.name}.</p>
-              </div>
+              <EmptyState
+                icon={BookOpen}
+                title="No subjects yet"
+                body={`Add a subject to start learning about ${activeSoftware.name}.`}
+              />
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="otter-card-grid">
                 {subjectList.map(sub => (
                   <div
                     key={sub.slug}
-                    className="otter-subject-card bg-stone-800 rounded-control shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative flex flex-col h-[200px]"
+                    className="otter-subject-card"
                     data-stub={sub.is_stub ? 'true' : undefined}
                     onClick={() => {
                       if (!sub.is_stub) { selectSubject(activeSoftwareSlug, sub.slug); setCurrentView('study'); }
                     }}
                   >
                     {/* Header bar with number and badges */}
-                    <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-stone-700/50">
-                      <div className="flex items-center gap-2">
-                        {sub.subject_order != null && (
-                          <span className="bg-orange-600/20 text-orange-400 text-h3 font-semibold font-mono px-2 py-0.5 rounded-control border border-orange-600/30">{String(sub.subject_order).padStart(2, '0')}</span>
-                        )}
-                        <span className="bg-stone-700 px-2 py-0.5 rounded-control text-orange-400 uppercase font-semibold text-label">{sub.skill_level}</span>
-                        {sub.is_stub && <span className="bg-stone-700 text-stone-400 text-label uppercase font-semibold px-1.5 py-0.5 rounded-control border border-stone-600">Outline</span>}
-                      </div>
+                    <div className="otter-subject-card-head">
+                      {sub.subject_order != null && (
+                        <span className="otter-subject-card-order">{String(sub.subject_order).padStart(2, '0')}</span>
+                      )}
+                      <Badge>{sub.skill_level}</Badge>
+                      {sub.is_stub && <Badge className="otter-outline-badge">Outline</Badge>}
                       {activeCanWrite && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
-                          className="otter-subject-card-delete p-1 transition-[color,background-color,border-color,opacity] rounded-control"
+                        <IconButton
+                          size="sm"
+                          icon={Trash2}
+                          danger
                           title="Delete subject"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          className="otter-subject-card-delete"
+                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
+                        />
                       )}
                     </div>
                     {/* Body */}
-                    <div className="flex flex-col flex-1 px-4 py-3 min-h-0">
-                      <h3 className="otter-subject-card-title font-semibold text-h2 leading-tight mb-1.5 line-clamp-2 transition-colors">
-                        {sub.title}
-                      </h3>
-                      <p
-                        className="text-stone-500 text-body line-clamp-2 cursor-default"
-                        title={sub.description}
-                      >{sub.description}</p>
-                      <div className="flex-1" />
+                    <div className="otter-subject-card-body">
+                      <h3 className="otter-subject-card-title">{sub.title}</h3>
+                      <p className="otter-subject-card-desc" title={sub.description}>{sub.description}</p>
+                      <div className="otter-spacer" />
                       {sub.is_stub && !activeCanWrite ? (
                         // An outline you cannot fill in. Saying so beats a
                         // Generate button that the database will refuse.
-                        <p className="mt-2 text-stone-600 text-dense italic">
+                        <p className="otter-subject-card-note">
                           Outline only — the owner hasn&apos;t written this yet.
                         </p>
                       ) : sub.is_stub ? (
-                        <div className="mt-2">
+                        <div className="otter-subject-card-generate">
                           {subjectErrors[sub.slug] && !generatingSubjects.has(sub.slug) && (
-                            <p className="text-red-400 text-dense mb-1 truncate" title={subjectErrors[sub.slug]}>
+                            <p className="otter-subject-card-error" title={subjectErrors[sub.slug]}>
                               ⚠ {subjectErrors[sub.slug]}
                             </p>
                           )}
-                          <button
+                          <Button
+                            variant="primary"
+                            size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSubjectErrors(prev => { const next = { ...prev }; delete next[sub.slug]; return next; });
                               generateSubjectContent(sub.slug);
                             }}
                             disabled={generatingSubjects.has(sub.slug)}
-                            className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors text-body font-semibold disabled:opacity-50"
                           >
-                            {generatingSubjects.has(sub.slug) ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
-                            {generatingSubjects.has(sub.slug) ? 'Generating...' : subjectErrors[sub.slug] ? 'Retry' : 'Generate Content'}
-                          </button>
+                            {generatingSubjects.has(sub.slug) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+                            {generatingSubjects.has(sub.slug) ? 'Generating...' : subjectErrors[sub.slug] ? 'Retry' : 'Generate content'}
+                          </Button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between mt-2 text-caption text-stone-500">
+                        <div className="otter-subject-card-foot">
                           {sub.lessons_count != null && <span>{sub.lessons_count} lessons</span>}
                           {sub.created_at && <span>{new Date(sub.created_at).toLocaleDateString()}</span>}
                         </div>
@@ -4026,56 +4020,59 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="max-w-6xl mx-auto">
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="data">
           {renderSharingBanner()}
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-h1 font-semibold text-orange-400">Course Library</h2>
-            <div className="flex items-center gap-3">
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-stone-800 text-stone-300 border border-stone-600 rounded-control px-3 py-1.5 text-body">
-                <option value="date">Sort by Date</option>
-                <option value="name">Sort by Name</option>
-              </select>
-              <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-1.5 rounded-control hover:bg-stone-600 transition-colors text-body">
-                <Upload className="w-4 h-4" /> Import
-              </button>
-              <button
-                onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-                className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors font-semibold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
-              >
-                <Plus className="w-5 h-5" /> New Course
-              </button>
-            </div>
-          </div>
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            actions={
+              <>
+                <Select
+                  value={sortBy}
+                  onChange={(v) => setSortBy(v)}
+                  options={[{ value: 'date', label: 'Sort by date' }, { value: 'name', label: 'Sort by name' }]}
+                  aria-label="Sort courses"
+                />
+                <Button variant="secondary" Icon={Upload} onClick={() => setShowImportModal(true)}>
+                  Import
+                </Button>
+                <Button
+                  variant="primary"
+                  Icon={Plus}
+                  onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
+                >
+                  New course
+                </Button>
+              </>
+            }
+          >
+            Course library
+          </SectionTitle>
           {sorted.length === 0 && softwareList.length > 0 ? (
             // Courses exist, this filter just matched none of them. Saying
             // "No courses yet" here would read as data loss.
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-              <h3 className="text-h1 font-semibold text-orange-400 mb-2">Nothing under this filter</h3>
-              <p className="text-stone-500 mb-6 max-w-md">
-                You have {softwareList.length} course{softwareList.length === 1 ? '' : 's'}, but none match
-                &ldquo;{filtersFor(appRole).find(f => f.key === courseFilter)?.label ?? courseFilter}&rdquo;.
-              </p>
-              <button
-                onClick={() => setCourseFilter('all')}
-                className="flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-4 py-2 rounded-control hover:bg-stone-600 transition-colors font-semibold"
-              >
-                Show all courses
-              </button>
-            </div>
+            <EmptyState
+              icon={BookOpen}
+              title="Nothing under this filter"
+              body={<>You have {softwareList.length} course{softwareList.length === 1 ? '' : 's'}, but none match &ldquo;{filtersFor(appRole).find(f => f.key === courseFilter)?.label ?? courseFilter}&rdquo;.</>}
+            >
+              <Button variant="secondary" onClick={() => setCourseFilter('all')}>Show all courses</Button>
+            </EmptyState>
           ) : sorted.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-              <h3 className="text-h1 font-semibold text-orange-400 mb-2">No courses yet</h3>
-              <p className="text-stone-500 mb-6 max-w-md">Create your first learning path by telling O.T.T.E.R. what software or language you want to learn.</p>
-              <button
+            <EmptyState
+              icon={BookOpen}
+              title="No courses yet"
+              body="Create your first learning path by telling O.T.T.E.R. what software or language you want to learn."
+            >
+              <Button
+                variant="primary"
+                Icon={Plus}
                 onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-                className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors font-semibold text-body shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
               >
-                <Plus className="w-6 h-6" /> Create Your First Course
-              </button>
-            </div>
+                Create your first course
+              </Button>
+            </EmptyState>
           ) : (() => {
             const languages = sorted.filter(sw => sw.type === 'coding_language');
             const software = sorted.filter(sw => sw.type !== 'coding_language');
@@ -4084,7 +4081,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div
                   key={sw.slug}
-                  className="otter-course-card bg-stone-800 rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative"
+                  className="otter-course-card"
                   data-openable={openable ? undefined : 'false'}
                   onClick={() => { if (openable) { selectSoftware(sw.slug); setCurrentView('library'); } }}
                 >
@@ -4093,7 +4090,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       when hunting for an action, so this is the one that most
                       needed to be visible at rest. */}
                   {cloudMode && (
-                    <div className="absolute top-2 right-2">
+                    <div className="otter-course-card-menu">
                       <CourseRowMenu
                         course={sw}
                         role={appRole}
@@ -4104,48 +4101,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       />
                     </div>
                   )}
-                  {/* pr-8. The trigger is absolutely positioned at right-2 and
-                      is the kit IconButton's md square since A3, 36px, so its
-                      left edge sits 8+36 = 44px from the CARD's edge — but
-                      this h3 is a block child of a `p-4` card, so its content
-                      box already starts 16px in. It therefore needs 44-16 =
-                      28px of right padding to clear the trigger; pr-8 (32px)
-                      clears it by 4px. (30px before A3, 22px before PHASE 5.) */}
-                  <h3 className="otter-course-card-title font-semibold text-h1 leading-tight pr-8 transition-colors mb-2">{sw.name}</h3>
+                  {/* The title clears the trigger: otter.css,
+                      .otter-course-card-title, has the arithmetic. */}
+                  <h3 className="otter-course-card-title">{sw.name}</h3>
                   {cloudMode && (
-                    <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                    <div className="otter-course-card-badges">
                       <VisibilityBadge course={sw} />
                       <MetadataOnlyBadge course={sw} />
                       <ReadOnlyBadge course={sw} />
                       <OwnerBadge course={sw} />
                     </div>
                   )}
-                  <div className="flex items-center gap-3 text-caption text-stone-500 mt-2"><span>{sw.subject_count} subjects</span></div>
-                  {sw.created_at && <p className="text-stone-600 text-dense mt-2">{new Date(sw.created_at).toLocaleDateString()}</p>}
+                  <div className="otter-course-card-meta"><span className="otter-count">{sw.subject_count} subjects</span></div>
+                  {sw.created_at && <p className="otter-course-card-date">{new Date(sw.created_at).toLocaleDateString()}</p>}
                 </div>
               );
             };
             return (
-              <div className="space-y-8">
+              <div className="otter-shelves">
                 {software.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Keyboard className="w-5 h-5 text-orange-400" />
-                      <h3 className="text-orange-400 font-semibold text-h3">Software</h3>
-                      <span className="text-stone-600 text-caption">({software.length})</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{software.map(renderCard)}</div>
-                  </div>
+                  <section className="otter-shelf">
+                    <h3 className="otter-shelf-title">
+                      <Keyboard className="otter-shelf-icon" aria-hidden="true" />
+                      Software <span className="otter-count">({software.length})</span>
+                    </h3>
+                    <div className="otter-card-grid">{software.map(renderCard)}</div>
+                  </section>
                 )}
                 {languages.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Braces className="w-5 h-5 text-orange-400" />
-                      <h3 className="text-orange-400 font-semibold text-h3">Languages</h3>
-                      <span className="text-stone-600 text-caption">({languages.length})</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{languages.map(renderCard)}</div>
-                  </div>
+                  <section className="otter-shelf">
+                    <h3 className="otter-shelf-title">
+                      <Braces className="otter-shelf-icon" aria-hidden="true" />
+                      Languages <span className="otter-count">({languages.length})</span>
+                    </h3>
+                    <div className="otter-card-grid">{languages.map(renderCard)}</div>
+                  </section>
                 )}
               </div>
             );
