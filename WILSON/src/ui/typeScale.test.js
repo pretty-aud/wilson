@@ -2486,11 +2486,13 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
        B3b: the minimap's phase bar left this list (its stage 2 draws it 1px:
        the minimap draws phases only, so its 2px told a phase from nothing),
        and the minimap frame's outline joined it — the navigator's one
-       selection, §3.2's 2px selected edge, on its two sides (TL-18). */
+       selection, §3.2's 2px selected edge, on its two sides (TL-18).
+       B3c: the label row's 2px left edge left (TL-03: a phase or group row
+       is told from a task row by a band across BOTH halves now, its 600
+       name and its chevron; a 2px edge there is a defect again). */
     ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ov-frame-edge', 'exact'],               // the minimap's visible window: its two 2px signal sides
     ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-bar[data-shape="phase"]', 'exact'],     // a phase bar is 2px against a task's 1px, in the gantt
     ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-ghost[data-shape="phase"]', 'exact'],   // and so is its ghost while its parent phase is dragged
-    ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css', '.rb-tl-row', 'exact'],                         // a label row's left edge: orange phase, stone subgroup, none for a task
     // The agent panel's companion chat (P1's; C5 adjacency), not swept by
     // lane A. `.lesson-content` left this list with A3 (2026-09-24): it has
     // no 2px border now, so one appearing there is a defect again.

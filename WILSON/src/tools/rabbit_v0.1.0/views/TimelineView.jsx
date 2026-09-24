@@ -2227,6 +2227,12 @@ function DetailPane({
   const [reparentHoverPhaseId, setReparentHoverPhaseId] = useState(null)
   const [reparentGhost, setReparentGhost] = useState(null)  // { x, y, label }
   const [dropZoneHover, setDropZoneHover] = useState(null)  // { phaseId, mouseX }
+  // The row under the pointer, by its key, so the label half and the chart
+  // half of a phase or task row light up together (TL-03: one row, one
+  // hover — the label row's hover never painted, the chart row had none).
+  // A visual state only: no click, drag or drop reads it. The drop-zone
+  // rows keep their own shared hover, dropZoneHover above.
+  const [hoverRowKey, setHoverRowKey] = useState(null)
   const suppressNextClickRef = useRef(false)
 
   // ─── Drag preview state for ghost overlays ───────────────
@@ -2388,38 +2394,27 @@ function DetailPane({
       id={DETAIL_PANEL_ID}
       role="tabpanel"
       aria-label="Gantt"
-      className="flex-1 overflow-auto relative"
-      style={{ backgroundColor: '#1c1917' }}
+      className="flex-1 overflow-auto relative rb-tl-gantt"
     >
       <div className="flex" style={{ minWidth: LABEL_W + effectiveChartW }}>
-        {/* Sticky label column */}
+        {/* Sticky label column. Its edge is the rule (TL-03: it was
+            #292524 on #1c1917, 1.15:1 — no edge at all). */}
         <div
-          className="flex-shrink-0 sticky left-0 z-20"
-          style={{
-            width: LABEL_W,
-            backgroundColor: '#1c1917',
-            borderRight: '1px solid #292524',
-          }}
+          className="flex-shrink-0 sticky left-0 z-20 rb-tl-gutter"
+          style={{ width: LABEL_W }}
         >
           <div
-            className="flex items-end px-3 pb-2 sticky top-0 z-10"
-            style={{
-              height: HEADER_PX,
-              borderBottom: '1px solid #292524',
-              backgroundColor: '#1c1917',
-            }}
+            className="flex items-end px-3 pb-2 sticky top-0 z-10 rb-tl-gutter-head"
+            style={{ height: HEADER_PX }}
           >
-            <span className="text-label uppercase" style={{ color: '#57534e' }}>
+            <span className="text-label uppercase rb-tl-gutter-title">
               Phase / Task
             </span>
           </div>
           {rows.length === 0 ? (
             <div
-              className="flex items-center justify-center text-center px-4 text-dense"
-              style={{
-                height: 80,
-                color: '#78716c',
-              }}
+              className="flex items-center justify-center text-center px-4 text-dense rb-tl-gutter-empty"
+              style={{ height: 80 }}
             >
               {canWrite ? 'No phases yet — click + Phase' : 'No phases yet'}
             </div>
@@ -2453,7 +2448,6 @@ function DetailPane({
                   data-drop-hover={isReparentHoverDz ? 'true' : 'false'}
                   style={{
                     height: rowPx,
-                    borderBottom: '1px solid transparent',
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
                     // Session 29: denied stays dimmed and never lights up on
@@ -2476,16 +2470,18 @@ function DetailPane({
                     // (the colours below keep it faint, which is what she asked
                     // for — "the faint + new task in the left side table"), and
                     // denied keeps the dimming, so the two finally differ.
-                    // (That opacity, the hover tint and the drop-target fill
-                    // are `.rb-tl-dz` in rabbitTimeline.css since UI overhaul
-                    // B3, values unchanged.)
+                    // (The dimming, the hover tint, the drop-target fill and
+                    // the rule under the row are `.rb-tl-dz` in
+                    // rabbitTimeline.css: B3 moved them there unchanged, B3c
+                    // put them on tokens — allowed reads ink-2, denied the
+                    // disabled ink, so the two still differ.)
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
                   title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
                 >
-                  {/* Icon stays stone-500 (3.65:1 — a glyph, so the 3:1 floor
-                      applies); the LABEL is stone-400 (6.8:1) because 4.5:1 is
-                      the floor for text. Both are existing palette values. */}
+                  {/* The icon is a glyph (the 3:1 floor), the LABEL text
+                      (4.5:1): their inks are the sheet's, `.rb-tl-dz-icon`
+                      and `.rb-tl-dz-label`. */}
                   <Plus
                     className="w-3 h-3 mr-1.5 rb-tl-dz-icon"
                   />
@@ -2517,12 +2513,15 @@ function DetailPane({
                 data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
                 data-grab={isTaskRow && canWrite ? 'true' : 'false'}
                 data-drop-hover={isHoverTarget ? 'true' : 'false'}
+                data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                 style={{
                   height: rowPx,
                   paddingLeft: (6 + depth * INDENT_UNIT + 20),
                   paddingRight: 8,
                   userSelect: 'none',
                 }}
+                onMouseEnter={() => setHoverRowKey(r.key)}
+                onMouseLeave={() => setHoverRowKey(k => (k === r.key ? null : k))}
                 onMouseDown={isTaskRow ? (e) => startTaskDrag(e, r.task) : undefined}
                 onClick={() => handleRowClick(r)}
                 title={isTaskRow
@@ -2542,7 +2541,7 @@ function DetailPane({
                       e.stopPropagation()
                       onToggleCollapse?.(r.phase)
                     }}
-                    className="absolute flex items-center justify-center rounded-control hover:bg-stone-800 rb-tl-row-chevron"
+                    className="absolute flex items-center justify-center rounded-control rb-tl-row-chevron"
                     style={{
                       left: 4 + depth * INDENT_UNIT,
                       top: (rowPx - 16) / 2,
@@ -2825,7 +2824,6 @@ function DetailPane({
                     style={{
                       top: i * rowPx,
                       height: rowPx,
-                      borderBottom: '1px dashed #44403c',
                     }}
                     aria-disabled={canWrite ? undefined : 'true'}
                     title={canWrite ? undefined : writeReason || undefined}
@@ -2886,11 +2884,13 @@ function DetailPane({
                   className="absolute left-0 right-0 rb-tl-chart-row"
                   data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
                   data-drop-hover={isChartHoverTarget ? 'true' : 'false'}
+                  data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                   style={{
                     top: i * rowPx,
                     height: rowPx,
-                    borderBottom: '1px solid #1c1917',
                   }}
+                  onMouseEnter={() => setHoverRowKey(r.key)}
+                  onMouseLeave={() => setHoverRowKey(k => (k === r.key ? null : k))}
                   onMouseDown={r.kind === 'asset' ? undefined : makeBackgroundMouseDown(r)}
                 >
                   {r.kind === 'phase' && r.start && r.end && (

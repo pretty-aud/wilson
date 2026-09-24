@@ -43,8 +43,8 @@
    rendered look — stage 1 changes no pixel, a dead one included):
    - The detail gantt's label row declared a hover fill (stone-800 at 50%)
      that never painted: the row's inline background (transparent, or the
-     drop-target fill) beat it in every state. Not carried: `.rb-tl-row`
-     has no hover.
+     drop-target fill) beat it in every state. Not carried at stage 1;
+     B3c gave the row a hover that paints, on both halves (TL-03).
    - A chart row's cursor was `default` for a row of kind 'asset', but no
      row builder emits that kind (rows are phase, task or drop-zone), so
      every chart row has only ever shown the crosshair. Not carried. (Its
@@ -108,14 +108,17 @@
                                       = true|false: "+ New task" rows, dim and
                                       not-allowed when not writable, tinted on
                                       hover, the drop fill under a dragged task
-     .rb-tl-row                       data-shape = task|phase|subgroup: left
-                                      edge, rule, label ink and weight;
+     .rb-tl-row                       data-shape = task|phase|subgroup: the
+                                      band, label ink and weight;
+                                      data-hover = true: the row's hover, lit
+                                      on both halves at once (B3c, TL-03);
                                       data-grab = true: grab / grabbing;
                                       data-drop-hover = true: the drop fill
      .rb-tl-axis-tick                 data-major = true|false: lighter
      .rb-tl-weekend                   data-day = sun|sat: Sunday deeper
      .rb-tl-grid                      data-week = true|false: Monday lighter
      .rb-tl-chart-row                 data-shape: phase / subgroup banding;
+                                      data-hover = true: the label row's twin;
                                       data-drop-hover = true: the drop fill
      .rb-tl-ghost                     data-shape = phase|task: 2px | 1px dashed
      .rb-tl-dep                       data-writable = true|false: pointer | default
@@ -385,46 +388,78 @@
   .rb-tl-dep-handle { background-color: #fb923c; }
   .rb-tl-dep-handle[data-kind="phase"] { background-color: #22d3ee; }
 
-  /* ═══ The label gutter (DetailPane) ════════════════════════════════════ */
+  /* ═══ The label gutter (DetailPane) ════════════════════════════════════
+     TL-03: a gantt row is ONE row across the label gutter and the chart —
+     the same height (the zoom's ROW_PX, inline, untouched), the same rule
+     under it, the same band on a phase or group row, one hover lighting both
+     halves at once (data-hover, set from DetailPane's one hovered-row key),
+     and an edge between the halves that can be seen (the rule; it was
+     #292524 on #1c1917, 1.15:1). The band replaces the 2px left edge a
+     phase row wore (orange) and a group row wore (stone): a phase is told
+     from a task by the band, its 600 name, its taller bar and its chevron.
+     TL-02: a task's name is the Dense step in the sans at ink-2 (8.49:1 —
+     it was #78716c, 3.65:1, the faintest text on the pane), the ink under
+     the pointer; a phase's or a group's name is the ink at 600 (it was
+     orange, and a group's 400). */
+  .rb-tl-gantt { background-color: var(--color-paper); }
+  .rb-tl-gutter { background-color: var(--color-paper); border-right: 1px solid var(--color-rule); }
+  .rb-tl-gutter-head { background-color: var(--color-paper); border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-gutter-title { color: var(--color-ink-3); }
+  .rb-tl-gutter-empty { color: var(--color-ink-3); }
 
-  /* "+ New task" under an expanded phase. Writable: full opacity, and a
-     faint orange tint with a brighter icon and label while the pointer is
-     on this row or on its twin in the chart (one hover state spans both
-     panes). Not writable: dimmed to 0.4 and never lit. Under a dragged
-     task: the drop fill and a dashed outline, over any tint. */
-  .rb-tl-dz { background-color: transparent; cursor: not-allowed; opacity: 0.4; }
-  .rb-tl-dz[data-writable="true"] { cursor: pointer; opacity: 1; }
-  .rb-tl-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: rgba(234, 88, 12, 0.06); }
-  .rb-tl-dz[data-drop-hover="true"] { background-color: #7c2d12; outline: 2px dashed #fb923c; }
-  .rb-tl-dz-icon { color: #78716c; }
-  .rb-tl-dz[data-writable="true"][data-hover="true"] .rb-tl-dz-icon { color: #fb923c; }
-  .rb-tl-dz-label { color: #a8a29e; }
-  .rb-tl-dz[data-writable="true"][data-hover="true"] .rb-tl-dz-label { color: #fdba74; }
+  /* "+ New task" under an expanded phase, ruled like every row. Writable:
+     its label ink-2, lit to the ink (the icon to ink-2) on the kit's hover
+     while the pointer is on this row or on its twin in the chart (one hover
+     state spans both panes). Not writable: the disabled ink (§3.1: ink at
+     52 percent and not-allowed, never an opacity) and never lit — so the
+     two still differ (Phase 2's defect was that they did not). Under a
+     dragged task: a tint of the signal inside a 1px dashed signal line. */
+  .rb-tl-dz { background-color: transparent; border-bottom: 1px solid var(--color-rule); cursor: not-allowed; }
+  .rb-tl-dz[data-writable="true"] { cursor: pointer; }
+  .rb-tl-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: var(--color-hover); }
+  .rb-tl-dz[data-drop-hover="true"] {
+    background-color: color-mix(in srgb, var(--color-signal) 20%, transparent);
+    outline: 1px dashed var(--color-signal);
+    outline-offset: -1px;
+  }
+  .rb-tl-dz-icon { color: var(--color-ink-3); }
+  .rb-tl-dz[data-writable="true"][data-hover="true"] .rb-tl-dz-icon { color: var(--color-ink-2); }
+  .rb-tl-dz-label { color: var(--color-ink-3); }
+  .rb-tl-dz[data-writable="true"] .rb-tl-dz-label { color: var(--color-ink-2); }
+  .rb-tl-dz[data-writable="true"][data-hover="true"] .rb-tl-dz-label { color: var(--color-ink); }
 
-  /* A phase, subgroup or task row. Its 2px left edge says which (orange,
-     stone, none), a phase or subgroup row is ruled a shade lighter, and its
-     label is orange (600 on a phase) against a task's stone. A task row a
-     writer can drag shows the grab hand; a row under a dragged task takes
-     the drop fill and a dashed outline. No hover fill (see the header). */
+  /* A phase, subgroup or task row. A phase or group row carries the band
+     (a 7% screen of the ink, translucent so the chart's grid shows through
+     its twin); the hover is the kit's on a task row and a stronger screen
+     on a banded one. A task row a writer can drag shows the grab hand; a
+     row under a dragged task takes the drop tint and line, over the hover. */
   .rb-tl-row {
     background-color: transparent;
-    border-bottom: 1px solid #1c1917;
-    border-left: 2px solid transparent;
+    border-bottom: 1px solid var(--color-rule);
     cursor: pointer;
   }
   .rb-tl-row[data-shape="phase"],
-  .rb-tl-row[data-shape="subgroup"] { border-bottom-color: #292524; }
-  .rb-tl-row[data-shape="phase"] { border-left-color: #fb923c; }
-  .rb-tl-row[data-shape="subgroup"] { border-left-color: #78716c; }
+  .rb-tl-row[data-shape="subgroup"] { background-color: color-mix(in srgb, var(--color-ink) 7%, transparent); }
+  .rb-tl-row[data-hover="true"][data-drop-hover="false"] { background-color: var(--color-hover); }
+  .rb-tl-row[data-shape="phase"][data-hover="true"][data-drop-hover="false"],
+  .rb-tl-row[data-shape="subgroup"][data-hover="true"][data-drop-hover="false"] { background-color: color-mix(in srgb, var(--color-ink) 11%, transparent); }
   .rb-tl-row[data-grab="true"] { cursor: grab; }
   .rb-tl-row[data-grab="true"]:active { cursor: grabbing; }
-  .rb-tl-row[data-drop-hover="true"] { background-color: #7c2d12; outline: 2px dashed #fb923c; }
-  .rb-tl-row-chevron { color: #fb923c; }
-  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-chevron { color: #78716c; }
-  .rb-tl-row-label { color: #78716c; }
+  .rb-tl-row[data-drop-hover="true"] {
+    background-color: color-mix(in srgb, var(--color-signal) 20%, transparent);
+    outline: 1px dashed var(--color-signal);
+    outline-offset: -1px;
+  }
+  .rb-tl-row-chevron { color: var(--color-ink-2); }
+  @media (hover: hover) {
+    .rb-tl-row-chevron:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  }
+  .rb-tl-row-label { color: var(--color-ink-2); }
+  .rb-tl-row[data-hover="true"] > .rb-tl-row-label { color: var(--color-ink); }
   .rb-tl-row[data-shape="phase"] > .rb-tl-row-label,
-  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color: #fb923c; }
+  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color: var(--color-ink); }
   .rb-tl-row[data-shape="phase"] > .rb-tl-row-label { font-weight: 600; }
+  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { font-weight: 600; }
 
   /* ═══ The chart (DetailPane) ═══════════════════════════════════════════ */
 
@@ -441,18 +476,33 @@
   .rb-tl-grid { background-color: #292524; }
   .rb-tl-grid[data-week="true"] { background-color: #44403c; }
 
-  /* "+ New task" in the chart: the gutter row's twin, on the same hover. */
-  .rb-tl-chart-dz { background-color: transparent; cursor: not-allowed; }
+  /* "+ New task" in the chart: the gutter row's twin — the same rule (it
+     was a dashed stone line against the gutter's none), the same hover,
+     the same drop tint and line. */
+  .rb-tl-chart-dz { background-color: transparent; border-bottom: 1px solid var(--color-rule); cursor: not-allowed; }
   .rb-tl-chart-dz[data-writable="true"] { cursor: pointer; }
-  .rb-tl-chart-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: rgba(234, 88, 12, 0.05); }
-  .rb-tl-chart-dz[data-drop-hover="true"] { background-color: rgba(124, 45, 18, 0.35); }
+  .rb-tl-chart-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: var(--color-hover); }
+  .rb-tl-chart-dz[data-drop-hover="true"] {
+    background-color: color-mix(in srgb, var(--color-signal) 20%, transparent);
+    outline: 1px dashed var(--color-signal);
+    outline-offset: -1px;
+  }
 
-  /* A chart row: phase and subgroup rows are banded, a row under a
-     dragged task takes the drop fill and a dashed outline. */
-  .rb-tl-chart-row { background-color: transparent; cursor: crosshair; }
-  .rb-tl-chart-row[data-shape="phase"][data-drop-hover="false"] { background-color: rgba(68, 64, 60, 0.55); }
-  .rb-tl-chart-row[data-shape="subgroup"][data-drop-hover="false"] { background-color: rgba(51, 48, 45, 0.45); }
-  .rb-tl-chart-row[data-drop-hover="true"] { background-color: rgba(124, 45, 18, 0.45); outline: 2px dashed #fb923c; }
+  /* A chart row: the gutter row's twin (TL-03) — the rule under it, the
+     band on a phase or group row (both were fills the gutter lacked: a 55%
+     and a 45% stone), the hover with it, the drop tint and line under a
+     dragged task. */
+  .rb-tl-chart-row { background-color: transparent; border-bottom: 1px solid var(--color-rule); cursor: crosshair; }
+  .rb-tl-chart-row[data-shape="phase"],
+  .rb-tl-chart-row[data-shape="subgroup"] { background-color: color-mix(in srgb, var(--color-ink) 7%, transparent); }
+  .rb-tl-chart-row[data-hover="true"][data-drop-hover="false"] { background-color: var(--color-hover); }
+  .rb-tl-chart-row[data-shape="phase"][data-hover="true"][data-drop-hover="false"],
+  .rb-tl-chart-row[data-shape="subgroup"][data-hover="true"][data-drop-hover="false"] { background-color: color-mix(in srgb, var(--color-ink) 11%, transparent); }
+  .rb-tl-chart-row[data-drop-hover="true"] {
+    background-color: color-mix(in srgb, var(--color-signal) 20%, transparent);
+    outline: 1px dashed var(--color-signal);
+    outline-offset: -1px;
+  }
 
   /* A contained bar's ghost while its phase is dragged: 2px for a phase. */
   .rb-tl-ghost { border: 1px dashed #fb923c; }
