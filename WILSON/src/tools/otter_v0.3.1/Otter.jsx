@@ -5162,11 +5162,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 const totalNodes = (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0);
                 return (
                   <button key={sys.system} onClick={() => setActiveNodeSystem(sys.system)}
-                    className={`px-4 py-2 text-body transition-colors border-b-2 -mb-1 ${
-                      isActive
-                        ? 'text-orange-400 border-orange-500 bg-stone-900'
-                        : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-800'
-                    }`}>
+                    className="otter-system-tab px-4 py-2 text-body transition-colors border-b-2 -mb-1"
+                    data-active={isActive ? 'true' : undefined}>
                     {sys.system} <span className="text-stone-600 text-caption ml-1">({totalNodes})</span>
                   </button>
                 );

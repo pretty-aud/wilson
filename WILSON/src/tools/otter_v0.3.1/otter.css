@@ -296,4 +296,25 @@
     cursor: not-allowed;                                    /* cursor-not-allowed */
   }
 
+  /* ═══ EXTRACTION — THE REFERENCE VIEWS (renderHotkeys, renderNodes) ════
+     The one ternary: a Nodes system tab (Geometry Nodes, Shader Nodes…),
+       active   orange-400 on stone-900, an orange-500 underline; no hover
+       default  stone-400, transparent underline; stone-300 on stone-800
+     Hotkeys and Functions carry no state. NodeTypeBadge's colour is DATA
+     (one of fifteen socket colours by type, Q9), not a state, so it is not
+     extracted; the restyle keeps the map. */
+  .otter-system-tab {
+    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
+    border-bottom-color: transparent;                       /* border-transparent */
+  }
+  .otter-system-tab:not([data-active='true']):hover {
+    color: oklch(86.9% 0.005 56.366);                       /* hover:text-stone-300 */
+    background-color: oklch(26.8% 0.007 34.298);            /* hover:bg-stone-800 */
+  }
+  .otter-system-tab[data-active='true'] {
+    color: oklch(75% 0.183 55.934);                         /* text-orange-400 */
+    border-bottom-color: oklch(70.5% 0.213 47.604);         /* border-orange-500 */
+    background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
+  }
+
 }
