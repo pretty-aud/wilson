@@ -4195,12 +4195,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             <label className="block text-label font-semibold text-orange-400 mb-2 uppercase">Mode</label>
             <div className="flex gap-3 mb-5">
               <button onClick={() => setPromptMode('course')} disabled={generating}
-                className={`flex-1 p-3 rounded-control border transition-colors text-left ${isCourseMode ? 'bg-orange-600/15 border-orange-500 text-white' : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'}`}>
+                className="otter-radio-card flex-1 p-3 rounded-control border transition-colors text-left"
+                data-selected={isCourseMode ? 'true' : undefined}>
                 <div className="font-semibold text-h3">{isCourseMode ? '\u25CF ' : '\u25CB '}New Course</div>
                 <div className="text-dense mt-1 text-stone-400">Generate 5-10 subject outlines for a software/language.</div>
               </button>
               <button onClick={() => setPromptMode('subject')} disabled={generating}
-                className={`flex-1 p-3 rounded-control border transition-colors text-left ${!isCourseMode ? 'bg-orange-600/15 border-orange-500 text-white' : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'}`}>
+                className="otter-radio-card flex-1 p-3 rounded-control border transition-colors text-left"
+                data-selected={!isCourseMode ? 'true' : undefined}>
                 <div className="font-semibold text-h3">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add Subject</div>
                 <div className="text-dense mt-1 text-stone-400">Focused single-topic lesson added to existing course.</div>
               </button>
@@ -4224,7 +4226,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     {filteredSoftware.map(sw => (
                       <button key={sw.slug}
                         onMouseDown={(e) => { e.preventDefault(); setSoftwareNameInput(sw.name); setShowSoftwareDropdown(false); }}
-                        className={`w-full text-left px-3 py-2 text-body hover:bg-stone-600 transition-colors flex items-center justify-between ${sw.name.toLowerCase() === softwareNameLower ? 'text-orange-400 font-semibold' : 'text-stone-300'}`}>
+                        className="otter-sw-option w-full text-left px-3 py-2 text-body hover:bg-stone-600 transition-colors flex items-center justify-between"
+                        data-match={sw.name.toLowerCase() === softwareNameLower ? 'true' : undefined}>
                         <span>{sw.name}</span>
                         <span className="text-stone-500 text-caption">{sw.subject_count} subjects</span>
                       </button>
@@ -4296,11 +4299,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         key={tier}
                         onClick={() => setNewCourseVisibility(tier)}
                         disabled={generating}
-                        className={`flex-1 p-3 rounded-control border transition-colors text-left ${
-                          active
-                            ? 'bg-orange-600/15 border-orange-500 text-white'
-                            : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'
-                        }`}
+                        className="otter-radio-card flex-1 p-3 rounded-control border transition-colors text-left"
+                        data-selected={active ? 'true' : undefined}
                       >
                         <div className="font-semibold text-h3">{active ? '● ' : '○ '}{meta.label}</div>
                         <div className="text-dense mt-1 text-stone-400">{meta.blurb}</div>
@@ -4359,7 +4359,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 {referenceUrls.map((ref, i) => (
                   <div key={i} className="flex items-center gap-2 bg-stone-900 border border-stone-700 rounded-control px-2 py-1 text-dense">
                     <Link className="w-3 h-3 text-stone-500 shrink-0" />
-                    <span className={`truncate flex-1 ${ref.error ? 'text-red-400' : 'text-stone-300'}`}>{ref.title || ref.url}</span>
+                    <span className="otter-ref-title truncate flex-1" data-error={ref.error ? 'true' : undefined}>{ref.title || ref.url}</span>
                     {ref.error && <span className="text-red-500 text-dense">Failed</span>}
                     {!ref.error && <Check className="w-3 h-3 text-green-500 shrink-0" />}
                     <button onClick={() => {
@@ -4380,7 +4380,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 <div className="flex gap-2">
                   {['beginner', 'intermediate', 'advanced'].map(level => (
                     <button key={level} onClick={() => setSkillLevel(level)} disabled={generating}
-                      className={`px-3 py-1.5 rounded-control text-body font-semibold border transition-colors ${skillLevel === level ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
+                      className="otter-level px-3 py-1.5 rounded-control text-body font-semibold border transition-colors"
+                      data-selected={skillLevel === level ? 'true' : undefined}>
                       {level}
                     </button>
                   ))}
@@ -4422,10 +4423,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             {!generating && (
               <button onClick={isCourseMode ? generateCourse : generateSingleSubject}
                 disabled={isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug)}
-                className={`mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-control border font-semibold text-body transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] ${
-                  (isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug))
-                    ? 'bg-stone-700 text-stone-500 border-stone-600 cursor-not-allowed' : 'bg-orange-600 text-white border-orange-700 hover:bg-orange-700'
-                }`}>
+                className="otter-generate mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-control border font-semibold text-body transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
                 <GraduationCap className="w-5 h-5" />
                 {isCourseMode ? (isExistingSoftware ? 'Add Subjects to Existing Course' : 'Generate Course Outline') : 'Generate Subject'}
               </button>

@@ -234,4 +234,66 @@
     border-color: oklch(52.7% 0.154 150.069);             /* border-green-700 */
   }
 
+  /* ═══ EXTRACTION — THE PROMPT VIEW (renderPromptInput) ═════════════════
+     The radio CARD, drawn twice with one pair of branches (Mode: course or
+     subject; Who is this for: personal or shared):
+       selected   white on orange-600 at 15%, an orange-500 edge
+       default    stone-400 on stone-900, a stone-600 edge; stone-500 on hover
+     The course autocomplete's option: orange-400 at 600 when it matches the
+     typed name exactly, stone-300 otherwise (its hover is a static utility).
+     A reference URL's title: red-400 when it failed to load, else stone-300.
+     A skill LEVEL button:
+       selected   white on orange-600, an orange-700 edge
+       default    stone-400 on stone-700, a stone-600 edge; stone-500 on hover
+     Generate: its ternary's condition IS its `disabled` prop, so
+       :disabled  stone-500 on stone-700, a stone-600 edge, not-allowed
+       enabled    white on orange-600, an orange-700 edge; orange-700 on hover */
+  .otter-radio-card {
+    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
+    background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
+    border-color: oklch(44.4% 0.011 73.639);                /* border-stone-600 */
+  }
+  .otter-radio-card:not([data-selected='true']):hover {
+    border-color: oklch(55.3% 0.013 58.071);                /* hover:border-stone-500 */
+  }
+  .otter-radio-card[data-selected='true'] {
+    color: white;                                           /* text-white */
+    background-color: color-mix(in oklab, oklch(64.6% 0.222 41.116) 15%, transparent); /* bg-orange-600/15 */
+    border-color: oklch(70.5% 0.213 47.604);                /* border-orange-500 */
+  }
+  .otter-sw-option { color: oklch(86.9% 0.005 56.366); }  /* text-stone-300 */
+  .otter-sw-option[data-match='true'] {
+    color: oklch(75% 0.183 55.934);                         /* text-orange-400 */
+    font-weight: 600;                                       /* font-semibold */
+  }
+  .otter-ref-title { color: oklch(86.9% 0.005 56.366); }  /* text-stone-300 */
+  .otter-ref-title[data-error='true'] { color: oklch(70.4% 0.191 22.216); } /* text-red-400 */
+  .otter-level {
+    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
+    background-color: oklch(37.4% 0.01 67.558);             /* bg-stone-700 */
+    border-color: oklch(44.4% 0.011 73.639);                /* border-stone-600 */
+  }
+  .otter-level:not([data-selected='true']):hover {
+    border-color: oklch(55.3% 0.013 58.071);                /* hover:border-stone-500 */
+  }
+  .otter-level[data-selected='true'] {
+    color: white;                                           /* text-white */
+    background-color: oklch(64.6% 0.222 41.116);            /* bg-orange-600 */
+    border-color: oklch(55.3% 0.195 38.402);                /* border-orange-700 */
+  }
+  .otter-generate {
+    color: white;                                           /* text-white */
+    background-color: oklch(64.6% 0.222 41.116);            /* bg-orange-600 */
+    border-color: oklch(55.3% 0.195 38.402);                /* border-orange-700 */
+  }
+  .otter-generate:hover:not(:disabled) {
+    background-color: oklch(55.3% 0.195 38.402);            /* hover:bg-orange-700 */
+  }
+  .otter-generate:disabled {
+    color: oklch(55.3% 0.013 58.071);                       /* text-stone-500 */
+    background-color: oklch(37.4% 0.01 67.558);             /* bg-stone-700 */
+    border-color: oklch(44.4% 0.011 73.639);                /* border-stone-600 */
+    cursor: not-allowed;                                    /* cursor-not-allowed */
+  }
+
 }
