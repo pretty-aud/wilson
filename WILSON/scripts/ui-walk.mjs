@@ -139,7 +139,7 @@ const REGISTRY = [
   P('otter-search', '/otter', { steps: ['Search'], expect: { dialog: true } }),
   P('otter-quiz', '/otter', { steps: ['Quiz'], expect: { text: 'Quiz Center' } }),
   P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard shortcuts' } }),   // A3: sentence case (Q2)
-  P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes Reference' } }),
+  P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes reference' } }),   // A3: sentence case (Q2)
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
   P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New software course' } }),   // A3: sentence case (Q2)

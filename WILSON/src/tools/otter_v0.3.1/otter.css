@@ -39,27 +39,6 @@
 
 @layer components {
 
-  /* ═══ EXTRACTION — THE REFERENCE VIEWS (renderHotkeys, renderNodes) ════
-     The one ternary: a Nodes system tab (Geometry Nodes, Shader Nodes…),
-       active   orange-400 on stone-900, an orange-500 underline; no hover
-       default  stone-400, transparent underline; stone-300 on stone-800
-     Hotkeys and Functions carry no state. NodeTypeBadge's colour is DATA
-     (one of fifteen socket colours by type, Q9), not a state, so it is not
-     extracted; the restyle keeps the map. */
-  .otter-system-tab {
-    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
-    border-bottom-color: transparent;                       /* border-transparent */
-  }
-  .otter-system-tab:not([data-active='true']):hover {
-    color: oklch(86.9% 0.005 56.366);                       /* hover:text-stone-300 */
-    background-color: oklch(26.8% 0.007 34.298);            /* hover:bg-stone-800 */
-  }
-  .otter-system-tab[data-active='true'] {
-    color: oklch(75% 0.183 55.934);                         /* text-orange-400 */
-    border-bottom-color: oklch(70.5% 0.213 47.604);         /* border-orange-500 */
-    background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
-  }
-
   /* ═══════════════════════════════════════════════════════════════════════
      THE RESTYLE (A3). Tokens and the kit only: no hex, no palette literal.
      ═══════════════════════════════════════════════════════════════════════ */
@@ -817,6 +796,46 @@
     white-space: nowrap;
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* Nodes: the system tabs are the kit's (review O1's fifth treatment), on
+     a hairline; a node card is the Card surface; its ports are rows of
+     name, socket type and description. The socket type is the kit's Badge
+     in its DATA colour (Q9's exempt ramp, through --node-color): the colour
+     on the word and the hairline, a 12.5% wash behind — the badge the map's
+     own #RRGGBB20 / #RRGGBB40 drew, in the kit's shape. */
+  .ui-tabs.otter-system-tabs { margin-bottom: 24px; border-bottom: 1px solid var(--color-rule); }
+  .otter-node-name {
+    margin-bottom: 8px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-node-ports { margin-bottom: 12px; }
+  .otter-node-port-list { display: flex; flex-direction: column; gap: 4px; }
+  .otter-node-port {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+  }
+  .otter-node-port-name { width: 112px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink); }
+  .otter-node-port-desc { color: var(--color-ink-2); }
+  .ui-badge.otter-node-type {
+    color: var(--node-color);
+    border-color: color-mix(in srgb, var(--node-color) 25%, transparent);
+    background-color: color-mix(in srgb, var(--node-color) 12.5%, transparent);
+  }
+  .otter-node-notes {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-rule);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-style: italic;
     color: var(--color-ink-3);
   }
 

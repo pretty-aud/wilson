@@ -88,6 +88,17 @@ const LESSON_CODE_TEXT = {
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
+//
+//  🚨 Q9 (plan §2, in force): these fifteen colours are ASSUMED to mirror the
+//  host application's own socket colours (Blender's, Unreal's), which makes
+//  them load-bearing DATA rather than decoration — "kept and documented as
+//  an exempt ramp". They are the one set of cool hues on O.T.T.E.R.'s
+//  surface and the only hexes it writes; the visual language's warm-only
+//  rule does not reach them. If Audrey rules the other way (Q9's
+//  alternative: eight from one hue rotation plus "other"), this map is the
+//  one place that changes. The badge itself is the kit's (A3): the Label
+//  step, one hairline and one fill — the socket colour reaches it through
+//  --node-color, as a bin's colour reaches the kit Chip.
 // ═══════════════════════════════════════════════════════════════════
 const NODE_TYPE_COLORS = {
   'Float': '#60a5fa', 'Integer': '#818cf8', 'Vector': '#c084fc',
@@ -98,12 +109,11 @@ const NODE_TYPE_COLORS = {
 };
 
 function NodeTypeBadge({ type }) {
-  const color = NODE_TYPE_COLORS[type] || '#a8a29e';
+  const color = NODE_TYPE_COLORS[type] || NODE_TYPE_COLORS.Any;
   return (
-    <span className="inline-block px-1.5 py-0.5 rounded-control text-label font-semibold uppercase shrink-0"
-      style={{ background: `${color}20`, color, border: `1px solid ${color}40` }}>
+    <Badge className="otter-node-type" style={{ '--node-color': color }}>
       {type || 'Any'}
-    </span>
+    </Badge>
   );
 }
 
@@ -5109,11 +5119,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const nodeCapable = softwareList.filter(sw => sw.type !== 'coding_language');
 
     if (!activeSoftwareSlug) {
-      return (
-        <div className="flex items-center justify-center h-full text-stone-500">
-          Select a software from the dropdown to view its node library.
-        </div>
-      );
+      return <EmptyState icon={Share2} title="Select a software from the dropdown to view its node library." />;
     }
 
     // Systems-based structure: { systems: [{ system: "Geometry Nodes", categories: [...] }] }
@@ -5132,115 +5138,111 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       : allCategories;
 
     return (
-      <div className="h-full overflow-y-auto p-6" ref={nodeScrollRef}>
-        <div className="max-w-5xl mx-auto">
-          {/* Header with title + search */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-h1 font-semibold text-orange-400">Nodes Reference</h2>
-            <div className="relative">
-              <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)} placeholder="Search nodes..."
-                className="bg-stone-800 text-white border border-stone-600 rounded-control pl-9 pr-3 py-2 text-body focus:border-orange-500 transition-colors w-64" />
-            </div>
-          </div>
+      <div className="otter-view" ref={nodeScrollRef}>
+        <div className="otter-view-page" data-width="data">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            actions={
+              <div className="otter-search">
+                <Search className="otter-search-icon" aria-hidden="true" />
+                <input type="text" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)} placeholder="Search nodes..."
+                  className="ui-input otter-search-input" data-surface="dark" />
+              </div>
+            }
+          >
+            Nodes reference
+          </SectionTitle>
 
           {/* Software dropdown */}
-          <div className="flex items-center gap-3 mb-4">
-            <Share2 className="w-4 h-4 text-stone-500 shrink-0" />
-            <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) { selectSoftware(e.target.value); setActiveNodeSystem(null); } }}
-              className="bg-stone-800 text-white border border-stone-600 rounded-control px-3 py-2 text-body focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-              {nodeCapable.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
-            </select>
+          <div className="otter-ref-picker">
+            <Share2 className="otter-ref-picker-icon" aria-hidden="true" />
+            <Select
+              value={activeSoftwareSlug || ''}
+              onChange={(v) => { if (v) { selectSoftware(v); setActiveNodeSystem(null); } }}
+              options={nodeCapable.map(sw => ({ value: sw.slug, label: sw.name }))}
+              aria-label="Software"
+            />
           </div>
 
-          {/* Node system tabs (e.g., Geometry Nodes, Shader Nodes) */}
+          {/* Node system tabs (e.g., Geometry Nodes, Shader Nodes) — the kit's
+              Tabs, the fifth of review O1's five treatments made one. */}
           {systems.length > 0 && (
-            <div className="flex items-center gap-1 mb-6 border-b border-stone-700 pb-0">
-              {systems.map((sys) => {
-                const isActive = currentSystem?.system === sys.system;
-                const totalNodes = (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0);
-                return (
-                  <button key={sys.system} onClick={() => setActiveNodeSystem(sys.system)}
-                    className="otter-system-tab px-4 py-2 text-body transition-colors border-b-2 -mb-1"
-                    data-active={isActive ? 'true' : undefined}>
-                    {sys.system} <span className="text-stone-600 text-caption ml-1">({totalNodes})</span>
-                  </button>
-                );
-              })}
-            </div>
+            <Tabs
+              items={systems.map((sys) => ({
+                id: sys.system,
+                label: sys.system,
+                count: (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0),
+              }))}
+              value={currentSystem?.system}
+              onChange={(id) => setActiveNodeSystem(id)}
+              panelId="otter-node-panel"
+              label="Node systems"
+              className="otter-system-tabs"
+            />
           )}
 
           {/* Node cards by category */}
+          <div id="otter-node-panel" role="tabpanel">
           {systems.length === 0 ? (
-            <div className="text-center py-12">
-              <Share2 className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-              <p className="text-stone-500">No nodes documented yet. Generate subject content to populate the node library.</p>
-            </div>
+            <EmptyState icon={Share2} title="No nodes documented yet." body="Generate subject content to populate the node library." />
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12">
-              <Share2 className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-              <p className="text-stone-500">{searchTerm ? 'No nodes matching your search.' : 'No nodes in this system yet.'}</p>
-            </div>
+            <EmptyState icon={Share2} title={searchTerm ? 'No nodes matching your search.' : 'No nodes in this system yet.'} />
           ) : filtered.map((cat, i) => (
-            <div key={i} className="mb-8" data-cat-id={`node-cat-${i}`}>
-              <h3 className="text-orange-400 font-semibold text-h3 mb-3">{cat.category}</h3>
-              <div className="space-y-3">
+            <section key={i} className="otter-ref-section" data-cat-id={`node-cat-${i}`}>
+              <h3 className="otter-ref-section-title">{cat.category}</h3>
+              <div className="otter-ref-cards">
                 {cat.nodes.map((node, j) => (
-                  <div key={j} className="bg-stone-800 border border-stone-600 rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                    <div className="font-semibold text-h3 mb-2" style={{ color: '#fb923c' }}>{node.name}</div>
-                    <p className="text-dense mb-3 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
+                  <div key={j} className="otter-fn-card">
+                    <div className="otter-node-name">{node.name}</div>
+                    <p className="otter-fn-desc">{node.description}</p>
 
                     {Array.isArray(node.inputs) && node.inputs.length > 0 && (
-                      <div className="mb-3">
-                        <span className="text-label font-semibold uppercase block mb-1.5" style={{ color: '#78716c' }}>Inputs</span>
-                        <div className="space-y-1">
-                          {node.inputs.filter(Boolean).map((inp, k) => (
-                            <div key={k} className="flex items-start gap-2 text-caption">
-                              <span className="shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
-                              <NodeTypeBadge type={inp.type} />
-                              <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
-                            </div>
+                      <div className="otter-node-ports">
+                        <span className="otter-fn-label">Inputs</span>
+                        <ul className="otter-node-port-list">
+                          {node.inputs.filter(Boolean).map((p, k) => (
+                            <li key={k} className="otter-node-port">
+                              <span className="otter-node-port-name">{p.name || ''}</span>
+                              <NodeTypeBadge type={p.type} />
+                              <span className="otter-node-port-desc">{p.description || ''}</span>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     )}
 
                     {Array.isArray(node.outputs) && node.outputs.length > 0 && (
-                      <div className="mb-3">
-                        <span className="text-label font-semibold uppercase block mb-1.5" style={{ color: '#78716c' }}>Outputs</span>
-                        <div className="space-y-1">
-                          {node.outputs.filter(Boolean).map((out, k) => (
-                            <div key={k} className="flex items-start gap-2 text-caption">
-                              <span className="shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
-                              <NodeTypeBadge type={out.type} />
-                              <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
-                            </div>
+                      <div className="otter-node-ports">
+                        <span className="otter-fn-label">Outputs</span>
+                        <ul className="otter-node-port-list">
+                          {node.outputs.filter(Boolean).map((p, k) => (
+                            <li key={k} className="otter-node-port">
+                              <span className="otter-node-port-name">{p.name || ''}</span>
+                              <NodeTypeBadge type={p.type} />
+                              <span className="otter-node-port-desc">{p.description || ''}</span>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     )}
 
                     {node.notes && (
-                      <div className="border-t border-stone-700 pt-2 mt-2">
-                        <span className="text-dense italic" style={{ color: '#78716c' }}>{node.notes}</span>
-                      </div>
+                      <p className="otter-node-notes">{node.notes}</p>
                     )}
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           ))}
+          </div>
         </div>
       </div>
     );
     } catch (err) {
       console.error('renderNodes error:', err);
       return (
-        <div className="flex flex-col items-center justify-center h-full text-stone-500 gap-2">
-          <AlertCircle className="w-8 h-8 text-red-500" />
-          <p>Error rendering nodes: {err?.message || 'Unknown error'}</p>
-        </div>
+        <EmptyState icon={AlertCircle} title={`Error rendering nodes: ${err?.message || 'Unknown error'}`} />
       );
     }
   }
