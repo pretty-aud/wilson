@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -3161,47 +3161,40 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {/* ── SETTINGS PANEL ── */}
       {settingsOpen && renderSettingsPanel()}
 
-      {/* ── HELP MODAL — identical to D.O.G. help modal ── */}
+      {/* ── HELP ──
+          A4: the kit's Dialog (review O27), D.O.G.'s Help rule for rule
+          (A2): the reading width (720; it was 850), its fixed 82vh, the
+          200px contents column, the open page as F2's selected row. Opened
+          over the settings slide-out, its Escape is its own (A2-KR-3). */}
       {showHelpModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70" onClick={() => setShowHelpModal(false)} />
-          <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-semibold text-orange-400">Help & Documentation</span>
-              </div>
-              <button onClick={() => setShowHelpModal(false)} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
+        <Dialog
+          title="Help & documentation"
+          onClose={() => setShowHelpModal(false)}
+          dismissOnBackdrop
+          width="reading"
+          className="otter-help"
+        >
+          <nav className="otter-help-side wilson-dark-scroll" aria-label="Help contents">
+            <div className="otter-help-list">
+              {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHelpPage(item.id)}
+                  className="otter-help-nav"
+                  data-active={helpPage === item.id}
+                  aria-current={helpPage === item.id ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-            <div className="flex-1 flex overflow-hidden">
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto wilson-dark-scroll py-2 flex flex-col">
-                <div className="flex-1">
-                  {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => setHelpPage(item.id)}
-                      className={`w-full text-left px-3 py-1.5 text-dense transition-colors ${
-                        helpPage === item.id
-                          ? 'bg-stone-800 text-orange-400 font-semibold border-l-2 border-orange-500'
-                          : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-caption text-stone-500 font-mono">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</span>
-                </div>
-              </nav>
-              <div className="flex-1 overflow-y-auto p-5 wilson-dark-scroll">
-                <OtterHelpContent helpPage={helpPage} theme="dark" />
-              </div>
-            </div>
+            <div className="otter-help-version">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</div>
+          </nav>
+          <div className="otter-help-content wilson-dark-scroll">
+            <OtterHelpContent helpPage={helpPage} theme="dark" />
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* ── MODALS ── */}

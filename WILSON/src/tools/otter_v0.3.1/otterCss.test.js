@@ -132,7 +132,9 @@ describe('otter.css', () => {
     const ROOT = { Td: 'ui-td', Th: 'ui-th', Row: 'ui-row', Button: 'ui-btn', Card: 'ui-card', Badge: 'ui-badge',
       Banner: 'ui-banner', SectionTitle: 'ui-section', Panel: 'ui-panel', Chip: 'ui-chip', Kbd: 'ui-kbd',
       IconButton: 'ui-iconbtn', Tabs: 'ui-tabs', Menu: 'ui-menu', EmptyState: 'ui-empty', Select: 'ui-input',
-      Input: 'ui-input', TextArea: 'ui-input', Field: 'ui-field' }
+      Input: 'ui-input', TextArea: 'ui-input', Field: 'ui-field',
+      // A4: a class on a Dialog is a class on the kit's surface.
+      Dialog: 'ui-dialog' }
     const TAG = /<([A-Z][\w.]*|[a-z][\w-]*)(?=[\s/>])/g
     const onKit = new Map()
     for (const src of JSX_FILES) {

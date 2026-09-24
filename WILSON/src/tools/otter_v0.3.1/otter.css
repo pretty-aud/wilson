@@ -1199,6 +1199,91 @@
     .otter-source { transition: none; }
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     THE SECOND HALF (A4): the nine overlays, the Validator, Requests, Share,
+     Change request, Trash and the quiz. Tokens and the kit only, like the
+     first: no hex, no palette literal, no one-class rule tying a kit rule.
+     Each surface is ONE commit with its state extracted first: every branch
+     of a className ternary or an inline style became a kit prop or a named
+     `data-*` variant here, written straight in tokens (the colour guard in
+     otterCss.test.js allows nothing else), and the commit lists the branches.
+     🚨 Z-ORDER IS THE KIT'S CONTRACT (A2 hand-off §5 trap 6): Drawer backdrop
+     59, Drawer 60, Dialog 70, Menu 80, Toast 90. An overlay opened from the
+     settings Drawer that is still hand-rolled at z-50 opens BEHIND it — so
+     every dialog the Drawer opens moved onto the Dialog before it did.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  /* ═══ HELP — the kit's Dialog (reading, 720) ═════════════════════════
+     Review O27: 850 wide on its own backdrop at z-100, an orange title, and
+     a 2px left border on the open page that pushed its label in. D.O.G.'s
+     Help rule for rule (A2): two columns that scroll on their own at a
+     fixed 82vh, so the Dialog's own body padding and scroll give way to
+     them; the open page is F2's selected row — the signal tint and a 2px
+     signal edge drawn inside the row. Two classes where the kit sets the
+     same property. The pages themselves are otterHelpContent.jsx, shared
+     with the app's Help page, and P1's. */
+  .ui-dialog.otter-help { height: 82vh; }
+  .otter-help .ui-dialog-body {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+  .otter-help-side {
+    display: flex;
+    flex-direction: column;
+    width: var(--panel-sm);
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 8px 0 0;
+    border-right: 1px solid var(--color-rule);
+  }
+  .otter-help-list { flex: 1 1 auto; }
+  .otter-help-nav {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  @media (hover: hover) {
+    .otter-help-nav:not([data-active='true']):hover {
+      background-color: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .otter-help-nav[data-active='true'] {
+    font-weight: 600;
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  /* The build's version string is data: the mono, the Caption step. */
+  .otter-help-version {
+    padding: 8px 12px;
+    border-top: 1px solid var(--color-rule);
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-help-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 24px;
+  }
+
+  /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
+  @media (prefers-reduced-motion: reduce) {
+    .otter-help-nav { transition: none; }
+  }
+
 }
 
 /* Outside the layer, as dog.css keeps its own keyframes: the sweep of the
