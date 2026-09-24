@@ -48,10 +48,17 @@ await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important
 
 const sleep = (ms) => page.waitForTimeout(ms);
 const skipped = [];
-/* The dependency arrows pulse with SMIL (<animateMotion>), which the CSS
-   kill-switch above cannot reach: pause every SVG and rewind it to 0 before
-   each photograph, or two runs of the same code differ (measured: four shots). */
-const freezeSvg = () => page.evaluate(() => document.querySelectorAll('svg').forEach((s) => { s.pauseAnimations?.(); s.setCurrentTime?.(0); }));
+/* The dependency arrows pulse with SMIL (<animateMotion>, <animate>), which
+   the CSS kill-switch above cannot reach. Pausing and rewinding each SVG was
+   not enough: the extraction's own runs caught one unchanged page cycling
+   through three frames along the cyan arrow (React re-creates the animation
+   elements on a re-render, and a fresh one starts from its own clock). So
+   the animation elements are REMOVED before every photograph — the pulse
+   dots then sit at their static attributes — in this page only. */
+const freezeSvg = () => page.evaluate(() => {
+  document.querySelectorAll('animate, animateMotion, animateTransform, set').forEach((a) => a.remove());
+  document.querySelectorAll('svg').forEach((s) => { s.pauseAnimations?.(); s.setCurrentTime?.(0); });
+});
 const shot = async (name) => { await sleep(250); await freezeSvg(); await page.screenshot({ path: join(OUT, `${name}.png`) }); console.log(`  ${name}`); };
 const park = () => page.mouse.move(W - 70, 12);   // over the orange bar, away from every control
 /** R.A.B.B.I.T.'s view tabs are role=tab (B1). */
