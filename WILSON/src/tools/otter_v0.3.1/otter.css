@@ -1304,6 +1304,17 @@
   }
   .otter-dropzone-text { margin-bottom: 12px; color: var(--color-ink-2); }
 
+  /* ═══ THE CONFIRMS — the kit's Dialog (confirm, 400) ══════════════════
+     Review O27: five bare cards — a 20px white title, a two-button row, no
+     header, no Escape — at three widths (400, 440 and max-w-sm) with a hard
+     offset shadow. Each is the kit's Dialog at the confirm width: the title
+     at H2, the question in the body, Cancel and the action in the footer,
+     the destructive action on the kit's danger Button (a red-700 fill
+     before) and the others on primary. The course's name is the ink at
+     600, not a lighter grey. */
+  .otter-confirm-text { color: var(--color-ink-2); }
+  .otter-confirm-name { font-weight: 600; color: var(--color-ink); }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }

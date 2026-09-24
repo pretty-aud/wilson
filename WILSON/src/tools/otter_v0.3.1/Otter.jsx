@@ -232,6 +232,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [showDeleteSubjectConfirm, setShowDeleteSubjectConfirm] = useState(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);   // A4: a confirm's busy lock (runConfirm)
   const [showDuplicateModal, setShowDuplicateModal] = useState(null);
   const [importDragOver, setImportDragOver] = useState(false);
   const importFileRef = useRef(null);
@@ -5486,6 +5487,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     );
   }
 
+  // A4: the confirms share the kit Dialog's one contract (review O27: three
+  // contracts before, and none of the confirms had Escape). An action that
+  // awaits the server holds the Dialog's busy lock while it runs (Q17), so
+  // Escape, the backdrop and a second click cannot close or repeat it
+  // mid-flight; a failure still leaves the dialog open, as it did.
+  async function runConfirm(action) {
+    setConfirmBusy(true);
+    try { await action(); } finally { setConfirmBusy(false); }
+  }
+
   // Session 11: this dialog existed but was UNREACHABLE — nothing ever set
   // showDeleteConfirm truthy, so there was no way to remove a course at all.
   // The course row menu now opens it. Its copy also had to change: in cloud
@@ -5495,32 +5506,35 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderDeleteConfirm() {
     const course = softwareList.find(sw => sw.slug === showDeleteConfirm);
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteConfirm(null)}>
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-semibold text-h1 mb-2">
-            {cloudMode ? 'Move to trash' : 'Delete course'}
-          </h3>
-          <p className="text-stone-400 text-body mb-6">
-            {cloudMode ? (
-              <>
-                <span className="text-stone-300 font-semibold">{course?.name ?? 'This course'}</span> and
-                its subjects will move to Recently deleted. You can restore it for 30 days, after
-                which it is deleted for good.
-                {course?.visibility === 'company_standard' &&
-                  ' It will also stop being offered as the company standard.'}
-              </>
-            ) : (
-              'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
-            )}
-          </p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border border-red-800 py-2 rounded-control hover:bg-red-800 transition-colors text-body font-semibold">
+      <Dialog
+        title={cloudMode ? 'Move to trash' : 'Delete course'}
+        width="confirm"
+        busy={confirmBusy}
+        dismissOnBackdrop
+        onClose={() => setShowDeleteConfirm(null)}
+        footer={(
+          <>
+            <Button onClick={() => setShowDeleteConfirm(null)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => deleteSoftware(showDeleteConfirm))}>
               {cloudMode ? 'Move to trash' : 'Delete'}
-            </button>
-          </div>
-        </div>
-      </div>
+            </Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">
+          {cloudMode ? (
+            <>
+              <span className="otter-confirm-name">{course?.name ?? 'This course'}</span> and
+              its subjects will move to Recently deleted. You can restore it for 30 days, after
+              which it is deleted for good.
+              {course?.visibility === 'company_standard' &&
+                ' It will also stop being offered as the company standard.'}
+            </>
+          ) : (
+            'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
+          )}
+        </p>
+      </Dialog>
     );
   }
 
