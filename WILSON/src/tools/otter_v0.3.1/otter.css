@@ -1315,6 +1315,26 @@
   .otter-confirm-text { color: var(--color-ink-2); }
   .otter-confirm-name { font-weight: 600; color: var(--color-ink); }
 
+  /* The subject being deleted, on its own line: H3 in the ink at 600 (it
+     was orange-400), cut with an ellipsis as before. The warning under it
+     is the third ink at Dense (stone-500 on stone-800 was 3.17:1; this is
+     4.66:1 on paper-raised). */
+  .otter-confirm-subject {
+    margin: 4px 0 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-confirm-note {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }

@@ -5541,18 +5541,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderDeleteSubjectConfirm() {
     const { softwareSlug, subjectSlug, title } = showDeleteSubjectConfirm;
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteSubjectConfirm(null)}>
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-semibold text-h1 mb-2">Delete Subject</h3>
-          <p className="text-stone-400 text-body mb-2">Are you sure you want to delete:</p>
-          <p className="text-orange-400 font-semibold text-h3 mb-4 truncate">&quot;{title}&quot;</p>
-          <p className="text-stone-500 text-dense mb-6">This will permanently remove this subject and its lessons. This cannot be undone.</p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowDeleteSubjectConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-            <button onClick={() => deleteSubject(softwareSlug, subjectSlug)} className="flex-1 bg-red-700 text-white border border-red-800 py-2 rounded-control hover:bg-red-800 transition-colors text-body font-semibold">Delete Subject</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        title="Delete subject"
+        width="confirm"
+        busy={confirmBusy}
+        dismissOnBackdrop
+        onClose={() => setShowDeleteSubjectConfirm(null)}
+        footer={(
+          <>
+            <Button onClick={() => setShowDeleteSubjectConfirm(null)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => deleteSubject(softwareSlug, subjectSlug))}>Delete subject</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">Are you sure you want to delete:</p>
+        <p className="otter-confirm-subject" title={title}>&quot;{title}&quot;</p>
+        <p className="otter-confirm-note">This will permanently remove this subject and its lessons. This cannot be undone.</p>
+      </Dialog>
     );
   }
 
