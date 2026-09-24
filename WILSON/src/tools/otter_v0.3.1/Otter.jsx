@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog, Drawer, Toolbar, Switch } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -5295,72 +5295,73 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   function renderSettingsPanel() {
     const isLocked = settingsTab === 'prompts' ? promptsTabLocked : toolsTabLocked;
+    // A4: the kit's Drawer (review O27; A2 did D.O.G.'s the same way). The
+    // title-bar offset is the Drawer's `--titlebar-offset` token — it was a
+    // hand-set `paddingTop` of 32px under Electron (review risk 9) — and the
+    // entrance is the Drawer's own 240ms (the inline `slideInRight` 300ms
+    // animation went with the private chrome). Width: otter.css (A2-KR-2).
     return (
-      <div className="fixed inset-0 z-50">
-        <div className="absolute inset-0 bg-black/50 transition-opacity" onClick={() => setSettingsOpen(false)} />
-        <div className="absolute top-0 right-0 h-full bg-stone-800 border-l border-stone-600 shadow-2xl flex flex-col"
-          style={{ width: '40%', minWidth: '400px', paddingTop: window.electronAPI ? '32px' : '0px', animation: 'slideInRight 0.3s ease-out' }}>
-          {/* Header */}
-          <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0">
-            <div className="flex items-center gap-2">
-              <Settings className="w-5 h-5 text-orange-400" />
-              <span className="font-semibold text-orange-400">Settings</span>
-            </div>
-            <button onClick={() => setSettingsOpen(false)} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-              <X className="w-5 h-5 text-stone-400" />
-            </button>
+      <Drawer
+        open
+        onClose={() => setSettingsOpen(false)}
+        backdrop
+        side="right"
+        width="lg"
+        label="Settings"
+        className="otter-settings-drawer"
+        title={(
+          <>
+            <Settings className="otter-drawer-icon" aria-hidden="true" />
+            Settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={() => setSettingsOpen(false)} />}
+        footer={(
+          <div className="otter-settings-foot">
+            <p className="otter-settings-foot-note">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
+            <IconButton size="sm" icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           </div>
+        )}
+      >
+        {/* The two halves of the strip are the kit's Tabs, each still half
+            the strip wide (otter.css): the old buttons were `flex-1`. */}
+        <Tabs
+          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}
+          value={settingsTab}
+          onChange={setSettingsTab}
+          label="Settings sections"
+          panelId="otter-settings-panel"
+          className="otter-settings-tabs"
+        />
 
-          {/* Tabs */}
-          <div className="flex shrink-0">
-            <button onClick={() => setSettingsTab('prompts')}
-              className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${settingsTab === 'prompts' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
-              System Prompts
-            </button>
-            <button onClick={() => setSettingsTab('tools')}
-              className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${settingsTab === 'tools' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
-              Tool Settings
-            </button>
-          </div>
+        {/* The lock bar: the kit's Toolbar and Switch. "Editable" is the
+            switch's name and its state is the switch's; the words beside it
+            are unchanged. `data-locked` is the CURRENT tab's lock. */}
+        <Toolbar
+          className="otter-lock-bar"
+          data-locked={isLocked}
+          right={(
+            <>
+              <span className="otter-lock-mode">{isLocked ? 'Read Only' : 'Editable'}</span>
+              <Switch
+                checked={!isLocked}
+                onChange={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
+                aria-label="Editable"
+              />
+            </>
+          )}
+        >
+          {isLocked
+            ? <Lock className="otter-lock-icon" aria-hidden="true" />
+            : <Unlock className="otter-lock-icon" aria-hidden="true" />}
+          <span className="otter-lock-label">{isLocked ? 'Locked' : 'Unlocked'}</span>
+        </Toolbar>
 
-          {/* Lock Switch Bar */}
-          <div className="bg-stone-900 px-4 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2">
-              {isLocked ? <Lock className="w-4 h-4 text-stone-500" /> : <Unlock className="w-4 h-4 text-orange-400" />}
-              <span className={`text-label font-semibold uppercase ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
-                {isLocked ? 'Locked' : 'Unlocked'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`text-label uppercase ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
-                {isLocked ? 'Read Only' : 'Editable'}
-              </span>
-              <button onClick={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
-                className={`relative w-11 h-6 rounded-full transition-colors ${isLocked ? 'bg-stone-600' : 'bg-orange-500'}`}>
-                <span className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${isLocked ? 'left-1' : 'left-6'}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {settingsTab === 'prompts' && renderPromptsTab()}
-            {settingsTab === 'tools' && renderToolsTab()}
-          </div>
-
-          {/* Footer */}
-          <div className="px-4 py-3 border-t border-stone-600 flex-shrink-0 flex items-center justify-between">
-            <p className="text-dense text-stone-500 flex-1">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
-            <button
-              onClick={() => setShowHelpModal(true)}
-              className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-control transition-colors"
-              title="Help & Documentation"
-            >
-              <HelpCircle className="w-4 h-4 text-orange-400" />
-            </button>
-          </div>
+        <div id="otter-settings-panel" role="tabpanel" className="otter-settings-body wilson-dark-scroll" data-locked={isLocked}>
+          {settingsTab === 'prompts' && renderPromptsTab()}
+          {settingsTab === 'tools' && renderToolsTab()}
         </div>
-      </div>
+      </Drawer>
     );
   }
 
@@ -5374,27 +5375,29 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       { key: 'codeWrite', title: 'Code Writing Challenges', desc: 'Generates coding challenges (Haiku)', defaultVal: CODE_WRITING_PROMPT },
       { key: 'companion', title: 'Companion Chat', desc: 'Prompt for otter companion (Haiku)', defaultVal: COMPANION_PROMPT },
     ];
+    // The lock is the disabled token (§3.1), not the opacity-60 the whole tab
+    // wore: the editors and buttons are `disabled`, the headers stay live.
     return (
-      <div className={promptsTabLocked ? 'opacity-60' : ''}>
+      <div className="otter-accs">
         {sections.map(s => (
-          <div key={s.key} className="border-b border-stone-700 overflow-hidden">
-            <button onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
-              className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-              <div className="text-left">
-                <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{s.title}</span>
-                <p className="text-dense text-stone-500">{s.desc}</p>
+          <div key={s.key} className="otter-acc">
+            <button type="button" onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
+              className="otter-acc-head" aria-expanded={!!promptSections[s.key]}>
+              <div className="otter-acc-text">
+                <span className="otter-acc-label">{s.title}</span>
+                <p className="otter-acc-desc">{s.desc}</p>
               </div>
-              <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${promptSections[s.key] ? 'rotate-90' : ''}`} />
+              <ChevronRight className="otter-acc-chevron" aria-hidden="true" data-open={!!promptSections[s.key]} />
             </button>
             {promptSections[s.key] && (
-              <div className="px-3 pb-3 pt-2">
+              <div className="otter-acc-body">
                 <textarea value={editingPrompts[s.key] || ''} onChange={e => setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))}
-                  disabled={promptsTabLocked}
-                  className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                <button onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}
-                  className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
-                <button onClick={savePrompts} disabled={promptsTabLocked}
-                  className={`mt-1 ml-3 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Save</button>
+                  disabled={promptsTabLocked} aria-label={s.title}
+                  className="ui-input otter-acc-textarea wilson-dark-scroll" data-surface="dark" />
+                <div className="otter-acc-actions">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}>Reset to default</Button>
+                  <Button variant="ghost" size="sm" onClick={savePrompts} disabled={promptsTabLocked}>Save</Button>
+                </div>
               </div>
             )}
           </div>
@@ -5405,61 +5408,45 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   function renderToolsTab() {
     return (
-      <div className={toolsTabLocked ? 'opacity-60' : ''}>
+      <div className="otter-settings-cards">
         {/* Storage Location */}
-        <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-          <label className={`block text-h3 font-semibold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
+        <Card title="Storage location" className="otter-settings-card">
           {/* S30: a refused settings write used to leave the field showing the
               new value with nothing saved. Now it says so. */}
           {settingsError && (
-            <div className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded-control border border-red-800/50 bg-red-950/30">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
-              <span className="text-dense text-red-300 leading-relaxed">
-                <span className="font-semibold">Not saved.</span> {settingsError}
-              </span>
-            </div>
+            <Banner tone="danger" icon={AlertCircle} className="otter-settings-error">
+              <span className="otter-settings-error-lead">Not saved.</span> {settingsError}
+            </Banner>
           )}
-          <div className="flex items-center gap-2">
+          <div className="otter-storage-row">
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
-              disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border border-stone-600 rounded-control px-3 py-2 text-dense focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
+              disabled={toolsTabLocked} aria-label="Storage location"
+              className="ui-input otter-storage-input" data-surface="dark" />
             {/* Session 12: this button used to POST /api/browse-folder, a
                 route that never existed on ANY host — it was dead everywhere
                 (same class as S11's unreachable renderDeleteConfirm). The
                 preload rabbit bridge already ships a directory picker, so use
                 it where it exists and drop the button where it can't work. */}
             {window.electronAPI?.rabbit?.pickDirectory && (
-              <button disabled={toolsTabLocked} onClick={async () => {
+              <Button icon={FolderOpen} disabled={toolsTabLocked} title="Browse for folder" onClick={async () => {
                 try {
                   const dir = await window.electronAPI.rabbit.pickDirectory();
                   if (dir) saveSettings({ storageLocation: dir });
                 } catch (e) { console.error('Browse folder failed:', e); }
-              }} className="bg-stone-700 text-stone-300 border border-stone-600 px-3 py-2 rounded-control hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
-                <FolderOpen className="w-4 h-4" /><span className="text-dense font-semibold">Browse</span>
-              </button>
+              }}>Browse</Button>
             )}
           </div>
-          <p className="text-stone-600 text-dense mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
-        </div>
+          <p className="otter-form-hint">Default: ./data/software/ -- All courses and subjects are stored here.</p>
+        </Card>
 
         {/* Data management */}
-        <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-          <label className={`block text-h3 font-semibold mb-3 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Data Management</label>
-          <div className="space-y-2">
-            <button onClick={exportAll} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-2 rounded-control hover:bg-stone-600 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
-              <Download className="w-4 h-4" /> Export All Data
-            </button>
-            <button onClick={() => setShowImportModal(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-2 rounded-control hover:bg-stone-600 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
-              <Upload className="w-4 h-4" /> Import Data
-            </button>
-            <button onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-800 px-3 py-2 rounded-control hover:bg-red-900/50 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
-              <Trash2 className="w-4 h-4" /> Clear All Data
-            </button>
+        <Card title="Data management" className="otter-settings-card">
+          <div className="otter-settings-actions">
+            <Button icon={Download} onClick={exportAll} disabled={toolsTabLocked} className="otter-settings-action">Export all data</Button>
+            <Button icon={Upload} onClick={() => setShowImportModal(true)} disabled={toolsTabLocked} className="otter-settings-action">Import data</Button>
+            <Button variant="danger" icon={Trash2} onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked} className="otter-settings-action">Clear all data</Button>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
