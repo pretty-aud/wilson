@@ -163,6 +163,131 @@ function contextTextFor(site) {
   return null
 }
 
+/* ── Reading a JSX element's own attributes (UI overhaul B3, 2026-09-24) ─────
+ *
+ * The Timeline test below used to find each pane's props by slicing from
+ * `<Pane` to the literal "\n      />" — the closing line at SIX spaces of
+ * indent — so it checked the file's formatting as much as its gate. Measured
+ * by mutating the real file (eight mutants, three legitimate edits): a
+ * re-indented block did not fail it, the slice ran on past the block to the
+ * next six-space closer in the file, so a re-indented DetailPane with its
+ * prop DELETED still passed on a later element's prop. A prop inside a
+ * comment passed; `canWrite={true}` after the real prop (the value React
+ * uses) passed; a spread after it passed; and a second, ungated render was
+ * never looked at. The restyle has to touch all three blocks, so the check
+ * had to stop depending on how they are laid out before that began.
+ *
+ * So this reads what React reads: the element's opening tag, scanned from
+ * `<Name` to the `>` or `/>` that closes it, with braces, strings, template
+ * literals and comments tracked, so a `>` inside an arrow function or a
+ * comparison never ends the tag. The result is the tag's attributes in
+ * order — [name, value text] — with a spread recorded as '...'. Anything the
+ * scanner cannot read returns null, which the test reports as a FAILURE:
+ * an unparseable tag is never a pass.
+ */
+function skipQuoted(src, i) { // src[i] is ' or "
+  const q = src[i]
+  for (i++; i < src.length; i++) {
+    if (src[i] === '\\') { i++; continue }
+    if (src[i] === q) return i + 1
+  }
+  return -1
+}
+
+function skipComment(src, i) { // src[i] is '/', src[i + 1] is '/' or '*'
+  if (src[i + 1] === '/') {
+    const end = src.indexOf('\n', i)
+    return end < 0 ? src.length : end
+  }
+  const end = src.indexOf('*/', i + 2)
+  return end < 0 ? -1 : end + 2
+}
+
+function skipTemplate(src, i) { // src[i] is a backtick
+  for (i++; i < src.length; i++) {
+    if (src[i] === '\\') { i++; continue }
+    if (src[i] === '`') return i + 1
+    if (src[i] === '$' && src[i + 1] === '{') {
+      const end = skipBraced(src, i + 1)
+      if (end < 0) return -1
+      i = end - 1
+    }
+  }
+  return -1
+}
+
+/** From a `{`, the index just past its matching `}` (or -1). */
+function skipBraced(src, i) {
+  let depth = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (c === "'" || c === '"') i = skipQuoted(src, i)
+    else if (c === '`') i = skipTemplate(src, i)
+    else if (c === '/' && (src[i + 1] === '/' || src[i + 1] === '*')) i = skipComment(src, i)
+    else {
+      if (c === '{') depth++
+      else if (c === '}' && --depth === 0) return i + 1
+      i++
+    }
+    if (i < 0) return -1
+  }
+  return -1
+}
+
+/** The attributes of the JSX opening tag that starts at `from`, in order, or null. */
+function openingTagAttributes(src, from) {
+  const open = /^<[A-Za-z_$][\w$.]*/.exec(src.slice(from, from + 200))
+  if (!open) return null
+  const attrs = []
+  let i = from + open[0].length
+  while (i < src.length) {
+    const c = src[i]
+    if (/\s/.test(c)) { i++; continue }
+    if (c === '>' || (c === '/' && src[i + 1] === '>')) return attrs
+    if (c === '/' && (src[i + 1] === '/' || src[i + 1] === '*')) {
+      i = skipComment(src, i)
+      if (i < 0) return null
+      continue
+    }
+    if (c === '{') {
+      const end = skipBraced(src, i)
+      if (end < 0) return null
+      attrs.push(['...', src.slice(i + 1, end - 1).trim()])
+      i = end
+      continue
+    }
+    const name = /^[A-Za-z_$][\w$:-]*/.exec(src.slice(i, i + 200))
+    if (!name) return null
+    i += name[0].length
+    let j = i
+    while (/\s/.test(src[j] || '')) j++
+    if (src[j] !== '=') { attrs.push([name[0], 'true']); continue }
+    j++
+    while (/\s/.test(src[j] || '')) j++
+    let end = -1
+    if (src[j] === '{') end = skipBraced(src, j)
+    else if (src[j] === '"' || src[j] === "'") end = skipQuoted(src, j)
+    if (end < 0) return null
+    const raw = src.slice(j, end)
+    attrs.push([name[0], raw[0] === '{' ? raw.slice(1, -1).trim() : raw])
+    i = end
+  }
+  return null
+}
+
+/** What `canWrite` resolves to on an element: the LAST spelling wins, and a
+    spread after it could replace it, so that is reported as 'spread'. */
+function gateValue(attrs) {
+  let at = -1
+  attrs.forEach(([name], k) => { if (name === 'canWrite') at = k })
+  if (at < 0) return null
+  if (attrs.slice(at + 1).some(([name]) => name === '...')) return 'spread'
+  return attrs[at][1]
+}
+
+/** Offsets of every `<Name` render in `code` (not `<NameX`, not `</Name`). */
+const renderSites = (code, name) => [...code.matchAll(new RegExp(`<${name}(?![\\w$.])`, 'g'))].map((m) => m.index)
+
 describe('project write gate', () => {
   const sites = canOnProjectCallSites()
 
@@ -222,22 +347,57 @@ describe('project write gate', () => {
   })
 
   it('the Timeline gates the funnel AND the affordances, not just the funnel', () => {
-    const text = readSrc('tools/rabbit_v0.1.0/views/TimelineView.jsx')
+    const raw = readSrc('tools/rabbit_v0.1.0/views/TimelineView.jsx')
     // Gating openNewTask alone would leave ~12 visible, inert affordances —
     // the S23 "the button does nothing" defect in a new place. These are the
-    // three panes that render or host them; each must receive the flag.
+    // three panes that render or host them; EVERY render of each must pass
+    // the flag as its own attribute. Render sites are found in the
+    // comment-blanked text (a `<DetailPane` in prose is not a render) and read
+    // from the raw text at the same offset, which blankComments preserves.
+    const code = blankComments(raw)
     for (const pane of ['DetailZoomToolbar', 'DetailPane', 'OverviewPane']) {
-      const idx = text.indexOf(`<${pane}`)
-      expect(idx, `${pane} should be rendered by TimelineView`).toBeGreaterThan(-1)
-      // Slice to the element's own closing `/>` at its JSX indent rather than a
-      // fixed character budget — DetailPane's prop list alone runs past 4000
-      // characters, so a fixed window reported a false failure.
-      const end = text.indexOf('\n      />', idx)
-      expect(end, `${pane} should close at its own indent`).toBeGreaterThan(idx)
-      const block = text.slice(idx, end)
-      expect(block, `${pane} must receive canWrite, or its affordances stay live`)
-        .toMatch(/canWrite=\{canWrite\}/)
+      const sites = renderSites(code, pane)
+      expect(sites.length, `${pane} should be rendered by TimelineView`).toBeGreaterThan(0)
+      for (const at of sites) {
+        const attrs = openingTagAttributes(raw, at)
+        expect(attrs, `${pane} (offset ${at}): its opening tag could not be read`).not.toBeNull()
+        expect(gateValue(attrs),
+          `${pane} must receive canWrite={canWrite} as its own attribute (the last of that name, ` +
+          'with no spread after it), or its affordances stay live').toBe('canWrite')
+      }
     }
+  })
+
+  it('CONTROL: the pane check reads the attribute React reads, at any indent', () => {
+    // Written into the real TimelineView.jsx, the commented-out prop, the later
+    // `canWrite={true}`, the spread, the second ungated render and the
+    // re-indented block with no prop all PASSED the old "\n      />" slice
+    // (B3, 2026-09-24). Each is a self-contained snippet here, through the
+    // same functions the assertion above uses, so a change to the scanner is
+    // checked against every one of them.
+    const check = (snippet) => renderSites(blankComments(snippet), 'DetailPane').map((at) => {
+      const attrs = openingTagAttributes(snippet, at)
+      return attrs && gateValue(attrs)
+    })
+    // gated, whatever the formatting
+    expect(check('<DetailPane\n  rows={rows}\n  canWrite={canWrite}\n        />')).toEqual(['canWrite'])
+    expect(check('<DetailPane onX={() => a > b} canWrite={canWrite} label="a > b" />')).toEqual(['canWrite'])
+    expect(check('<DetailPane onX={(e) => `${e} }`} canWrite={canWrite}>{kids}</DetailPane>')).toEqual(['canWrite'])
+    expect(check('<DetailPane {...rest} canWrite={canWrite} />')).toEqual(['canWrite'])
+    // gates nothing
+    expect(check('<DetailPane rows={rows} />')).toEqual([null])
+    expect(check('<DetailPane canWrite={true} />')).toEqual(['true'])
+    expect(check('<DetailPane canWrite={canWrite} canWrite={true} />')).toEqual(['true'])
+    expect(check('<DetailPane canWrite={canWrite} {...{ canWrite: true }} />')).toEqual(['spread'])
+    expect(check('<DetailPane /* canWrite={canWrite} */ rows={rows} />')).toEqual([null])
+    expect(check('<DetailPane rows={rows}\n  // canWrite={canWrite}\n/>')).toEqual([null])
+    expect(check('<DetailPane onX={() => { const canWrite = true }} />')).toEqual([null])
+    expect(check('<DetailPane canWrite={canWrite} />\n<DetailPane rows={rows} />')).toEqual(['canWrite', null])
+    // a render inside a comment is not a render
+    expect(check('// <DetailPane canWrite={canWrite} />')).toEqual([])
+    expect(check('{/* <DetailPane canWrite={canWrite} /> */}')).toEqual([])
+    // an unreadable tag is null, which the assertion reports as a failure
+    expect(check('<DetailPane canWrite={canWrite} onX={() => "unterminated} />')).toEqual([null])
   })
 
   it('every R.A.B.B.I.T. surface that creates project entities consults the gate', () => {
