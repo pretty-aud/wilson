@@ -230,7 +230,11 @@ export function Dialog({
         /* The fallback focus target when the dialog holds nothing focusable
            (a message with no footer). Not a tab stop. */
         tabIndex={-1}
-        aria-label={typeof title === 'string' ? title : undefined}
+        /* A string title names the dialog. A title that is a node (a search
+           field, say) names nothing, so a caller's own aria-label stands —
+           it was overwritten with undefined here, because this prop comes
+           after the spread (A4-KR-1). */
+        aria-label={typeof title === 'string' ? title : rest['aria-label']}
         aria-busy={busy || undefined}
         className={`ui-dialog ${className}`.trim()}
         style={{ ...rest.style, width: px }}

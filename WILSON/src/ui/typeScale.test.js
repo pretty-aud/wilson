@@ -556,7 +556,12 @@ const fires = (re, s) => new RegExp(re.source, re.flags.replace('g', '')).test(s
 describe('the sweep can see the app', () => {
   it('reads the whole converted scope', () => {
     expect(sourceFiles().length).toBeGreaterThan(200);
-    expect(sweep(SCALE_STEP).length).toBeGreaterThan(2000);
+    // A floor on what the sweep SEES, not on what the app keeps: every lane's
+    // restyle moves scale-step utilities into its own sheet (A4's nine
+    // O.T.T.E.R. overlays took 88; the count stood at 1923 after them, 2170
+    // raw before), so the number falls by design. A sweep that has gone
+    // blind reads a handful, not a thousand. Was 2000 (A4).
+    expect(sweep(SCALE_STEP).length).toBeGreaterThan(1000);
   });
 
   it('🚨 no in-scope file is swallowed whole by one protected range', () => {

@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog, Drawer, Toolbar, Switch } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -232,8 +232,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [showDeleteSubjectConfirm, setShowDeleteSubjectConfirm] = useState(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);   // A4: a confirm's busy lock (runConfirm)
   const [showDuplicateModal, setShowDuplicateModal] = useState(null);
   const [importDragOver, setImportDragOver] = useState(false);
+  const importFileRef = useRef(null);
 
   // ── Undo/Redo for subject deletions ──
   const [deletedSubjectsStack, setDeletedSubjectsStack] = useState([]);
@@ -3161,47 +3163,40 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {/* ── SETTINGS PANEL ── */}
       {settingsOpen && renderSettingsPanel()}
 
-      {/* ── HELP MODAL — identical to D.O.G. help modal ── */}
+      {/* ── HELP ──
+          A4: the kit's Dialog (review O27), D.O.G.'s Help rule for rule
+          (A2): the reading width (720; it was 850), its fixed 82vh, the
+          200px contents column, the open page as F2's selected row. Opened
+          over the settings slide-out, its Escape is its own (A2-KR-3). */}
       {showHelpModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70" onClick={() => setShowHelpModal(false)} />
-          <div className="relative bg-stone-800 border border-stone-600 rounded-control shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-semibold text-orange-400">Help & Documentation</span>
-              </div>
-              <button onClick={() => setShowHelpModal(false)} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
+        <Dialog
+          title="Help & documentation"
+          onClose={() => setShowHelpModal(false)}
+          dismissOnBackdrop
+          width="reading"
+          className="otter-help"
+        >
+          <nav className="otter-help-side wilson-dark-scroll" aria-label="Help contents">
+            <div className="otter-help-list">
+              {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHelpPage(item.id)}
+                  className="otter-help-nav"
+                  data-active={helpPage === item.id}
+                  aria-current={helpPage === item.id ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-            <div className="flex-1 flex overflow-hidden">
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto wilson-dark-scroll py-2 flex flex-col">
-                <div className="flex-1">
-                  {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => setHelpPage(item.id)}
-                      className={`w-full text-left px-3 py-1.5 text-dense transition-colors ${
-                        helpPage === item.id
-                          ? 'bg-stone-800 text-orange-400 font-semibold border-l-2 border-orange-500'
-                          : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-caption text-stone-500 font-mono">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</span>
-                </div>
-              </nav>
-              <div className="flex-1 overflow-y-auto p-5 wilson-dark-scroll">
-                <OtterHelpContent helpPage={helpPage} theme="dark" />
-              </div>
-            </div>
+            <div className="otter-help-version">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</div>
+          </nav>
+          <div className="otter-help-content wilson-dark-scroll">
+            <OtterHelpContent helpPage={helpPage} theme="dark" />
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* ── MODALS ── */}
@@ -3246,18 +3241,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {/* ── SEARCH MODAL ── */}
       {showSearchModal && renderSearchModal()}
 
-      {/* ── QUIZ LEAVE CONFIRM ── */}
+      {/* ── QUIZ LEAVE CONFIRM ──
+          A4: the kit's Dialog at the confirm width (review O27). Escape is
+          Stay (Q17); there was, and is, no backdrop close. */}
       {showQuizLeaveConfirm && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <div className="bg-stone-800 border border-stone-600 rounded-control p-6 max-w-sm w-full mx-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]">
-            <h3 className="text-orange-400 font-semibold text-h1 mb-2">Leave Quiz?</h3>
-            <p className="text-stone-400 text-body mb-6">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowQuizLeaveConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body font-semibold">Stay</button>
-              <button onClick={confirmLeaveQuiz} className="flex-1 bg-orange-600 text-white border border-orange-700 py-2 rounded-control hover:bg-orange-700 transition-colors text-body font-semibold">Leave Quiz</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title="Leave quiz?"
+          width="confirm"
+          onClose={() => setShowQuizLeaveConfirm(null)}
+          footer={(
+            <>
+              <Button onClick={() => setShowQuizLeaveConfirm(null)}>Stay</Button>
+              <Button variant="primary" onClick={confirmLeaveQuiz}>Leave quiz</Button>
+            </>
+          )}
+        >
+          <p className="otter-confirm-text">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
+        </Dialog>
       )}
     </div>
   );
@@ -3268,244 +3268,249 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── SEARCH MODAL ──
   function renderSearchModal() {
+    // A4: the kit's Dialog at the workbench width (review O27; it was 900
+    // wide on its own backdrop with a hard offset shadow). The search field
+    // is still the dialog's header: the Dialog takes it as its title, with
+    // the kit's Close where the old X was, and the dialog is named "Search"
+    // (A4-KR-1). The two panes scroll on their own at a fixed height.
     return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowSearchModal(false)}>
-        <div
-          className="bg-stone-800 border border-stone-600 rounded-control shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)] w-[900px] max-w-[95vw] h-[600px] max-h-[85vh] flex flex-col"
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="px-4 py-3 border-b border-stone-600 shrink-0">
-            <div className="flex items-center gap-3">
-              <Search className="w-5 h-5 text-orange-400 shrink-0" />
-              <input
-                ref={searchInputRef}
-                autoFocus
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
-                onKeyDown={e => {
-                  if (e.key === 'Escape') setShowSearchModal(false);
-                  if (e.key === 'ArrowDown' && searchResults.length > 0) {
-                    e.preventDefault();
-                    setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
-                  }
-                  if (e.key === 'ArrowUp' && searchResults.length > 0) {
-                    e.preventDefault();
-                    setSelectedSearchResult(prev => prev !== null ? Math.max(prev - 1, 0) : 0);
-                  }
-                  if (e.key === 'Enter' && selectedSearchResult !== null) {
-                    const r = searchResults[selectedSearchResult];
-                    if (r) navigateToSearchResult(r);
-                  }
-                }}
-                placeholder="Search lessons, hotkeys, functions, nodes..."
-                className="flex-1 bg-transparent text-white text-body placeholder-stone-500"
-              />
-              <span className="text-stone-500 text-caption shrink-0">
-                {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
+      <Dialog
+        title={(
+          <div className="otter-search-bar">
+            <Search className="otter-search-bar-icon" aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              autoFocus
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
+              onKeyDown={e => {
+                if (e.key === 'Escape') setShowSearchModal(false);
+                if (e.key === 'ArrowDown' && searchResults.length > 0) {
+                  e.preventDefault();
+                  setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
+                }
+                if (e.key === 'ArrowUp' && searchResults.length > 0) {
+                  e.preventDefault();
+                  setSelectedSearchResult(prev => prev !== null ? Math.max(prev - 1, 0) : 0);
+                }
+                if (e.key === 'Enter' && selectedSearchResult !== null) {
+                  const r = searchResults[selectedSearchResult];
+                  if (r) navigateToSearchResult(r);
+                }
+              }}
+              placeholder="Search lessons, hotkeys, functions, nodes..."
+              aria-label="Search"
+              className="otter-search-field"
+            />
+            <span className="otter-search-count">
+              {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
+            </span>
+          </div>
+        )}
+        aria-label="Search"
+        width="workbench"
+        dismissOnBackdrop
+        onClose={() => setShowSearchModal(false)}
+        className="otter-search-dialog"
+      >
+        <div className="otter-search-results wilson-dark-scroll">
+          {searchQuery.length < 2 && <p className="otter-search-hint">Type at least 2 characters to search</p>}
+          {searchQuery.length >= 2 && searchResults.length === 0 && <p className="otter-search-hint">No matches found</p>}
+          {searchResults.map((r, i) => (
+            <button
+              key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
+              type="button"
+              onClick={() => setSelectedSearchResult(i)}
+              className="otter-search-result"
+              data-active={selectedSearchResult === i}
+            >
+              <span className="otter-search-result-head">
+                <span className="otter-search-result-title">{r.lessonTitle}</span>
+                {r.resultType && <Badge>{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</Badge>}
               </span>
-              <button onClick={() => setShowSearchModal(false)} className="p-1 hover:bg-stone-700 rounded-control">
-                <X className="w-4 h-4 text-stone-400" />
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 flex overflow-hidden">
-            <div className="w-[280px] shrink-0 border-r border-stone-600 overflow-y-auto bg-stone-900">
-              {searchQuery.length < 2 && <div className="px-4 py-8 text-center text-stone-600 text-body">Type at least 2 characters to search</div>}
-              {searchQuery.length >= 2 && searchResults.length === 0 && <div className="px-4 py-8 text-center text-stone-600 text-body">No matches found</div>}
-              {searchResults.map((r, i) => (
-                <button
-                  key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
-                  onClick={() => setSelectedSearchResult(i)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-stone-700 transition-colors ${selectedSearchResult === i ? 'bg-stone-700' : 'hover:bg-stone-800'}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-white text-dense font-semibold truncate flex-1">{r.lessonTitle}</p>
-                    {r.resultType && <span className="text-label px-1.5 py-0.5 rounded-control font-semibold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</span>}
-                  </div>
-                  <p className="text-stone-500 text-dense truncate">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</p>
-                  <p className="text-orange-400 text-dense mt-0.5">{r.matches} match{r.matches !== 1 ? 'es' : ''}</p>
-                </button>
-              ))}
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 bg-stone-900">
-              {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
-                const r = searchResults[selectedSearchResult];
-                const q = searchQuery.trim();
-                const lowerQ = q.toLowerCase();
-
-                const header = (
-                  <div className="mb-4 pb-3 border-b border-stone-700">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-orange-400 font-semibold text-h3">{r.lessonTitle}</h3>
-                        <p className="text-stone-500 text-dense">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
-                      </div>
-                      <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-control text-dense font-semibold border border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
-                        {r.resultType === 'hotkeys' ? 'Go to Hotkeys' : r.resultType === 'functions' ? 'Go to Functions' : r.resultType === 'nodes' ? 'Go to Nodes' : 'Go to Lesson'}
-                      </button>
-                    </div>
-                    <p className="text-orange-400 text-dense mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
-                  </div>
-                );
-
-                {/* ── Hotkeys: table with all shortcuts, matches highlighted ── */}
-                if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.hotkeyCategories.map((cat, ci) => {
-                        const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
-                        if (!hasMatch) return null;
-                        return (
-                          <div key={ci} className="mb-4">
-                            <h4 className="text-orange-400 font-semibold text-h3 mb-2">{cat.category}</h4>
-                            <div className="bg-stone-800 border border-stone-600 rounded-control overflow-hidden">
-                              <table className="w-full">
-                                <thead>
-                                  <tr style={{ background: '#44403c' }}>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                                    <th className="text-left text-label font-semibold uppercase p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {cat.shortcuts.map((s, si) => {
-                                    const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
-                                    return (
-                                      <tr key={si} className={`border-b border-stone-700 last:border-0 transition-colors ${isMatch ? 'bg-orange-500/10' : 'opacity-40'}`}>
-                                        <td className="p-2 text-dense" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-control text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-control text-dense border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                                        <td className="p-2 text-dense" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                }
-
-                {/* ── Functions: only matching functions in card format ── */}
-                if (r.resultType === 'functions' && r.matchedCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.matchedCategories.map((cat, ci) => (
-                        <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-semibold text-h3 mb-2">{cat.category}</h4>
-                          <div className="space-y-2">
-                            {cat.functions.map((f, fi) => (
-                              <div key={fi} className="bg-stone-800 border border-stone-600 rounded-control p-3">
-                                <code className="font-mono font-semibold text-dense" style={{ color: '#fb923c' }}>{f.name}</code>
-                                {f.syntax && <pre className="border rounded-control px-2 py-1.5 mb-2 mt-1.5 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                                {f.parameters && <div className="mb-1.5"><span className="text-label font-semibold uppercase block mb-0.5" style={{ color: '#78716c' }}>Parameters:</span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                                {f.returns && <div className="mb-1.5"><span className="text-label font-semibold uppercase" style={{ color: '#78716c' }}>Returns: </span><span className="text-dense whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                                {f.description && <p className="text-dense mb-1.5 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                                {f.example && <pre className="border rounded-control px-2 py-1.5 font-mono text-dense overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                {/* ── Nodes: only matching nodes in card format ── */}
-                if (r.resultType === 'nodes' && r.matchedCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.matchedCategories.map((mc, ci) => (
-                        <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-semibold text-h3 mb-1">{mc.category}</h4>
-                          <p className="text-stone-600 text-dense mb-2">{mc.system}</p>
-                          <div className="space-y-2">
-                            {mc.nodes.map((node, ni) => (
-                              <div key={ni} className="bg-stone-800 border border-stone-600 rounded-control p-3">
-                                <div className="font-semibold text-dense mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
-                                <p className="text-dense mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
-                                {Array.isArray(node.inputs) && node.inputs.length > 0 && (
-                                  <div className="mb-2">
-                                    <span className="text-label font-semibold uppercase block mb-1" style={{ color: '#78716c' }}>Inputs</span>
-                                    <div className="space-y-0.5">
-                                      {node.inputs.filter(Boolean).map((inp, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-caption">
-                                          <span className="shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
-                                          <NodeTypeBadge type={inp.type} />
-                                          <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {Array.isArray(node.outputs) && node.outputs.length > 0 && (
-                                  <div className="mb-2">
-                                    <span className="text-label font-semibold uppercase block mb-1" style={{ color: '#78716c' }}>Outputs</span>
-                                    <div className="space-y-0.5">
-                                      {node.outputs.filter(Boolean).map((out, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-caption">
-                                          <span className="shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
-                                          <NodeTypeBadge type={out.type} />
-                                          <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {node.notes && (
-                                  <div className="border-t border-stone-700 pt-1.5 mt-1.5">
-                                    <span className="text-caption italic" style={{ color: '#78716c' }}>{node.notes}</span>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                {/* ── Default: lesson results with highlighted text ── */}
-                const content = r.content;
-                const parts = [];
-                const lowerContent = content.toLowerCase();
-                let lastIdx = 0;
-                let pos = 0;
-                while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
-                  if (pos > lastIdx) parts.push({ text: content.slice(lastIdx, pos), highlight: false });
-                  parts.push({ text: content.slice(pos, pos + q.length), highlight: true });
-                  lastIdx = pos + q.length;
-                }
-                if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
-                return (
-                  <div>
-                    {header}
-                    <pre className="text-stone-300 text-dense leading-relaxed whitespace-pre-wrap font-sans">
-                      {parts.map((part, i) =>
-                        part.highlight
-                          ? <mark key={i} className="bg-orange-500/30 text-orange-300 rounded-control px-0.5">{part.text}</mark>
-                          : <span key={i}>{part.text}</span>
-                      )}
-                    </pre>
-                  </div>
-                );
-              })() : (
-                <div className="flex items-center justify-center h-full text-stone-600 text-body">
-                  {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
-                </div>
-              )}
-            </div>
-          </div>
+              <span className="otter-search-result-path">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</span>
+              <span className="otter-search-result-count">{r.matches} match{r.matches !== 1 ? 'es' : ''}</span>
+            </button>
+          ))}
         </div>
-      </div>
+        <div className="otter-search-preview wilson-dark-scroll">
+          {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
+            const r = searchResults[selectedSearchResult];
+            const q = searchQuery.trim();
+            const lowerQ = q.toLowerCase();
+
+            const header = (
+              <div className="otter-search-preview-head">
+                <div className="otter-search-preview-row">
+                  <div className="otter-search-preview-titles">
+                    <h3 className="otter-search-preview-title">{r.lessonTitle}</h3>
+                    <p className="otter-search-preview-path">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
+                  </div>
+                  <Button variant="primary" size="sm" onClick={() => navigateToSearchResult(r)}>
+                    {r.resultType === 'hotkeys' ? 'Go to hotkeys' : r.resultType === 'functions' ? 'Go to functions' : r.resultType === 'nodes' ? 'Go to nodes' : 'Go to lesson'}
+                  </Button>
+                </div>
+                <p className="otter-search-preview-count">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
+              </div>
+            );
+
+            {/* ── Hotkeys: the Hotkeys view's own table (the kit's Table and
+                Kbd, A3); a row that does not match takes the kit's inactive
+                row (the third ink — it was opacity 40%) and a row that does
+                takes its highlighted edge (it was an orange wash). ── */}
+            if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.hotkeyCategories.map((cat, ci) => {
+                    const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
+                    if (!hasMatch) return null;
+                    return (
+                      <section key={ci} className="otter-ref-section">
+                        <h4 className="otter-ref-section-title">{cat.category}</h4>
+                        <Card pad={false} className="otter-hk-card otter-search-hk">
+                          <Table
+                            head={
+                              <Row>
+                                <Th width="36%">Action</Th>
+                                <Th width="20%">Windows</Th>
+                                <Th width="20%">Mac</Th>
+                                <Th>Notes</Th>
+                              </Row>
+                            }
+                          >
+                            {cat.shortcuts.map((s, si) => {
+                              const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
+                              return (
+                                <Row key={si} highlighted={isMatch} inactive={!isMatch}>
+                                  <Td>{s.action}</Td>
+                                  <Td><Kbd>{s.windows}</Kbd></Td>
+                                  <Td><Kbd>{s.mac}</Kbd></Td>
+                                  <Td className="otter-hk-notes">{s.notes || '—'}</Td>
+                                </Row>
+                              );
+                            })}
+                          </Table>
+                        </Card>
+                      </section>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            {/* ── Functions: the Functions view's own cards ── */}
+            if (r.resultType === 'functions' && r.matchedCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.matchedCategories.map((cat, ci) => (
+                    <section key={ci} className="otter-ref-section">
+                      <h4 className="otter-ref-section-title">{cat.category}</h4>
+                      <div className="otter-ref-cards">
+                        {cat.functions.map((f, fi) => (
+                          <div key={fi} className="otter-fn-card">
+                            <code className="otter-fn-name">{f.name}</code>
+                            {f.syntax && <pre className="otter-code-well">{f.syntax}</pre>}
+                            {f.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{f.parameters}</span></div>}
+                            {f.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{f.returns}</span></div>}
+                            {f.description && <p className="otter-fn-desc">{f.description}</p>}
+                            {f.example && <pre className="otter-code-well">{f.example}</pre>}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            {/* ── Nodes: the Nodes view's own cards ── */}
+            if (r.resultType === 'nodes' && r.matchedCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.matchedCategories.map((mc, ci) => (
+                    <section key={ci} className="otter-ref-section">
+                      <h4 className="otter-ref-section-title">{mc.category}</h4>
+                      <p className="otter-search-system">{mc.system}</p>
+                      <div className="otter-ref-cards">
+                        {mc.nodes.map((node, ni) => (
+                          <div key={ni} className="otter-fn-card otter-node-card">
+                            <div className="otter-node-name">{node.name}</div>
+                            <p className="otter-fn-desc">{node.description}</p>
+                            {Array.isArray(node.inputs) && node.inputs.length > 0 && (
+                              <div className="otter-node-ports">
+                                <span className="otter-fn-label">Inputs</span>
+                                <ul className="otter-node-port-list">
+                                  {node.inputs.filter(Boolean).map((inp, k) => (
+                                    <li key={k} className="otter-node-port">
+                                      <span className="otter-node-port-name">{inp.name || ''}</span>
+                                      <NodeTypeBadge type={inp.type} />
+                                      <span className="otter-node-port-desc">{inp.description || ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {Array.isArray(node.outputs) && node.outputs.length > 0 && (
+                              <div className="otter-node-ports">
+                                <span className="otter-fn-label">Outputs</span>
+                                <ul className="otter-node-port-list">
+                                  {node.outputs.filter(Boolean).map((out, k) => (
+                                    <li key={k} className="otter-node-port">
+                                      <span className="otter-node-port-name">{out.name || ''}</span>
+                                      <NodeTypeBadge type={out.type} />
+                                      <span className="otter-node-port-desc">{out.description || ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {node.notes && <p className="otter-node-notes">{node.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            {/* ── Default: the lesson's text, the matches marked. Review O28:
+                a <pre> undone by font-sans, 12px with no rhythm; it is the
+                lesson's Body step and second ink now, its line breaks kept
+                and the same marks. ── */}
+            const content = r.content;
+            const parts = [];
+            const lowerContent = content.toLowerCase();
+            let lastIdx = 0;
+            let pos = 0;
+            while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
+              if (pos > lastIdx) parts.push({ text: content.slice(lastIdx, pos), highlight: false });
+              parts.push({ text: content.slice(pos, pos + q.length), highlight: true });
+              lastIdx = pos + q.length;
+            }
+            if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
+            return (
+              <div>
+                {header}
+                <div className="otter-search-text">
+                  {parts.map((part, i) =>
+                    part.highlight
+                      ? <mark key={i} className="otter-search-mark">{part.text}</mark>
+                      : <span key={i}>{part.text}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })() : (
+            <p className="otter-search-placeholder">
+              {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
+            </p>
+          )}
+        </div>
+      </Dialog>
     );
   }
 
@@ -5290,72 +5295,73 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   function renderSettingsPanel() {
     const isLocked = settingsTab === 'prompts' ? promptsTabLocked : toolsTabLocked;
+    // A4: the kit's Drawer (review O27; A2 did D.O.G.'s the same way). The
+    // title-bar offset is the Drawer's `--titlebar-offset` token — it was a
+    // hand-set `paddingTop` of 32px under Electron (review risk 9) — and the
+    // entrance is the Drawer's own 240ms (the inline `slideInRight` 300ms
+    // animation went with the private chrome). Width: otter.css (A2-KR-2).
     return (
-      <div className="fixed inset-0 z-50">
-        <div className="absolute inset-0 bg-black/50 transition-opacity" onClick={() => setSettingsOpen(false)} />
-        <div className="absolute top-0 right-0 h-full bg-stone-800 border-l border-stone-600 shadow-2xl flex flex-col"
-          style={{ width: '40%', minWidth: '400px', paddingTop: window.electronAPI ? '32px' : '0px', animation: 'slideInRight 0.3s ease-out' }}>
-          {/* Header */}
-          <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0">
-            <div className="flex items-center gap-2">
-              <Settings className="w-5 h-5 text-orange-400" />
-              <span className="font-semibold text-orange-400">Settings</span>
-            </div>
-            <button onClick={() => setSettingsOpen(false)} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-              <X className="w-5 h-5 text-stone-400" />
-            </button>
+      <Drawer
+        open
+        onClose={() => setSettingsOpen(false)}
+        backdrop
+        side="right"
+        width="lg"
+        label="Settings"
+        className="otter-settings-drawer"
+        title={(
+          <>
+            <Settings className="otter-drawer-icon" aria-hidden="true" />
+            Settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={() => setSettingsOpen(false)} />}
+        footer={(
+          <div className="otter-settings-foot">
+            <p className="otter-settings-foot-note">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
+            <IconButton size="sm" icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           </div>
+        )}
+      >
+        {/* The two halves of the strip are the kit's Tabs, each still half
+            the strip wide (otter.css): the old buttons were `flex-1`. */}
+        <Tabs
+          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}
+          value={settingsTab}
+          onChange={setSettingsTab}
+          label="Settings sections"
+          panelId="otter-settings-panel"
+          className="otter-settings-tabs"
+        />
 
-          {/* Tabs */}
-          <div className="flex shrink-0">
-            <button onClick={() => setSettingsTab('prompts')}
-              className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${settingsTab === 'prompts' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
-              System Prompts
-            </button>
-            <button onClick={() => setSettingsTab('tools')}
-              className={`flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 ${settingsTab === 'tools' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
-              Tool Settings
-            </button>
-          </div>
+        {/* The lock bar: the kit's Toolbar and Switch. "Editable" is the
+            switch's name and its state is the switch's; the words beside it
+            are unchanged. `data-locked` is the CURRENT tab's lock. */}
+        <Toolbar
+          className="otter-lock-bar"
+          data-locked={isLocked}
+          right={(
+            <>
+              <span className="otter-lock-mode">{isLocked ? 'Read Only' : 'Editable'}</span>
+              <Switch
+                checked={!isLocked}
+                onChange={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
+                aria-label="Editable"
+              />
+            </>
+          )}
+        >
+          {isLocked
+            ? <Lock className="otter-lock-icon" aria-hidden="true" />
+            : <Unlock className="otter-lock-icon" aria-hidden="true" />}
+          <span className="otter-lock-label">{isLocked ? 'Locked' : 'Unlocked'}</span>
+        </Toolbar>
 
-          {/* Lock Switch Bar */}
-          <div className="bg-stone-900 px-4 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2">
-              {isLocked ? <Lock className="w-4 h-4 text-stone-500" /> : <Unlock className="w-4 h-4 text-orange-400" />}
-              <span className={`text-label font-semibold uppercase ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
-                {isLocked ? 'Locked' : 'Unlocked'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`text-label uppercase ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
-                {isLocked ? 'Read Only' : 'Editable'}
-              </span>
-              <button onClick={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
-                className={`relative w-11 h-6 rounded-full transition-colors ${isLocked ? 'bg-stone-600' : 'bg-orange-500'}`}>
-                <span className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${isLocked ? 'left-1' : 'left-6'}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {settingsTab === 'prompts' && renderPromptsTab()}
-            {settingsTab === 'tools' && renderToolsTab()}
-          </div>
-
-          {/* Footer */}
-          <div className="px-4 py-3 border-t border-stone-600 flex-shrink-0 flex items-center justify-between">
-            <p className="text-dense text-stone-500 flex-1">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
-            <button
-              onClick={() => setShowHelpModal(true)}
-              className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-control transition-colors"
-              title="Help & Documentation"
-            >
-              <HelpCircle className="w-4 h-4 text-orange-400" />
-            </button>
-          </div>
+        <div id="otter-settings-panel" role="tabpanel" className="otter-settings-body wilson-dark-scroll" data-locked={isLocked}>
+          {settingsTab === 'prompts' && renderPromptsTab()}
+          {settingsTab === 'tools' && renderToolsTab()}
         </div>
-      </div>
+      </Drawer>
     );
   }
 
@@ -5369,27 +5375,29 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       { key: 'codeWrite', title: 'Code Writing Challenges', desc: 'Generates coding challenges (Haiku)', defaultVal: CODE_WRITING_PROMPT },
       { key: 'companion', title: 'Companion Chat', desc: 'Prompt for otter companion (Haiku)', defaultVal: COMPANION_PROMPT },
     ];
+    // The lock is the disabled token (§3.1), not the opacity-60 the whole tab
+    // wore: the editors and buttons are `disabled`, the headers stay live.
     return (
-      <div className={promptsTabLocked ? 'opacity-60' : ''}>
+      <div className="otter-accs">
         {sections.map(s => (
-          <div key={s.key} className="border-b border-stone-700 overflow-hidden">
-            <button onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
-              className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-              <div className="text-left">
-                <span className={`text-label font-semibold uppercase ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{s.title}</span>
-                <p className="text-dense text-stone-500">{s.desc}</p>
+          <div key={s.key} className="otter-acc">
+            <button type="button" onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
+              className="otter-acc-head" aria-expanded={!!promptSections[s.key]}>
+              <div className="otter-acc-text">
+                <span className="otter-acc-label">{s.title}</span>
+                <p className="otter-acc-desc">{s.desc}</p>
               </div>
-              <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${promptSections[s.key] ? 'rotate-90' : ''}`} />
+              <ChevronRight className="otter-acc-chevron" aria-hidden="true" data-open={!!promptSections[s.key]} />
             </button>
             {promptSections[s.key] && (
-              <div className="px-3 pb-3 pt-2">
+              <div className="otter-acc-body">
                 <textarea value={editingPrompts[s.key] || ''} onChange={e => setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))}
-                  disabled={promptsTabLocked}
-                  className={`w-full h-32 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                <button onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}
-                  className={`mt-1 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
-                <button onClick={savePrompts} disabled={promptsTabLocked}
-                  className={`mt-1 ml-3 text-dense ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Save</button>
+                  disabled={promptsTabLocked} aria-label={s.title}
+                  className="ui-input otter-acc-textarea wilson-dark-scroll" data-surface="dark" />
+                <div className="otter-acc-actions">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}>Reset to default</Button>
+                  <Button variant="ghost" size="sm" onClick={savePrompts} disabled={promptsTabLocked}>Save</Button>
+                </div>
               </div>
             )}
           </div>
@@ -5400,61 +5408,45 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   function renderToolsTab() {
     return (
-      <div className={toolsTabLocked ? 'opacity-60' : ''}>
+      <div className="otter-settings-cards">
         {/* Storage Location */}
-        <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-          <label className={`block text-h3 font-semibold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
+        <Card title="Storage location" className="otter-settings-card">
           {/* S30: a refused settings write used to leave the field showing the
               new value with nothing saved. Now it says so. */}
           {settingsError && (
-            <div className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded-control border border-red-800/50 bg-red-950/30">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
-              <span className="text-dense text-red-300 leading-relaxed">
-                <span className="font-semibold">Not saved.</span> {settingsError}
-              </span>
-            </div>
+            <Banner tone="danger" icon={AlertCircle} className="otter-settings-error">
+              <span className="otter-settings-error-lead">Not saved.</span> {settingsError}
+            </Banner>
           )}
-          <div className="flex items-center gap-2">
+          <div className="otter-storage-row">
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
-              disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border border-stone-600 rounded-control px-3 py-2 text-dense focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
+              disabled={toolsTabLocked} aria-label="Storage location"
+              className="ui-input otter-storage-input" data-surface="dark" />
             {/* Session 12: this button used to POST /api/browse-folder, a
                 route that never existed on ANY host — it was dead everywhere
                 (same class as S11's unreachable renderDeleteConfirm). The
                 preload rabbit bridge already ships a directory picker, so use
                 it where it exists and drop the button where it can't work. */}
             {window.electronAPI?.rabbit?.pickDirectory && (
-              <button disabled={toolsTabLocked} onClick={async () => {
+              <Button icon={FolderOpen} disabled={toolsTabLocked} title="Browse for folder" onClick={async () => {
                 try {
                   const dir = await window.electronAPI.rabbit.pickDirectory();
                   if (dir) saveSettings({ storageLocation: dir });
                 } catch (e) { console.error('Browse folder failed:', e); }
-              }} className="bg-stone-700 text-stone-300 border border-stone-600 px-3 py-2 rounded-control hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
-                <FolderOpen className="w-4 h-4" /><span className="text-dense font-semibold">Browse</span>
-              </button>
+              }}>Browse</Button>
             )}
           </div>
-          <p className="text-stone-600 text-dense mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
-        </div>
+          <p className="otter-form-hint">Default: ./data/software/ -- All courses and subjects are stored here.</p>
+        </Card>
 
         {/* Data management */}
-        <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-          <label className={`block text-h3 font-semibold mb-3 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Data Management</label>
-          <div className="space-y-2">
-            <button onClick={exportAll} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-2 rounded-control hover:bg-stone-600 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
-              <Download className="w-4 h-4" /> Export All Data
-            </button>
-            <button onClick={() => setShowImportModal(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-2 rounded-control hover:bg-stone-600 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
-              <Upload className="w-4 h-4" /> Import Data
-            </button>
-            <button onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-800 px-3 py-2 rounded-control hover:bg-red-900/50 transition-colors text-body disabled:cursor-not-allowed disabled:opacity-50">
-              <Trash2 className="w-4 h-4" /> Clear All Data
-            </button>
+        <Card title="Data management" className="otter-settings-card">
+          <div className="otter-settings-actions">
+            <Button icon={Download} onClick={exportAll} disabled={toolsTabLocked} className="otter-settings-action">Export all data</Button>
+            <Button icon={Upload} onClick={() => setShowImportModal(true)} disabled={toolsTabLocked} className="otter-settings-action">Import data</Button>
+            <Button variant="danger" icon={Trash2} onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked} className="otter-settings-action">Clear all data</Button>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -5465,25 +5457,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   //  MODALS
   // ═══════════════════════════════════════════════════════════════
   function renderImportModal() {
+    // A4: the kit's Dialog (review O27). It was a 480px box of its own with
+    // a hard offset shadow and a full-width Cancel under the drop zone; the
+    // Cancel is the footer's now, and "Choose file" is a kit Button that
+    // opens the same hidden file input (a <label> around it before, which
+    // the keyboard could not reach — A2 made D.O.G.'s pickers Buttons too).
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowImportModal(false)}>
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[480px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-semibold text-h1 mb-4">Import Data</h3>
-          <div className={`border border-dashed rounded-control p-8 text-center transition-colors ${importDragOver ? 'border-orange-500 bg-orange-600/10' : 'border-stone-600'}`}
-            onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
-            onDragLeave={() => setImportDragOver(false)}
-            onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
-            <FileJson className="w-10 h-10 text-stone-500 mx-auto mb-3" />
-            <p className="text-stone-400 mb-3">Drag and drop a .json file here</p>
-            <label className="inline-flex items-center gap-2 bg-stone-700 text-stone-300 border border-stone-600 px-4 py-2 rounded-control cursor-pointer hover:bg-stone-600 transition-colors text-body">
-              <Upload className="w-4 h-4" /> Choose File
-              <input type="file" accept=".json" className="hidden" onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
-            </label>
-          </div>
-          <button onClick={() => setShowImportModal(false)} className="mt-4 w-full bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
+      <Dialog
+        title="Import data"
+        width="form"
+        dismissOnBackdrop
+        onClose={() => setShowImportModal(false)}
+        footer={<Button onClick={() => setShowImportModal(false)}>Cancel</Button>}
+      >
+        <div className="otter-dropzone" data-over={importDragOver}
+          onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
+          onDragLeave={() => setImportDragOver(false)}
+          onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
+          <FileJson className="otter-dropzone-icon" aria-hidden="true" />
+          <p className="otter-dropzone-text">Drag and drop a .json file here</p>
+          <Button icon={Upload} onClick={() => importFileRef.current?.click()}>Choose file</Button>
+          <input ref={importFileRef} type="file" accept=".json" className="hidden" tabIndex={-1} aria-hidden="true"
+            onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
         </div>
-      </div>
+      </Dialog>
     );
+  }
+
+  // A4: the confirms share the kit Dialog's one contract (review O27: three
+  // contracts before, and none of the confirms had Escape). An action that
+  // awaits the server holds the Dialog's busy lock while it runs (Q17), so
+  // Escape, the backdrop and a second click cannot close or repeat it
+  // mid-flight; a failure still leaves the dialog open, as it did.
+  async function runConfirm(action) {
+    setConfirmBusy(true);
+    try { await action(); } finally { setConfirmBusy(false); }
   }
 
   // Session 11: this dialog existed but was UNREACHABLE — nothing ever set
@@ -5495,86 +5503,104 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderDeleteConfirm() {
     const course = softwareList.find(sw => sw.slug === showDeleteConfirm);
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteConfirm(null)}>
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-semibold text-h1 mb-2">
-            {cloudMode ? 'Move to trash' : 'Delete course'}
-          </h3>
-          <p className="text-stone-400 text-body mb-6">
-            {cloudMode ? (
-              <>
-                <span className="text-stone-300 font-semibold">{course?.name ?? 'This course'}</span> and
-                its subjects will move to Recently deleted. You can restore it for 30 days, after
-                which it is deleted for good.
-                {course?.visibility === 'company_standard' &&
-                  ' It will also stop being offered as the company standard.'}
-              </>
-            ) : (
-              'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
-            )}
-          </p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border border-red-800 py-2 rounded-control hover:bg-red-800 transition-colors text-body font-semibold">
+      <Dialog
+        title={cloudMode ? 'Move to trash' : 'Delete course'}
+        width="confirm"
+        busy={confirmBusy}
+        dismissOnBackdrop
+        onClose={() => setShowDeleteConfirm(null)}
+        footer={(
+          <>
+            <Button onClick={() => setShowDeleteConfirm(null)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => deleteSoftware(showDeleteConfirm))}>
               {cloudMode ? 'Move to trash' : 'Delete'}
-            </button>
-          </div>
-        </div>
-      </div>
+            </Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">
+          {cloudMode ? (
+            <>
+              <span className="otter-confirm-name">{course?.name ?? 'This course'}</span> and
+              its subjects will move to Recently deleted. You can restore it for 30 days, after
+              which it is deleted for good.
+              {course?.visibility === 'company_standard' &&
+                ' It will also stop being offered as the company standard.'}
+            </>
+          ) : (
+            'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
+          )}
+        </p>
+      </Dialog>
     );
   }
 
   function renderDeleteSubjectConfirm() {
     const { softwareSlug, subjectSlug, title } = showDeleteSubjectConfirm;
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteSubjectConfirm(null)}>
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-semibold text-h1 mb-2">Delete Subject</h3>
-          <p className="text-stone-400 text-body mb-2">Are you sure you want to delete:</p>
-          <p className="text-orange-400 font-semibold text-h3 mb-4 truncate">&quot;{title}&quot;</p>
-          <p className="text-stone-500 text-dense mb-6">This will permanently remove this subject and its lessons. This cannot be undone.</p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowDeleteSubjectConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-            <button onClick={() => deleteSubject(softwareSlug, subjectSlug)} className="flex-1 bg-red-700 text-white border border-red-800 py-2 rounded-control hover:bg-red-800 transition-colors text-body font-semibold">Delete Subject</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        title="Delete subject"
+        width="confirm"
+        busy={confirmBusy}
+        dismissOnBackdrop
+        onClose={() => setShowDeleteSubjectConfirm(null)}
+        footer={(
+          <>
+            <Button onClick={() => setShowDeleteSubjectConfirm(null)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => deleteSubject(softwareSlug, subjectSlug))}>Delete subject</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">Are you sure you want to delete:</p>
+        <p className="otter-confirm-subject" title={title}>&quot;{title}&quot;</p>
+        <p className="otter-confirm-note">This will permanently remove this subject and its lessons. This cannot be undone.</p>
+      </Dialog>
     );
   }
 
   function renderClearConfirm() {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-semibold text-h1 mb-2">Clear All Data</h3>
-          <p className="text-stone-400 text-body mb-6">This will delete ALL courses, subjects, and progress. Are you sure?</p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowClearConfirm(false)} className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-            <button onClick={async () => {
+      <Dialog
+        title="Clear all data"
+        width="confirm"
+        busy={confirmBusy}
+        onClose={() => setShowClearConfirm(false)}
+        footer={(
+          <>
+            <Button onClick={() => setShowClearConfirm(false)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(async () => {
               for (const sw of softwareList) { await otterFetch(`/api/software/${sw.slug}`, { method: 'DELETE' }); }
               setActiveSoftwareSlug(null); setActiveSoftware(null); setSubjectList([]); setActiveSubjectSlug(null); setActiveSubject(null);
               setSoftwareHotkeys(null); setSoftwareFunctions(null); setActiveProgress(null); setReferenceUrls([]);
               invalidateCache(); loadSoftwareList(); setShowClearConfirm(false); setCurrentView('library');
-            }} className="flex-1 bg-red-700 text-white border border-red-800 py-2 rounded-control hover:bg-red-800 transition-colors text-body font-semibold">Clear Everything</button>
-          </div>
-        </div>
-      </div>
+            })}>Clear everything</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">This will delete ALL courses, subjects, and progress. Are you sure?</p>
+      </Dialog>
     );
   }
 
   function renderDuplicateModal() {
+    // Unreachable today: nothing sets showDuplicateModal truthy (the import
+    // path never raises it, and handleDuplicateResolve only clears it). A4
+    // restyled it with the other confirms so it is right the day it opens.
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border border-stone-600 rounded-control p-6 w-[440px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-semibold text-h1 mb-2">Duplicate Found</h3>
-          <p className="text-stone-400 text-body mb-6">A course with this name already exists.</p>
-          <div className="space-y-2">
-            <button onClick={() => handleDuplicateResolve('replace')} className="w-full bg-orange-600 text-white border border-orange-700 py-2 rounded-control hover:bg-orange-700 transition-colors text-body font-semibold">Replace Existing</button>
-            <button onClick={() => handleDuplicateResolve('keep')} className="w-full bg-stone-700 text-stone-300 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Keep Both</button>
-            <button onClick={() => handleDuplicateResolve('cancel')} className="w-full bg-stone-700 text-stone-400 border border-stone-600 py-2 rounded-control hover:bg-stone-600 transition-colors text-body">Cancel</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        title="Duplicate found"
+        width="confirm"
+        onClose={() => handleDuplicateResolve('cancel')}
+        footer={(
+          <>
+            <Button onClick={() => handleDuplicateResolve('cancel')}>Cancel</Button>
+            <Button onClick={() => handleDuplicateResolve('keep')}>Keep both</Button>
+            <Button variant="primary" onClick={() => handleDuplicateResolve('replace')}>Replace existing</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">A course with this name already exists.</p>
+      </Dialog>
     );
   }
 }

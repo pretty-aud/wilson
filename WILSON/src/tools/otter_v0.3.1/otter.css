@@ -1199,6 +1199,465 @@
     .otter-source { transition: none; }
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     THE SECOND HALF (A4): the nine overlays, the Validator, Requests, Share,
+     Change request, Trash and the quiz. Tokens and the kit only, like the
+     first: no hex, no palette literal, no one-class rule tying a kit rule.
+     Each surface is ONE commit with its state extracted first: every branch
+     of a className ternary or an inline style became a kit prop or a named
+     `data-*` variant here, written straight in tokens (the colour guard in
+     otterCss.test.js allows nothing else), and the commit lists the branches.
+     🚨 Z-ORDER IS THE KIT'S CONTRACT (A2 hand-off §5 trap 6): Drawer backdrop
+     59, Drawer 60, Dialog 70, Menu 80, Toast 90. An overlay opened from the
+     settings Drawer that is still hand-rolled at z-50 opens BEHIND it — so
+     every dialog the Drawer opens moved onto the Dialog before it did.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  /* ═══ HELP — the kit's Dialog (reading, 720) ═════════════════════════
+     Review O27: 850 wide on its own backdrop at z-100, an orange title, and
+     a 2px left border on the open page that pushed its label in. D.O.G.'s
+     Help rule for rule (A2): two columns that scroll on their own at a
+     fixed 82vh, so the Dialog's own body padding and scroll give way to
+     them; the open page is F2's selected row — the signal tint and a 2px
+     signal edge drawn inside the row. Two classes where the kit sets the
+     same property. The pages themselves are otterHelpContent.jsx, shared
+     with the app's Help page, and P1's. */
+  .ui-dialog.otter-help { height: 82vh; }
+  .otter-help .ui-dialog-body {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+  .otter-help-side {
+    display: flex;
+    flex-direction: column;
+    width: var(--panel-sm);
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 8px 0 0;
+    border-right: 1px solid var(--color-rule);
+  }
+  .otter-help-list { flex: 1 1 auto; }
+  .otter-help-nav {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  @media (hover: hover) {
+    .otter-help-nav:not([data-active='true']):hover {
+      background-color: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .otter-help-nav[data-active='true'] {
+    font-weight: 600;
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  /* The build's version string is data: the mono, the Caption step. */
+  .otter-help-version {
+    padding: 8px 12px;
+    border-top: 1px solid var(--color-rule);
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-help-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 24px;
+  }
+
+  /* ═══ IMPORT — the kit's Dialog (form, 560) ══════════════════════════
+     Review O27: a 480px box of its own with a hard offset shadow. The drop
+     zone keeps its dashed edge and its one state, a file dragged over it:
+     the signal edge and tint (it was orange-500 on an orange-600 wash). The
+     icon is the empty state's 24px (it was 40, off §3.3's three sizes). */
+  .otter-dropzone {
+    padding: 32px;
+    text-align: center;
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-control);
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .otter-dropzone[data-over='true'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .otter-dropzone-icon {
+    display: block;
+    width: var(--icon-lg);
+    height: var(--icon-lg);
+    margin: 0 auto 12px;
+    color: var(--color-ink-3);
+  }
+  .otter-dropzone-text { margin-bottom: 12px; color: var(--color-ink-2); }
+
+  /* ═══ THE CONFIRMS — the kit's Dialog (confirm, 400) ══════════════════
+     Review O27: five bare cards — a 20px white title, a two-button row, no
+     header, no Escape — at three widths (400, 440 and max-w-sm) with a hard
+     offset shadow. Each is the kit's Dialog at the confirm width: the title
+     at H2, the question in the body, Cancel and the action in the footer,
+     the destructive action on the kit's danger Button (a red-700 fill
+     before) and the others on primary. The course's name is the ink at
+     600, not a lighter grey. */
+  .otter-confirm-text { color: var(--color-ink-2); }
+  .otter-confirm-name { font-weight: 600; color: var(--color-ink); }
+
+  /* The subject being deleted, on its own line: H3 in the ink at 600 (it
+     was orange-400), cut with an ellipsis as before. The warning under it
+     is the third ink at Dense (stone-500 on stone-800 was 3.17:1; this is
+     4.66:1 on paper-raised). */
+  .otter-confirm-subject {
+    margin: 4px 0 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-confirm-note {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ SEARCH — the kit's Dialog (workbench, 960) ══════════════════════
+     Review O27, O28, A3 §4 item 4. It was a 900 x 600 box of its own with a
+     hard offset shadow, an orange field icon, a grey-filled selected result
+     and a preview that re-drew the Hotkeys table with inline hexes. The
+     field is still the header — the Dialog's title slot, the kit's Close
+     beside it — and the two panes keep their widths and scroll on their own
+     at the fixed height (the kit caps it at 88vh; it was 85vh). The preview
+     is the reference views' own vocabulary now: A3's Table + Kbd, function
+     and node cards and section titles. Two classes where the kit sets the
+     same property. */
+  .ui-dialog.otter-search-dialog { height: 600px; }
+  .otter-search-dialog .ui-dialog-head { align-items: center; padding: 12px 16px 12px 24px; }
+  .otter-search-dialog .ui-dialog-head > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .otter-search-bar { display: flex; align-items: center; gap: 12px; }
+  .otter-search-bar-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  /* The title slot is H2 at 600; the field and the count are not titles.
+     The field keeps 8px inside its own edge, so the kit's focus ring (it
+     has focus whenever the dialog opens) does not sit on the first letter;
+     the margin keeps the text where it was, 12px from the icon. */
+  .otter-search-field {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--control-md);
+    margin-left: -8px;
+    padding: 0 8px;
+    border-radius: var(--radius-control);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-weight: 400;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+  }
+  .otter-search-field::placeholder { color: var(--color-ink-3); }
+  .otter-search-count {
+    flex-shrink: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-search-dialog .ui-dialog-body {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+  .otter-search-results {
+    width: 280px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    background-color: var(--color-paper);
+    border-right: 1px solid var(--color-rule);
+  }
+  .otter-search-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 16px;
+    background-color: var(--color-paper);
+  }
+  /* The two empty states read in the third ink (stone-600 was 2.29:1). */
+  .otter-search-hint { padding: 32px 16px; text-align: center; color: var(--color-ink-3); }
+  .otter-search-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--color-ink-3);
+  }
+  /* A result: F2's selected row (the tint and a 2px signal edge inside it),
+     where the selected one was a grey fill; the kit's hover wash. */
+  .otter-search-result {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-search-result[data-active='true'] {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .otter-search-result-head { display: flex; align-items: center; gap: 6px; }
+  .otter-search-result-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-search-result-path {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  /* The match count was orange-400 text; a count is data, in the second ink. */
+  .otter-search-result-count {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* The third ink is 4.33:1 on the hover wash and 4.18 on the tint, so the
+     path lifts under both (A3's rule, otterCss.test.js). */
+  .otter-search-result[data-active='true'] .otter-search-result-path { color: var(--color-ink-2); }
+  @media (hover: hover) {
+    .otter-search-result:not([data-active='true']):hover { background-color: var(--color-hover); }
+    .otter-search-result:hover .otter-search-result-path { color: var(--color-ink-2); }
+  }
+  .otter-search-preview-head { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--color-rule); }
+  .otter-search-preview-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .otter-search-preview-titles { min-width: 0; }
+  .otter-search-preview-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-search-preview-path {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-search-preview-count {
+    margin-top: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* A preview section sits in a pane, not on a page: 24px apart, not 32. */
+  .otter-search-preview .otter-ref-section { margin-bottom: 24px; }
+  .otter-search-system {
+    margin: -8px 0 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  /* A row that does not match is the kit's inactive row; its keys dim with
+     it, as the whole row did under the old opacity. */
+  .otter-search-hk .ui-tr[data-inactive='true'] .ui-kbd { color: var(--color-ink-3); }
+  /* The lesson text (O28): the Body step and the second ink, its line
+     breaks kept, a long token broken rather than run out of the pane. */
+  .otter-search-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  /* A match: the signal tint behind the ink (it was orange-300 on an
+     orange wash). */
+  .otter-search-mark {
+    padding: 0 2px;
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+  }
+
+  /* ═══ THE SETTINGS SLIDE-OUT — the kit's Drawer ═══════════════════════
+     Review O27 and risk 9. D.O.G.'s Settings rule for rule (A2): the kit's
+     Drawer with its backdrop and its title-bar offset token — the panel
+     hand-set a 32px `paddingTop` under Electron — the kit's Tabs in two
+     halves, a Toolbar lock bar with the kit's Switch, the accordions on
+     tokens, and the lock as the disabled token (§3.1) instead of the
+     opacity 60% the whole tab wore.
+     🚨 THE WIDTH IS O.T.T.E.R.'S, NOT THE KIT'S: 40% of the window, never
+     under 400px, where the kit's widest panel is 300 (A2-KR-2, still open;
+     D.O.G. stands in the same way). Three classes, because
+     `.ui-drawer[data-width="lg"]` is two and a tie is a loss. */
+  .ui-drawer.otter-settings-drawer[data-width] { width: 40%; min-width: 400px; }
+  .otter-settings-drawer .ui-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* A1-KR-3 (open): a header dimmer than the labels under it inverts the
+       order, so the drawer's title takes the second ink, as D.O.G.'s does. */
+    color: var(--color-ink-2);
+  }
+  .otter-drawer-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  /* The tabs and the lock bar stay put while the tab scrolls, as they did. */
+  .otter-settings-drawer .ui-drawer-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+  .ui-tabs.otter-settings-tabs {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  /* Each tab takes half the strip, as each button did: a click anywhere in
+     it still switches (C1; the kit's tabs are content-wide). The strip runs
+     edge to edge in a body that clips, so the focus ring is drawn inside. */
+  .ui-tabs.otter-settings-tabs > .ui-tab { flex: 1 1 0; justify-content: center; }
+  .ui-tabs.otter-settings-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
+  /* The lock bar, on the body's 16px (it was px-4). Unlocked is the one
+     active state: the signal on the icon only, never under text. */
+  .ui-toolbar.otter-lock-bar { padding: 0 16px; }
+  .otter-lock-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
+  .otter-lock-label,
+  .otter-lock-mode {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .otter-lock-label { color: var(--color-ink-2); }
+  .otter-lock-mode { color: var(--color-ink-3); }
+  .otter-lock-bar[data-locked='true'] :is(.otter-lock-icon, .otter-lock-label) { color: var(--color-ink-3); }
+  .otter-settings-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
+
+  /* The seven prompt editors. D.O.G.'s accordion (A2): the headers take the
+     kit's one hover fill over no resting fill (the old one named a hover
+     step Tailwind does not have, so it never changed), the label moves from
+     the orange to the second ink, the chevron turns. */
+  .otter-acc { border-bottom: 1px solid var(--color-rule); overflow: hidden; }
+  .otter-acc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-acc-text { min-width: 0; }
+  .otter-acc-label {
+    display: block;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .otter-acc-desc {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-acc-chevron {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    flex-shrink: 0;
+    color: var(--color-ink-3);
+    transition: rotate var(--duration-response) var(--ease-response);
+  }
+  .otter-acc-chevron[data-open='true'] { rotate: 90deg; }
+  .otter-acc-body { padding: 8px 12px 12px; }
+  .ui-input.otter-acc-textarea { height: 128px; resize: none; }
+  /* The two ghost sm Buttons: the first label lines up with the editor's
+     edge, so the row starts one sm padding (10px) to the left of it. */
+  .otter-acc-actions { display: flex; align-items: center; gap: 4px; margin: 4px 0 0 -10px; }
+  /* 🚨 THE LOCK IS THE DISABLED TOKEN. The editors and the buttons are
+     `disabled` and take the kit's disabled ink and cursor; the headers stay
+     live (they still open and close) and their labels step to the third
+     ink, as they stepped from orange to stone-500 before. */
+  .otter-settings-body[data-locked='true'] :is(.otter-acc-label, .ui-card-title) { color: var(--color-ink-3); }
+  /* The third ink on the hover wash over paper-raised is 3.9:1, so the
+     header's words lift under the pointer (A3's rule, otterCss.test.js). */
+  @media (hover: hover) {
+    .otter-acc-head:hover { background-color: var(--color-hover); }
+    .otter-acc-head:hover .otter-acc-desc { color: var(--color-ink-2); }
+    .otter-settings-body[data-locked='true'] .otter-acc-head:hover .otter-acc-label { color: var(--color-ink-2); }
+  }
+
+  /* Tool settings: two kit Cards on the body's 16px, 16px apart (mb-4). */
+  .otter-settings-cards { display: flex; flex-direction: column; gap: 16px; }
+  /* The refused-write notice (S30) is the kit's danger Banner, inset in the
+     card as the prompt form's fork offer is. */
+  .ui-banner.otter-settings-error {
+    margin-bottom: 8px;
+    align-items: flex-start;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-settings-error-lead { font-weight: 600; }
+  .otter-storage-row { display: flex; align-items: center; gap: 8px; }
+  .ui-input.otter-storage-input { flex: 1 1 auto; }
+  .otter-settings-actions { display: flex; flex-direction: column; gap: 8px; }
+  /* Full width and left-aligned, icon first, as the three buttons were. */
+  .ui-btn.otter-settings-action { width: 100%; justify-content: flex-start; }
+  .otter-settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .otter-settings-foot-note {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
+  @media (prefers-reduced-motion: reduce) {
+    .otter-help-nav { transition: none; }
+    .otter-dropzone { transition: none; }
+    .otter-search-result { transition: none; }
+    .otter-acc-head, .otter-acc-chevron { transition: none; }
+  }
+
 }
 
 /* Outside the layer, as dog.css keeps its own keyframes: the sweep of the

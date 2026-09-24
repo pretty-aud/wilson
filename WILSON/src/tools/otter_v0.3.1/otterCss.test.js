@@ -132,7 +132,10 @@ describe('otter.css', () => {
     const ROOT = { Td: 'ui-td', Th: 'ui-th', Row: 'ui-row', Button: 'ui-btn', Card: 'ui-card', Badge: 'ui-badge',
       Banner: 'ui-banner', SectionTitle: 'ui-section', Panel: 'ui-panel', Chip: 'ui-chip', Kbd: 'ui-kbd',
       IconButton: 'ui-iconbtn', Tabs: 'ui-tabs', Menu: 'ui-menu', EmptyState: 'ui-empty', Select: 'ui-input',
-      Input: 'ui-input', TextArea: 'ui-input', Field: 'ui-field' }
+      Input: 'ui-input', TextArea: 'ui-input', Field: 'ui-field',
+      // A4: a class on a Dialog or a Drawer is a class on the kit's surface
+      // (and a Toolbar's or a Switch's on theirs).
+      Dialog: 'ui-dialog', Drawer: 'ui-drawer', Toolbar: 'ui-toolbar', Switch: 'ui-switch' }
     const TAG = /<([A-Z][\w.]*|[a-z][\w-]*)(?=[\s/>])/g
     const onKit = new Map()
     for (const src of JSX_FILES) {
@@ -174,6 +177,12 @@ describe('otter.css', () => {
       [".otter-course-row[data-openable='false']:hover", '.otter-course-open'],
       ['.otter-fork-actions', '.otter-form-hint'],
       [".otter-subject-row[data-stub='true']:hover", ''],
+      // A4: the settings slide-out's accordion headers.
+      ['.otter-acc-head:hover', '.otter-acc-desc'],
+      [".otter-settings-body[data-locked='true'] .otter-acc-head:hover", '.otter-acc-label'],
+      // A4: the search dialog's results.
+      [".otter-search-result[data-active='true']", '.otter-search-result-path'],
+      ['.otter-search-result:hover', '.otter-search-result-path'],
     ]
     const expand = (sel) => {
       const m = sel.match(/^(.*?)\s*:is\(([^()]*)\)$/)
