@@ -82,16 +82,29 @@ const DIALOG_RAW = read('./ShareCourseDialog.jsx')
 const OTTER_RAW  = read('../Otter.jsx')
 
 const MENU   = stripComments(MENU_RAW)
+// A3 (2026-09-24): the trigger's colour and hover moved out of its className
+// into O.T.T.E.R.'s sheet, so that is where contrast and concealment are read.
+const SHEET_RAW = read('../otter.css')
+const SHEET = SHEET_RAW.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+/** Every rule in otter.css whose selector names the trigger, as [selector, body]. */
+function triggerRules() {
+  return [...SHEET.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, sel]) => /\.otter-row-menu-trigger(?![\w-])/.test(sel))
+    .map(([, sel, body]) => [sel.trim(), body])
+}
+/** The kit's own stylesheet: the IconButton the trigger became rests on it. */
+const KIT_CSS = read('../../../index.css')
 const DIALOG = stripComments(DIALOG_RAW)
 const OTTER  = stripComments(OTTER_RAW)
 
-/** The className string of CourseRowMenu's "⋯" trigger, executable form only. */
-function triggerClassName() {
-  const anchor = MENU.indexOf('hover:text-orange-400 hover:bg-stone-700')
+/** CourseRowMenu's "⋯" trigger, executable form only: since A3 the kit's
+ *  <IconButton … /> element carrying `otter-row-menu-trigger`. */
+function triggerMarkup() {
+  const anchor = MENU.indexOf('otter-row-menu-trigger')
   if (anchor === -1) return null
-  const open = MENU.lastIndexOf('className={`', anchor)
+  const open = MENU.lastIndexOf('<IconButton', anchor)
   if (open === -1) return null
-  const close = MENU.indexOf('`}', anchor)
+  const close = MENU.indexOf('/>', anchor)
   return close === -1 ? null : MENU.slice(open, close)
 }
 
@@ -120,8 +133,8 @@ describe('the instrument works', () => {
     expect(OTTER, 'comments were not stripped').not.toContain('PHASE 5')
   })
 
-  it('finds the trigger className', () => {
-    expect(triggerClassName(), 'the "⋯" trigger className must be locatable').not.toBeNull()
+  it('finds the trigger', () => {
+    expect(triggerMarkup(), 'the "⋯" trigger must be locatable').not.toBeNull()
   })
 
   it('does not silently eat code mid-file', () => {
@@ -187,28 +200,53 @@ describe('the "⋯" trigger is findable', () => {
     // The wrappers live in Otter.jsx, but nothing stops the concealment moving
     // INTO CourseRowMenu — where the previous version of this suite never
     // looked, so the trigger could be invisible at rest with all tests green.
-    expect(triggerClassName()).not.toMatch(CONCEALED)
+    expect(triggerMarkup()).not.toMatch(CONCEALED)
+  })
+
+  it('is not concealed by the sheet its colour moved to either', () => {
+    // A3: the trigger is styled from otter.css now, so concealment could come
+    // back as a declaration no class scan sees.
+    const rules = triggerRules()
+    expect(rules.length, 'the trigger has no rule in otter.css').toBeGreaterThan(0)
+    for (const [sel, body] of rules) {
+      expect(body, sel).not.toMatch(/opacity\s*:\s*0(?![.\d])|visibility\s*:\s*hidden|display\s*:\s*none|scale\(\s*0\s*\)/)
+    }
   })
 
   it('meets the 3:1 contrast minimum for a UI component', () => {
-    const cls = triggerClassName()
-    // stone-600 (#57534e) on the hovered stone-700 sidebar row measures 1.35:1.
-    // stone-400 (#a8a29e) measures 4.08:1 there and higher on the darker two.
-    expect(cls, 'the trigger must not go back to stone-600').not.toContain('text-stone-600')
-    expect(cls).toContain('text-stone-400')
+    // stone-600 (#57534e) on the hovered stone-700 sidebar row measured
+    // 1.35:1 (PHASE 5). A3: the trigger is the kit's IconButton, which rests
+    // on ink-2 (8.49:1 on paper; every ink/ground pair is asserted by
+    // tokens.test.js). Nothing here may dim it: no colour utility on the
+    // element (one would out-rank the kit), and no rule in otter.css may set
+    // its ink to anything but an ink token.
+    const markup = triggerMarkup()
+    expect(markup, 'the trigger is the kit IconButton').toMatch(/^<IconButton\b/)
+    expect(markup, 'a text colour utility on the trigger would override the kit')
+      .not.toMatch(/(?<![\w:-])text-(stone|orange|white|black|red|gray|neutral)/)
+    expect(KIT_CSS, 'the kit IconButton rests on ink-2')
+      .toMatch(/\.ui-iconbtn \{[^}]*\n\s*color: var\(--color-ink-2\);/)
+    for (const [sel, body] of triggerRules()) {
+      for (const [, value] of body.matchAll(/(?<![-\w])color\s*:\s*([^;]+)/g)) {
+        expect(value.trim(), `${sel} sets the trigger's ink to something other than an ink token`)
+          .toMatch(/^var\(--color-ink(-2|-3)?\)$/)
+      }
+    }
   })
 
   it('meets the 24x24 target-size minimum in both densities', () => {
-    // BOTH terms of the sum, or this pins half an arithmetic and calls it a
-    // target size: padding lives on the button, the icon size on <MoreHorizontal>,
-    // and shrinking the icon alone drops compact to 20x20 with the old assertion
-    // still green.
-    // compact: 12px icon + p-1.5 (6px each side) = 24. default: 14px + p-2 = 30.
-    // The old p-0.5 / p-1 gave 16x16 and 22x22.
-    expect(triggerClassName(), 'padding half of the target size')
-      .toMatch(/compact \? 'p-1\.5' : 'p-2'/)
-    expect(MENU, 'icon half of the target size')
-      .toMatch(/compact \? 'w-3 h-3' : 'w-3\.5 h-3\.5'/)
+    // A3: the hit box is the kit IconButton's own square, not an
+    // icon-plus-padding sum — sm (compact, the 200px sidebar) and md. BOTH
+    // terms are pinned: the size the trigger asks for, and the square the kit
+    // gives each size. (PHASE 5's sum gave 24x24 and 30x30; 16x16 and 22x22
+    // before it.)
+    expect(triggerMarkup(), 'the size the trigger asks for')
+      .toMatch(/size=\{compact \? 'sm' : 'md'\}/)
+    expect(KIT_CSS).toMatch(/\.ui-iconbtn\[data-size="sm"\] \{ width: var\(--control-sm\); height: var\(--control-sm\); \}/)
+    expect(KIT_CSS).toMatch(/\.ui-iconbtn \{[^}]*width: var\(--control-md\);\s*height: var\(--control-md\);/)
+    const px = (name) => Number((KIT_CSS.match(new RegExp(`--${name}:\\s*(\\d+)px`)) || [])[1])
+    expect(px('control-sm'), 'the compact trigger is at least 24px square').toBeGreaterThanOrEqual(24)
+    expect(px('control-md'), 'the full trigger is at least 24px square').toBeGreaterThanOrEqual(24)
   })
 
   it('names only the actions the menu actually contains', () => {

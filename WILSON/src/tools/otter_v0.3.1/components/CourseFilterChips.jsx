@@ -25,6 +25,7 @@
 // =============================================================================
 
 import { filtersFor } from './otterSharing.js'
+import { Chip } from '../../../ui'
 
 /**
  * @param {object}   props
@@ -35,34 +36,25 @@ import { filtersFor } from './otterSharing.js'
  */
 export default function CourseFilterChips({ value, onChange, role, counts = {} }) {
   const chips = filtersFor(role)
-
+  // A3 (2026-09-24): the kit's Chip — the Label step, a hairline, and ONE
+  // active treatment (the signal as a 16% tint with a 1px signal edge). It
+  // was a white label on an orange-600 fill at 3.58:1, which the orange rule
+  // (C6) does not allow under 19px bold. Every chip stays visible (C1; review
+  // O19's overflow is a new control and is not taken), and they still wrap.
   return (
-    <div
-      className="flex flex-wrap gap-1 px-2 py-1.5 border-b border-stone-600 shrink-0"
-      role="group"
-      aria-label="Filter courses"
-    >
+    <div className="otter-filter-chips" role="group" aria-label="Filter courses">
       {chips.map(chip => {
-        const active = value === chip.key
         const count = counts[chip.key]
         return (
-          <button
+          <Chip
             key={chip.key}
-            type="button"
+            active={value === chip.key}
             onClick={() => onChange(chip.key)}
             title={chip.hint}
-            aria-pressed={active}
-            className={`px-1.5 py-0.5 rounded-control text-dense font-semibold border transition-colors ${
-              active
-                ? 'bg-orange-600 text-white border-orange-700'
-                : 'bg-stone-900 text-stone-400 border-stone-700 hover:border-stone-500 hover:text-stone-300'
-            }`}
+            count={count > 0 ? count : null}
           >
             {chip.label}
-            {count > 0 && (
-              <span className={active ? 'ml-1 text-orange-100' : 'ml-1 text-stone-600'}>{count}</span>
-            )}
-          </button>
+          </Chip>
         )
       })}
     </div>

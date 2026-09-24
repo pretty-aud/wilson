@@ -108,7 +108,7 @@ const REGISTRY = [
   // the shell's (excluded) — "R.A.B.B.I.T." here is Home's own button.
   P('home', '/', { homeCaps: true, expect: { text: 'R.A.B.B.I.T.' } }),
   P('dog', '/dog', { expect: { text: 'Generate page outline' } }),   // A1: sentence case (Q2)
-  P('otter', '/otter', { expect: { text: 'New Course' } }),
+  P('otter', '/otter', { expect: { text: 'New course' } }),   // A3: sentence case (Q2)
   P('rabbit', '/rabbit', { expect: { text: 'Salt Hours' } }),
   P('settings', '/settings', { expect: { text: 'Version and updates' } }),
   P('projects', '/project-manager', { expect: { text: 'Salt Hours' } }),
@@ -129,14 +129,20 @@ const REGISTRY = [
 
   // O.T.T.E.R. — the reading surface and the views behind the tool's own bar.
   P('otter-lesson', '/otter', { steps: ['@lesson'], expect: { selector: '.lesson-content' } }),
+  // A3 (2026-09-24): the course page (Sidebar 1 expanded, the subject cards)
+  // and the Sources view off the lesson sidebar. Functions is NOT here: the
+  // fixture course is software, and the Functions view needs a
+  // coding-language course, so on fixtures its button lands on Hotkeys.
+  P('otter-course', '/otter', { steps: ['DaVinci Resolve 19'], expect: { text: 'Editing on the Edit page' } }),
+  P('otter-sources', '/otter', { steps: ['@lesson', 'Sources'], expect: { text: 'Works cited' } }),
   P('otter-settings', '/otter', { steps: ['Tool settings'], expect: { dialog: true } }),
   P('otter-search', '/otter', { steps: ['Search'], expect: { dialog: true } }),
   P('otter-quiz', '/otter', { steps: ['Quiz'], expect: { text: 'Quiz Center' } }),
-  P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard Shortcuts' } }),
-  P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes Reference' } }),
+  P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard shortcuts' } }),   // A3: sentence case (Q2)
+  P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes reference' } }),   // A3: sentence case (Q2)
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
   P('otter-validate', '/otter', { steps: ['Validate'], expect: { text: 'Lesson Validator' } }),
-  P('otter-new-course', '/otter', { steps: ['New Course'], expect: { text: 'New Software Course' } }),
+  P('otter-new-course', '/otter', { steps: ['New course'], expect: { text: 'New software course' } }),   // A3: sentence case (Q2)
   P('otter-import', '/otter', { steps: ['Import'], expect: { dialog: 'Import Data' } }),
 
   // R.A.B.B.I.T. — the nine tabs with the project open, then what opens off them.
@@ -204,10 +210,10 @@ const KNOWN = {
   face: [
     { key: 'otter-lesson', text: 'Project Settings → M' },
     { key: 'otter-lesson', text: 'The is fixed the mom' },
-    { key: 'otter-new-course', text: '○ Add Subject' },
+    { key: 'otter-new-course', text: '○ Add subject' },
     { key: 'otter-new-course', text: '○ Share with the com' },
     { key: 'otter-new-course', text: '● Just for me' },
-    { key: 'otter-new-course', text: '● New Course' },
+    { key: 'otter-new-course', text: '● New course' },
   ],
   weight: [],
   upper: [],

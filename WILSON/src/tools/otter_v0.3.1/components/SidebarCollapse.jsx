@@ -36,6 +36,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { IconButton } from '../../../ui'
 
 /** Reads a persisted flag without ever throwing — private-mode browsers and
  *  sandboxed iframes make localStorage access itself raise. */
@@ -109,24 +110,21 @@ const SHORTCUT_HINT =
     : 'Ctrl + \\'
 
 /**
- * The collapse control that lives INSIDE the expanded sidebar, in a slim strip
- * above the existing content. Right-aligned so it lines up with the rail's
- * chevron when collapsed.
+ * The collapse control that lives INSIDE the expanded sidebar. Since A3 it is
+ * the kit's IconButton in the sidebar Panel's header (the header replaced the
+ * slim strip it used to sit in), right-aligned, so it lines up with the
+ * rail's chevron when collapsed: both sit at the centre of a 32px band.
  */
 export function SidebarCollapseButton({ onCollapse, label = 'Hide sidebar' }) {
   return (
-    <div className="flex items-center justify-end h-6 px-1 border-b border-stone-700/60 shrink-0">
-      <button
-        type="button"
-        onClick={onCollapse}
-        title={`${label} (${SHORTCUT_HINT})`}
-        aria-label={label}
-        aria-expanded="true"
-        className="p-1 rounded-control text-stone-500 hover:text-orange-400 hover:bg-stone-700 transition-colors"
-      >
-        <ChevronsLeft className="w-3.5 h-3.5" />
-      </button>
-    </div>
+    <IconButton
+      size="sm"
+      icon={ChevronsLeft}
+      onClick={onCollapse}
+      title={`${label} (${SHORTCUT_HINT})`}
+      aria-label={label}
+      aria-expanded="true"
+    />
   )
 }
 
@@ -144,10 +142,12 @@ export function SidebarReopenRail({ onExpand, label = 'Show sidebar' }) {
       title={`${label} (${SHORTCUT_HINT})`}
       aria-label={label}
       aria-expanded="false"
-      className="group w-6 shrink-0 bg-stone-800 border-r border-stone-600 flex flex-col items-center hover:bg-stone-700 transition-colors cursor-pointer"
+      className="otter-rail"
     >
-      <span className="flex items-center justify-center h-6 w-full">
-        <ChevronsRight className="w-3.5 h-3.5 text-stone-500 group-hover:text-orange-400 transition-colors" />
+      {/* A3: the slot is the Panel header's 32px, so the chevron sits at the
+          height the header's collapse button had. */}
+      <span className="otter-rail-slot">
+        <ChevronsRight className="otter-rail-icon" aria-hidden="true" />
       </span>
     </button>
   )

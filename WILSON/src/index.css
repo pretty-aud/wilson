@@ -126,6 +126,15 @@
   --width-data-max: 1240px;
   --measure-reading: 66ch;
   --measure-prose-max: 72ch;
+  /* A3 kit request A3-KR-1 (2026-09-24). §3.1's "60 to 66" is a count of
+     CHARACTERS per line; `ch` is the width of the ZERO, and Geist's zero is
+     0.673em (9.42px at the 14px Body step) against an average glyph of about
+     0.47em. Measured on 12 lines of English prose in O.T.T.E.R.'s lesson pane:
+     66ch = 613px = 95 characters a line, 60ch = 86, 45ch = 61 to 66 (63.5 on
+     average). So the Body step's measure, in Geist, is 45ch. The two tokens
+     above keep their values; which surfaces should move to this one is P1's
+     question (A3 hand-off). */
+  --measure-body: 45ch;
 
   /* ── Density (§3.3) ────────────────────────────────────────────────── */
   --control-sm: 28px;
@@ -2225,142 +2234,103 @@ select option {
    everything else here. Leaving the old warning standing would have told the
    next session to derive a measure that is already set three lines below it.
 
-   🚨 WHAT A3 MUST TAKE *WITH* THESE SIZES, because type and ink came apart
-   here and the review (O5) specifies them as ONE change. Measured against
-   `paper` #1c1917 as this block now stands:
+   ── A3 (2026-09-24) TOOK THE REST, AS ONE CHANGE (review O5). T1 measured
+   the inks it could not take, against `paper` #1c1917:
 
        h1  #f97316  20/600   6.24:1
        h2  #fb923c  16/600   7.73:1
        h3  #fdba74  14/600  10.37:1
-       p   #d6d3d1  14/400  11.74:1     <- the body is BRIGHTER than the
-       strong #fbbf24 14/600 10.47:1       heading above it, and `strong` is
-                                           now the same size, weight and
-                                           near-identical luminance as `h3`
+       p   #d6d3d1  14/400  11.74:1     <- the body BRIGHTER than the heading
+       strong #fbbf24 14/600 10.47:1       above it, and `strong` the same
+                                           size, weight and near-identical
+                                           luminance as `h3`
 
-   Before T1, `h3` was 17.6px, so SIZE carried the level while the inks ran
-   backwards. §3.1 puts H3 and Body both at 14px and separates them by weight,
-   which is the system working as designed everywhere else in the app — but on
-   a long-form reading surface it leaves hue as the only thing between a
-   subsection heading and a bolded phrase. O5's answer is one ink for all of
-   them with hierarchy from size and weight; that is a colour decision, Q9
-   reserves this surface's colours for A3, and taking half of it here (just
-   `strong`) would repeat exactly the split this note exists to warn about.
+   After A3 — one ink ladder, hierarchy by size, weight and ink together:
 
-   ── T1 (2026-09-22) TOOK THE TYPE, AND ONLY THE TYPE. Plan §5 assigns
-   "the 34-line lesson-content rules" to this bundle, which is why a session
-   that does not own `src/index.css` (§6.5: Foundation's, and T0's for the
-   codemod) is editing this block and nothing else in the file.
+       lesson title  ink    20/600  15.45:1   (Otter.jsx, the H1 step: the
+                                              reading surface's own title)
+       h1, h2        ink    16/600  15.45:1   (h1 demoted one step, O32)
+       h3            ink    14/600  15.45:1
+       p, li         ink-2  14/400   8.49:1
+       strong        ink-2  14/600   8.49:1   (differs from h3 in ink, and
+                                              from its sentence in weight)
+       em            the ink of its context, italic
+       code          ink on paper-raised, mono 13   14.29:1
+       a             ink, underlined             15.45:1
 
-   🚨 THIS SURFACE HAD NEVER BEEN MEASURED BY ANYTHING. `ui-page-check.mjs`
-   walks `/otter`, but `.lesson-content` does not exist until a course, a
-   subject and a lesson have all been clicked — so the check's "0 off-scale
-   text on all twelve pages" was true and said nothing about the one surface
-   in O.T.T.E.R. anybody reads. Driven there in a real browser at 1280x700,
-   before this commit:
+   Every heading sits above its body copy in ink (100 against 72 percent)
+   and in step. Colour has left the reading surface; the one hue left is the
+   syntax colouring inside a tagged code block, which is data.
 
-       h1 24px/700     h2 20px/700     h3 17.6px/600
-       p 16px lh 1.7   li 16px lh 1.6  inline code 14.4px
-       measure 74ch
-
-   24, 17.6 and 14.4 are on no step. 16px was the BODY of a reading surface
-   whose anchor is 14 (§3.1). 700 is not one of the two weights. 1.7 / 1.6 /
-   1.5 is three leadings where §3.1 asks for one per step. Every size below
-   is now a token, every weight is the step's own, and §3.1's measure is
-   capped at 66ch — on the prose only, because a table or a code block is
-   data and capping the container would squeeze both.
-
-   STILL A3's, MEASURED AND DELIBERATELY LEFT — the counts corrected, because
-   T1's commit message got two of them wrong (it said "eleven colour hexes"
-   and "four 2px borders", and a reviewer counted):
-     - 19 colour hex occurrences, 10 distinct values;
-     - three `border: 2px` (`pre`, `th`, `td`) and one `border-left: 3px`
-       (`blockquote`);
-     - two `border-radius: 2px` (`pre`, inline `code`);
-     - the rem margins, 0.25/0.5/0.75/1/1.25rem = 4/8/12/16/20px, where 20 is
-       off §3.3's 4-8-12-16-24-32-48 scale.
-
-   ⚠️ AND ONE SIDE EFFECT T1 CAUSED AND CANNOT FIX HERE. Setting `font-size`
-   on the container re-bases every `em` beneath it. A LANGUAGE-TAGGED fence
-   goes to `SyntaxHighlighter`, mounted with `PreTag="div"`, so it has NO
-   `<pre>` ancestor: `oneDark`'s inline `padding: 1em` and `margin: 0.5em 0`
-   used to resolve against 16px (16px / 8px, both on §3.3's grid) and now
-   resolve against 14px (14px / 7px, neither). The same missing `<pre>` means
-   `code:not(pre code)` matches those blocks too, so they move 14.4px -> 13px,
-   which is the right direction. Spacing is A3's; this is the note that says
-   why it drifted.
-
-   🚨 AND TWO CORRECTIONS TO THAT NOTE, from round two, because the first
-   version of it would have sent A3 the wrong way:
-
-     - `.lesson-content pre` IS LIVE, and T1 first wrote that it was dead.
-       `PreTag="div"` is on the `match` branch ONLY. A fence with NO language
-       tag falls to the other branch, which returns a bare `<code>` that
-       react-markdown still wraps in a `<pre>` — and lesson content is
-       generated markdown, where untagged fences are routine. So the 2px
-       border, the 2px radius and the 1rem padding on `pre` below all render,
-       and they do need converting.
-     - `code`'s `line-height` below NEVER APPLIES to a language-tagged block.
-       `oneDark` sets `lineHeight: '1.5'` as an INLINE style on both the
-       wrapper and the `code`, and inline beats a class rule. The Dense step's
-       1.45 reaches inline code and untagged fences only. It is a 0.05
-       difference and not worth an `!important` fight in a type bundle, but it
-       is the third property this one mechanism has quietly taken, and A3
-       should know the mechanism rather than meet it a fourth time.
-
-   Also off §3.3's scale and not previously named: `padding: 0.15rem 0.4rem`
-   on inline `code` is 2.4px / 6.4px.
+   Also A3's, and done: the measure (`--measure-body`, 45ch — §3.1's 60-66
+   characters; T1's 66ch token held 95 in Geist), the 2px borders (three
+   `border: 2px` and the 3px blockquote edge, now one hairline each), the
+   2px radii (the kit's control radius), the rem margins (now px on §3.3's
+   4px grid), and the inline style that sat on every inline `code` in
+   Otter.jsx and beat these rules. The fenced block's padding drift T1
+   recorded (oneDark's 1em resolving against 14px) is gone: Otter.jsx
+   sets the block's padding, margin, face and leading from tokens.
    ═══════════════════════════════════════════════════════════════ */
 .lesson-content {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  color: var(--color-ink-2);
 }
-/* §3.1's measure, through the token that already carries it — `66ch`, defined
-   at the top of this file and read by `.ui-empty-body` and the reading
-   container. T1 shipped the literal first; §3 says every value lives in
-   `@theme`, and a second spelling of a number that already has a name is how
-   two measures drift apart.
-
-   `ch` resolves against each element's own size, which is what makes a
-   heading's 66ch wider in px than a paragraph's — headings are short and
-   never reach it, so the paragraph is what the reader measures.
-
-   ⚠️ IT COVERS THE MARKDOWN AND NOTHING ELSE, AND THE SEAM IS VISIBLE.
-   O.T.T.E.R. renders "Key Takeaways" and "Practice Exercise" as SIBLINGS of
-   `.lesson-content` (Otter.jsx, just after the markdown block), carrying the
-   same 14px Body prose with no cap, so a paragraph now ends at ~613px and the
-   takeaway list beneath it runs to ~770px. Capping those means narrowing the
-   PANELS, which is a layout change on components A3 owns, and C1 forbids it
-   here. A3 lands the two together. The review asks for 62ch on this surface
-   (O4) where §3.1's band is 60–66; the token is 66 and in band, and narrowing
-   to 62 belongs with whoever fixes the seam. */
-.lesson-content :is(h1, h2, h3, p, ul, ol, blockquote) { max-width: var(--measure-reading); }
-.lesson-content h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); letter-spacing: var(--text-h1--letter-spacing); font-weight: var(--text-h1--font-weight); margin: 1.25rem 0 0.75rem; color: #f97316; }
-.lesson-content h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); font-weight: var(--text-h2--font-weight); margin: 1rem 0 0.5rem; color: #fb923c; }
-.lesson-content h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); font-weight: var(--text-h3--font-weight); margin: 0.75rem 0 0.5rem; color: #fdba74; }
-.lesson-content p { margin: 0.5rem 0; line-height: var(--text-body--line-height); color: #d6d3d1; }
-.lesson-content ul, .lesson-content ol { margin: 0.5rem 0; padding-left: 1.5rem; color: #d6d3d1; }
-.lesson-content li { margin: 0.25rem 0; line-height: var(--text-body--line-height); }
-.lesson-content strong { color: #fbbf24; font-weight: 600; }
-.lesson-content em { color: #a8a29e; font-style: italic; }
-.lesson-content code:not(pre code) {
-  background: #292524 !important; color: #fb923c !important; padding: 0.15rem 0.4rem; border-radius: 2px;
-  font-size: var(--text-dense); line-height: var(--text-dense--line-height);
+/* The measure: A3-KR-1's --measure-body, 45ch, which is §3.1's 60-66
+   CHARACTERS of Geist at the Body step (66ch held 95 — see @theme). On the
+   prose only: a table or a code block is data and keeps the container. */
+.lesson-content :is(h1, h2, h3, p, ul, ol, blockquote) { max-width: var(--measure-body); }
+.lesson-content h1 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); font-weight: var(--text-h2--font-weight); margin: 24px 0 8px; color: var(--color-ink); }
+.lesson-content h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); font-weight: var(--text-h2--font-weight); margin: 24px 0 8px; color: var(--color-ink); }
+.lesson-content h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); font-weight: var(--text-h3--font-weight); margin: 16px 0 8px; color: var(--color-ink); }
+.lesson-content p { margin: 8px 0; line-height: var(--text-body--line-height); color: var(--color-ink-2); }
+/* `revert`: the browser's own markers (disc, then circle, for ul; decimal for
+   ol). Tailwind's preflight strips them, so until A3 a markdown list read as
+   indented paragraphs. */
+.lesson-content ul, .lesson-content ol { margin: 8px 0; padding-left: 24px; list-style: revert; color: var(--color-ink-2); }
+.lesson-content li { margin: 4px 0; line-height: var(--text-body--line-height); }
+/* Emphasis is WEIGHT, in the body's own ink — so a bolded phrase is set
+   apart from its sentence without matching an h3 (ink, 600, on its own
+   line) and without the amber that out-shouted every heading. Italic keeps
+   the body's ink too: it used to be a dimmer grey, which de-emphasised. */
+.lesson-content strong { font-weight: 600; color: var(--color-ink-2); }
+.lesson-content em { font-style: italic; color: inherit; }
+/* Inline code: the mono, the ink, a paper-raised chip on one hairline. Not
+   a language-tagged block's <code> (PreTag="div" leaves it no <pre>
+   ancestor): that one is dressed in Otter.jsx (LESSON_CODE_TEXT). */
+.lesson-content code:not(pre code):not([class*="language-"]) {
+  font-family: var(--font-mono);
+  font-size: var(--text-dense);
+  line-height: var(--text-dense--line-height);
+  padding: 0 4px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-control);
+  background: var(--color-paper-raised);
+  color: var(--color-ink);
 }
+/* An untagged fence: the code well (paper-recessed is that token's job). */
 .lesson-content pre {
-  background: #0c0a09 !important; border: 2px solid #57534e; border-radius: 2px; padding: 1rem; margin: 0.75rem 0; overflow-x: auto;
+  margin: 12px 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-control);
+  background: var(--color-paper-recessed);
+  font-family: var(--font-mono);
+  font-size: var(--text-dense);
+  line-height: var(--text-dense--line-height);
+  color: var(--color-ink-2);
 }
-.lesson-content blockquote {
-  border-left: 3px solid #f97316; padding-left: 1rem; margin: 0.75rem 0; color: #a8a29e;
-}
-.lesson-content a { color: #f97316; text-decoration: underline; }
-.lesson-content table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; }
+.lesson-content blockquote { margin: 12px 0; padding-left: 12px; border-left: 1px solid var(--color-ink-3); color: var(--color-ink-2); }
+.lesson-content a { color: var(--color-ink); text-decoration: underline; text-underline-offset: 2px; }
+.lesson-content table { width: 100%; border-collapse: collapse; margin: 12px 0; }
 /* A markdown table is data, so it takes Dense — the step §3.1 gives "table
    cells". The header takes the second weight rather than the Label step,
    because Label is UPPER (§3.1, Q2) and a `th` here renders the AUTHOR's
    words: uppercasing them would be a content change wearing a restyle's
-   clothes. */
-.lesson-content th { background: #292524; color: #f97316; padding: 0.5rem; border: 2px solid #57534e; text-align: left; font-size: var(--text-dense); line-height: var(--text-dense--line-height); font-weight: 600; }
-.lesson-content td { padding: 0.5rem; border: 2px solid #44403c; color: #d6d3d1; font-size: var(--text-dense); line-height: var(--text-dense--line-height); }
+   clothes. One hairline, as everywhere. */
+.lesson-content th { padding: 8px 12px; border: 1px solid var(--color-rule); text-align: left; background: var(--color-paper-raised); color: var(--color-ink); font-size: var(--text-dense); line-height: var(--text-dense--line-height); font-weight: 600; }
+.lesson-content td { padding: 8px 12px; border: 1px solid var(--color-rule); color: var(--color-ink-2); font-size: var(--text-dense); line-height: var(--text-dense--line-height); font-variant-numeric: tabular-nums; }
 
 /* Companion chat markdown styling (the agent panel; unreviewed, see the
    review's "Missing coverage" — same rule as the lesson block above). */

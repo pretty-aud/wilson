@@ -299,28 +299,29 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
 })
 
 // ── "The only place a hex is written", made countable ──────────────────────
-// Two legacy blocks at the bottom of index.css (O.T.T.E.R.'s lesson-content
-// rules and the agent panel's companion-chat rules) still carry their own
-// hexes; they belong to lane A / the unreviewed agent surface and were left
-// byte-for-byte. This pins the set so nothing new can join it unnoticed.
+// One legacy block at the bottom of index.css — the agent panel's
+// companion-chat rules — still carries its own hexes; it is the unreviewed
+// agent surface's (P1) and was left byte-for-byte. O.T.T.E.R.'s lesson-content
+// block carried ten more values until A3 (2026-09-24) put it on the tokens,
+// so it is no longer exempt. This pins the set so nothing new can join it.
 describe('hexes in index.css outside @theme', () => {
   const themeBlock = css.match(/@theme[^{]*\{[\s\S]*?\n\}/)[0]
   // Code only: the comments quote hexes when they explain a measurement.
   const rest = css.replace(themeBlock, '').replace(/\/\*[\s\S]*?\*\//g, '')
   const outside = new Set((rest.match(HEX) || []).map((h) => h.toLowerCase()))
-  const LEGACY = new Set(['#f97316', '#fb923c', '#fdba74', '#d6d3d1', '#a8a29e', '#fbbf24', '#292524', '#0c0a09', '#57534e', '#44403c'])
+  const LEGACY = new Set(['#f97316', '#fb923c', '#a8a29e', '#fbbf24', '#292524'])
 
-  it('is exactly the lesson-content / companion-chat legacy set', () => {
+  it('is exactly the companion-chat legacy set', () => {
     expect([...outside].sort()).toEqual([...LEGACY].sort())
   })
 
-  it('every one of them sits in a .lesson-content or .companion-chat-md rule', () => {
+  it('every one of them sits in a .companion-chat-md rule', () => {
     // Per rule, not per line: some of those rules wrap their declarations.
     // (String.match with a /g regex resets lastIndex; RegExp.test does not.)
     for (const rule of rest.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const [, selector, body] = rule
       if ((body.match(HEX) || []).length === 0) continue
-      expect(selector.trim(), selector.trim()).toMatch(/\.lesson-content|\.companion-chat-md/)
+      expect(selector.trim(), selector.trim()).toMatch(/\.companion-chat-md/)
     }
   })
 })
