@@ -27,6 +27,7 @@ import { dirname, resolve } from 'node:path'
 import { contrast, over, screen, luminance } from './contrast'
 import * as T from './tokens'
 import { THEME } from './tokens'
+import { allRules, decls, splitTop } from '../../scripts/ui-css-rules.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(resolve(here, '../index.css'), 'utf8')
@@ -45,6 +46,8 @@ function parseTheme(source) {
 
 const theme = parseTheme(css)
 const HEX = /#[0-9a-f]{3,8}\b/gi
+/** The same, without the /g flag, for .test() (a /g regex keeps its lastIndex). */
+const HEX1 = new RegExp(HEX.source, HEX.flags.replace('g', ''))
 
 describe('@theme and tokens.js agree', () => {
   it('every tokens.js entry is in @theme with the same value', () => {
@@ -234,6 +237,16 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
     }
   })
 
+  it('the third ink under the hover wash and on the signal tint (A3 review round 2)', () => {
+    // Why every third-ink text on a row that takes the hover or the selected
+    // tint moves up to the second ink there (otter.css; the kit's Chip count
+    // and Menu hint, A3-KR-4 and A3-KR-5): 4.33, 3.99 and 4.18 at 11-13px.
+    const grounds = [over(T.HOVER, T.PAPER), over(T.HOVER, T.PAPER_RAISED), over(T.SIGNAL_TINT, T.PAPER)]
+    for (const g of grounds) expect(contrast(T.INK_3, g), g).toBeLessThan(4.5)
+    // …and the second ink clears all three.
+    for (const g of grounds) expect(contrast(T.INK_2, g), g).toBeGreaterThanOrEqual(4.5)
+  })
+
   it('the ink at 48 percent — the number six reviews copied', () => {
     expect(contrast(screen(T.INK, 48, T.PAPER), T.PAPER)).toBeLessThan(4.5)
   })
@@ -304,12 +317,6 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
 // agent surface's (P1) and was left byte-for-byte. O.T.T.E.R.'s lesson-content
 // block carried ten more values until A3 (2026-09-24) put it on the tokens,
 // so it is no longer exempt. This pins the set so nothing new can join it.
-const splitList = (list) => {
-  const out = []; let depth = 0, cur = ''
-  for (const ch of list) { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && depth === 0) { out.push(cur); cur = '' } else cur += ch }
-  out.push(cur); return out
-}
-
 describe('hexes in index.css outside @theme', () => {
   const themeBlock = css.match(/@theme[^{]*\{[\s\S]*?\n\}/)[0]
   // Code only: the comments quote hexes when they explain a measurement.
@@ -321,17 +328,36 @@ describe('hexes in index.css outside @theme', () => {
     expect([...outside].sort()).toEqual([...LEGACY].sort())
   })
 
-  it('every one of them sits in a .companion-chat-md rule', () => {
-    // Per rule, not per line: some of those rules wrap their declarations.
-    // (String.match with a /g regex resets lastIndex; RegExp.test does not.)
-    for (const rule of rest.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      const [, selector, body] = rule
-      if ((body.match(HEX) || []).length === 0) continue
-      // Every selector in the list, from its start (A3 review round 1: the
-      // substring let `.lesson-content strong, .companion-chat-md-legacy strong`
-      // through, which is the amber `strong` O5 removed).
-      expect(splitList(selector).every((s) => /^\s*\.companion-chat-md(?![\w-])/.test(s)), selector.trim()).toBe(true)
+  it('every one of them sits in a .companion-chat-md rule, and none reaches the lesson', () => {
+    /* Brace-walked (A3 review round 2). A leaf-rule regex read
+       `color: #f97316; & svg { … }` in a kit rule as part of a selector, so
+       that hex passed; and `.companion-chat-md ~ * .lesson-content strong`
+       began with the right class while styling the lesson. Every rule is read
+       now, a nested one in the context of the rule it sits in: the OUTERMOST
+       selector of its chain must be the companion chat's, list member by list
+       member, and no selector in the chain may reach `.lesson-content`. */
+    const hexRuleViolations = (source) => {
+      const bad = []
+      let read = 0
+      for (const r of allRules(source)) {
+        if (r.sel.startsWith('@')) continue
+        if (!decls(r.body).some(([, v]) => HEX1.test(v))) continue
+        read++
+        const chain = [...r.parents.filter((q) => !q.startsWith('@')), r.sel]
+        if (!splitTop(chain[0]).every((sel) => /^\.companion-chat-md(?![\w-])/.test(sel))) bad.push(chain.join(' > '))
+        else if (chain.some((sel) => /\.lesson-content\b/.test(sel))) bad.push(chain.join(' > '))
+      }
+      return { bad, read }
     }
+    const { bad, read } = hexRuleViolations(css)
+    expect(bad, bad.join('\n')).toEqual([])
+    expect(read, 'the hex-bearing rules were read').toBeGreaterThan(3)
+    // CONTROL: round two's two survivors, and a clean rule.
+    expect(hexRuleViolations(`
+      .ui-x { color: #f97316; & svg { width: 1px; } }
+      .companion-chat-md ~ * .lesson-content strong { color: #fbbf24; }
+      .companion-chat-md p { color: #a8a29e; }
+    `).bad).toHaveLength(2)
   })
 })
 

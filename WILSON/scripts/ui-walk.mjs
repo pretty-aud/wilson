@@ -328,6 +328,12 @@ const KNOWN = {
    rows stayed filed for 25 commits after their defect was gone, and nothing
    said so. Reported, never failed. */
 const MATCHED = new Set();
+/* The highest count each ceiling entry (anon, nested) met this run: a ceiling
+   above what its screen has lets that many NEW unnamed controls pass under it,
+   so it is reported like a stale line (A3 review round 2: `n: 5` against 1
+   on screen passed in silence). */
+const CEILING_SEEN = new Map();
+const seenAtMost = (k, n) => CEILING_SEEN.set(k, Math.max(CEILING_SEEN.get(k) ?? 0, n));
 const isKnown = (kind, key, text) => KNOWN[kind].some((k) => {
   const hit = k.key === key && typeof k.text === 'string' && (text || '').includes(k.text);
   if (hit) MATCHED.add(k);
@@ -340,7 +346,7 @@ function newAnon(key, anon) {
   for (const a of anon) (byIcon[a.split(' ')[0]] ||= []).push(a);
   return Object.entries(byIcon).flatMap(([icon, list]) => {
     const k = KNOWN.anon.find((x) => x.key === key && x.text === icon);
-    if (k) MATCHED.add(k);
+    if (k) { MATCHED.add(k); seenAtMost(k, list.length); }
     return k && list.length <= k.n ? [] : list;
   });
 }
@@ -531,7 +537,7 @@ async function visit(ctx, entry) {
      contrast census stays a report. */
   const c6 = census.contrast.filter((d) => { const m = d.match(/ on #([0-9a-f]{6}) /); return m && isOrange(m[1]); });
   const nestedEntry = KNOWN.nested.find((x) => x.key === k);
-  if (nestedEntry && nested > 0) MATCHED.add(nestedEntry);
+  if (nestedEntry && nested > 0) { MATCHED.add(nestedEntry); seenAtMost(nestedEntry, nested); }
   const nestedKnown = nestedEntry?.n ?? 0;
   const news = {
     face: faces.off.filter((r) => !isKnown('face', k, r.text)),
@@ -669,14 +675,32 @@ for (const r of REPORT) for (const [f, n] of Object.entries(r.faces)) faceTotal[
 if (!FAST) console.log(`\n— glyphs drawn, all screens — ${Object.entries(faceTotal).map(([f, n]) => `${f} ${n}`).join(' · ')}`);
 
 {
-  const walked = new Set(entries.map((e) => e.key));
-  const stale = Object.entries(KNOWN)
-    .filter(([kind]) => !(FAST && kind === 'face'))
-    .flatMap(([kind, list]) => list.filter((x) => walked.has(x.key) && !MATCHED.has(x))
-      .map((x) => `${kind.padEnd(10)} ${x.key.padEnd(24)} ${x.text ?? ''}${x.n != null ? ` (n=${x.n})` : ''}`));
+  /* A screen counts as WALKED only when it opened: a screen that failed to
+     open, or threw twice, was never looked at, and its filings are not
+     evidence of anything (A3 review round 2). */
+  const walked = new Set(REPORT.filter((r) => r.open).map((r) => r.key));
+  const line = (kind, x, tail = '') => `${kind.padEnd(10)} ${x.key.padEnd(24)} ${x.text ?? ''}${x.n != null ? ` (n=${x.n})` : ''}${tail}`;
+  const kinds = Object.entries(KNOWN).filter(([kind]) => !(FAST && kind === 'face'));
+  const stale = kinds.flatMap(([kind, list]) => list.filter((x) => walked.has(x.key) && !MATCHED.has(x)).map((x) => line(kind, x)));
   if (stale.length) {
     console.log(`\n— stale KNOWN: ${stale.length} filed entr${stale.length === 1 ? 'y' : 'ies'} matched nothing on a screen this run walked — delete the line if its defect is gone —`);
     for (const s of stale) console.log(`  ${s}`);
+  }
+  // A ceiling above what its screen has.
+  const loose = kinds.flatMap(([kind, list]) => list
+    .filter((x) => x.n != null && walked.has(x.key) && CEILING_SEEN.has(x) && CEILING_SEEN.get(x) < x.n)
+    .map((x) => line(kind, x, ` — the screen has ${CEILING_SEEN.get(x)}`)));
+  if (loose.length) {
+    console.log(`\n— loose KNOWN ceilings: ${loose.length} — lower each to what the screen has, or new ones pass under it —`);
+    for (const s of loose) console.log(`  ${s}`);
+  }
+  // A filing against a screen the registry does not have (a renamed or
+  // deleted screen): no run can ever match it, so no run would ever say so.
+  const orphans = Object.entries(KNOWN).flatMap(([kind, list]) => list
+    .filter((x) => !REGISTRY.some((e) => e.key === x.key)).map((x) => line(kind, x)));
+  if (orphans.length) {
+    console.log(`\n— orphaned KNOWN: ${orphans.length} filed against a screen the registry does not have —`);
+    for (const s of orphans) console.log(`  ${s}`);
   }
 }
 if (FAILED.length) {

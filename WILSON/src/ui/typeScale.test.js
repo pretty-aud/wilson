@@ -42,6 +42,7 @@ import {
   openingTagEndFromAttr, classNameRun, ownTextFrom,
   SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE, isMonoValue,
 } from '../../scripts/ui-inline-type.mjs';
+import { allRules, decls, splitTop, themeNames } from '../../scripts/ui-css-rules.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
    on a string from the site: the reason names ONE site, and a bare path
@@ -272,59 +273,168 @@ function splitSelectors(list) {
  *  swept like index.css's: a rule the index.css sweep cannot see is a rule
  *  that can undo everything it checks. */
 const otterLessonRules = () => extractLessonRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'));
-/** The lesson PAGE's frame: every otter.css rule that styles an element of
- *  the page — the breadcrumb, the title, the two cards, the foot row, the
- *  things beside `.lesson-content` that have to stop on its right edge (A3
- *  review round 1 measured the title 197px past it). The classes are READ
- *  from the lesson branch of `renderStudyView` in Otter.jsx, not listed here,
- *  so an element added to the page is swept the day it lands. */
-const LESSON_PAGE_CLASSES = (() => {
-  const src = readFileSync('src/tools/otter_v0.3.1/Otter.jsx', 'utf8');
+/** The lesson branch of `renderStudyView` in Otter.jsx: from the page's own
+ *  `<div className="otter-study">` to the next render function. */
+const OTTER_JSX = 'src/tools/otter_v0.3.1/Otter.jsx';
+const OTTER_CSS = 'src/tools/otter_v0.3.1/otter.css';
+function lessonBranch(src = readFileSync(OTTER_JSX, 'utf8')) {
   const start = src.indexOf('<div className="otter-study">', src.indexOf('function renderStudyView()'));
   const end = src.indexOf('function renderQuizCenter()', start);
-  if (start < 0 || end < 0) return [];
-  return [...new Set([...src.slice(start, end).matchAll(/className="([^"]+)"/g)]
-    .flatMap((m) => m[1].split(/\s+/)).filter((c) => c.startsWith('otter-')))];
-})();
-const frameHead = (classes) => new RegExp(`\\.(?:${classes.join('|')})(?![\\w-])[^{};]*\\{`, 'g');
-const otterFrameRules = () => extractRules(readFileSync('src/tools/otter_v0.3.1/otter.css', 'utf8'), frameHead(LESSON_PAGE_CLASSES));
-/** Every edge on the lesson surface reads the one LENGTH; the page container
- *  alone is the reading width. Any max- width is judged, and so is any width
- *  at all that is set in `ch` or from a measure token (a `width: 45ch` on the
- *  foot row is the same defect as a max-width). One line per violation. */
+  return start < 0 || end < 0 ? '' : src.slice(start, end);
+}
+/** The lesson PAGE's own classes — the breadcrumb, the title, the two cards,
+ *  the foot row, the reading surface and its table box — READ from that
+ *  branch, not listed here, so an element added to the page is swept the day
+ *  it lands (A3 review round 1 measured the title 197px past the prose). */
+const LESSON_PAGE_CLASSES = [...new Set([...lessonBranch().matchAll(/className="([^"]+)"/g)]
+  .flatMap((m) => m[1].split(/\s+/)).filter((c) => /^(otter|lesson)-/.test(c)))];
+const PAGE_FILES = ['src/index.css', OTTER_CSS];
+/** Every rule that reaches the lesson page, in either sheet, brace-walked so
+ *  a nested or wrapped rule is read too: its selector, or an enclosing
+ *  block's, names a class of the page — as a class OR as an attribute
+ *  selector (`[class~='otter-lesson-title'] { max-width: none }` went round a
+ *  class-only reading, A3 review round 2). `file` is the sheet's basename. */
+function pageRules(
+  sources = Object.fromEntries(PAGE_FILES.map((f) => [f, readFileSync(f, 'utf8')])),
+  classes = LESSON_PAGE_CLASSES,
+) {
+  const re = new RegExp(`(?:\\.|\\[class[~*^|$]?=\\s*['"]?)(?:${classes.join('|')})(?![\\w-])`);
+  const out = [];
+  for (const [file, src] of Object.entries(sources)) {
+    for (const r of allRules(src)) {
+      if (r.sel.startsWith('@')) continue;
+      if (re.test(r.sel) || r.parents.some((p) => re.test(p))) out.push({ ...r, file: file.split('/').pop() });
+    }
+  }
+  return out;
+}
+/** Every edge on the lesson page reads the one LENGTH; the page container
+ *  alone is the reading width. Judged, rule by rule: any max- width; any min-
+ *  width that is not 0 / auto / min-content (a min-width beats a max-width);
+ *  any width set in `ch` or from a measure token; any `box-sizing` (the
+ *  lists', quotes' and cards' insets come out of the width — border-box);
+ *  any `nowrap` or `pre` that is not a deliberate ellipsis. */
 function measureViolations(rules) {
   const bad = [];
   for (const r of rules) {
-    const sel = r.slice(0, r.indexOf('{')).trim();
-    for (const m of r.matchAll(/(?<![-\w])((?:max-|min-)?(?:width|inline-size))\s*:\s*([^;}]+)/gi)) {
-      const prop = m[1].toLowerCase(), v = m[2].trim();
-      if (v === 'var(--measure-body-len)' || (sel === '.otter-study-page' && prop === 'max-width' && v === 'var(--width-reading)')) continue;
-      if (prop.startsWith('max-') || /\dch\b|--measure/i.test(v)) bad.push(`${sel}  ${m[1]}: ${v}`);
+    const d = decls(r.body);
+    const at = `${r.file} ${r.sel}`;
+    for (const [p, v] of d) {
+      if (/^(?:max-|min-)?(?:width|inline-size)$/.test(p)) {
+        if (v === 'var(--measure-body-len)') continue;
+        if (r.sel === '.otter-study-page' && p === 'max-width' && v === 'var(--width-reading)') continue;
+        if (p.startsWith('max-') || (p.startsWith('min-') && !/^(0|0px|auto|min-content)$/.test(v)) || /\dch\b|--measure/i.test(v)) bad.push(`${at}  ${p}: ${v}`);
+      } else if (p === 'box-sizing') {
+        bad.push(`${at}  box-sizing: ${v}`);
+      } else if (p === 'white-space' && /nowrap|pre/.test(v)) {
+        const o = Object.fromEntries(d);
+        if (!(/^(hidden|clip)$/.test(o.overflow || o['overflow-x'] || '') && /ellipsis/.test(o['text-overflow'] || ''))) bad.push(`${at}  white-space: ${v}`);
+      }
     }
   }
   return bad;
 }
 /** Where `--measure-body-len` is declared, and whether each declaration is the
- *  token AT THE BODY STEP — a registered length is resolved in the font of the
- *  rule that declares it, so a declaration without the Body step's size in the
- *  same rule is 45ch of whatever that rule inherits. A declaration inside a
- *  nested block (which the leaf-rule reading below cannot see) is reported by
- *  count rather than missed. */
-const LEN_DECL = /(?<![-\w])--measure-body-len\s*:\s*([^;}]+)/g;
+ *  token AT THE BODY STEP: a registered length is resolved in the font of the
+ *  rule that declares it, so a rule whose last font-size is not the Body step
+ *  declares 45ch of some other size. Brace-walked, so a declaration in a
+ *  nested block is read, not missed. */
 function lenDeclarations(source) {
-  const css = source.replace(/\/\*[\s\S]*?\*\//g, ' ');
   const where = [], bad = [];
-  for (const [, sel, body] of css.matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
-    for (const d of body.matchAll(LEN_DECL)) {
-      const s = sel.trim();
-      where.push(s);
-      if (d[1].trim() !== 'var(--measure-body)') bad.push(`${s}  --measure-body-len: ${d[1].trim()}  (not the token)`);
-      if (!/(?<![-\w])font-size\s*:\s*var\(--text-body\)\s*(?:;|$)/.test(body)) bad.push(`${s}  declares the length off the Body step`);
+  for (const r of allRules(source)) {
+    const d = decls(r.body);
+    for (const [p, v] of d) {
+      if (p !== '--measure-body-len') continue;
+      where.push(r.sel);
+      if (v !== 'var(--measure-body)') bad.push(`${r.sel}  --measure-body-len: ${v}  (not the token)`);
+      const fs = d.filter(([q]) => q === 'font-size').pop();
+      if (!fs || fs[1] !== 'var(--text-body)') bad.push(`${r.sel}  declares the length off the Body step`);
     }
   }
-  const total = (css.match(LEN_DECL) || []).length;
-  if (total !== where.length) bad.push(`${total - where.length} declaration(s) in a nested block`);
   return { where, bad };
+}
+/** The ink ladder, element by element (O5): headings, links and table heads
+ *  the ink; running text the second ink; emphasis its context's. */
+const LADDER = {
+  h1: 'var(--color-ink)', h2: 'var(--color-ink)', h3: 'var(--color-ink)', a: 'var(--color-ink)', th: 'var(--color-ink)',
+  p: 'var(--color-ink-2)', li: 'var(--color-ink-2)', td: 'var(--color-ink-2)', blockquote: 'var(--color-ink-2)',
+  strong: 'inherit', em: 'inherit',
+};
+/** A spacing value on §3.3's grid: 0, auto, a spacing token, or px in 4s. */
+const onGrid = (v) => v.split(/\s+/).every((t) => /^(0|auto)$/.test(t) || /^var\(--spacing-[\w-]+\)$/.test(t)
+  || (/^\d+px$/.test(t) && parseInt(t, 10) % 4 === 0));
+/** O5 as a positive pin, judged by property FAMILY — not by one spelling —
+ *  over every rule that reaches the reading surface: every ink the ladder's
+ *  and in the ladder's order, every ground a paper, every edge one hairline,
+ *  every radius the control's, every margin, padding and gap on the 4px grid,
+ *  no colour by another road (`text-decoration-color`, `accent-color`, a
+ *  text fill, a background image, an opacity or a filter), no @theme token
+ *  redefined, no nested block in a lesson rule of otter.css, and nothing on
+ *  the page colouring the reading surface from outside it. Round two's
+ *  tests review brought round one's `rgb()` amber, 2px radius and rem margin
+ *  back through the logical and longhand spellings the first judge could
+ *  not read. */
+function tokenViolations(rules, theme) {
+  const bad = [];
+  const FAMILY = '(-(top|right|bottom|left|block|inline)(-(start|end))?)?';
+  for (const r of rules) {
+    const at = `${r.file} ${r.sel}`;
+    const chain = [...r.parents, r.sel].join(' ');
+    const reading = /\.lesson-content\b|\.otter-study\b|\.otter-lesson-title\b/.test(chain);
+    if (r.nested && /\.lesson-content\b/.test(r.sel) && r.file === 'otter.css') bad.push(`${at}  a nested block in a lesson rule`);
+    for (const [p, raw] of decls(r.body)) {
+      const v = raw.toLowerCase();
+      if (p.startsWith('--') && theme.has(p.slice(2))) { bad.push(`${at}  ${p}: ${raw}  (redefines an @theme token)`); continue; }
+      if (!reading) continue;
+      const why =
+        p === 'color' ? !/^(var\(--color-ink(-2|-3)?\)|inherit)$/.test(v) && 'an ink off the ladder'
+        : /^background(-color)?$/.test(p) ? !/^(var\(--color-paper(-raised|-recessed)?\)|transparent|none)$/.test(v) && 'a ground off the tokens'
+        : /^(background-image|opacity|filter|mix-blend-mode|-webkit-text-fill-color)$/.test(p) ? !(p === 'background-image' && v === 'none') && 'a colour by another road'
+        : new RegExp(`^border${FAMILY}$`).test(p) ? !/^(1px( solid var\(--color-(rule|ink-3)\))?|0|none)$/.test(v) && 'not one hairline'
+        : new RegExp(`^border${FAMILY}-width$`).test(p) ? !/^(1px|0)$/.test(v) && 'not one hairline'
+        : new RegExp(`^border${FAMILY}-style$`).test(p) ? !/^(solid|none)$/.test(v) && 'not one hairline'
+        : new RegExp(`^border${FAMILY}-color$`).test(p) ? !/^var\(--color-(rule|ink-3)\)$/.test(v) && 'an edge off the tokens'
+        : /radius$/.test(p) ? !/^(var\(--radius-control\)|0)$/.test(v) && 'a radius off the two'
+        : /^(text-decoration|text-emphasis|column-rule)$/.test(p) ? /#|rgba?\(|hsla?\(|oklch|oklab|lab\(|lch\(|color\(|var\(--color-(?!ink)/.test(v) && 'a colour by another road'
+        : /(^|-)color$/.test(p) ? 'a colour by another property'
+        : /^(box-shadow|outline|text-shadow)$/.test(p) ? 'a shadow or an outline'
+        : new RegExp(`^(margin|padding)${FAMILY}$|^(row-|column-)?gap$`).test(p) ? !onGrid(v) && 'spacing off the 4px grid'
+        : false;
+      if (why) bad.push(`${at}  ${p}: ${raw}  (${why})`);
+    }
+    // The ladder's ORDER on the markdown elements (a heading under its body
+    // copy in ink was O5's defect).
+    const color = decls(r.body).filter(([p]) => p === 'color').pop();
+    for (const one of splitTop(r.sel)) {
+      const m = one.match(/^\.lesson-content\s+(h1|h2|h3|a|p|li|th|td|strong|em|blockquote)$/);
+      // An ink ON the ladder but in the wrong place; one off it is reported above.
+      if (m && color && color[1] !== LADDER[m[1]] && /^(var\(--color-ink(-2|-3)?\)|inherit)$/.test(color[1])) bad.push(`${at}  ${m[1]} in ${color[1]}, where the ladder puts it in ${LADDER[m[1]]}`);
+    }
+    if (r.file === 'otter.css' && /\.otter-study\b/.test(chain) && /(^|[\s>+~])(h[1-6]|strong|b|em|i|p|li|a|code|th|td|blockquote)\b/.test(r.sel)
+      && decls(r.body).some(([p]) => /color/.test(p))) bad.push(`${at}  colours the reading surface from the page`);
+  }
+  return bad;
+}
+/** The lesson branch renders no inline style and no utility class: its look
+ *  is the two sheets'. A `style={{ maxWidth: '66ch' }}`, a `max-w-prose` or a
+ *  `style={{ '--measure-body': '66ch' }}` on an element of the page beat every
+ *  rule the sweeps read (A3 review round 2). The one inline style is the
+ *  highlighter's theme, which is data; `{className}` is react-markdown's own
+ *  passthrough on `<code>`. */
+const TAG_OPEN = /<([A-Z][\w.]*|[a-z][\w-]*)(?=[\s/>])/g;
+function branchViolations(slice) {
+  const bad = [];
+  for (const m of slice.matchAll(/(?<![\w-])style=\{/g)) {
+    let tag = null;
+    for (const t of slice.slice(0, m.index).matchAll(TAG_OPEN)) tag = t[1];
+    if (tag !== 'SyntaxHighlighter') bad.push(`an inline style on <${tag}>`);
+  }
+  for (const m of slice.matchAll(/(?<![\w-])className=(\{[^}]*\}|"[^"]*"|'[^']*')/g)) {
+    if (m[1] === '{className}') continue;
+    if (!m[1].startsWith('"')) { bad.push(`className=${m[1]} is not a literal`); continue; }
+    for (const c of m[1].slice(1, -1).split(/\s+/)) if (c && !/^(otter|lesson)-/.test(c)) bad.push(`class "${c}" is not one of the page's own`);
+  }
+  return bad;
 }
 
 /**
@@ -709,55 +819,192 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        that uses it, so the same 45ch was 418px on a paragraph, 492px on a
        heading and 615px on the lesson title (measured, round 1). Every edge
        reads `--measure-body-len` — the token resolved once, at the Body step,
-       into a registered length — and the frame's rules are swept too. */
-    const bad = measureViolations([...lessonRules(), ...otterLessonRules(), ...otterFrameRules()]);
+       into a registered length.
+       Round two read the rules by brace-walking, not by regex: a min-width
+       beating the length, a `box-sizing` taking the insets out of it, a
+       `nowrap`, an attribute-spelled selector and a rule wrapped in `@media`
+       all went round the first reading. */
+    const bad = measureViolations(pageRules());
     expect(bad, `a second measure on the lesson surface:\n${bad.join('\n')}`).toEqual([]);
     expect(LESSON_PAGE_CLASSES, 'the lesson branch of renderStudyView was not found, or names none of its own classes')
-      .toEqual(expect.arrayContaining(['otter-study', 'otter-study-page', 'otter-crumbs', 'otter-lesson-title', 'otter-lesson-card', 'otter-lesson-foot']));
-    expect(otterFrameRules().map((r) => r.slice(0, r.indexOf('{')).trim()),
-      'the frame sweep reads the page, the title, the cards and the foot row')
-      .toEqual(expect.arrayContaining(['.otter-study-page', '.otter-lesson-title', '.otter-lesson-card', '.otter-lesson-foot']));
-    // …and each part of the frame DECLARES the length. The judge above passes
-    // a part with no max-width at all, and that is how the breadcrumb ran
-    // 212px past the prose after round one (review round 2).
-    for (const cls of ['otter-crumbs', 'otter-lesson-title', 'otter-lesson-card', 'otter-lesson-foot']) {
-      expect(LESSON_PAGE_CLASSES, `.${cls} is no longer on the lesson page: update this list`).toContain(cls);
-      expect(otterFrameRules().some((r) => r.startsWith(`.${cls}`) && /(?<![-\w])max-width\s*:\s*var\(--measure-body-len\)\s*[;}]/.test(r)),
-        `.${cls} does not stop on the prose's edge`).toBe(true);
+      .toEqual(expect.arrayContaining(['otter-study', 'otter-study-page', 'otter-crumbs', 'otter-lesson-title', 'otter-lesson-card', 'otter-lesson-foot', 'lesson-content']));
+    expect(pageRules().map((r) => r.sel), 'the sweep reads the page, the title, the cards and the foot row')
+      .toEqual(expect.arrayContaining(['.otter-study-page', '.otter-lesson-title', '.ui-card.otter-lesson-card', '.otter-lesson-foot']));
+    // Registered ONCE, at the top level, each descriptor once: unregistered,
+    // or registered twice, or inside an `@supports` / `@media`, the property
+    // holds the TOKENS `45ch` and every element resolves them in its own font
+    // again (round two: all six of those went round a regex over the block).
+    const regs = CSS_FILES.flatMap((f) => allRules(readFileSync(f, 'utf8'))
+      .filter((r) => /^@property\s+--measure-body-len$/.test(r.sel)).map((r) => ({ ...r, file: f })));
+    expect(regs.map((r) => r.file), '--measure-body-len is registered once, in index.css').toEqual(['src/index.css']);
+    expect(regs[0].parents, 'the registration sits at the top level').toEqual([]);
+    const seen = {};
+    for (const [p, v] of decls(regs[0].body)) {
+      expect(seen[p], `the descriptor ${p} is given twice`).toBeUndefined();
+      seen[p] = v;
     }
-    // Registered: unregistered, the property holds the TOKENS `45ch` and every
-    // element that reads it resolves them in its own font again.
-    const index = readFileSync('src/index.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ');
-    const reg = index.match(/@property\s+--measure-body-len\s*\{([^}]*)\}/);
-    expect(reg, '--measure-body-len is not registered, so it is not a length').not.toBeNull();
-    expect(reg[1]).toMatch(/syntax\s*:\s*(['"])<length>\s*\|\s*none\1/);
-    expect(reg[1]).toMatch(/inherits\s*:\s*true/);
-    expect(reg[1], 'unset, it must cap nothing rather than collapse to 0').toMatch(/initial-value\s*:\s*none/);
-    const decls = ['src/index.css', 'src/tools/otter_v0.3.1/otter.css'].map((f) => lenDeclarations(readFileSync(f, 'utf8')));
-    expect(decls.flatMap((d) => d.bad), 'a --measure-body-len declaration that is not the token at the Body step').toEqual([]);
-    expect(decls.map((d) => d.where), 'declared on the lesson block and the lesson page, and nowhere else')
+    expect(seen.syntax?.replace(/"/g, "'").replace(/\s+/g, ' ')).toBe("'<length> | none'");
+    expect(seen.inherits).toBe('true');
+    expect(seen['initial-value'], 'unset, it must cap nothing rather than collapse to 0').toBe('none');
+    const lenDecls = PAGE_FILES.map((f) => lenDeclarations(readFileSync(f, 'utf8')));
+    expect(lenDecls.flatMap((d) => d.bad), 'a --measure-body-len declaration that is not the token at the Body step').toEqual([]);
+    expect(lenDecls.map((d) => d.where), 'declared on the lesson block and the lesson page, and nowhere else')
       .toEqual([['.lesson-content'], ['.otter-study-page']]);
-    // CONTROL: both judges fire on what they forbid.
-    expect(measureViolations(extractRules(`
+    const defs = PAGE_FILES
+      .map((f) => (readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').match(/--measure-body\s*:/g) || []).length);
+    expect(defs, '--measure-body is declared once, in @theme, and nowhere else').toEqual([1, 0]);
+    // CONTROL, through the REAL pipeline (pageRules -> measureViolations):
+    // nine planted violations, one apiece, and four clean rules.
+    const planted = measureViolations(pageRules({ 'planted.css': `
       .otter-lesson-title { max-width: var(--measure-body); }
       .otter-lesson-foot { max-width: 45ch; }
       .otter-lesson-steps { width: 45ch; }
       .otter-takeaways { inline-size: calc(var(--measure-body) - 8px); }
+      [class~='otter-lesson-title'] { max-width: none; }
+      .lesson-content h2 { min-width: 100%; }
+      .lesson-content ul { box-sizing: content-box; }
+      .otter-lesson-title { white-space: nowrap; }
+      @media print { .otter-lesson-card { & { max-width: 66ch; } } }
       .otter-study-page { max-width: var(--width-reading); }
       .lesson-content h2 { max-width: var(--measure-body-len); }
       .otter-card-icon { width: var(--icon-md); }
-      .lesson-content table { width: 100%; }
-    `, /\.(?:otter|lesson)-[\w-]+[^{};]*\{/g))).toHaveLength(4);
+      .otter-crumbs { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    ` }));
+    expect(planted, planted.join('\n')).toHaveLength(9);
     expect(lenDeclarations(`
       .otter-lesson-card { --measure-body-len: var(--measure-body); }
       .lesson-content { font-size: var(--text-h2); --measure-body-len: var(--measure-body); }
       .otter-study-page { font-size: var(--text-body); --measure-body-len: 45ch; }
       .otter-ok { font-size: var(--text-body); --measure-body-len: var(--measure-body); }
-      .otter-nested { font-size: var(--text-body); --measure-body-len: var(--measure-body); & { color: inherit; } }
+      .otter-nested { font-size: var(--text-body); & { --measure-body-len: var(--measure-body); } }
     `).bad).toHaveLength(4);
-    const defs = ['src/index.css', 'src/tools/otter_v0.3.1/otter.css']
-      .map((f) => (readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').match(/--measure-body\s*:/g) || []).length);
-    expect(defs, '--measure-body is declared once, in @theme, and nowhere else').toEqual([1, 0]);
+  });
+
+  it('every edge DECLARES the length, and the page is the centred reading container (A3 review round 2)', () => {
+    /* The judge above passes an edge with no width at all. Deleting a width
+       is the commonest way to lose one: the breadcrumb ran 212px past the
+       prose after round one, and round two deleted the title's, a card's and
+       the foot row's, narrowed the prose rule to `:is(p, ul, ol,
+       blockquote)`, and capped only `p:first-child`, all green. So each is
+       REQUIRED, unconditionally (at the sheet's top level or in its one
+       layer), and the prose rule's members must be bare element names. */
+    const bad = [];
+    const measured = new Set();
+    for (const r of allRules(readFileSync('src/index.css', 'utf8'))) {
+      if (r.parents.length || !/^\.lesson-content\b/.test(r.sel)) continue;
+      if (!decls(r.body).some(([p, v]) => p === 'max-width' && v === 'var(--measure-body-len)')) continue;
+      for (const one of splitTop(r.sel)) {
+        const m = one.match(/^\.lesson-content\s+(?::is\(([^)]*)\)|([a-z][a-z0-9]*))$/);
+        if (!m) { bad.push(`the measure's selector is not a list of elements: ${one}`); continue; }
+        for (const t of m[1] ? splitTop(m[1]) : [m[2]]) {
+          if (/^[a-z][a-z0-9]*$/.test(t)) measured.add(t); else bad.push(`the measure reaches ${t} only conditionally`);
+        }
+      }
+    }
+    for (const t of ['h1', 'h2', 'h3', 'p', 'ul', 'ol', 'blockquote']) if (!measured.has(t)) bad.push(`.lesson-content ${t} carries no measure`);
+    const oc = allRules(readFileSync(OTTER_CSS, 'utf8')).filter((r) => r.parents.every((p) => /^@layer\b/.test(p)));
+    const has = (sel, prop, value) => oc.some((r) => splitTop(r.sel).includes(sel)
+      && decls(r.body).some(([p, v]) => p === prop && (value instanceof RegExp ? value.test(v) : v === value)));
+    for (const sel of ['.otter-crumbs', '.otter-lesson-title', '.ui-card.otter-lesson-card', '.otter-lesson-foot']) {
+      expect(LESSON_PAGE_CLASSES, `${sel} is no longer on the lesson page: update this list`).toContain(sel.split('.').pop());
+      if (!has(sel, 'max-width', 'var(--measure-body-len)')) bad.push(`${sel} does not stop on the prose's edge`);
+    }
+    if (!has('.otter-study-page', 'max-width', 'var(--width-reading)')) bad.push('.otter-study-page is not the reading container');
+    if (!has('.otter-study-page', 'margin', /^0 auto$/)) bad.push('.otter-study-page is not centred like its sibling views');
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('the markdown headings keep their steps in either sheet: h1 and h2 at H2, h3 at H3 (A3, O32)', () => {
+    // A `.otter-study .lesson-content h2 { font-size: var(--text-h1) }` put a
+    // markdown heading back at the title's step, and the "same sweeps" test
+    // accepts any step token (review round 2).
+    const STEP = { h1: 'var(--text-h2)', h2: 'var(--text-h2)', h3: 'var(--text-h3)' };
+    const judge = (rules) => {
+      const bad = [], set = new Set();
+      for (const r of rules) {
+        for (const one of splitTop(r.sel)) {
+          const m = one.match(/\.lesson-content\s+(?::is\(([^)]*)\)|(h[1-6]))$/);
+          if (!m) continue;
+          for (const el of m[1] ? splitTop(m[1]) : [m[2]]) {
+            if (!STEP[el]) continue;
+            for (const [p, v] of decls(r.body)) {
+              if (p !== 'font-size') continue;
+              set.add(el);
+              if (v !== STEP[el]) bad.push(`${r.file} ${one}  font-size: ${v}`);
+            }
+          }
+        }
+      }
+      return { bad, set };
+    };
+    const { bad, set } = judge(pageRules());
+    expect(bad, bad.join('\n')).toEqual([]);
+    expect([...set].sort(), 'each heading level has its step set').toEqual(['h1', 'h2', 'h3']);
+    // CONTROL
+    expect(judge(pageRules({ 'planted.css': '.otter-study .lesson-content h2 { font-size: var(--text-h1); } .lesson-content :is(h3) { font-size: var(--text-body); }' })).bad).toHaveLength(2);
+  });
+
+  it('the rules that declare the length stay at the Body step, and nothing else sizes them (A3 review round 2)', () => {
+    /* The length is resolved in the font of the rule that declares it. A
+       later `font-size` in that rule, another rule sizing the same element,
+       or `--text-body` redefined for the lesson view each put the title, the
+       cards and the foot row on a 477px measure against the paragraph's 418
+       (review round 2). */
+    const judge = (sources, theme) => {
+      const bad = [];
+      for (const [f, src] of Object.entries(sources)) {
+        for (const r of allRules(src)) {
+          const d = decls(r.body);
+          const declares = d.some(([p]) => p === '--measure-body-len');
+          const fs = d.filter(([p]) => p === 'font-size' || p === 'font');
+          if (declares && (!fs.length || fs.at(-1)[0] !== 'font-size' || fs.at(-1)[1] !== 'var(--text-body)')) bad.push(`${f} ${r.sel}: its last font-size is not the Body step`);
+          const sizesTheElement = splitTop(r.sel).some((s) => /\.(otter-study-page|lesson-content)(\[[^\]]*\]|:[\w-]+(\([^)]*\))?)*$/.test(s));
+          if (!declares && sizesTheElement && fs.length) bad.push(`${f} ${r.sel}: sizes an element that declares the length`);
+          if (/otter\.css$|planted/.test(f)) {
+            for (const [p] of d) if (p.startsWith('--') && theme.has(p.slice(2))) bad.push(`${f} ${r.sel}: redefines @theme's ${p}`);
+          }
+        }
+      }
+      return bad;
+    };
+    const theme = themeNames(readFileSync('src/index.css', 'utf8'));
+    expect(theme.has('text-body') && theme.has('color-ink'), 'the @theme names were read').toBe(true);
+    const bad = judge(Object.fromEntries(CSS_FILES.map((f) => [f, readFileSync(f, 'utf8')])), theme);
+    expect(bad, bad.join('\n')).toEqual([]);
+    // CONTROL: round two's four survivors.
+    expect(judge({ 'planted.css': `
+      .otter-study-page { font-size: var(--text-body); --measure-body-len: var(--measure-body); font-size: var(--text-h2); }
+      .otter-study > .otter-study-page { font-size: var(--text-h2); }
+      .otter-study .lesson-content { margin-bottom: 24px; font-size: var(--text-h2); }
+      .otter-study { --text-body: 16px; }
+    ` }, theme)).toHaveLength(4);
+  });
+
+  it('the lesson branch renders no inline style and no utility class (A3 review round 2)', () => {
+    const slice = lessonBranch();
+    expect(slice.length, 'the lesson branch of renderStudyView was not found').toBeGreaterThan(2000);
+    const bad = branchViolations(slice);
+    expect(bad, bad.join('\n')).toEqual([]);
+    // CONTROL: the survivors, each through the same judge.
+    for (const s of [
+      '<h2 className="otter-lesson-title" style={{ maxWidth: \'66ch\' }}>',
+      '<h2 className="otter-lesson-title max-w-prose">',
+      '<div className="otter-study-page" style={{ \'--measure-body\': \'66ch\' }}>',
+      "<div className={'otter-lesson-steps'}>",
+      '<Button onClick={() => go(-1)} disabled={i <= 0} style={{ minWidth: 400 }}>',
+    ]) expect(branchViolations(s), s).toHaveLength(1);
+    expect(branchViolations('<SyntaxHighlighter style={LESSON_CODE_THEME} customStyle={X}><code {...props} className={className}>'), 'the highlighter and the passthrough').toEqual([]);
+  });
+
+  it('no third stylesheet styles the lesson page (A3 review round 2)', () => {
+    // A `.lesson-content :is(h1, h2, h3) { max-width: none }` in settings.css
+    // uncapped every heading, and the sweeps read two sheets (review round 2).
+    const re = new RegExp(`(?:\\.|\\[class[~*^|$]?=\\s*['"]?)(?:${LESSON_PAGE_CLASSES.join('|')})(?![\\w-])`);
+    const others = CSS_FILES.filter((f) => !PAGE_FILES.includes(f));
+    expect(others.length, 'the other registered sheets were read').toBeGreaterThan(5);
+    const bad = others.filter((f) => allRules(readFileSync(f, 'utf8')).some((r) => re.test(r.sel)));
+    expect(bad).toEqual([]);
+    expect(re.test('.lesson-content :is(h1, h2, h3)') && re.test("[class~='otter-lesson-title']"), 'CONTROL').toBe(true);
   });
 
   it("otter.css's lesson rules pass the same sweeps as index.css's (A3)", () => {
@@ -769,45 +1016,49 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
   });
 
   it('the lesson surface is on the tokens: the ink ladder, two grounds, one hairline, one radius, the 4px grid (A3)', () => {
-    /* O5 as a positive pin, not a hex count: every ink is the ladder's, every
-       ground a paper, every edge one hairline, every radius the control's,
-       every margin and padding a px step on the 4px grid. The hex row could
-       not see `rgb(251 191 36)` (the amber `strong` back) or a `thick`
-       border, a `box-shadow` edge, a 2px radius or a rem margin — all of
-       which survived A3's first guards. */
-    const lessonTokenViolations = (rules) => {
-      const bad = [];
-      for (const r of rules) {
-        const sel = r.slice(0, r.indexOf('{')).trim();
-        for (const m of r.slice(r.indexOf('{') + 1).matchAll(/(?:^|;)\s*([-\w]+)\s*:\s*([^;}]+)/g)) {
-          const prop = m[1].toLowerCase();
-          const v = m[2].trim().toLowerCase().replace(/\s*!\s*important$/, '');
-          const why =
-            prop === 'color' && !/^(var\(--color-ink(-2|-3)?\)|inherit)$/.test(v) ? 'an ink off the ladder'
-            : /^background(-color)?$/.test(prop) && !/^(var\(--color-paper-(raised|recessed)\)|transparent|none)$/.test(v) ? 'a ground off the tokens'
-            : /^border(-(top|right|bottom|left))?(-width)?$/.test(prop) && !/^(1px( solid var\(--color-(rule|ink-3)\))?|0|none)$/.test(v) ? 'not one hairline'
-            : prop === 'border-radius' && v !== 'var(--radius-control)' ? 'a radius off the two'
-            : /^(box-shadow|outline|text-shadow)$/.test(prop) ? 'a shadow or an outline'
-            : /^(margin|padding)(-(top|right|bottom|left))?$/.test(prop)
-              && !v.split(/\s+/).every((t) => t === '0' || /^\d+px$/.test(t) && parseInt(t, 10) % 4 === 0) ? 'spacing off the 4px grid'
-            : null;
-          if (why) bad.push(`${sel}  ${prop}: ${v}  (${why})`);
-        }
-      }
-      return bad;
-    };
-    const bad = lessonTokenViolations([...lessonRules(), ...otterLessonRules()]);
+    /* O5 as a positive pin, not a hex count, and by property FAMILY over every
+       rule that reaches the reading surface (tokenViolations, above). The hex
+       row could not see `rgb(251 191 36)` (the amber `strong` back) or a
+       `thick` border, a `box-shadow` edge, a 2px radius or a rem margin; round
+       two's tests review brought them back again through `border-left-color`,
+       `border-inline-start`, `margin-block`, `padding-inline-start`,
+       `border-top-left-radius`, `text-decoration-color`, `accent-color`, a text
+       fill, a gradient, an opacity, `--color-ink` redefined on the surface, a
+       nested `& strong` in otter.css, and a heading put in the third ink. */
+    const theme = themeNames(readFileSync('src/index.css', 'utf8'));
+    const bad = tokenViolations(pageRules(), theme);
     expect(bad, `the lesson surface off its tokens:\n${bad.join('\n')}`).toEqual([]);
-    // CONTROL: the same judge over the mutants that survived round one — each
-    // must be caught, one violation apiece.
-    const planted = lessonTokenViolations(extractLessonRules(`
-      .lesson-content strong { color: rgb(251 191 36); }
-      .lesson-content blockquote { border-left: thick solid var(--color-ink-3); }
-      .lesson-content h2 { box-shadow: inset 3px 0 0 var(--color-ink-3); }
-      .lesson-content pre { border-radius: 2px; }
-      .lesson-content p { margin: 0.75rem 0; }
-    `));
-    expect(planted, planted.join('\n')).toHaveLength(5);
+    // CONTROL, through the REAL pipeline: each planted rule alone, ONE
+    // violation apiece.
+    const one = {
+      '.lesson-content strong': 'color: rgb(251 191 36);',
+      '.lesson-content blockquote': 'border-left: thick solid var(--color-ink-3);',
+      '.lesson-content h2': 'box-shadow: inset 3px 0 0 var(--color-ink-3);',
+      '.lesson-content pre': 'border-radius: 2px;',
+      '.lesson-content p': 'margin: 0.75rem 0;',
+      '.lesson-content h3': 'color: var(--color-ink-3);',
+      '.lesson-content a': 'text-decoration-color: var(--color-signal);',
+      '.lesson-content li': 'accent-color: var(--color-signal);',
+      '.lesson-content h1': '-webkit-text-fill-color: var(--color-signal);',
+      '.lesson-content code': 'border-top-left-radius: 2px;',
+      '.lesson-content ul': 'padding-inline-start: 1.25rem;',
+      '.lesson-content table': 'margin-block: 0.75rem;',
+      '.lesson-content th': 'background-image: linear-gradient(red, blue);',
+      '.lesson-content td': 'opacity: 0.6;',
+      '.lesson-content em': 'border-inline-start: medium solid var(--color-ink-3);',
+      '.lesson-content ol': 'border-left-color: var(--color-signal);',
+      '.lesson-content': '--color-ink: var(--color-signal);',
+    };
+    for (const [sel, decl] of Object.entries(one)) {
+      const got = tokenViolations(pageRules({ 'index.css': `${sel} { ${decl} }` }), theme);
+      expect(got, `${sel} { ${decl} }\n${got.join('\n')}`).toHaveLength(1);
+    }
+    // A nested block in otter.css's lesson rule, and a page rule colouring the
+    // reading surface from outside it: each caught.
+    expect(tokenViolations(pageRules({ 'otter.css': '.otter-study .lesson-content { margin-bottom: 24px; & strong { color: var(--color-signal); } }' }), theme).length).toBeGreaterThan(0);
+    expect(tokenViolations(pageRules({ 'otter.css': '.otter-study-page strong { color: var(--color-signal); }' }), theme).length).toBeGreaterThan(0);
+    // …and what the surface really carries passes.
+    expect(tokenViolations(pageRules({ 'index.css': '.lesson-content a { color: var(--color-ink); text-decoration: underline; text-underline-offset: 2px; } .lesson-content strong { font-weight: 600; color: inherit; }' }), theme)).toEqual([]);
   });
 
   it('CONTROL: the whole pipeline reports a planted defect, not just the regex', () => {
@@ -991,8 +1242,11 @@ describe('surface tokens (§3.3, §3.4, C9)', () => {
     // warm screen for `#f4a261` and would make the selection invisible there.
     // A3 review round 1: the exemption was the whole of Otter.jsx, so a white
     // ground anywhere in the tool passed. It is that one ternary now.
-    const hits = sweep(WHITE_GROUND, ({ file, near }) => !(file === 'src/tools/otter_v0.3.1/Otter.jsx'
-      && /selected \? 'border-white bg-white\/20'/.test(near)));
+    // Round two: a 280-character window let `'border-stone-500 bg-white'` in the
+    // OTHER arm of the same ternary through. The exemption is the exact token.
+    const TOKEN_BEFORE = "selected ? 'border-white ";
+    const hits = sweep(WHITE_GROUND, ({ file, src, index, token }) => !(file === 'src/tools/otter_v0.3.1/Otter.jsx'
+      && token === 'bg-white/20' && src.slice(index - TOKEN_BEFORE.length, index) === TOKEN_BEFORE));
     expect(hits, `white grounds:\n${hits.join('\n')}`).toEqual([]);
   });
 
