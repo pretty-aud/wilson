@@ -52,15 +52,12 @@ export default function CourseFilterChips({ value, onChange, role, counts = {} }
             onClick={() => onChange(chip.key)}
             title={chip.hint}
             aria-pressed={active}
-            className={`px-1.5 py-0.5 rounded-control text-dense font-semibold border transition-colors ${
-              active
-                ? 'bg-orange-600 text-white border-orange-700'
-                : 'bg-stone-900 text-stone-400 border-stone-700 hover:border-stone-500 hover:text-stone-300'
-            }`}
+            className="otter-filter-chip px-1.5 py-0.5 rounded-control text-dense font-semibold border transition-colors"
+            data-active={active ? 'true' : undefined}
           >
             {chip.label}
             {count > 0 && (
-              <span className={active ? 'ml-1 text-orange-100' : 'ml-1 text-stone-600'}>{count}</span>
+              <span className="otter-filter-chip-count ml-1">{count}</span>
             )}
           </button>
         )

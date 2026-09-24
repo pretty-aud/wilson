@@ -317,4 +317,28 @@
     background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
   }
 
+  /* ═══ EXTRACTION — THE FILTER CHIPS (components/CourseFilterChips.jsx) ══
+     A chip, two branches:
+       active   white on orange-600, an orange-700 edge; count orange-100
+       default  stone-400 on stone-900, a stone-700 edge; stone-300 text and
+                a stone-500 edge on hover; count stone-600 */
+  .otter-filter-chip {
+    color: oklch(70.9% 0.01 56.259);                        /* text-stone-400 */
+    background-color: oklch(21.6% 0.006 56.043);            /* bg-stone-900 */
+    border-color: oklch(37.4% 0.01 67.558);                 /* border-stone-700 */
+  }
+  .otter-filter-chip:not([data-active='true']):hover {
+    color: oklch(86.9% 0.005 56.366);                       /* hover:text-stone-300 */
+    border-color: oklch(55.3% 0.013 58.071);                /* hover:border-stone-500 */
+  }
+  .otter-filter-chip[data-active='true'] {
+    color: white;                                           /* text-white */
+    background-color: oklch(64.6% 0.222 41.116);            /* bg-orange-600 */
+    border-color: oklch(55.3% 0.195 38.402);                /* border-orange-700 */
+  }
+  .otter-filter-chip-count { color: oklch(44.4% 0.011 73.639); } /* text-stone-600 */
+  .otter-filter-chip[data-active='true'] .otter-filter-chip-count {
+    color: oklch(95.4% 0.038 75.164);                       /* text-orange-100 */
+  }
+
 }
