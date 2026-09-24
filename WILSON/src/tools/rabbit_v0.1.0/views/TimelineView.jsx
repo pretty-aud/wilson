@@ -5016,7 +5016,12 @@ function DetailZoomToolbar({
     ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
   ].map(({ id, icon: Icon, title }) => ({ id, title, label: <Icon className="w-3.5 h-3.5" aria-hidden="true" /> }))
   return (
+    /* `wrap` (B3c): the kit's second line for a window narrower than the
+       bar. Its two groups are 1007px, so at the 1024px the window allows
+       the create buttons overprinted the sort pair by 31px (measured); at
+       1280 and up it is one line at the same 44px, unchanged. */
     <Toolbar
+      wrap
       right={
         <>
           {groupBy === 'phase' && (
