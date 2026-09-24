@@ -122,6 +122,16 @@ describe('Dialog', () => {
     expect(screen.getByRole('dialog', { name: 'Legacy' }).dataset.width).toBe('bins')
   })
 
+  it("a node title keeps the caller's aria-label; a string title still names the dialog (A4-KR-1)", () => {
+    // O.T.T.E.R.'s search is a Dialog whose title is the search field. The
+    // name came out undefined: the prop after the spread overwrote it.
+    render(<Dialog title={<input aria-label="Query" />} aria-label="Search" onClose={() => {}}>x</Dialog>)
+    expect(screen.getByRole('dialog', { name: 'Search' })).toBeTruthy()
+    cleanup()
+    render(<Dialog title="Titled" aria-label="Ignored" onClose={() => {}}>x</Dialog>)
+    expect(screen.getByRole('dialog', { name: 'Titled' })).toBeTruthy()
+  })
+
   it('accepts a legacy numeric width for Bins, and reports an unknown named one', () => {
     render(<Dialog title="Legacy" width={640} onClose={() => {}}>x</Dialog>)
     expect(screen.getByRole('dialog', { name: 'Legacy' }).style.width).toBe('640px')
