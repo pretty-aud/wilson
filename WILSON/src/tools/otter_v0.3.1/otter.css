@@ -249,28 +249,6 @@
     background-color: oklch(37.4% 0.01 67.558);             /* hover:bg-stone-700 */
   }
 
-  /* ═══ EXTRACTION — THE ORIGIN BADGE (components/CourseBadges.jsx) ══════
-     VisibilityBadge drew one of five origins from an inline-style map, each
-     a fill, an ink and an edge; now `data-origin` on the badge (and on the
-     compact, icon-only form, whose ink the icon inherits as currentColor).
-     The map's hexes are written here as rgb() — the page-sheet guard
-     forbids a hex outside @theme, and this half is transcription, deleted
-     by the restyle like the oklch literals above it.
-       personal, own     the grey, own a shade quieter
-       shared            sky
-       from_someone      violet
-       company_standard  orange */
-  .otter-origin-badge[data-origin='personal'] { background: rgba(120,113,108,0.25); color: rgb(168 162 158); border: 1px solid rgba(120,113,108,0.5); }
-  .otter-origin-badge[data-origin='own'] { background: rgba(120,113,108,0.20); color: rgb(168 162 158); border: 1px solid rgba(120,113,108,0.45); }
-  .otter-origin-badge[data-origin='shared'] { background: rgba(56,189,248,0.15); color: rgb(125 211 252); border: 1px solid rgba(56,189,248,0.35); }
-  .otter-origin-badge[data-origin='from_someone'] { background: rgba(167,139,250,0.16); color: rgb(196 181 253); border: 1px solid rgba(167,139,250,0.38); }
-  .otter-origin-badge[data-origin='company_standard'] { background: rgba(234,88,12,0.18); color: rgb(253 186 116); border: 1px solid rgba(234,88,12,0.45); }
-  .otter-origin-icon[data-origin='personal'],
-  .otter-origin-icon[data-origin='own'] { color: rgb(168 162 158); }
-  .otter-origin-icon[data-origin='shared'] { color: rgb(125 211 252); }
-  .otter-origin-icon[data-origin='from_someone'] { color: rgb(196 181 253); }
-  .otter-origin-icon[data-origin='company_standard'] { color: rgb(253 186 116); }
-
   /* ═══════════════════════════════════════════════════════════════════════
      THE RESTYLE (A3). Tokens and the kit only: no hex, no palette literal.
      ═══════════════════════════════════════════════════════════════════════ */
@@ -495,6 +473,29 @@
     transition: color var(--duration-state) ease-out;
   }
   .otter-rail:hover .otter-rail-icon { color: var(--color-ink); }
+
+  /* ═══ THE COURSE BADGES (CourseBadges.jsx) — the kit's Badge ══════════
+     Origin (Standard, Shared by you, From <name>, Yours), Private and Read
+     only are all the kit's Badge: the Label step, ink-2, one hairline, no
+     fill. An origin is told apart by its icon and its word. Two local rules:
+     a long "From <name>" ellipsizes inside 160px as it always did, and
+     Private keeps its DASHED edge, the one mark that says "you can see that
+     this exists, not what is in it". The compact origin (the sidebar's icon)
+     takes the third ink at the dense icon size. */
+  .ui-badge.otter-origin-badge { max-width: 160px; flex-shrink: 0; }
+  .otter-badge-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ui-badge.otter-private-badge { border-style: dashed; }
+  .otter-origin-icon { display: inline-flex; flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-origin-icon > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .otter-owner {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .otter-course-row, .otter-subject-row, .otter-subject-row .otter-subject-delete,

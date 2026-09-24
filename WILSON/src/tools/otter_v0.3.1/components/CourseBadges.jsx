@@ -17,6 +17,7 @@
 
 import { Users, ShieldCheck, Lock, EyeOff, PenLine, Share2, User } from 'lucide-react'
 import { visibilityMeta } from './otterSharing.js'
+import { Badge } from '../../../ui'
 
 // 🚨 PROVENANCE, NOT JUST TIER (Audrey, 2026-08-12: "make sure to indicate
 // visually when a course is company shared, your own and if its shared directly
@@ -34,8 +35,10 @@ import { visibilityMeta } from './otterSharing.js'
 // with three origins it left "yours" as the only unlabelled state, i.e. the one
 // you identify by ELIMINATION. "Yours" is therefore drawn, but quietest of the
 // four — grey, no colour — so the coloured ones still carry the emphasis.
-// A3 (2026-09-24): the per-origin colours moved to otter.css, keyed on
-// `data-origin`; the icon is the one part of an origin that is not a colour.
+// A3 (2026-09-24): every origin is the kit's Badge — one ink, one hairline —
+// and told apart by its ICON and its word, which survive greyscale. The
+// colours they had (a grey, sky, violet, orange) were four hues for one badge
+// shape, two of them the cool hues the visual language rules out.
 const ORIGIN_ICON = {
   personal:         Lock,
   own:              User,
@@ -93,21 +96,16 @@ export function VisibilityBadge({ course, visibility, showPersonal = false, comp
 
   if (compact) {
     return (
-      <span title={hint} aria-label={label} className="otter-origin-icon shrink-0 inline-flex" data-origin={origin}>
-        <Icon className="w-3 h-3" />
+      <span title={hint} aria-label={label} className="otter-origin-icon" data-origin={origin}>
+        <Icon aria-hidden="true" />
       </span>
     )
   }
 
   return (
-    <span
-      className="otter-origin-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded-control text-label font-semibold uppercase shrink-0 max-w-[160px]"
-      data-origin={origin}
-      title={hint}
-    >
-      <Icon className="w-2.5 h-2.5 shrink-0" />
-      <span className="truncate">{label}</span>
-    </span>
+    <Badge Icon={Icon} title={hint} className="otter-origin-badge" data-origin={origin}>
+      <span className="otter-badge-label">{label}</span>
+    </Badge>
   )
 }
 
@@ -124,7 +122,7 @@ export function OwnerBadge({ course }) {
   // otherwise says whose work it is.
   if (course.visibility === 'shared') return null
   return (
-    <span className="text-dense text-stone-500 truncate" title={`Made by ${course.owner_label}`}>
+    <span className="otter-owner" title={`Made by ${course.owner_label}`}>
       by {course.owner_label}
     </span>
   )
@@ -137,14 +135,13 @@ export function OwnerBadge({ course }) {
 export function MetadataOnlyBadge({ course }) {
   if (!course || course.can_read_content !== false) return null
   return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-control text-label font-semibold uppercase shrink-0"
-      style={{ background: 'rgba(120,113,108,0.2)', color: '#a8a29e', border: '1px dashed rgba(120,113,108,0.6)' }}
+    <Badge
+      Icon={EyeOff}
+      className="otter-private-badge"
       title="You can see that this course exists. Its contents stay private to its owner."
     >
-      <EyeOff className="w-2.5 h-2.5" />
       Private
-    </span>
+    </Badge>
   )
 }
 
@@ -157,13 +154,11 @@ export function MetadataOnlyBadge({ course }) {
 export function ReadOnlyBadge({ course }) {
   if (!course || course.can_write !== false || course.can_read_content === false) return null
   return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-control text-label font-semibold uppercase shrink-0"
-      style={{ background: 'rgba(120,113,108,0.2)', color: '#a8a29e', border: '1px solid rgba(120,113,108,0.5)' }}
+    <Badge
+      Icon={PenLine}
       title="You can study this course. Only its owner, an admin, or someone they have given edit access can change it."
     >
-      <PenLine className="w-2.5 h-2.5" />
       Read only
-    </span>
+    </Badge>
   )
 }
