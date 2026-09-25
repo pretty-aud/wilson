@@ -2484,21 +2484,18 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     }
   });
 
-  it('CONTROL: rabbitTimeline.css is scanned with no exemption — a hex written into it is caught', async () => {
-    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const dir = mkdtempSync(join(tmpdir(), 'b3d-hex-'));
-    try {
-      // The sheet as it is, plus one hex: the row finds that one and no other.
-      const mutant = join(dir, 'rabbitTimeline.css');
-      writeFileSync(mutant, `${readFileSync(TIMELINE_SHEET, 'utf8')}\n@layer components { .rb-tl-x { color: #fb923c; } }\n`);
-      expect(cssCounts([mutant]).find((r) => r.label === 'hex colour outside @theme').hits).toBe(1);
-      // …and the assertion above keeps a hit on the real path: nothing excuses the sheet.
-      expect(pageSheetHits({ inFiles: [[TIMELINE_SHEET, [[1, '#fb923c']]]] })).toHaveLength(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('CONTROL: rabbitTimeline.css is scanned with no exemption — a hex written into it is caught on its real path', () => {
+    // The sheet as it is plus one hex, fed through its REAL path (cssCounts'
+    // reader), so an exemption keyed on the path would show here; a mutant in
+    // a temporary file could not (B3d review round 1).
+    const plusHex = (f) => `${readFileSync(f, 'utf8')}\n@layer components { .rb-tl-x { color: #fb923c; } }\n`;
+    const hex = (read) => cssCounts([TIMELINE_SHEET], read).find((r) => r.label === 'hex colour outside @theme');
+    expect(hex(plusHex).hits).toBe(1);
+    expect(pageSheetHits(hex(plusHex))).toEqual([
+      expect.stringMatching(/^src\/tools\/rabbit_v0\.1\.0\/views\/rabbitTimeline\.css:\d+ {2}#fb923c$/),
+    ]);
+    // …and read as it is, the sheet has none.
+    expect(hex(undefined).hits).toBe(0);
   });
 
   /* 🚨 The 2px borders are NOT a defect row and are not asserted to zero.

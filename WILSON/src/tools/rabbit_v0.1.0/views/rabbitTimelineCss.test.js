@@ -509,37 +509,101 @@ const PANEL = between(source.timeline, 'export function SettingsPanel(', 'export
 const PANEL_CODE = normal(jsCode(PANEL))
 const HOLIDAYS = between(source.timeline, 'function HolidaysEditor(', 'const SETTINGS_PANEL_ID')
 const SETTINGS_TAB = between(PANEL, "settingsTab === 'settings' &&", "settingsTab === 'prompts' &&")
-/** The controls of a slice — the kit's, and the project-type checkbox — that
-    do not carry the lock as `disabled`. */
-const CONTROL_TAGS = new Set(['Switch', 'Button', 'IconButton', 'Input', 'TextArea'])
+const PROMPTS_TAB = between(PANEL, "settingsTab === 'prompts' &&", '</Drawer>')
+/** Every control of a slice — any button, input, select or textarea, native
+    or the kit's — that does not carry the lock as `disabled`. Two named
+    exceptions: the hidden file input (the locked Import button opens it) and
+    a prompt section's head, which opens and closes while locked, as it did. */
+const KIT_CONTROLS = new Set(['Switch', 'Button', 'IconButton', 'Input', 'TextArea', 'Select'])
+const NATIVE_CONTROLS = new Set(['button', 'input', 'select', 'textarea'])
 const unlocked = (src, lock) => elementsOf(src)
-  .filter((e) => CONTROL_TAGS.has(e.tag) || (e.tag === 'button' && /\srole="checkbox"/.test(e.attrs)))
+  .filter((e) => KIT_CONTROLS.has(e.tag) || NATIVE_CONTROLS.has(e.tag))
+  .filter((e) => !(e.tag === 'input' && /\stype="file"/.test(e.attrs)))
+  .filter((e) => !e.classes.includes('rb-tl-prompt-head'))
   .filter((e) => !new RegExp(`\\sdisabled=\\{${lock}\\}`).test(e.attrs))
   .map((e) => e.attrs.slice(0, 60))
+/** The props of the one <Drawer> in a slice, read off its opening tag in any order. */
+const drawerProps = (src) => {
+  const d = elementsOf(src).filter((e) => e.tag === 'Drawer')
+  if (d.length !== 1) throw new Error(`expected one <Drawer>, found ${d.length}`)
+  const a = d[0].attrs
+  const has = (p) => new RegExp(`\\s${p}(?=[\\s/>])`).test(a) || new RegExp(`\\s${p}=\\{true\\}`).test(a)
+  return { open: has('open'), backdrop: has('backdrop'), onClose: /\sonClose=\{onClose\}/.test(a) }
+}
+/** A title bar measured by hand, a scrim of its own, or a fixed box. */
+const HAND_ROLLED_CHROME = /electronAPI|wilsonSession|electron-app|padding-?top|paddingTop|\bfixed\b|\binset-|\b(?:top|right|bottom|left)-0\b|slideInRight/i
+/** Selectors that land on the drawer itself and set what would move it off
+    the title bar's offset (`top: var(--titlebar-offset)` is the kit's). */
+const OFFSET_PROP = /(?:^|[;{\s])(?:top|inset|inset-block(?:-start)?|margin(?:-top|-block(?:-start)?)?|padding(?:-top|-block(?:-start)?)?|transform|translate)\s*:/
+const offsetFights = (css) => rulesOf(css).flatMap(({ sel, body }) => (OFFSET_PROP.test(body)
+  ? selectorsOf(sel).filter((s) => /\.rb-tl-settings(?![\w-])/.test(lastCompound(s)))
+  : []))
+/** Every rule keyed on a lock that dims by opacity or a filter. */
+const opacityLocks = (css) => rulesOf(css)
+  .filter(({ sel, body }) => /\[data-locked=/.test(sel) && /(?:^|[;{\s])(?:opacity|filter)\s*:/.test(body))
+  .map(({ sel }) => sel)
 
 describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lock disables, the manager sits beside', () => {
-  it('it is the kit Drawer with its backdrop, and nothing in it measures the title bar or paints a scrim of its own (TL-24)', () => {
-    expect(PANEL_CODE).toMatch(/<Drawer\s+open\s+onClose=\{onClose\}\s+backdrop\s/)
-    expect(PANEL_CODE).not.toMatch(/electronAPI|paddingTop|inset-0|slideInRight/)
+  it('it is the kit Drawer, open, with its backdrop and onClose (TL-24)', () => {
+    expect(drawerProps(PANEL)).toEqual({ open: true, backdrop: true, onClose: true })
     // …and the Drawer reads the one token: 0 in a browser, 32px under Electron.
     expect(cssCode(indexCss)).toMatch(/\.ui-drawer\s*\{[^}]*top:\s*var\(--titlebar-offset\)/)
   })
-  it('TaskTemplateManager renders BESIDE the drawer, never inside it: the kit Dialog does not portal (B3c trap 4)', () => {
+  it('nothing in the panel measures the title bar, paints a scrim or fixes a box of its own; no rule moves the drawer off the offset', () => {
+    expect(PANEL_CODE).not.toMatch(HAND_ROLLED_CHROME)
+    expect(normal(jsCode(HOLIDAYS))).not.toMatch(HAND_ROLLED_CHROME)
+    expect(offsetFights(sheet)).toEqual([])
+  })
+  it('TaskTemplateManager renders BESIDE the drawer, after it closes: the kit Dialog does not portal (B3c trap 4)', () => {
     expect(PANEL_CODE.indexOf('</Drawer>')).toBeGreaterThan(-1)
     expect(PANEL_CODE.indexOf('<TaskTemplateManager')).toBeGreaterThan(PANEL_CODE.indexOf('</Drawer>'))
   })
-  it('every control on the Settings tab carries its lock as `disabled`, and no section draws a lock as an opacity', () => {
-    // The tab was opacity 60% with pointer-events off: 80 lines under 4.5:1
-    // in the walk, and a keyboard still reached (and changed) every control.
+  it('every control on both tabs carries its lock as `disabled`; no rule dims a lock by opacity or a filter', () => {
+    // The Settings tab was opacity 60% with pointer-events off: 80 lines
+    // under 4.5:1 in the walk, and a keyboard reached every control.
     expect(unlocked(SETTINGS_TAB, 'toolsLocked')).toEqual([])
     expect(unlocked(HOLIDAYS, 'locked')).toEqual([])
+    expect(unlocked(PROMPTS_TAB, 'promptsLocked')).toEqual([])
     expect(normal(jsCode(SETTINGS_TAB))).toMatch(/<HolidaysEditor[^>]*\slocked=\{toolsLocked\}/)
-    expect(cssCode(sectionsOf(sheet).find((s) => /SettingsPanel/.test(s.banner)).body)).not.toMatch(/opacity/)
+    expect(opacityLocks(sheet)).toEqual([])
   })
-  it('CONTROL: a control without its lock is named, a plain button is not a control here, and a missing marker throws', () => {
+  it('every section of the sheet is on tokens now: the whole sheet writes no colour literal', () => {
+    expect(sectionsOf(sheet).every((s) => /stage 2/i.test(s.banner))).toBe(true)
+    expect(colourLiterals(sheet)).toEqual([])
+  })
+  it('the three fields keep Escape (the drawer must not close under an unsaved draft) and are native in the kit\'s ui-input', () => {
+    const fields = [...elementsOf(HOLIDAYS), ...elementsOf(PROMPTS_TAB)]
+      .filter((e) => ['input', 'textarea'].includes(e.tag) && !/\stype="file"/.test(e.attrs))
+    expect(fields).toHaveLength(3)
+    for (const f of fields) {
+      expect(f.attrs, f.attrs.slice(0, 60)).toMatch(/\sonKeyDown=\{keepEscape\}/)
+      expect(f.classes).toContain('ui-input')
+    }
+    expect(normal(jsCode(source.timeline))).toMatch(/const keepEscape = \(e\) => \{ if \(e\.key === 'Escape'\) e\.preventDefault\(\) \}/)
+  })
+  it('CONTROL: each helper fires on the shape it names and passes the real one', () => {
+    // unlocked: a kit or a native control without its lock is named; the file input and a prompt head are not.
     expect(unlocked('const A = () => <div><Button onClick={go}>Add</Button><Switch disabled={locked} /></div>', 'locked')).toHaveLength(1)
-    expect(unlocked('const A = () => <button type="button" role="checkbox" onClick={go} />', 'locked')).toHaveLength(1)
-    expect(unlocked('const A = () => <button type="button" onClick={go} />', 'locked')).toEqual([])
+    expect(unlocked('const A = () => <button type="button" onClick={go} />', 'locked')).toHaveLength(1)
+    expect(unlocked('const A = () => <button type="button" role={\'checkbox\'} onClick={go} />', 'locked')).toHaveLength(1)
+    expect(unlocked('const A = () => <div><input type="file" className="hidden" /><button className="rb-tl-prompt-head" /></div>', 'locked')).toEqual([])
+    // drawerProps: any order; a false backdrop is no backdrop; two drawers throw.
+    expect(drawerProps('const A = () => <Drawer backdrop open onClose={onClose}>x</Drawer>')).toEqual({ open: true, backdrop: true, onClose: true })
+    expect(drawerProps('const A = () => <Drawer open onClose={onClose} backdrop={false}>x</Drawer>').backdrop).toBe(false)
+    expect(() => drawerProps('const A = () => <div><Drawer open /><Drawer open /></div>')).toThrow()
+    // HAND_ROLLED_CHROME: the spellings round one found.
+    for (const s of ['{window.wilsonSession && <div style={{ height: 32 }} />}', "style={{ 'padding-top': 32 }}",
+      'className="fixed top-0 right-0 bottom-0 left-0"', 'className="inset-x-0 inset-y-0 bg-backdrop"']) {
+      expect(s).toMatch(HAND_ROLLED_CHROME)
+    }
+    // offsetFights: on the drawer itself only.
+    expect(offsetFights('.rb-tl-settings { top: 0 }')).toHaveLength(1)
+    expect(offsetFights('aside.ui-drawer.rb-tl-settings { padding-top: 32px }')).toHaveLength(1)
+    expect(offsetFights('.rb-tl-settings .ui-drawer-body { padding: 0 }')).toEqual([])
+    // opacityLocks: an opacity or a filter under a lock, anywhere.
+    expect(opacityLocks('.rb-tl-x[data-locked="true"] { opacity: 60% }')).toHaveLength(1)
+    expect(opacityLocks('.rb-tl-y[data-locked="true"] .z { filter: brightness(60%) }')).toHaveLength(1)
+    expect(opacityLocks('.rb-tl-x[data-locked="true"] { color: var(--color-ink-3) }')).toEqual([])
     expect(() => between('abc', 'x', 'c')).toThrow()
   })
 })

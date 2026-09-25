@@ -193,10 +193,9 @@ export const CSS_FILES = [
   // scores 0 on every row (otterCss.test.js holds it there).
   'src/tools/otter_v0.3.1/otter.css',
   // B3, 2026-09-24 — the Timeline's extracted state (TimelineView and
-  // EditHistoryDrawer). Added in its STAGE 1 commit, not its last-hex one:
-  // it transcribes the shipped hexes on purpose until the restyle tokenises
-  // them, so the hex row lists them as B3's stage-2 work (typeScale.test.js
-  // exempts this one file from the no-hex assertion until then).
+  // EditHistoryDrawer). Added in its STAGE 1 commit, when it transcribed the
+  // shipped hexes on purpose; B3b–B3d tokenised every one, and since B3d
+  // (2026-09-25) typeScale.test.js holds it to no hex like every page sheet.
   'src/tools/rabbit_v0.1.0/views/rabbitTimeline.css',
 ];
 
@@ -379,11 +378,14 @@ export const CSS_PATTERNS = [
 /** Count one CSS pattern across `files`, returning per-file hits WITH line
  *  numbers — the JSX table only needs totals, but a stylesheet finding is
  *  useless without the line, because nobody greps a 1,179-line file by eye. */
-export function cssCounts(files = CSS_FILES) {
+/* `read` is the file reader, so a test can feed a mutant through the REAL
+   path (typeScale.test.js's control): an exemption keyed on a path is then
+   caught, which a mutant written to a temporary file cannot catch. */
+export function cssCounts(files = CSS_FILES, read = (f) => readFileSync(f, 'utf8')) {
   return CSS_PATTERNS.map(([label, re, accept]) => {
     let hits = 0; const inFiles = [];
     for (const f of files) {
-      const raw = readFileSync(f, 'utf8');
+      const raw = read(f);
       const src = blankCssComments(raw);
       const theme = f.endsWith('index.css') ? themeRange(src) : null;
       const found = [];
