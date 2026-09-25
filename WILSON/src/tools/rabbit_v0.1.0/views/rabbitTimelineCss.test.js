@@ -511,41 +511,56 @@ const HOLIDAYS = between(source.timeline, 'function HolidaysEditor(', 'const SET
 const SETTINGS_TAB = between(PANEL, "settingsTab === 'settings' &&", "settingsTab === 'prompts' &&")
 const PROMPTS_TAB = between(PANEL, "settingsTab === 'prompts' &&", '</Drawer>')
 /** Every control of a slice — any button, input, select or textarea, native
-    or the kit's — that does not carry the lock as `disabled`. Two named
-    exceptions: the hidden file input (the locked Import button opens it) and
-    a prompt section's head, which opens and closes while locked, as it did. */
+    or the kit's. Two named exceptions: the hidden file input (the locked
+    Import button opens it) and a prompt section's head, which opens and
+    closes while locked, as it did. */
 const KIT_CONTROLS = new Set(['Switch', 'Button', 'IconButton', 'Input', 'TextArea', 'Select'])
 const NATIVE_CONTROLS = new Set(['button', 'input', 'select', 'textarea'])
-const unlocked = (src, lock) => elementsOf(src)
+const controlsOf = (src) => elementsOf(src)
   .filter((e) => KIT_CONTROLS.has(e.tag) || NATIVE_CONTROLS.has(e.tag))
   .filter((e) => !(e.tag === 'input' && /\stype="file"/.test(e.attrs)))
   .filter((e) => !e.classes.includes('rb-tl-prompt-head'))
-  .filter((e) => !new RegExp(`\\sdisabled=\\{${lock}\\}`).test(e.attrs))
+/** …those that do not carry the lock as their one `disabled`. */
+const unlocked = (src, lock) => controlsOf(src)
+  .filter((e) => !new RegExp(`\\sdisabled=\\{${lock}\\}`).test(e.attrs) || (e.attrs.match(/\sdisabled=/g) || []).length > 1)
   .map((e) => e.attrs.slice(0, 60))
+/** The component tags a slice renders, counted (round two: a control moved
+    into a const, or behind a wrapper component, escaped `unlocked`). */
+const componentsOf = (src) => elementsOf(src).filter((e) => /^[A-Z]/.test(e.tag))
+  .reduce((m, e) => ({ ...m, [e.tag]: (m[e.tag] || 0) + 1 }), {})
 /** The props of the one <Drawer> in a slice, read off its opening tag in any order. */
 const drawerProps = (src) => {
   const d = elementsOf(src).filter((e) => e.tag === 'Drawer')
   if (d.length !== 1) throw new Error(`expected one <Drawer>, found ${d.length}`)
   const a = d[0].attrs
   const has = (p) => new RegExp(`\\s${p}(?=[\\s/>])`).test(a) || new RegExp(`\\s${p}=\\{true\\}`).test(a)
-  return { open: has('open'), backdrop: has('backdrop'), onClose: /\sonClose=\{onClose\}/.test(a) }
+  return {
+    open: has('open'),
+    backdrop: has('backdrop'),
+    onClose: /\sonClose=\{onClose\}/.test(a),
+    // Nothing on the tag may move it: no style, no utility, the lane class alone.
+    bare: /\sclassName="rb-tl-settings"/.test(a) && !/\sstyle=/.test(a),
+  }
 }
 /** A title bar measured by hand, a scrim of its own, or a fixed box. */
 const HAND_ROLLED_CHROME = /electronAPI|wilsonSession|electron-app|padding-?top|paddingTop|\bfixed\b|\binset-|\b(?:top|right|bottom|left)-0\b|slideInRight/i
 /** Selectors that land on the drawer itself and set what would move it off
-    the title bar's offset (`top: var(--titlebar-offset)` is the kit's). */
-const OFFSET_PROP = /(?:^|[;{\s])(?:top|inset|inset-block(?:-start)?|margin(?:-top|-block(?:-start)?)?|padding(?:-top|-block(?:-start)?)?|transform|translate)\s*:/
+    the title bar's offset (`top: var(--titlebar-offset)` is the kit's), the
+    token included (round two: `--titlebar-offset: 0px` moved it 32 -> 0). */
+const OFFSET_PROP = /(?:^|[;{\s])(?:--titlebar-offset|top|inset|inset-block(?:-start)?|margin(?:-top|-block(?:-start)?)?|padding(?:-top|-block(?:-start)?)?|transform|translate)\s*:/
 const offsetFights = (css) => rulesOf(css).flatMap(({ sel, body }) => (OFFSET_PROP.test(body)
   ? selectorsOf(sel).filter((s) => /\.rb-tl-settings(?![\w-])/.test(lastCompound(s)))
   : []))
-/** Every rule keyed on a lock that dims by opacity or a filter. */
+/** Every rule keyed on a lock or on `:disabled` that dims by opacity, a
+    filter, visibility or a mix into transparent (round two's spellings). */
+const DIM = /(?:^|[;{\s])(?:opacity|filter|visibility)\s*:|color-mix\([^;]*\btransparent\b/
 const opacityLocks = (css) => rulesOf(css)
-  .filter(({ sel, body }) => /\[data-locked=/.test(sel) && /(?:^|[;{\s])(?:opacity|filter)\s*:/.test(body))
+  .filter(({ sel, body }) => /\[data-locked=|:disabled/.test(sel) && DIM.test(body))
   .map(({ sel }) => sel)
 
 describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lock disables, the manager sits beside', () => {
-  it('it is the kit Drawer, open, with its backdrop and onClose (TL-24)', () => {
-    expect(drawerProps(PANEL)).toEqual({ open: true, backdrop: true, onClose: true })
+  it('it is the kit Drawer, open, with its backdrop and onClose, and nothing on its tag moves it (TL-24)', () => {
+    expect(drawerProps(PANEL)).toEqual({ open: true, backdrop: true, onClose: true, bare: true })
     // …and the Drawer reads the one token: 0 in a browser, 32px under Electron.
     expect(cssCode(indexCss)).toMatch(/\.ui-drawer\s*\{[^}]*top:\s*var\(--titlebar-offset\)/)
   })
@@ -558,7 +573,7 @@ describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lo
     expect(PANEL_CODE.indexOf('</Drawer>')).toBeGreaterThan(-1)
     expect(PANEL_CODE.indexOf('<TaskTemplateManager')).toBeGreaterThan(PANEL_CODE.indexOf('</Drawer>'))
   })
-  it('every control on both tabs carries its lock as `disabled`; no rule dims a lock by opacity or a filter', () => {
+  it('every control on both tabs carries its lock as `disabled`; no rule dims a lock or a disabled control by opacity, filter, visibility or transparency', () => {
     // The Settings tab was opacity 60% with pointer-events off: 80 lines
     // under 4.5:1 in the walk, and a keyboard reached every control.
     expect(unlocked(SETTINGS_TAB, 'toolsLocked')).toEqual([])
@@ -566,6 +581,15 @@ describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lo
     expect(unlocked(PROMPTS_TAB, 'promptsLocked')).toEqual([])
     expect(normal(jsCode(SETTINGS_TAB))).toMatch(/<HolidaysEditor[^>]*\slocked=\{toolsLocked\}/)
     expect(opacityLocks(sheet)).toEqual([])
+  })
+  it('the panel renders the components it names, each as often as it did: every lockable control is counted, the sections are kit Cards', () => {
+    expect(componentsOf(PANEL)).toEqual({
+      Drawer: 1, SettingsIcon: 1, IconButton: 2, Tabs: 1, Toolbar: 1, Switch: 2, Lock: 1, Unlock: 1, Card: 4,
+      Button: 4, Check: 1, HolidaysEditor: 1, ChevronRight: 1, TaskTemplateManager: 1,
+    })
+    expect(componentsOf(HOLIDAYS)).toEqual({ Card: 1, Button: 3, IconButton: 1 })
+    expect([controlsOf(SETTINGS_TAB).length, controlsOf(HOLIDAYS).length, controlsOf(PROMPTS_TAB).length]).toEqual([4, 6, 3])
+    expect(normal(jsCode(PANEL + HOLIDAYS))).not.toMatch(/<section\b/)
   })
   it('every section of the sheet is on tokens now: the whole sheet writes no colour literal', () => {
     expect(sectionsOf(sheet).every((s) => /stage 2/i.test(s.banner))).toBe(true)
@@ -582,27 +606,37 @@ describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lo
     expect(normal(jsCode(source.timeline))).toMatch(/const keepEscape = \(e\) => \{ if \(e\.key === 'Escape'\) e\.preventDefault\(\) \}/)
   })
   it('CONTROL: each helper fires on the shape it names and passes the real one', () => {
-    // unlocked: a kit or a native control without its lock is named; the file input and a prompt head are not.
+    // unlocked: a kit or a native control without its one lock is named; the file input and a prompt head are not.
     expect(unlocked('const A = () => <div><Button onClick={go}>Add</Button><Switch disabled={locked} /></div>', 'locked')).toHaveLength(1)
     expect(unlocked('const A = () => <button type="button" onClick={go} />', 'locked')).toHaveLength(1)
     expect(unlocked('const A = () => <button type="button" role={\'checkbox\'} onClick={go} />', 'locked')).toHaveLength(1)
+    expect(unlocked('const A = () => <Button disabled={locked} disabled={false}>Add</Button>', 'locked')).toHaveLength(1)
     expect(unlocked('const A = () => <div><input type="file" className="hidden" /><button className="rb-tl-prompt-head" /></div>', 'locked')).toEqual([])
-    // drawerProps: any order; a false backdrop is no backdrop; two drawers throw.
-    expect(drawerProps('const A = () => <Drawer backdrop open onClose={onClose}>x</Drawer>')).toEqual({ open: true, backdrop: true, onClose: true })
+    // componentsOf: a wrapper component shows up by name.
+    expect(componentsOf('const A = () => <div><LockedButton /><Card /></div>')).toEqual({ LockedButton: 1, Card: 1 })
+    // drawerProps: any order; a false backdrop is no backdrop; a style or a utility is not bare; two drawers throw.
+    expect(drawerProps('const A = () => <Drawer backdrop open onClose={onClose} className="rb-tl-settings">x</Drawer>'))
+      .toEqual({ open: true, backdrop: true, onClose: true, bare: true })
     expect(drawerProps('const A = () => <Drawer open onClose={onClose} backdrop={false}>x</Drawer>').backdrop).toBe(false)
+    expect(drawerProps("const A = () => <Drawer open onClose={onClose} backdrop className=\"rb-tl-settings\" style={{ '--titlebar-offset': '0px' }}>x</Drawer>").bare).toBe(false)
+    expect(drawerProps('const A = () => <Drawer open onClose={onClose} backdrop className="rb-tl-settings top-[0px]">x</Drawer>').bare).toBe(false)
     expect(() => drawerProps('const A = () => <div><Drawer open /><Drawer open /></div>')).toThrow()
     // HAND_ROLLED_CHROME: the spellings round one found.
     for (const s of ['{window.wilsonSession && <div style={{ height: 32 }} />}', "style={{ 'padding-top': 32 }}",
       'className="fixed top-0 right-0 bottom-0 left-0"', 'className="inset-x-0 inset-y-0 bg-backdrop"']) {
       expect(s).toMatch(HAND_ROLLED_CHROME)
     }
-    // offsetFights: on the drawer itself only.
+    // offsetFights: on the drawer itself only, the token included.
     expect(offsetFights('.rb-tl-settings { top: 0 }')).toHaveLength(1)
     expect(offsetFights('aside.ui-drawer.rb-tl-settings { padding-top: 32px }')).toHaveLength(1)
+    expect(offsetFights('aside.ui-drawer.rb-tl-settings { --titlebar-offset: 0px }')).toHaveLength(1)
     expect(offsetFights('.rb-tl-settings .ui-drawer-body { padding: 0 }')).toEqual([])
-    // opacityLocks: an opacity or a filter under a lock, anywhere.
+    // opacityLocks: an opacity, a filter, visibility or a transparent mix under a lock or :disabled.
     expect(opacityLocks('.rb-tl-x[data-locked="true"] { opacity: 60% }')).toHaveLength(1)
     expect(opacityLocks('.rb-tl-y[data-locked="true"] .z { filter: brightness(60%) }')).toHaveLength(1)
+    expect(opacityLocks('.rb-tl-x[data-locked="true"] { visibility: hidden }')).toHaveLength(1)
+    expect(opacityLocks('.rb-tl-x[data-locked="true"] .y { color: color-mix(in srgb, var(--color-ink) 45%, transparent) }')).toHaveLength(1)
+    expect(opacityLocks('.rb-tl-type-check:disabled { opacity: .4 }')).toHaveLength(1)
     expect(opacityLocks('.rb-tl-x[data-locked="true"] { color: var(--color-ink-3) }')).toEqual([])
     expect(() => between('abc', 'x', 'c')).toThrow()
   })

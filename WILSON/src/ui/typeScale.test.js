@@ -2488,14 +2488,18 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // The sheet as it is plus one hex, fed through its REAL path (cssCounts'
     // reader), so an exemption keyed on the path would show here; a mutant in
     // a temporary file could not (B3d review round 1).
-    const plusHex = (f) => `${readFileSync(f, 'utf8')}\n@layer components { .rb-tl-x { color: #fb923c; } }\n`;
+    // Three spellings (round two: a scan that saw lower case only passed one).
+    const plusHex = (f) => `${readFileSync(f, 'utf8')}\n@layer components { .rb-tl-x { color: #fb923c; border-color: #FB923C; outline-color: #abc; } }\n`;
     const hex = (read) => cssCounts([TIMELINE_SHEET], read).find((r) => r.label === 'hex colour outside @theme');
-    expect(hex(plusHex).hits).toBe(1);
-    expect(pageSheetHits(hex(plusHex))).toEqual([
-      expect.stringMatching(/^src\/tools\/rabbit_v0\.1\.0\/views\/rabbitTimeline\.css:\d+ {2}#fb923c$/),
-    ]);
+    expect(hex(plusHex).hits).toBe(3);
+    expect(pageSheetHits(hex(plusHex))).toEqual(['#fb923c', '#FB923C', '#abc'].map((h) =>
+      expect.stringMatching(new RegExp(`^src/tools/rabbit_v0\\.1\\.0/views/rabbitTimeline\\.css:\\d+ {2}${h}$`))));
     // …and read as it is, the sheet has none.
     expect(hex(undefined).hits).toBe(0);
+    // The default reader is the plain file (round two: a default reader that
+    // filtered hex would pass everything above): every sheet counts the same.
+    const plain = (f) => readFileSync(f, 'utf8');
+    expect(cssCounts(CSS_FILES).map((r) => r.hits)).toEqual(cssCounts(CSS_FILES, plain).map((r) => r.hits));
   });
 
   /* 🚨 The 2px borders are NOT a defect row and are not asserted to zero.

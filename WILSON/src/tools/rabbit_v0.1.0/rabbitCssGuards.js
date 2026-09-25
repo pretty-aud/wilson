@@ -552,7 +552,9 @@ const NAMED = ('aliceblue antiquewhite aqua aquamarine azure beige bisque black 
   + 'palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red '
   + 'rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow '
   + 'springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen '
-  + 'canvas canvastext buttonface buttontext highlight highlighttext graytext linktext accentcolor accentcolortext')
+  + 'canvas canvastext buttonface buttontext highlight highlighttext graytext linktext accentcolor accentcolortext '
+  // B3d round two: the rest of the system colours a value can name (`Field` and `Window` are white).
+  + 'activetext visitedtext buttonborder field fieldtext mark marktext selecteditem selecteditemtext window windowtext windowframe')
   .split(' ').sort((a, b) => b.length - a.length).join('|')
 const NAMED_RE = new RegExp(`(?<![\\w-])(?:${NAMED})(?![\\w-])`, 'gi')
 const COLOUR_FN = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi
