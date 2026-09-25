@@ -159,8 +159,8 @@ const REGISTRY = [
   P('otter-clear', '/otter', { steps: ['Tool settings', 'Tool settings', 'Editable', 'Clear all data'], expect: { dialog: 'ALL courses' } }),
   P('otter-delete', '/otter', { steps: ['Actions for DaVinci Resolve 19', 'Move to trash'], expect: { dialog: 'Recently deleted' } }),
   P('otter-delete-subject', '/otter', { steps: ['DaVinci Resolve 19', 'Delete subject'], expect: { dialog: 'permanently remove this subject' } }),
-  P('otter-share', '/otter', { steps: ['Actions for DaVinci Resolve 19', 'Share or submit…'], expect: { dialog: true } }),
-  P('otter-trash', '/otter', { steps: ['Recently deleted'], expect: { text: 'Nothing deleted' } }),
+  P('otter-share', '/otter', { steps: ['Actions for DaVinci Resolve 19', 'Share or submit…'], expect: { dialog: 'Who can see this' } }),
+  P('otter-trash', '/otter', { steps: ['Recently deleted'], expect: { text: 'When you delete a course it waits here' } }),
 
   // R.A.B.B.I.T. — the nine tabs with the project open, then what opens off them.
   ...['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins'].map((t) =>
@@ -510,7 +510,7 @@ async function visit(ctx, entry) {
      step up to it drove and the retry's own click lands. The gate caught
      `rabbit-intake` measuring Summary: the Intake click landed while Summary
      was still settling and was swallowed. A second failure is still a miss. */
-  if (!isOpen && drove && !preexisting && entry.steps.length) {
+  if (!isOpen && drove && !preexisting && entry.steps.length && !(await page.evaluate(openDialog))) {
     await sleep(2500);
     const again = await step(page, entry.steps[last]);
     await sleep(3500);

@@ -135,7 +135,7 @@ export default function TrashPanel({ rows, loading, busyId, error, onRestore, on
             tone="danger"
             icon={AlertCircle}
             className="otter-trash-error"
-            action={<Button variant="ghost" size="sm" onClick={onDismissError}>Dismiss</Button>}
+            action={<Button variant="ghost" size="sm" onClick={onDismissError} className="otter-notice-action">Dismiss</Button>}
           >
             {error}
           </Banner>

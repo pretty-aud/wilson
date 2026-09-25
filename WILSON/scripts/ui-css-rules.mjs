@@ -87,3 +87,25 @@ export function themeNames(source) {
   const theme = allRules(source).find((r) => /^@theme\b/.test(r.sel));
   return new Set(theme ? decls(theme.body).map(([p]) => p.replace(/^--/, '')) : []);
 }
+
+/** A selector's specificity as [ids, classes / attributes / pseudo-classes,
+ *  types]. `:is()`, `:not()` and `:has()` count their most specific argument,
+ *  `:where()` counts nothing, a pseudo-element counts as a type (A4 review
+ *  round 1: the cascade guards compare A4's rules with the kit's). */
+export function specificity(sel) {
+  let s = sel.replace(/::[\w-]+(\([^)]*\))?/g, ' x ');
+  let a = 0, b = 0, c = 0;
+  s = s.replace(/:(is|not|where|has)\(((?:[^()]|\([^()]*\))*)\)/g, (m, f, inner) => {
+    if (f === 'where') return '';
+    const best = splitTop(inner).map(specificity).sort(compareSpecificity).pop() || [0, 0, 0];
+    a += best[0]; b += best[1]; c += best[2];
+    return '';
+  });
+  a += (s.match(/#[\w-]+/g) || []).length;
+  b += (s.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+(\([^)]*\))?/g) || []).length;
+  c += (s.replace(/\[[^\]]+\]/g, '').match(/(^|[\s>+~])[a-z][\w-]*/gi) || []).length;
+  return [a, b, c];
+}
+
+/** Sort order for two specificities: negative when `x` is weaker. */
+export const compareSpecificity = (x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2];

@@ -422,14 +422,14 @@ export default function RequestsView({
 
         {error && (
           <Banner tone="danger" icon={AlertCircle} className="otter-req-notice"
-            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setError(null)} />}>
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setError(null)} className="otter-notice-action" />}>
             {error}
           </Banner>
         )}
 
         {applied && !error && (
           <Banner tone="success" icon={Check} className="otter-req-notice"
-            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setApplied(null)} />}>
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setApplied(null)} className="otter-notice-action" />}>
             Applied to “{applied.name}”
             {applied.updates != null
               ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added`
@@ -440,14 +440,14 @@ export default function RequestsView({
 
         {nomError && (
           <Banner tone="danger" icon={AlertCircle} className="otter-req-notice"
-            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setNomError(null)} />}>
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setNomError(null)} className="otter-notice-action" />}>
             {nomError}
           </Banner>
         )}
 
         {promoted && !nomError && (
           <Banner tone="success" icon={ShieldCheck} className="otter-req-notice"
-            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setPromoted(null)} />}>
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setPromoted(null)} className="otter-notice-action" />}>
             “{promoted.name}” is now the company standard, live for everyone.
             {promoted.superseded
               ? ` “${promoted.superseded}” stood down and is now shared with the company — nothing was deleted.`
@@ -776,7 +776,7 @@ export default function RequestsView({
                 {nomDecided.length > 0 && (
                   <ul className="otter-req-list otter-req-settled">
                     {nomDecided.map(n => (
-                      <li key={n.id} className="otter-req otter-req-head" data-settled="true">
+                      <li key={n.id} className="otter-req otter-req-line" data-settled="true">
                         <span className="otter-req-text">
                           <span className="otter-req-title">
                             {n.course_name ?? 'A course'}
@@ -893,7 +893,7 @@ export default function RequestsView({
                 {showDecided && (
                   <ul className="otter-req-list otter-req-settled">
                     {decided.map(r => (
-                      <li key={r.id} className="otter-req otter-req-head" data-settled="true">
+                      <li key={r.id} className="otter-req otter-req-line" data-settled="true">
                         <span className="otter-req-text">
                           <span className="otter-req-title">
                             {r.target_name ?? 'A company standard course'}

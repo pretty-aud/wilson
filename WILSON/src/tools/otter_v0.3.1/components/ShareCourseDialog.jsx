@@ -458,7 +458,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     size="sm"
                     className="otter-share-pick"
                   />
-                  <Button size="sm" icon={UserPlus} onClick={addEditor} disabled={!pick} loading={busy === 'add'}>
+                  <Button size="sm" icon={UserPlus} onClick={addEditor} disabled={!pick || !!busy} loading={busy === 'add'}>
                     Add
                   </Button>
                 </div>

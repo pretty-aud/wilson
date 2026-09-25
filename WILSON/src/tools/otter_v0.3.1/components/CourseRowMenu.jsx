@@ -192,7 +192,7 @@ export default function CourseRowMenu({
               key={item.key}
               type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); item.run?.(course) }}
+              onClick={() => { setOpen(false); btnRef.current?.focus(); item.run?.(course) }}
               className="ui-menu-item"
             >
               <item.Icon aria-hidden="true" />
@@ -206,7 +206,7 @@ export default function CourseRowMenu({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => { setOpen(false); onTrash?.(course) }}
+                onClick={() => { setOpen(false); btnRef.current?.focus(); onTrash?.(course) }}
                 className="ui-menu-item"
                 data-danger="true"
               >

@@ -802,7 +802,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           className="otter-val-controls"
           right={isProcessing ? <IconButton size="sm" icon={Square} danger title="Stop validation" onClick={stopValidation} /> : null}
         >
-          <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={() => { if (!isProcessing) setPhase('setup'); }} disabled={isProcessing}>
+          <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={() => { if (!isProcessing) setPhase('setup'); }} disabled={isProcessing} className="otter-val-new">
             New validation
           </Button>
         </Toolbar>

@@ -245,6 +245,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
   const editPressWhileOpenRef = useRef(false);
+  const editButtonRef = useRef(null);   // A4: focus returns here from a dialog the Edit menu opened
 
   // ── Software name autocomplete ──
   const [showSoftwareDropdown, setShowSoftwareDropdown] = useState(false);
@@ -2790,7 +2791,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             subjectTitle: 'Hotkeys',
             subjectSlug: null,
             sectionTitle: 'Reference',
-            lessonTitle: `${sw.name} — Keyboard Shortcuts`,
+            lessonTitle: `${sw.name} — Keyboard shortcuts`,
             lessonId: null,
             resultType: 'hotkeys',
             matches: matchCount,
@@ -2823,7 +2824,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             subjectTitle: 'Functions',
             subjectSlug: null,
             sectionTitle: 'Reference',
-            lessonTitle: `${sw.name} — Functions Reference`,
+            lessonTitle: `${sw.name} — Functions reference`,
             lessonId: null,
             resultType: 'functions',
             matches: matchCount,
@@ -2870,7 +2871,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             subjectTitle: 'Nodes',
             subjectSlug: null,
             sectionTitle: 'Reference',
-            lessonTitle: `${sw.name} — Node Reference`,
+            lessonTitle: `${sw.name} — Node reference`,
             lessonId: null,
             resultType: 'nodes',
             matches: nodeMatchCount,
@@ -2984,6 +2985,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           while their menu or dialog is open, as they always did. */}
       <nav className="otter-nav" aria-label="O.T.T.E.R.">
         <button
+          ref={editButtonRef}
           type="button"
           className="ui-tab otter-nav-button"
           aria-expanded={editMenuOpen}
@@ -3019,7 +3021,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 hint: redoSubjectsStack.length > 0 ? `(${redoSubjectsStack.length})` : undefined,
               },
               { divider: true },
-              { label: 'Import subjects', Icon: Upload, onClick: () => setShowImportModal(true) },
+              // The menu item is gone before Import closes, so Import would
+              // hand focus to <body>: it takes it from Edit instead (A4 review).
+              { label: 'Import subjects', Icon: Upload, onClick: () => { editButtonRef.current?.focus(); setShowImportModal(true); } },
               { label: 'Export all', Icon: Download, onClick: exportAll },
             ]}
           />
@@ -3284,7 +3288,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               value={searchQuery}
               onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
               onKeyDown={e => {
-                if (e.key === 'Escape') setShowSearchModal(false);
+                // Escape is the Dialog's (it marks the key handled, so the
+                // layer under Search stays open); the field only moves the
+                // selection and opens a result.
                 if (e.key === 'ArrowDown' && searchResults.length > 0) {
                   e.preventDefault();
                   setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);

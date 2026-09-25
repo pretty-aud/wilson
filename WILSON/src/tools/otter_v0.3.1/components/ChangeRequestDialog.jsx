@@ -195,6 +195,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
       error={error}
       dismissOnBackdrop
       onClose={onClose}
+      className="otter-cr"
       footer={targetId && !loading ? (
         <>
           {existing && !isDeclined && (

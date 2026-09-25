@@ -30,7 +30,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  sourceFiles, cssCounts, CSS_FILES, themeRange, blankCssComments, enclosingBlock,
+  sourceFiles, cssCounts, CSS_FILES, themeRange, blankCssComments, enclosingBlock, blankJsComments,
 } from '../../scripts/ui-audit.mjs';
 import { protectedRanges, isProtected } from '../../scripts/ui-source-regions.mjs';
 import { LABEL_EVIDENCE, CONTROL_TAGS } from '../../scripts/ui-type-map.mjs';
@@ -557,11 +557,50 @@ describe('the sweep can see the app', () => {
   it('reads the whole converted scope', () => {
     expect(sourceFiles().length).toBeGreaterThan(200);
     // A floor on what the sweep SEES, not on what the app keeps: every lane's
-    // restyle moves scale-step utilities into its own sheet (A4's nine
-    // O.T.T.E.R. overlays took 88; the count stood at 1923 after them, 2170
-    // raw before), so the number falls by design. A sweep that has gone
-    // blind reads a handful, not a thousand. Was 2000 (A4).
-    expect(sweep(SCALE_STEP).length).toBeGreaterThan(1000);
+    // restyle moves scale-step utilities into its own sheet, so the number
+    // falls by design (2170 raw before A4; 1688 swept at A4's end, 1280 of
+    // them R.A.B.B.I.T.'s, D.O.G. 3, O.T.T.E.R. 0). It only notices a sweep
+    // gone blind, and sits well under the count so lane B's restyles do not
+    // trip it; the two checks below are the real sight guard (A4 review
+    // round 1). Was 2000, then 1000 (A4).
+    expect(sweep(SCALE_STEP).length).toBeGreaterThan(400);
+  });
+
+  /* A4 review round 1: a count of utilities falls as lanes restyle, so it
+     cannot see a lane's files dropping out of the sweep (all of D.O.G. could
+     go and the count would not notice — mutant T2). What does not fall by
+     design is the FILES each area has, and the share of each file's code the
+     sweep can see. */
+  /** Files the sweep read at 4a4c025, per area. Lower one only in the commit
+   *  that deletes or moves those files, and say so. */
+  const FILES_AT_LEAST = {
+    'src/tools/rabbit_v0.1.0': 97, 'src/components': 68, 'src/cloud': 27, 'src/tools/otter_v0.3.1': 19,
+    'src/dev': 15, 'src/tools/deck-outline-generator_v0.514': 13, 'src/lib': 10, 'src/admin': 7,
+    'src/permissions': 6, 'src/agent': 5, 'src/(top)': 2, 'src/data': 2, 'src/layout': 2,
+  };
+  const areaOf = (f) => {
+    const p = f.replace(/\\/g, '/').split('/');
+    return p[1] === 'tools' ? p.slice(0, 3).join('/') : p.length > 2 ? p.slice(0, 2).join('/') : 'src/(top)';
+  };
+
+  it('reads every area it read before, file for file', () => {
+    const n = {};
+    for (const f of sourceFiles()) n[areaOf(f)] = (n[areaOf(f)] || 0) + 1;
+    const short = Object.entries(FILES_AT_LEAST).filter(([a, min]) => (n[a] || 0) < min).map(([a, min]) => `${a}: ${n[a] || 0} < ${min}`);
+    expect(short, short.join('\n')).toEqual([]);
+  });
+
+  it('sees the code in every file it reads — no file mostly hidden by protected ranges', () => {
+    // Code sites a guarded range should never cover in bulk: 60% seen is the
+    // line two legitimate template-heavy files need (80% failed them).
+    const blind = [];
+    for (const { file, src, guarded } of tree()) {
+      const code = blankJsComments(src);
+      let all = 0, seen = 0;
+      for (const m of code.matchAll(/className=|\bimport\b|\bexport\b|=>|\breturn\b/g)) { all++; if (!isProtected(guarded, m.index)) seen++; }
+      if (all >= 5 && seen / all < 0.6) blind.push(`${file}: the sweep sees ${seen} of ${all} code sites`);
+    }
+    expect(blind, blind.join('\n')).toEqual([]);
   });
 
   it('🚨 no in-scope file is swallowed whole by one protected range', () => {
