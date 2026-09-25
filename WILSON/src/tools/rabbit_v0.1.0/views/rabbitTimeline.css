@@ -126,7 +126,7 @@
      .rb-tl-ghost                     (no variant: a phase's ghost is told by
                                       its taller box since B3c)
      .rb-tl-dep                       data-writable = true|false: pointer | default
-     .rb-tl-ed-title                  data-milestone = true|false: amber | orange
+     (.rb-tl-ed-title was data-milestone: amber | orange; one ink since B3d)
      (the zoom toolbar's undo pair, zoom, grouping and sort are the kit's
      IconButton and Tabs since B3b: their states live in index.css)
      (SettingsPanel's tabs, switches, buttons and fields are the kit's Tabs,
@@ -623,9 +623,17 @@
   .rb-tl-dep { cursor: default; }
   .rb-tl-dep[data-writable="true"] { cursor: pointer; }
 
-  /* ═══ The task editor (TaskEditor) ═════════════════════════════════════ */
-  .rb-tl-ed-title { color: #fb923c; }
-  .rb-tl-ed-title[data-milestone="true"] { color: #f59e0b; }
+  /* ═══ The task editor (TaskEditor) — stage 2 (B3d) ═════════════════════
+     The editor's chrome is inline and is question 6 (V2 or P1); its title
+     is this sheet's. 🚨 ITS GROUND IS THE HEADER BAND, `#44403c` inline, not
+     the editor's `#292524` body (measured in the running app, B3d): there
+     orange-400 was 4.45:1 and amber 4.78:1 at the 11px Label step, and the
+     signal would be 2.89:1. The title is the ink for every kind — 9.08:1 on
+     the band, above 13:1 on the body and on the raised paper — so it holds
+     whatever question 6 decides, and it is the ink the kit Dialog's title
+     already is. The kind stays in the icon beside it and in its words ("New
+     key date", "Edit asset", "Edit phase"). */
+  .rb-tl-ed-title { color: var(--color-ink); }
   /* W9 (B3c): the second sentence of a delete question, in the kit Dialog
      (its ground is the raised paper): ink-2, 8.49:1. The editor's own
      chrome is V2's / P1's (hand-off). */

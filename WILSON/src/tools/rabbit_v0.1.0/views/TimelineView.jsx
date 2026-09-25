@@ -4372,7 +4372,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-label font-mono uppercase font-semibold rb-tl-ed-title" data-milestone={isMilestone ? 'true' : 'false'}>
+          <span className="text-label font-mono uppercase font-semibold rb-tl-ed-title">
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset
