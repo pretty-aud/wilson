@@ -2459,13 +2459,17 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(where, `page stylesheets off the weight axis:\n${where.join('\n')}`).toEqual([]);
   });
 
-  /* B3, 2026-09-24 — ONE page stylesheet may still write hex, on the hex row
-     only: rabbitTimeline.css is the Timeline's STAGE 1 state extraction
-     (plan §5), which transcribes the shipped hexes unchanged on purpose, so
-     that stage 1 moves no pixel. B3's stage 2 (the restyle) turns every one
-     into a token and DELETES this entry; until then the audit's `--css`
-     table lists them as that work. Its sizes are still asserted below. */
-  const STAGE_1_HEX = ['src/tools/rabbit_v0.1.0/views/rabbitTimeline.css'];
+  /* B3d, 2026-09-25 — `STAGE_1_HEX` is deleted. rabbitTimeline.css was the
+     Timeline's STAGE 1 state extraction (plan §5), which transcribed the
+     shipped hexes unchanged on purpose and was excused from the hex row
+     until stage 2; B3b, B3c and B3d moved every section onto tokens (each
+     banner says "stage 2", and rabbitTimelineCss.test.js holds each one to
+     no colour literal), so the row now holds it like every other page
+     sheet. The control after this test proves that: a hex written into the
+     sheet is caught, and nothing filters it out. */
+  const TIMELINE_SHEET = 'src/tools/rabbit_v0.1.0/views/rabbitTimeline.css';
+  const pageSheetHits = (row) => row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`))
+    .filter(PAGE_SHEETS);
 
   it('the four page stylesheets write no hex and no off-scale size', () => {
     // C8 and C7, on the surfaces T3 swept. Everything the two rows still
@@ -2473,14 +2477,27 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // panel's, P1's — `index.css` says so; it is not the pet's sprite, so C5
     // does not cover it; V1). `.lesson-content` reports nothing since A3
     // (2026-09-24).
-    // A stage-1 exemption must name a registered sheet (a typo excuses nothing).
-    expect(STAGE_1_HEX.filter((f) => !CSS_FILES.includes(f))).toEqual([]);
+    expect(CSS_FILES).toContain(TIMELINE_SHEET);
     for (const label of ['hex colour outside @theme', 'font-size off the scale']) {
-      const row = cssRow(label);
-      const where = row.inFiles.flatMap(([f, hits]) => hits.map(([l, t]) => `${f}:${l}  ${t}`))
-        .filter(PAGE_SHEETS)
-        .filter((hit) => label !== 'hex colour outside @theme' || !STAGE_1_HEX.some((f) => hit.startsWith(`${f}:`)));
+      const where = pageSheetHits(cssRow(label));
       expect(where, `${label} in a page stylesheet:\n${where.join('\n')}`).toEqual([]);
+    }
+  });
+
+  it('CONTROL: rabbitTimeline.css is scanned with no exemption — a hex written into it is caught', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'b3d-hex-'));
+    try {
+      // The sheet as it is, plus one hex: the row finds that one and no other.
+      const mutant = join(dir, 'rabbitTimeline.css');
+      writeFileSync(mutant, `${readFileSync(TIMELINE_SHEET, 'utf8')}\n@layer components { .rb-tl-x { color: #fb923c; } }\n`);
+      expect(cssCounts([mutant]).find((r) => r.label === 'hex colour outside @theme').hits).toBe(1);
+      // …and the assertion above keeps a hit on the real path: nothing excuses the sheet.
+      expect(pageSheetHits({ inFiles: [[TIMELINE_SHEET, [[1, '#fb923c']]]] })).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
