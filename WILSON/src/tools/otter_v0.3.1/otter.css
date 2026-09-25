@@ -2465,7 +2465,7 @@
      difficulty the kit's StatusBadge, the options A3's selected treatment
      and the success / danger tones once the answer shows, the code in A3's
      one well (.otter-code-well) with the lesson's highlighter settings
-     (the 2px #57534e border the question's and the solution's blocks drew
+     (the 2px stone-600 border the question's and the solution's blocks drew
      goes with them). */
   .otter-quiz-courses { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
   .otter-quiz-course-head {

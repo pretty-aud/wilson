@@ -5401,7 +5401,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       { key: 'codeWrite', title: 'Code Writing Challenges', desc: 'Generates coding challenges (Haiku)', defaultVal: CODE_WRITING_PROMPT },
       { key: 'companion', title: 'Companion Chat', desc: 'Prompt for otter companion (Haiku)', defaultVal: COMPANION_PROMPT },
     ];
-    // The lock is the disabled token (§3.1), not the opacity-60 the whole tab
+    // The lock is the disabled token (§3.1), not the 60% opacity the whole tab
     // wore: the editors and buttons are `disabled`, the headers stay live.
     return (
       <div className="otter-accs">
