@@ -206,13 +206,15 @@ export function Dialog({
     <div
       className="ui-dialog-backdrop"
       onMouseDown={(e) => {
-        if (!dismissOnBackdrop || e.target !== e.currentTarget) return
-        // A4-KR-7: the press's default action moves focus to <body> AFTER the
-        // close below has handed it back to whatever opened the dialog, so a
-        // dialog closed by its backdrop lost the keyboard's place (measured
-        // by A4's behaviour review: Escape, Close and Cancel returned focus
-        // to "Import"; the backdrop sent it to <body>).
+        if (e.target !== e.currentTarget) return
+        // A4-KR-7: the press's default action moves focus to <body> — AFTER
+        // the close below has handed it back to whatever opened the dialog,
+        // and out of a dialog that does not close on its backdrop at all
+        // (Tab then brought it back from nowhere). Measured by A4's behaviour
+        // reviews: Escape, Close and Cancel returned focus to "Import"; the
+        // backdrop sent it to <body>. Every backdrop press keeps focus.
         e.preventDefault()
+        if (!dismissOnBackdrop) return
         // K5 (lane B2): a press on the backdrop closes BEFORE the browser
         // moves focus, so a field that saves on blur — every inline editor in
         // the task popup and the template manager — was unmounted with its

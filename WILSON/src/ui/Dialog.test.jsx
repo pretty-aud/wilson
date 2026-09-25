@@ -153,6 +153,20 @@ describe('Dialog', () => {
     const backdrop = document.querySelector('.ui-dialog-backdrop')
     expect(fireEvent.mouseDown(backdrop)).toBe(false)
     expect(onClose).toHaveBeenCalledTimes(1)
+    cleanup()
+    // …and a dialog that does NOT close on its backdrop keeps focus too
+    // (round 2: the clear-all and leave-quiz confirms sent it to <body>).
+    const stay = vi.fn()
+    render(<Dialog title="Stays" onClose={stay}><input aria-label="Field" /></Dialog>)
+    expect(fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))).toBe(false)
+    expect(stay).not.toHaveBeenCalled()
+    cleanup()
+    // …and so does a busy one, whose backdrop cannot close it (round 2's
+    // guards review: `if (!busy) e.preventDefault()` stayed green).
+    const locked = vi.fn()
+    render(<Dialog title="Busy" busy dismissOnBackdrop onClose={locked}><input aria-label="Field" /></Dialog>)
+    expect(fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))).toBe(false)
+    expect(locked).not.toHaveBeenCalled()
   })
 
   it('accepts a legacy numeric width for Bins, and reports an unknown named one', () => {
