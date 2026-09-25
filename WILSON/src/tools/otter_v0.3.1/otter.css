@@ -2454,6 +2454,277 @@
     color: var(--color-ink-3);
   }
 
+  /* ═══ THE QUIZ (renderQuizCenter, -Question, -Results, renderCodeWriting)
+     The selection: A3's view scaffold at the reading width under the view
+     title ("Quiz center"; an orange 20px title in a stone-800 bar before),
+     one kit Card per course, the pickers in the kit's one selected
+     treatment (the signal tint; an orange-600 wash and a filled orange-500
+     box before), the question types the kit's Chip in the prompt form's
+     card, Generate its primary Button (white on orange-600 at 14px with a
+     hard shadow: a C6 row). The quiz: the kit's Tabs on a Toolbar, the
+     difficulty the kit's StatusBadge, the options A3's selected treatment
+     and the success / danger tones once the answer shows, the code in A3's
+     one well (.otter-code-well) with the lesson's highlighter settings
+     (the 2px #57534e border the question's and the solution's blocks drew
+     goes with them). */
+  .otter-quiz-courses { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+  .otter-quiz-course-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px 0 0;
+    border-bottom: 1px solid var(--color-rule);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-quiz-course-head[data-selected='true'] { background-color: var(--color-signal-tint); }
+  .otter-quiz-pick {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 12px 16px;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  /* The checkbox is drawn, the kit having no Checkbox yet (A1-KR-4, D.O.G.'s
+     `.dog-check` is the same stand-in): the rule edge, and when checked the
+     signal edge over the signal tint with the check in the ink. */
+  .otter-quiz-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--color-ink);
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-ink-3);
+    border-radius: var(--radius-control);
+  }
+  .otter-quiz-check[data-state='all'],
+  .otter-quiz-check[data-state='some'] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+  }
+  .otter-quiz-check > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .otter-quiz-course-text { display: flex; flex-direction: column; min-width: 0; }
+  .otter-quiz-course-name {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-quiz-course-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* The third ink on the signal tint is 4.18:1: it lifts there (A3's rule). */
+  .otter-quiz-course-head[data-selected='true'] .otter-quiz-course-meta { color: var(--color-ink-2); }
+  /* Not written on .ui-iconbtn: shareDiscoverability.test.js reads every rule
+     that names the kit class as one that can reach the row menu's trigger. */
+  .otter-quiz-expand > svg { transition: rotate var(--duration-response) var(--ease-response); }
+  .otter-quiz-expand[data-open='true'] > svg { rotate: 180deg; }
+  .otter-quiz-subs { display: flex; flex-direction: column; gap: 2px; padding: 8px; }
+  .otter-quiz-sub {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .otter-quiz-sub[data-selected='true'] { background-color: var(--color-signal-tint); }
+  .otter-quiz-sub-title { min-width: 0; color: var(--color-ink-2); }
+  /* A chosen subject is the ink (orange-300 before). */
+  .otter-quiz-sub[data-selected='true'] .otter-quiz-sub-title { color: var(--color-ink); }
+  .otter-quiz-sub-level {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-quiz-sub[data-selected='true'] .otter-quiz-sub-level { color: var(--color-ink-2); }
+  @media (hover: hover) {
+    .otter-quiz-sub:not([data-selected='true']):hover { background-color: var(--color-hover); }
+    .otter-quiz-sub:hover .otter-quiz-sub-level { color: var(--color-ink-2); }
+  }
+  .otter-quiz-none {
+    padding: 12px 16px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-quiz-types { margin-bottom: 24px; }
+  .ui-banner.otter-quiz-error {
+    margin-top: 16px;
+    align-items: flex-start;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-quiz-prompt { padding: 16px 0; text-align: center; color: var(--color-ink-3); }
+
+  /* The quiz itself. */
+  .otter-quiz { display: flex; flex-direction: column; height: 100%; background-color: var(--color-paper); }
+  .ui-toolbar.otter-quiz-bar { padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 8px); }
+  .otter-quiz-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+  .otter-quiz-page { max-width: var(--width-reading); margin: 0 auto; padding: var(--spacing-gutter); }
+  .otter-quiz-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 80px 0;
+    color: var(--color-ink-2);
+  }
+  .otter-quiz-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    color: var(--color-ink-3);
+  }
+  .otter-quiz-code { margin: 0 0 16px; }
+  .otter-quiz-question {
+    margin-bottom: 16px;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-quiz-question.otter-quiz-challenge { margin-bottom: 8px; }
+  .otter-quiz-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .otter-quiz-option {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .otter-quiz-option:disabled { cursor: default; }
+  .otter-quiz-option[data-state='idle']:hover:not(:disabled) { border-color: var(--color-ink-3); }
+  .otter-quiz-option[data-state='selected'] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    border-color: var(--color-signal);
+  }
+  .otter-quiz-option[data-state='correct'] {
+    color: var(--color-ink);
+    background-color: color-mix(in srgb, var(--color-success) 10%, transparent);
+    border-color: var(--color-success);
+  }
+  .otter-quiz-option[data-state='wrong'] {
+    color: var(--color-ink);
+    background-color: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border-color: var(--color-danger);
+  }
+  .otter-quiz-letter { margin-right: 8px; font-weight: 600; }
+  .otter-quiz-explain {
+    margin-bottom: 16px;
+    padding: 16px;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  /* The score's three bands keep their meaning on the status tokens. */
+  .otter-quiz-results { padding: 32px 0; text-align: center; }
+  .otter-quiz-score {
+    margin-bottom: 8px;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .otter-quiz-score[data-tone='success'] { color: var(--color-success); }
+  .otter-quiz-score[data-tone='warning'] { color: var(--color-warning); }
+  .otter-quiz-score[data-tone='danger'] { color: var(--color-danger); }
+  .otter-quiz-tally { margin-bottom: 8px; color: var(--color-ink-2); }
+  .otter-quiz-save {
+    height: 16px;
+    margin-bottom: 24px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-quiz-save-error { color: var(--color-danger); }
+  .otter-quiz-desc { margin-bottom: 16px; color: var(--color-ink-2); }
+  .otter-quiz-h4 {
+    margin-bottom: 8px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-quiz-cases {
+    margin-bottom: 16px;
+    padding: 12px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-quiz-case {
+    margin-bottom: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-quiz-case-key { color: var(--color-ink-3); }
+  .otter-quiz-editor {
+    height: 300px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-quiz-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .otter-quiz-hints { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  /* A hint keeps its warm edge on the warning tone (yellow-700 before); its
+     label is the ink at 600 (yellow-500). */
+  .otter-quiz-hint {
+    padding: 12px;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+    border-radius: var(--radius-control);
+  }
+  .otter-quiz-hint-label { font-weight: 600; color: var(--color-ink); }
+  .otter-quiz-confirm {
+    margin-bottom: 16px;
+    padding: 16px;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-signal);
+    border-radius: var(--radius-control);
+  }
+  .otter-quiz-confirm-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .otter-quiz-solution { margin-bottom: 16px; }
+  .otter-quiz-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
@@ -2462,6 +2733,7 @@
     .otter-acc-head, .otter-acc-chevron { transition: none; }
     .otter-val-row, .otter-val-audit { transition: none; }
     .otter-req-chevron { transition: none; }
+    .otter-quiz-course-head, .otter-quiz-sub, .otter-quiz-option, .otter-quiz-expand > svg { transition: none; }
   }
 
 }

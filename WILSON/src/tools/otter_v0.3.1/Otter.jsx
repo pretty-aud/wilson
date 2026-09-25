@@ -11,7 +11,7 @@ import Editor from '@monaco-editor/react';
    would break the editor" — true of a string, and beside the point, because
    there was a numeric token the whole time. A reviewer found it. */
 import { TYPE } from '../../ui/tokens.js';
-import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog, Drawer, Toolbar, Switch } from '../../ui';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog, Drawer, Toolbar, Switch, Spinner, StatusBadge } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
@@ -19,7 +19,7 @@ import {
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
   Lock, Unlock, Library, Braces, FolderOpen, Share2,
-  Link, ExternalLink, ShieldCheck, GitPullRequestArrow
+  Link, ExternalLink, ShieldCheck, GitPullRequestArrow, Minus
 } from 'lucide-react';
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
@@ -4693,40 +4693,35 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     if (quizActive) {
       const hasMcContent = quizQuestions && quizQuestions.length > 0;
       const hasChallengeContent = challenges && challenges.length > 0;
+      // A4: the three question sets are the kit's Tabs (they were a strip of
+      // their own: orange-400 on stone-900 with a 2px orange edge), on a
+      // Toolbar with "Back to selection" at its right, as it stood.
+      const quizTabs = [
+        hasMcContent && { id: 'mc', label: `Multiple choice (${quizQuestions.filter((_, i) => !quizQuestions[i]?.code_snippet).length})` },
+        hasMcContent && quizQuestions.some(q => q.code_snippet) && { id: 'codeId', label: 'Code identification' },
+        hasChallengeContent && { id: 'codeWrite', label: `Code writing (${challenges.length})` },
+      ].filter(Boolean);
       return (
-        <div className="h-full flex flex-col">
-          <div className="flex items-center border-b border-stone-600 bg-stone-800 shrink-0">
-            {hasMcContent && (
-              <button onClick={() => setQuizTab('mc')}
-                className={`px-4 py-2 text-body font-semibold transition-colors border-b-2 ${quizTab === 'mc' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
-                Multiple Choice ({quizQuestions.filter((_, i) => !quizQuestions[i]?.code_snippet).length})
-              </button>
+        <div className="otter-quiz">
+          <Toolbar
+            className="otter-quiz-bar"
+            right={(
+              <Button variant="ghost" size="sm" icon={ArrowLeft}
+                onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); setQuizSaveState(null); }}>
+                Back to selection
+              </Button>
             )}
-            {hasMcContent && quizQuestions.some(q => q.code_snippet) && (
-              <button onClick={() => setQuizTab('codeId')}
-                className={`px-4 py-2 text-body font-semibold transition-colors border-b-2 ${quizTab === 'codeId' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
-                Code Identification
-              </button>
+          >
+            {quizTabs.length > 0 && (
+              <Tabs items={quizTabs} value={quizTab} onChange={setQuizTab} panelId="otter-quiz-panel" label="Question sets" className="otter-quiz-tabs" />
             )}
-            {hasChallengeContent && (
-              <button onClick={() => setQuizTab('codeWrite')}
-                className={`px-4 py-2 text-body font-semibold transition-colors border-b-2 ${quizTab === 'codeWrite' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
-                Code Writing ({challenges.length})
-              </button>
-            )}
-            <div className="ml-auto pr-4">
-              <button onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); setQuizSaveState(null); }}
-                className="text-stone-400 hover:text-stone-300 text-dense font-semibold flex items-center gap-1">
-                <ArrowLeft className="w-3 h-3" /> Back to Selection
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="max-w-3xl mx-auto">
+          </Toolbar>
+          <div id="otter-quiz-panel" role="tabpanel" className="otter-quiz-body wilson-dark-scroll">
+            <div className="otter-quiz-page">
               {quizLoading && (
-                <div className="flex flex-col items-center justify-center py-20">
-                  <Loader2 className="w-8 h-8 text-orange-500 animate-spin mb-4" />
-                  <p className="text-stone-400">Generating quiz questions...</p>
+                <div className="otter-quiz-loading">
+                  <Spinner size="lg" aria-hidden="true" />
+                  <p>Generating quiz questions...</p>
                 </div>
               )}
               {quizQuestions && !quizComplete && (quizTab === 'mc' || quizTab === 'codeId') && renderQuizQuestion()}
@@ -4738,130 +4733,148 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       );
     }
 
-    // Quiz selection interface
+    // Quiz selection interface — A4: A3's view scaffold and the prompt form's
+    // vocabulary (the form card, its label and hint, the kit's Chip for the
+    // question types, the primary Button). The course and subject pickers
+    // were click targets the keyboard could not reach; they are buttons with
+    // a checkbox role now (A2 made D.O.G.'s pickers Buttons for the same
+    // reason) and the check is drawn in the kit's selected treatment.
     return (
-      <div className="h-full flex flex-col">
-        <div className="flex items-center justify-between px-6 py-3 bg-stone-800 border-b border-stone-600 shrink-0">
-          <div>
-            <h2 className="text-h1 font-semibold text-orange-400">Quiz Center</h2>
-            <p className="text-stone-500 text-dense">Select software/languages and subjects to quiz yourself on</p>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto">
-            {softwareList.length === 0 ? (
-              <div className="text-center py-20">
-                <GraduationCap className="w-16 h-16 text-stone-600 mx-auto mb-4" />
-                <h3 className="text-h1 font-semibold text-orange-400 mb-2">No Courses Available</h3>
-                <p className="text-stone-500">Create a course first to start quizzing yourself.</p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-4 mb-8">
-                  {softwareList.map(sw => {
-                    const swData = quizSelectionData[sw.slug];
-                    const subjects = (swData?.subjects || []).filter(s => !s.is_stub);
-                    const selected = quizSelections[sw.slug];
-                    const isAllSelected = selected === 'all';
-                    const selectedSubs = selected instanceof Set ? selected : new Set();
-                    const isCoding = sw.type === 'coding_language';
-                    return (
-                      <div key={sw.slug} className="bg-stone-800 border border-stone-600 rounded-control shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                        <div className={`flex items-center justify-between px-4 py-3 transition-colors ${isAllSelected ? 'bg-orange-600/20 border-b border-stone-600' : 'border-b border-stone-700'}`}>
-                          <div className="flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => {
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="reading">
+          <SectionTitle rule={false} className="otter-view-title" description="Select software/languages and subjects to quiz yourself on">
+            Quiz center
+          </SectionTitle>
+          {softwareList.length === 0 ? (
+            <EmptyState icon={GraduationCap} title="No courses available" body="Create a course first to start quizzing yourself." />
+          ) : (
+            <>
+              <div className="otter-quiz-courses">
+                {softwareList.map(sw => {
+                  const swData = quizSelectionData[sw.slug];
+                  const subjects = (swData?.subjects || []).filter(s => !s.is_stub);
+                  const selected = quizSelections[sw.slug];
+                  const isAllSelected = selected === 'all';
+                  const selectedSubs = selected instanceof Set ? selected : new Set();
+                  const isCoding = sw.type === 'coding_language';
+                  const pickState = isAllSelected ? 'all' : selectedSubs.size > 0 ? 'some' : 'none';
+                  const expanded = quizExpanded[sw.slug] !== false;
+                  return (
+                    <Card key={sw.slug} pad={false} className="otter-quiz-course">
+                      <div className="otter-quiz-course-head" data-selected={isAllSelected}>
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={isAllSelected ? true : selectedSubs.size > 0 ? 'mixed' : false}
+                          className="otter-quiz-pick"
+                          onClick={() => {
                             setQuizSelections(prev => {
                               const next = { ...prev };
                               if (next[sw.slug] === 'all') { delete next[sw.slug]; } else { next[sw.slug] = 'all'; }
                               return next;
                             });
-                          }}>
-                            <div className={`w-5 h-5 rounded-control border flex items-center justify-center transition-colors shrink-0 ${isAllSelected ? 'bg-orange-500 border-orange-600' : selectedSubs.size > 0 ? 'bg-orange-500/50 border-orange-600' : 'border-stone-500 bg-stone-900'}`}>
-                              {(isAllSelected || selectedSubs.size > 0) && <Check className="w-3 h-3 text-white" />}
-                            </div>
-                            <div>
-                              <h3 className="text-white font-semibold text-h3">{sw.name}</h3>
-                              <div className="flex items-center gap-2 text-caption text-stone-500">
-                                <span>{subjects.length} subjects</span>
-                                {isCoding && <span className="bg-stone-700 px-1.5 py-0.5 rounded-control text-stone-400">coding</span>}
-                              </div>
-                            </div>
-                          </div>
-                          {subjects.length > 0 && (
-                            <button onClick={() => setQuizExpanded(prev => ({ ...prev, [sw.slug]: prev[sw.slug] === false ? true : false }))} className="p-1.5 hover:bg-stone-600 rounded-control transition-colors shrink-0">
-                              <ChevronDown className={`w-4 h-4 text-stone-400 transition-transform ${quizExpanded[sw.slug] !== false ? 'rotate-180' : ''}`} />
-                            </button>
-                          )}
-                        </div>
-                        {subjects.length > 0 && quizExpanded[sw.slug] !== false && (
-                          <div className="px-4 py-2 space-y-1">
-                            {subjects.map(sub => {
-                              const subSelected = isAllSelected || selectedSubs.has(sub.slug);
-                              return (
-                                <div key={sub.slug} className={`flex items-center gap-3 px-3 py-2 rounded-control cursor-pointer transition-colors ${subSelected ? 'bg-orange-600/10' : 'hover:bg-stone-700'}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setQuizSelections(prev => {
-                                      const next = { ...prev };
-                                      let subs = next[sw.slug];
-                                      if (subs === 'all') { subs = new Set(subjects.map(s => s.slug)); }
-                                      else if (!(subs instanceof Set)) { subs = new Set(); }
-                                      else { subs = new Set(subs); }
-                                      if (subs.has(sub.slug)) { subs.delete(sub.slug); } else { subs.add(sub.slug); }
-                                      if (subs.size === subjects.length) { next[sw.slug] = 'all'; }
-                                      else if (subs.size === 0) { delete next[sw.slug]; }
-                                      else { next[sw.slug] = subs; }
-                                      return next;
-                                    });
-                                  }}>
-                                  <div className={`w-4 h-4 rounded-control border flex items-center justify-center shrink-0 transition-colors ${subSelected ? 'bg-orange-500 border-orange-600' : 'border-stone-500 bg-stone-900'}`}>
-                                    {subSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                                  </div>
-                                  <span className={`text-body ${subSelected ? 'text-orange-300' : 'text-stone-400'}`}>{sub.title}</span>
-                                  <span className="text-stone-600 text-caption ml-auto">{sub.skill_level}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                          }}
+                        >
+                          <span className="otter-quiz-check" data-state={pickState} aria-hidden="true">
+                            {pickState === 'all' && <Check />}
+                            {pickState === 'some' && <Minus />}
+                          </span>
+                          <span className="otter-quiz-course-text">
+                            <span className="otter-quiz-course-name">{sw.name}</span>
+                            <span className="otter-quiz-course-meta">
+                              <span>{subjects.length} subjects</span>
+                              {isCoding && <Badge>coding</Badge>}
+                            </span>
+                          </span>
+                        </button>
+                        {subjects.length > 0 && (
+                          <IconButton
+                            size="sm"
+                            icon={ChevronDown}
+                            title={expanded ? 'Hide subjects' : 'Show subjects'}
+                            aria-expanded={expanded}
+                            data-open={expanded}
+                            className="otter-quiz-expand"
+                            onClick={() => setQuizExpanded(prev => ({ ...prev, [sw.slug]: prev[sw.slug] === false ? true : false }))}
+                          />
                         )}
-                        {subjects.length === 0 && <div className="px-4 py-3 text-stone-600 text-caption italic">No generated subjects yet.</div>}
                       </div>
-                    );
-                  })}
-                </div>
-                {hasSelections && (
-                  <div className="bg-stone-800 border border-stone-600 rounded-control p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                    <h3 className="text-white font-semibold text-h3 mb-1">Quiz Type</h3>
-                    <p className="text-stone-500 text-dense mb-3">Select one or more question types</p>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {[{ key: 'mc', label: 'Multiple Choice', always: true }, { key: 'codeId', label: 'Code Identification', always: false }, { key: 'codeWrite', label: 'Code Writing', always: false }].map(({ key, label, always }) => {
-                        if (!always && !hasCodingSelected) return null;
-                        const selected = quizTypes.has(key);
-                        return (
-                          <button key={key} onClick={() => { setQuizTypes(prev => { const next = new Set(prev); if (next.has(key)) { next.delete(key); } else { next.add(key); } if (next.size === 0) return prev; return next; }); }}
-                            className={`px-4 py-2 rounded-control text-body font-semibold border transition-colors flex items-center gap-2 ${selected ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
-                            <div className={`w-3.5 h-3.5 rounded-control border flex items-center justify-center ${selected ? 'border-white bg-white/20' : 'border-stone-500'}`}>
-                              {selected && <Check className="w-2.5 h-2.5 text-white" />}
-                            </div>
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {quizError && <div className="mb-4 bg-red-900/30 border border-red-700 rounded-control p-3"><p className="text-red-300 text-body">{quizError}</p></div>}
-                    <button onClick={() => generateQuiz(quizTypes)} disabled={quizLoading || quizTypes.size === 0}
-                      className="w-full bg-orange-600 text-white py-3 rounded-control border border-orange-700 hover:bg-orange-700 font-semibold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                      {quizLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GraduationCap className="w-5 h-5" />}
-                      Generate Quiz ({quizTypes.size} type{quizTypes.size !== 1 ? 's' : ''})
-                    </button>
+                      {subjects.length > 0 && expanded && (
+                        <div className="otter-quiz-subs">
+                          {subjects.map(sub => {
+                            const subSelected = isAllSelected || selectedSubs.has(sub.slug);
+                            return (
+                              <button
+                                key={sub.slug}
+                                type="button"
+                                role="checkbox"
+                                aria-checked={subSelected}
+                                className="otter-quiz-sub"
+                                data-selected={subSelected}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setQuizSelections(prev => {
+                                    const next = { ...prev };
+                                    let subs = next[sw.slug];
+                                    if (subs === 'all') { subs = new Set(subjects.map(s => s.slug)); }
+                                    else if (!(subs instanceof Set)) { subs = new Set(); }
+                                    else { subs = new Set(subs); }
+                                    if (subs.has(sub.slug)) { subs.delete(sub.slug); } else { subs.add(sub.slug); }
+                                    if (subs.size === subjects.length) { next[sw.slug] = 'all'; }
+                                    else if (subs.size === 0) { delete next[sw.slug]; }
+                                    else { next[sw.slug] = subs; }
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <span className="otter-quiz-check" data-state={subSelected ? 'all' : 'none'} aria-hidden="true">
+                                  {subSelected && <Check />}
+                                </span>
+                                <span className="otter-quiz-sub-title">{sub.title}</span>
+                                <span className="otter-quiz-sub-level">{sub.skill_level}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {subjects.length === 0 && <p className="otter-quiz-none">No generated subjects yet.</p>}
+                    </Card>
+                  );
+                })}
+              </div>
+              {hasSelections && (
+                <div className="otter-form-card otter-quiz-types">
+                  <span className="ui-field-label otter-form-label">Quiz type</span>
+                  <p className="otter-form-hint otter-form-hint-above">Select one or more question types</p>
+                  <div className="otter-levels">
+                    {[{ key: 'mc', label: 'Multiple choice', always: true }, { key: 'codeId', label: 'Code identification', always: false }, { key: 'codeWrite', label: 'Code writing', always: false }].map(({ key, label, always }) => {
+                      if (!always && !hasCodingSelected) return null;
+                      return (
+                        <Chip key={key} active={quizTypes.has(key)} onClick={() => { setQuizTypes(prev => { const next = new Set(prev); if (next.has(key)) { next.delete(key); } else { next.add(key); } if (next.size === 0) return prev; return next; }); }}>
+                          {label}
+                        </Chip>
+                      );
+                    })}
                   </div>
-                )}
-                {!hasSelections && <div className="text-center py-4"><p className="text-stone-500 text-body">Select at least one software/language or subject above to start a quiz.</p></div>}
-              </>
-            )}
-          </div>
+                  {quizError && <Banner tone="danger" icon={AlertCircle} className="otter-quiz-error">{quizError}</Banner>}
+                  <Button variant="primary" icon={GraduationCap} onClick={() => generateQuiz(quizTypes)} disabled={quizTypes.size === 0} loading={quizLoading} className="otter-generate">
+                    Generate quiz ({quizTypes.size} type{quizTypes.size !== 1 ? 's' : ''})
+                  </Button>
+                </div>
+              )}
+              {!hasSelections && <p className="otter-quiz-prompt">Select at least one software/language or subject above to start a quiz.</p>}
+            </>
+          )}
         </div>
       </div>
     );
+  }
+
+  // A4: a question's or a challenge's difficulty is the kit's StatusBadge
+  // (O24's scale — easy success, medium warning, hard danger; three pills of
+  // their own before, green / yellow / red on 900 grounds).
+  function difficultyTone(d) {
+    return d === 'easy' ? 'success' : d === 'medium' ? 'warning' : 'danger';
   }
 
   function renderQuizQuestion() {
@@ -4869,37 +4882,45 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     if (!q) return null;
     return (
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-stone-500 text-body">Question {currentQuestion + 1} of {quizQuestions.length}</span>
-          <span className={`text-label font-semibold uppercase px-2 py-0.5 rounded-control ${q.difficulty === 'easy' ? 'bg-green-900 text-green-400' : q.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{q.difficulty}</span>
+        <div className="otter-quiz-meta">
+          <span>Question {currentQuestion + 1} of {quizQuestions.length}</span>
+          <StatusBadge tone={difficultyTone(q.difficulty)} label={q.difficulty} />
         </div>
         {q.code_snippet && (
-          <div className="mb-4">
-            <SyntaxHighlighter style={oneDark} language={q.language || 'javascript'} customStyle={{ borderRadius: '2px', border: '2px solid #57534e' }}>{q.code_snippet}</SyntaxHighlighter>
+          <div className="otter-code-well otter-quiz-code">
+            <SyntaxHighlighter
+              style={LESSON_CODE_THEME}
+              language={q.language || 'javascript'}
+              PreTag="div"
+              customStyle={LESSON_CODE_BLOCK}
+              codeTagProps={{ className: `language-${q.language || 'javascript'}`, style: LESSON_CODE_TEXT }}
+            >{q.code_snippet}</SyntaxHighlighter>
           </div>
         )}
-        <h3 className="text-white text-h1 font-semibold mb-4">{q.question}</h3>
-        <div className="space-y-2 mb-6">
+        <h3 className="otter-quiz-question">{q.question}</h3>
+        <div className="otter-quiz-options">
           {q.options.map((opt, i) => {
             const isSelected = selectedAnswer === i;
             const isCorrect = i === q.correct_answer;
-            let cls = 'bg-stone-800 text-stone-300 border-stone-600 hover:border-stone-500';
+            // One state per option (was a class string built in a `let`):
+            // idle, chosen, and — once the answer shows — right or wrong.
+            let state = 'idle';
             if (showExplanation) {
-              if (isCorrect) cls = 'bg-green-900/30 text-green-300 border-green-600';
-              else if (isSelected && !isCorrect) cls = 'bg-red-900/30 text-red-300 border-red-600';
-            } else if (isSelected) { cls = 'bg-orange-600/20 text-orange-300 border-orange-500'; }
+              if (isCorrect) state = 'correct';
+              else if (isSelected && !isCorrect) state = 'wrong';
+            } else if (isSelected) { state = 'selected'; }
             return (
-              <button key={i} onClick={() => handleAnswer(i)} disabled={showExplanation} className={`w-full text-left p-3 rounded-control border transition-colors ${cls}`}>
-                <span className="font-semibold mr-2">{String.fromCharCode(65 + i)}.</span>{opt}
+              <button key={i} type="button" onClick={() => handleAnswer(i)} disabled={showExplanation} className="otter-quiz-option" data-state={state}>
+                <span className="otter-quiz-letter">{String.fromCharCode(65 + i)}.</span>{opt}
               </button>
             );
           })}
         </div>
-        {showExplanation && <div className="bg-stone-800 border border-stone-600 rounded-control p-4 mb-4"><p className="text-stone-300 text-body">{q.explanation}</p></div>}
+        {showExplanation && <div className="otter-quiz-explain"><p>{q.explanation}</p></div>}
         {showExplanation && (
-          <button onClick={nextQuestion} className="bg-orange-600 text-white px-4 py-2 rounded-control border border-orange-700 hover:bg-orange-700 font-semibold transition-colors">
-            {currentQuestion + 1 >= quizQuestions.length ? 'See Results' : 'Next Question'}
-          </button>
+          <Button variant="primary" onClick={nextQuestion}>
+            {currentQuestion + 1 >= quizQuestions.length ? 'See results' : 'Next question'}
+          </Button>
         )}
       </div>
     );
@@ -4908,26 +4929,25 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderQuizResults() {
     const pct = Math.round((quizScore / quizQuestions.length) * 100);
     return (
-      <div className="text-center py-8">
-        <div className={`text-h1 font-semibold mb-2 ${pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{pct}%</div>
-        <p className="text-stone-400 mb-2">{quizScore} out of {quizQuestions.length} correct</p>
+      <div className="otter-quiz-results">
+        <div className="otter-quiz-score" data-tone={pct >= 70 ? 'success' : pct >= 50 ? 'warning' : 'danger'}>{pct}%</div>
+        <p className="otter-quiz-tally">{quizScore} out of {quizQuestions.length} correct</p>
 
         {/* Session 30: say whether the result was KEPT. "Try Again" below
             zeroes the score, so before this the only copy of a result was the
             number on this screen and the most obvious next click destroyed
             it. */}
-        <div className="mb-6 text-dense h-4">
-          {quizSaveState === 'saving' && <span className="text-stone-500">Saving your result…</span>}
-          {quizSaveState === 'saved' && <span className="text-stone-500">Saved to your quiz history (kept for 30 days).</span>}
+        <div className="otter-quiz-save">
+          {quizSaveState === 'saving' && <span>Saving your result…</span>}
+          {quizSaveState === 'saved' && <span>Saved to your quiz history (kept for 30 days).</span>}
           {quizSaveState?.error && (
-            <span className="text-red-400">Not saved — {quizSaveState.error}</span>
+            <span className="otter-quiz-save-error">Not saved — {quizSaveState.error}</span>
           )}
         </div>
 
-        <button onClick={() => { setQuizQuestions(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizSaveState(null); }}
-          className="bg-orange-600 text-white px-6 py-2 rounded-control border border-orange-700 hover:bg-orange-700 font-semibold transition-colors">
-          Try Again
-        </button>
+        <Button variant="primary" onClick={() => { setQuizQuestions(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizSaveState(null); }}>
+          Try again
+        </Button>
       </div>
     );
   }
@@ -4938,71 +4958,77 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const codeLang = activeSoftware?.name?.toLowerCase() || 'javascript';
     return (
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-stone-500 text-body">Challenge {currentChallenge + 1} of {challenges.length}</span>
-          <span className={`text-label font-semibold uppercase px-2 py-0.5 rounded-control ${ch.difficulty === 'easy' ? 'bg-green-900 text-green-400' : ch.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{ch.difficulty}</span>
+        <div className="otter-quiz-meta">
+          <span>Challenge {currentChallenge + 1} of {challenges.length}</span>
+          <StatusBadge tone={difficultyTone(ch.difficulty)} label={ch.difficulty} />
         </div>
-        <h3 className="text-white text-h1 font-semibold mb-2">{ch.title}</h3>
-        <p className="text-stone-400 mb-4 text-body">{ch.description}</p>
+        <h3 className="otter-quiz-question otter-quiz-challenge">{ch.title}</h3>
+        <p className="otter-quiz-desc">{ch.description}</p>
         {ch.test_cases?.length > 0 && (
-          <div className="mb-4 bg-stone-800 border border-stone-600 rounded-control p-3">
-            <h4 className="text-stone-300 text-h3 font-semibold mb-2">Test Cases</h4>
+          <div className="otter-quiz-cases">
+            <h4 className="otter-quiz-h4">Test cases</h4>
             {ch.test_cases.map((tc, i) => (
-              <div key={i} className="text-stone-400 text-dense mb-1">
-                <span className="text-stone-500">Input:</span> {tc.input} &rarr; <span className="text-stone-500">Expected:</span> {tc.expected_output}
+              <div key={i} className="otter-quiz-case">
+                <span className="otter-quiz-case-key">Input:</span> {tc.input} &rarr; <span className="otter-quiz-case-key">Expected:</span> {tc.expected_output}
               </div>
             ))}
           </div>
         )}
-        <div className="border border-stone-600 rounded-control overflow-hidden mb-4" style={{ height: '300px' }}>
+        <div className="otter-quiz-editor">
           <Editor height="300px" defaultLanguage={codeLang} value={userCode} onChange={v => setUserCode(v || '')} theme="vs-dark"
             options={{ minimap: { enabled: false }, fontSize: TYPE.body, scrollBeyondLastLine: false, wordWrap: 'on' }} />
         </div>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="otter-quiz-tools">
           {ch.hints?.length > 0 && hintsShown < ch.hints.length && (
-            <button onClick={() => setHintsShown(h => h + 1)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-1.5 rounded-control hover:bg-stone-600 transition-colors text-body">
-              <HelpCircle className="w-4 h-4" /> Show Hint ({hintsShown}/{ch.hints.length})
-            </button>
+            <Button icon={HelpCircle} onClick={() => setHintsShown(h => h + 1)}>
+              Show hint ({hintsShown}/{ch.hints.length})
+            </Button>
           )}
           {!showSolution && !showSolutionConfirm && (
-            <button onClick={() => setShowSolutionConfirm(true)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border border-stone-600 px-3 py-1.5 rounded-control hover:bg-stone-600 transition-colors text-body">
-              <Eye className="w-4 h-4" /> Show Solution
-            </button>
+            <Button icon={Eye} onClick={() => setShowSolutionConfirm(true)}>
+              Show solution
+            </Button>
           )}
         </div>
         {hintsShown > 0 && (
-          <div className="space-y-2 mb-4">
+          <div className="otter-quiz-hints">
             {ch.hints.slice(0, hintsShown).map((hint, i) => (
-              <div key={i} className="bg-stone-800 border border-yellow-700 rounded-control p-3 text-body text-stone-300">
-                <span className="text-yellow-500 font-semibold">Hint {i + 1}:</span> {hint}
+              <div key={i} className="otter-quiz-hint">
+                <span className="otter-quiz-hint-label">Hint {i + 1}:</span> {hint}
               </div>
             ))}
           </div>
         )}
         {showSolutionConfirm && !showSolution && (
-          <div className="bg-stone-800 border border-orange-600 rounded-control p-4 mb-4">
-            <p className="text-stone-300 text-body mb-3">Are you sure? Try a bit more first!</p>
-            <div className="flex gap-2">
-              <button onClick={() => { setShowSolution(true); setShowSolutionConfirm(false); }} className="bg-orange-600 text-white px-3 py-1 rounded-control text-body border border-orange-700">Show it</button>
-              <button onClick={() => setShowSolutionConfirm(false)} className="bg-stone-700 text-stone-300 px-3 py-1 rounded-control text-body border border-stone-600">Keep trying</button>
+          <div className="otter-quiz-confirm">
+            <p>Are you sure? Try a bit more first!</p>
+            <div className="otter-quiz-confirm-actions">
+              <Button variant="primary" size="sm" onClick={() => { setShowSolution(true); setShowSolutionConfirm(false); }}>Show it</Button>
+              <Button size="sm" onClick={() => setShowSolutionConfirm(false)}>Keep trying</Button>
             </div>
           </div>
         )}
         {showSolution && (
-          <div className="mb-4">
-            <h4 className="text-green-400 text-h3 font-semibold mb-2">Solution</h4>
-            <SyntaxHighlighter style={oneDark} language={codeLang} customStyle={{ borderRadius: '2px', border: '2px solid #57534e' }}>{ch.solution}</SyntaxHighlighter>
+          <div className="otter-quiz-solution">
+            <h4 className="otter-quiz-h4">Solution</h4>
+            <div className="otter-code-well otter-quiz-code">
+              <SyntaxHighlighter
+                style={LESSON_CODE_THEME}
+                language={codeLang}
+                PreTag="div"
+                customStyle={LESSON_CODE_BLOCK}
+                codeTagProps={{ className: `language-${codeLang}`, style: LESSON_CODE_TEXT }}
+              >{ch.solution}</SyntaxHighlighter>
+            </div>
           </div>
         )}
-        <div className="flex items-center justify-between border-t border-stone-700 pt-4">
-          <button disabled={currentChallenge <= 0} onClick={() => { setCurrentChallenge(c => c - 1); setUserCode(challenges[currentChallenge - 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}
-            className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
-            <ArrowLeft className="w-4 h-4" /> Previous
-          </button>
-          <button disabled={currentChallenge >= challenges.length - 1} onClick={() => { setCurrentChallenge(c => c + 1); setUserCode(challenges[currentChallenge + 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}
-            className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-body">
-            Next <ArrowRight className="w-4 h-4" />
-          </button>
+        <div className="otter-quiz-nav">
+          <Button icon={ArrowLeft} disabled={currentChallenge <= 0} onClick={() => { setCurrentChallenge(c => c - 1); setUserCode(challenges[currentChallenge - 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}>
+            Previous
+          </Button>
+          <Button variant="primary" disabled={currentChallenge >= challenges.length - 1} onClick={() => { setCurrentChallenge(c => c + 1); setUserCode(challenges[currentChallenge + 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}>
+            Next <ArrowRight aria-hidden="true" />
+          </Button>
         </div>
       </div>
     );

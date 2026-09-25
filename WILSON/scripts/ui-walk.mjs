@@ -139,7 +139,7 @@ const REGISTRY = [
   P('otter-sources', '/otter', { steps: ['@lesson', 'Sources'], expect: { text: 'Works cited' } }),
   P('otter-settings', '/otter', { steps: ['Tool settings'], expect: { dialog: 'System prompts' } }),   // A4: the Drawer's tab, sentence case (Q2)
   P('otter-search', '/otter', { steps: ['Search'], expect: { dialog: true } }),
-  P('otter-quiz', '/otter', { steps: ['Quiz'], expect: { text: 'Quiz Center' } }),
+  P('otter-quiz', '/otter', { steps: ['Quiz'], expect: { text: 'Quiz center' } }),   // A4: sentence case (Q2)
   P('otter-hotkeys', '/otter', { steps: ['Hotkeys'], expect: { text: 'Keyboard shortcuts' } }),   // A3: sentence case (Q2)
   P('otter-nodes', '/otter', { steps: ['Nodes'], expect: { text: 'Nodes reference' } }),   // A3: sentence case (Q2)
   P('otter-admin', '/otter', { steps: ['Admin'], expect: { text: 'For your review' } }),
@@ -312,7 +312,6 @@ const KNOWN = {
      the kit's Dialog, Tabs and named checkboxes, and the Settings lock on
      the kit's Switch, and deleted the last four (2026-09-23). */
   anon: [
-    { key: 'otter-quiz', text: 'lucide-chevron-down', n: 1 },
     { key: 'projects-detail', text: 'lucide-trash2', n: 30 },
     { key: 'rabbit-asset-detail', text: 'lucide-square', n: 16 },
     { key: 'rabbit-asset-detail', text: 'lucide-trash2', n: 15 },

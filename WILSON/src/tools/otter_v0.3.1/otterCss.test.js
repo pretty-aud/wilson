@@ -183,6 +183,10 @@ describe('otter.css', () => {
       // A4: the settings slide-out's accordion headers.
       ['.otter-acc-head:hover', '.otter-acc-desc'],
       [".otter-settings-body[data-locked='true'] .otter-acc-head:hover", '.otter-acc-label'],
+      // A4: the quiz centre's pickers.
+      [".otter-quiz-course-head[data-selected='true']", '.otter-quiz-course-meta'],
+      [".otter-quiz-sub[data-selected='true']", '.otter-quiz-sub-level'],
+      ['.otter-quiz-sub:hover', '.otter-quiz-sub-level'],
       // A4: the Validator's audit list.
       [".otter-val-audit[data-active='true']", '.otter-val-audit-meta'],
       ['.otter-val-audit:hover', '.otter-val-audit-meta'],
