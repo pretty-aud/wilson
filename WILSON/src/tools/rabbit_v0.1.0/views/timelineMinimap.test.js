@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   MINIMAP, minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow,
-  STRIDES, LABEL_GAP, estimateWidth,
+  STRIDES, LABEL_GAP, LABEL_PAD, estimateWidth,
 } from './timelineMinimap.js'
 
 describe('minimapLayout: every phase gets a row, at any count', () => {
@@ -74,6 +74,27 @@ describe('minimapTicks: a line every month, a label only where it has room', () 
         }
       }
     }
+  })
+
+  it('no label runs past the right edge of the pane, at every zoom, width and start (B3d round 2: "Oc" at 1024, 2 yr)', () => {
+    let dropped = 0
+    for (const width of [760, 1024, 1280, 1440]) {
+      for (const days of [137, 183, 365, 730, 857, 1825]) {
+        const dayPx = width / days
+        for (let k = 0; k < 365; k += 7) {
+          const from = new Date(2026, 0, 1 + k)
+          const { ticks, stride } = minimapTicks(from, days, dayPx)
+          for (const t of ticks) {
+            if (t.label) {
+              expect(t.offset * dayPx + LABEL_PAD + estimateWidth(t.label), `${width}px ${days}d from day ${k}: "${t.label}"`)
+                .toBeLessThanOrEqual(width + 0.001)
+            } else if (new Date(2026, 0, 1 + k + t.offset).getMonth() % stride === 0) dropped++
+          }
+        }
+      }
+    }
+    // CONTROL: the rule is not vacuous — somewhere a label due on its stride was dropped at the edge.
+    expect(dropped).toBeGreaterThan(0)
   })
 
   it('labels January with its year and the first label with its year when it fits', () => {

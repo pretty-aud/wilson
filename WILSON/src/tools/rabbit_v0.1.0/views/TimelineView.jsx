@@ -1432,9 +1432,13 @@ export const OverviewPane = forwardRef(function OverviewPane({
           knows which way to pan/zoom to find it. Clicking the
           arrow centers the minimap on the detail window. The kit's
           IconButton (its title is its name), on a docked chip so it
-          reads over the bars (review TL-13: never an orange fill). */}
+          reads over the bars (review TL-13: never an orange fill).
+          B3d (review round 2): the chip sits at the top, over the date
+          axis, where it sat 4px into the rows and covered the first two
+          rows' names and off-window wedges ("Development" read
+          "elopment"). */}
       {frameOffLeft && (
-        <span className="absolute rb-tl-ov-away" data-side="before" style={{ top: OVERVIEW_HEADER + 4 }}>
+        <span className="absolute rb-tl-ov-away" data-side="before" style={{ top: 0 }}>
           <IconButton
             size="sm"
             icon={ChevronLeft}
@@ -1447,7 +1451,7 @@ export const OverviewPane = forwardRef(function OverviewPane({
         </span>
       )}
       {frameOffRight && (
-        <span className="absolute rb-tl-ov-away" data-side="after" style={{ top: OVERVIEW_HEADER + 4 }}>
+        <span className="absolute rb-tl-ov-away" data-side="after" style={{ top: 0 }}>
           <IconButton
             size="sm"
             icon={ChevronRight}
@@ -5273,7 +5277,10 @@ function HolidaysEditor({ holidays, onChange, locked = false }) {
       </div>
 
       {/* Date list */}
-      <div className="overflow-y-auto rounded-control rb-tl-hol-list" style={{ maxHeight: 200 }}>
+      {/* `scroll-py-1` here and on the tab panel: Tab stops 4px in from a
+          scroller's edge, so a ring it scrolls to is not cut (O.T.T.E.R.'s
+          fix; review round 2). */}
+      <div className="overflow-y-auto scroll-py-1 rounded-control rb-tl-hol-list" style={{ maxHeight: 200 }}>
         {sorted.length === 0 ? (
           <div className="px-3 py-4 text-dense text-center rb-tl-hol-empty">
             No holidays configured
@@ -5426,7 +5433,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
           id={SETTINGS_PANEL_ID}
           role="tabpanel"
           aria-label={settingsTab === 'prompts' ? 'System prompts' : 'Settings'}
-          className="flex-1 min-h-0 overflow-y-auto"
+          className="flex-1 min-h-0 overflow-y-auto scroll-py-1"
         >
           {/* Settings: kit Cards 16px apart on their own 12px, as O.T.T.E.R.'s
               tool settings are; the prompts run edge to edge, as both
@@ -5463,7 +5470,9 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 <p className="text-dense mb-3 rb-tl-set-desc">
                   Create and manage reusable task templates that can be applied when creating new assets.
                 </p>
-                <Button size="sm" icon={ListChecks} disabled={toolsLocked} onClick={() => setShowTemplateManager(true)}>
+                {/* `self-start`: the kit Card is a column, which stretched the
+                    button across the card (review round 2). */}
+                <Button size="sm" icon={ListChecks} disabled={toolsLocked} onClick={() => setShowTemplateManager(true)} className="self-start">
                   Manage task templates
                 </Button>
               </Card>
@@ -5520,7 +5529,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                   variant="ghost"
                   disabled={toolsLocked}
                   onClick={() => patchSettings({ projectTypeTemplates: { ...DEFAULT_PROJECT_TYPE_TEMPLATES } })}
-                  className="mt-2 -ml-2.5"
+                  className="self-start mt-2 -ml-2.5"
                 >
                   Reset to defaults
                 </Button>
@@ -5579,7 +5588,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                           size="sm"
                           variant="ghost"
                           disabled={promptsLocked}
-                          className="-ml-2.5"
+                          className="-ml-2.5 focus-visible:-outline-offset-2"
                           onClick={() =>
                             setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))
                           }

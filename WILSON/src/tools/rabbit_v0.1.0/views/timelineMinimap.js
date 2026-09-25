@@ -78,6 +78,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export const STRIDES = [1, 2, 3, 6, 12]
 /** The room a label needs beyond its own width. */
 export const LABEL_GAP = 12
+/** A label's inset from its month's line: the tick's `px-1` in OverviewPane. */
+export const LABEL_PAD = 4
 
 /** A label's width at the Caption step (12px Geist): measured, 7px a character is
     at or above every glyph the axis writes (digits and capitals are the widest). */
@@ -117,6 +119,12 @@ export function minimapTicks(start, totalDays, dayPx, measure = estimateWidth) {
       const next = ticks.slice(idx + 1).find((u) => u.month % stride === 0)
       const room = next ? (next.offset - t.offset) * dayPx : Infinity
       if (measure(withYear) + LABEL_GAP <= room) label = withYear
+    }
+    // B3d (review round 2): a label the pane's right edge would cut ("Oc" at
+    // 1024 wide over 2 years) is not drawn; its month keeps its line. The pane
+    // is `totalDays * dayPx` wide (OverviewPane's dayPx is its width / days).
+    if (t.offset * dayPx + LABEL_PAD + measure(label) > totalDays * dayPx) {
+      return { key: t.key, offset: t.offset, major: t.major, label: null }
     }
     labelled++
     return { key: t.key, offset: t.offset, major: t.major, label }

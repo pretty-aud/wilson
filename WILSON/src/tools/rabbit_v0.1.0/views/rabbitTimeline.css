@@ -210,10 +210,14 @@
      or on the row under it, exactly as before). On the bar, the ink; on the
      paper beside a bar too short to hold it, ink-2; a phase without dates,
      ink-3. */
+  /* B3d (review round 2): above the key dates' lines and diamonds (8) and
+     the window's sides (7), which crossed names at 2 and 5 years ("Develop◆◆
+     ent"). The name takes no pointer events, so a press still lands on the
+     key date, the frame or the bar under it, as before. */
   .rb-tl-ov-name {
     top: 50%;
     transform: translateY(-50%);
-    z-index: 6;
+    z-index: 9;
     pointer-events: none;
     color: var(--color-ink-2);
   }
