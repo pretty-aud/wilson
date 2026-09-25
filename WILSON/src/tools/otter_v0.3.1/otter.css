@@ -2036,6 +2036,186 @@
   }
   .otter-fix-declined-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; }
 
+  /* ═══ REQUESTS (RequestsView.jsx) — the Admin / Requests view ══════════
+     Review O24, O12, O3. Five text colours and five hexes of its own for a
+     request's status; approve on green fills, send-back on orange-700 with
+     a lighter hover, refresh and cancel on stone; an orange 20px title with
+     an icon; empty states in italic stone-600 (2.29:1). Now A3's view
+     scaffold (the reading width, the view title), the kit's StatusBadge on
+     the kit's STATUS map, its Buttons, Banner and Loading, and each request
+     a card on paper-raised with one hairline. */
+  .ui-banner.otter-req-notice {
+    margin-bottom: 12px;
+    align-items: flex-start;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-req-loading { display: flex; justify-content: center; padding: 32px 0; color: var(--color-ink-2); }
+  .otter-req-section { margin-bottom: 24px; }
+  .otter-req-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-req-section-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-req-count { font-weight: 400; font-variant-numeric: tabular-nums; color: var(--color-ink-3); }
+  .otter-req-empty {
+    padding: 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-req-list { display: flex; flex-direction: column; gap: 8px; }
+  .otter-req-settled { margin-top: 8px; gap: 6px; }
+  .otter-req {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  /* Waiting on YOU (the proposer: changes were asked for) — the warning
+     tone on the card's edge, as its badge reads (orange-700 at 60% before). */
+  .otter-req[data-attention='true'] { border-color: color-mix(in srgb, var(--color-warning) 45%, transparent); }
+  /* Settled rows sit quieter: paper, not raised, the title in the second ink. */
+  .otter-req[data-settled='true'] { background-color: var(--color-paper); }
+  .otter-req-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    text-align: left;
+    background: none;
+    border: 0;
+  }
+  button.otter-req-head { cursor: pointer; }
+  .otter-req-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+  .otter-req-title {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-req[data-settled='true'] .otter-req-title { color: var(--color-ink-2); }
+  .otter-req-round { font-weight: 400; color: var(--color-ink-3); }
+  /* Who and when is data: the mono (Q4), the third ink, cut to one line. */
+  .otter-req-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-req-body { padding: 4px 12px 12px; border-top: 1px solid var(--color-rule); }
+  .otter-req-body[data-flush='true'] { padding-top: 0; border-top: 0; }
+  .otter-req-label {
+    margin: 8px 0 4px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .otter-req-summary {
+    margin-bottom: 12px;
+    white-space: pre-wrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-req-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-req-note:last-child { margin-bottom: 0; }
+  .otter-req-note-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 2px; }
+  /* A link inside a sentence: the ink, underlined (A3's lesson links), where
+     it was orange-400. */
+  .otter-req-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    color: var(--color-ink);
+    text-decoration-line: underline;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .otter-req-link > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .otter-req-confirm {
+    padding: 12px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-req-confirm-text {
+    margin-bottom: 8px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-req-confirm-text strong { font-weight: 600; color: var(--color-ink); }
+  .otter-req-comparing { display: inline-flex; align-items: center; gap: 6px; }
+  .ui-input.otter-req-textarea { height: 64px; resize: none; }
+  .otter-req-actions { display: flex; align-items: center; gap: 8px; }
+  .otter-req-textarea + .otter-req-actions { margin-top: 8px; }
+  .otter-req-hint {
+    margin-top: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  /* The reviewer's words, back to the proposer: a well with the warning
+     tone's edge (orange-700 at 40% on stone-950 before); the label is the
+     Label step in the second ink, its icon in the tone. */
+  .otter-req-feedback {
+    margin-bottom: 8px;
+    padding: 12px;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+    border-radius: var(--radius-control);
+  }
+  .otter-req-feedback-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .otter-req-feedback-label > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-warning); }
+  .otter-req-feedback-text {
+    white-space: pre-wrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .ui-btn.otter-req-decided { margin-left: -10px; }
+  .otter-req-chevron { transition: rotate var(--duration-response) var(--ease-response); }
+  .otter-req-chevron[data-open='true'] { rotate: 90deg; }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
@@ -2043,6 +2223,7 @@
     .otter-search-result { transition: none; }
     .otter-acc-head, .otter-acc-chevron { transition: none; }
     .otter-val-row, .otter-val-audit { transition: none; }
+    .otter-req-chevron { transition: none; }
   }
 
 }

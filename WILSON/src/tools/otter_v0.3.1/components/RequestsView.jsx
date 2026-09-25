@@ -52,33 +52,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  RefreshCw, Loader2, GitPullRequestArrow, Check, X, AlertCircle, Lock,
+  RefreshCw, GitPullRequestArrow, Check, X, AlertCircle, Lock, ChevronRight,
   Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning, ShieldCheck,
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
+import { Button, IconButton, SectionTitle, Banner, Loading, Spinner, StatusBadge, statusMeta } from '../../../ui'
 
-const STATUS_STYLE = {
-  open:              { color: 'text-amber-500',  dot: '#b45309', label: 'Open' },
-  changes_requested: { color: 'text-orange-400', dot: '#9a3412', label: 'Changes requested' },
-  approved:          { color: 'text-green-400',  dot: '#166534', label: 'Approved' },
-  rejected:          { color: 'text-red-400',    dot: '#991b1b', label: 'Rejected' },
-  withdrawn:         { color: 'text-stone-500',  dot: '#57534e', label: 'Withdrawn' },
-}
+// A4 (review O24): a request's status is the kit's StatusBadge, its tone and
+// word from the kit's one STATUS map (open, changes requested, approved,
+// rejected, withdrawn — the Admin Terminal's tones). This file's own map
+// drew five text colours and five hexes found nowhere else in WILSON.
 
 function fmt(iso) {
   if (!iso) return '--'
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '--' : d.toLocaleString()
-}
-
-function StatusChip({ status }) {
-  const st = STATUS_STYLE[status] ?? STATUS_STYLE.open
-  return (
-    <span className={`text-label font-semibold uppercase ${st.color} flex items-center gap-1.5 shrink-0`}>
-      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: st.dot }} />
-      {st.label}
-    </span>
-  )
 }
 
 export default function RequestsView({
@@ -392,200 +380,164 @@ export default function RequestsView({
   }, [noms, userId, isApprover])
 
   const sectionHeader = (icon, text, count) => (
-    <h3 className="text-orange-400 font-semibold text-h3 mb-2 flex items-center gap-1.5">
-      {icon} {text}{count != null ? <span className="text-stone-500">· {count}</span> : null}
+    <h3 className="otter-req-section-title">
+      {icon}{text}{count != null ? <span className="otter-req-count">· {count}</span> : null}
     </h3>
   )
 
   const isManager = role === 'manager'
 
+  // One row's head: what, who and when, and its status (the four lists).
+  const rowHead = (title, meta, status, round) => (
+    <>
+      <span className="otter-req-text">
+        <span className="otter-req-title">
+          {title}
+          {round > 1 && <span className="otter-req-round"> · round {round}</span>}
+        </span>
+        <span className="otter-req-meta">{meta}</span>
+      </span>
+      <StatusBadge status={status} />
+    </>
+  )
+
   return (
-    <div className="h-full overflow-y-auto p-5 wilson-dark-scroll">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-white font-semibold text-h1 flex items-center gap-2">
-              <GitPullRequestArrow className="w-5 h-5 text-orange-400" />
-              {isAdmin || isManager ? 'Company library — requests' : 'My change requests'}
-            </h2>
-            <p className="text-stone-500 text-dense mt-0.5">
-              {isAdmin
-                ? 'Courses put forward to become the company standard, and suggested changes to the standards you already have.'
-                : isManager
-                  // A manager decides NOMINATIONS but not change requests (0064
-                  // widened one flow and deliberately not the other), so the
-                  // copy has to say which is which rather than "you can decide".
-                  ? 'Courses put forward to become the company standard — you decide those. Suggested changes to an existing standard are decided by an admin or the course’s owner.'
-                  : 'Courses you have put forward, changes you have suggested, and the feedback that came back.'}
-            </p>
-          </div>
-          <button
-            onClick={refreshAll}
-            disabled={loading}
-            className="px-3 py-2 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 shrink-0"
-          >
-            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-            Refresh
-          </button>
-        </div>
+    <div className="otter-view wilson-dark-scroll">
+      <div className="otter-view-page otter-req-page" data-width="reading">
+        <SectionTitle
+          rule={false}
+          className="otter-view-title"
+          description={isAdmin
+            ? 'Courses put forward to become the company standard, and suggested changes to the standards you already have.'
+            : isManager
+              // A manager decides NOMINATIONS but not change requests (0064
+              // widened one flow and deliberately not the other), so the
+              // copy has to say which is which rather than "you can decide".
+              ? 'Courses put forward to become the company standard — you decide those. Suggested changes to an existing standard are decided by an admin or the course’s owner.'
+              : 'Courses you have put forward, changes you have suggested, and the feedback that came back.'}
+          actions={<Button icon={RefreshCw} onClick={refreshAll} loading={loading}>Refresh</Button>}
+        >
+          {isAdmin || isManager ? 'Company library — requests' : 'My change requests'}
+        </SectionTitle>
 
         {error && (
-          <div className="bg-red-900/30 border border-red-700 rounded-control p-2.5 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-red-300 text-dense flex-1">{error}</p>
-            <button onClick={() => setError(null)} aria-label="Dismiss">
-              <X className="w-3 h-3 text-red-400" />
-            </button>
-          </div>
+          <Banner tone="danger" icon={AlertCircle} className="otter-req-notice"
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setError(null)} />}>
+            {error}
+          </Banner>
         )}
 
         {applied && !error && (
-          <div className="bg-green-900/25 border border-green-800 rounded-control p-2.5 flex items-start gap-2">
-            <Check className="w-4 h-4 text-green-400 shrink-0" />
-            <p className="text-green-300 text-dense flex-1">
-              Applied to “{applied.name}”
-              {applied.updates != null
-                ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added`
-                : ''}.
-              A pre-change archive was kept in your library.
-            </p>
-            <button onClick={() => setApplied(null)} aria-label="Dismiss">
-              <X className="w-3 h-3 text-green-400" />
-            </button>
-          </div>
+          <Banner tone="success" icon={Check} className="otter-req-notice"
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setApplied(null)} />}>
+            Applied to “{applied.name}”
+            {applied.updates != null
+              ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added`
+              : ''}.
+            A pre-change archive was kept in your library.
+          </Banner>
         )}
 
         {nomError && (
-          <div className="bg-red-900/30 border border-red-700 rounded-control p-2.5 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-red-300 text-dense flex-1">{nomError}</p>
-            <button onClick={() => setNomError(null)} aria-label="Dismiss">
-              <X className="w-3 h-3 text-red-400" />
-            </button>
-          </div>
+          <Banner tone="danger" icon={AlertCircle} className="otter-req-notice"
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setNomError(null)} />}>
+            {nomError}
+          </Banner>
         )}
 
         {promoted && !nomError && (
-          <div className="bg-green-900/25 border border-green-800 rounded-control p-2.5 flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-green-400 shrink-0" />
-            <p className="text-green-300 text-dense flex-1">
-              “{promoted.name}” is now the company standard, live for everyone.
-              {promoted.superseded
-                ? ` “${promoted.superseded}” stood down and is now shared with the company — nothing was deleted.`
-                : ''}
-            </p>
-            <button onClick={() => setPromoted(null)} aria-label="Dismiss">
-              <X className="w-3 h-3 text-green-400" />
-            </button>
-          </div>
+          <Banner tone="success" icon={ShieldCheck} className="otter-req-notice"
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setPromoted(null)} />}>
+            “{promoted.name}” is now the company standard, live for everyone.
+            {promoted.superseded
+              ? ` “${promoted.superseded}” stood down and is now shared with the company — nothing was deleted.`
+              : ''}
+          </Banner>
         )}
 
         {loading && rows.length === 0 ? (
-          <p className="text-stone-500 text-dense flex items-center gap-1.5 py-8 justify-center">
-            <Loader2 className="w-3 h-3 animate-spin" /> Loading…
-          </p>
+          <div className="otter-req-loading"><Loading label="Loading…" /></div>
         ) : (
           <>
             {/* ── For review (admins + standard-course owners) ── */}
             {(isAdmin || toReview.length > 0) && (
-              <section>
+              <section className="otter-req-section">
                 {sectionHeader(null, 'For your review', toReview.length)}
                 {toReview.length === 0 ? (
-                  <p className="text-stone-600 text-dense italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
+                  <p className="otter-req-empty">
                     Nothing is waiting on you. When someone suggests a change to a company
                     standard course, it lands here.
                   </p>
                 ) : (
-                  <ul className="space-y-2">
+                  <ul className="otter-req-list">
                     {toReview.map(r => {
                       const isOpen = expandedId === r.id
                       return (
-                        <li key={r.id} className="bg-stone-900/60 border border-stone-700 rounded-control">
+                        <li key={r.id} className="otter-req">
                           <button
                             type="button"
                             onClick={() => { setExpandedId(prev => (prev === r.id ? null : r.id)); setDecide(null); setNote(''); setDiff(null) }}
-                            className="w-full text-left px-3 py-2 flex items-start gap-2"
+                            aria-expanded={isOpen}
+                            className="otter-req-head"
                           >
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-dense font-semibold text-stone-200">
-                                {r.target_name ?? 'A company standard course'}
-                              </span>
-                              <span className="block text-dense font-mono truncate text-stone-500">
-                                {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
-                                {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
-                              </span>
-                            </span>
-                            <StatusChip status={r.status} />
+                            {rowHead(
+                              r.target_name ?? 'A company standard course',
+                              <>{r.proposer_label ?? 'someone'} · {fmt(r.created_at)}{(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}</>,
+                              r.status,
+                            )}
                           </button>
 
                           {isOpen && (
-                            <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                              <p className="text-label font-semibold uppercase mb-1 text-stone-500">
-                                What they changed, and why
-                              </p>
-                              <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{r.summary}</p>
+                            <div className="otter-req-body">
+                              <p className="otter-req-label">What they changed, and why</p>
+                              <p className="otter-req-summary">{r.summary}</p>
 
                               {r.source_readable ? (
-                                <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
-                                  <Eye className="w-3 h-3 mt-0.5 shrink-0" />
+                                <p className="otter-req-note">
+                                  <Eye className="otter-req-note-icon" aria-hidden="true" />
                                   <span>
                                     Submitting shared their copy with reviewers while this request is open.{' '}
-                                    <button
-                                      type="button"
-                                      onClick={() => openTheirCourse(r)}
-                                      className="underline font-semibold text-orange-400 inline-flex items-center gap-0.5"
-                                    >
-                                      Open their course <ExternalLink className="w-2.5 h-2.5" />
+                                    <button type="button" onClick={() => openTheirCourse(r)} className="otter-req-link">
+                                      Open their course <ExternalLink aria-hidden="true" />
                                     </button>
                                   </span>
                                 </p>
                               ) : (
-                                <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
-                                  <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
+                                <p className="otter-req-note">
+                                  <EyeOff className="otter-req-note-icon" aria-hidden="true" />
                                   <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                                 </p>
                               )}
 
                               {decide?.id === r.id && decide.action === 'approve' ? (
-                                <div className="bg-stone-800 border border-stone-600 rounded-control p-2.5">
-                                  <p className="text-dense mb-2 text-stone-300">
+                                <div className="otter-req-confirm">
+                                  <p className="otter-req-confirm-text">
                                     {diff?.loading ? (
-                                      <span className="inline-flex items-center gap-1.5">
-                                        <Loader2 className="w-3 h-3 animate-spin" /> Comparing their course with the standard…
+                                      <span className="otter-req-comparing">
+                                        <Spinner size="sm" aria-hidden="true" /> Comparing their course with the standard…
                                       </span>
                                     ) : diff?.error ? (
                                       <>Could not compare the two courses ({diff.error}) — approving will
                                       still update matching subjects and add new ones.</>
                                     ) : (
                                       <>Approving applies their course to
-                                      “{r.target_name ?? 'the standard'}”: <strong className="text-white">{diff?.updates ?? 0} subject{(diff?.updates ?? 0) === 1 ? '' : 's'} updated,
+                                      “{r.target_name ?? 'the standard'}”: <strong>{diff?.updates ?? 0} subject{(diff?.updates ?? 0) === 1 ? '' : 's'} updated,
                                       {' '}{diff?.adds ?? 0} added</strong>.</>
                                     )}{' '}
                                     Nothing is deleted, and reference documents (hotkeys, functions,
                                     nodes) are untouched. A snapshot of the current standard is kept
                                     first, as a private archive owned by you.
                                   </p>
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => { setDecide(null); setDiff(null) }}
-                                      disabled={busy}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={() => approve(r)}
-                                      disabled={busy || diff?.loading}
-                                      className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-control hover:bg-green-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                                    >
-                                      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
+                                  <div className="otter-req-actions">
+                                    <Button size="sm" onClick={() => { setDecide(null); setDiff(null) }} disabled={busy}>Cancel</Button>
+                                    <Button variant="primary" size="sm" icon={Archive} onClick={() => approve(r)} disabled={diff?.loading} loading={busy}>
                                       Archive, then apply
-                                    </button>
+                                    </Button>
                                   </div>
                                 </div>
                               ) : decide?.id === r.id && decide.action === 'decline' ? (
-                                <div className="bg-stone-800 border border-stone-600 rounded-control p-2.5">
-                                  <p className="text-dense mb-2 text-stone-300">
+                                <div className="otter-req-confirm">
+                                  <p className="otter-req-confirm-text">
                                     Your note goes back to {r.proposer_label ?? 'the proposer'}. They can
                                     make the changes and resubmit, or accept the decision.
                                   </p>
@@ -593,47 +545,37 @@ export default function RequestsView({
                                     value={note}
                                     onChange={(e) => setNote(e.target.value)}
                                     placeholder="What should change before you would approve this?"
-                                    className="w-full h-16 bg-stone-950 text-white border border-stone-600 rounded-control p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600"
+                                    aria-label="Your note to the proposer"
+                                    className="ui-input otter-req-textarea"
+                                    data-surface="dark"
                                   />
-                                  <div className="flex gap-2 mt-2">
-                                    <button
-                                      onClick={() => { setDecide(null); setNote('') }}
-                                      disabled={busy}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={() => decline(r)}
-                                      disabled={busy || !note.trim()}
-                                      className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-control hover:bg-orange-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                                    >
-                                      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                  <div className="otter-req-actions">
+                                    <Button size="sm" onClick={() => { setDecide(null); setNote('') }} disabled={busy}>Cancel</Button>
+                                    <Button variant="primary" size="sm" onClick={() => decline(r)} disabled={!note.trim()} loading={busy}>
                                       Send it back
-                                    </button>
+                                    </Button>
                                   </div>
                                   {!note.trim() && (
-                                    <p className="text-dense mt-1 text-stone-500">
+                                    <p className="otter-req-hint">
                                       A note is required — the proposer needs to know what to change.
                                     </p>
                                   )}
                                 </div>
                               ) : (
-                                <div className="flex gap-2">
-                                  <button
+                                <div className="otter-req-actions">
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    icon={Check}
                                     onClick={() => { setDecide({ id: r.id, action: 'approve' }); setNote(''); loadDiff(r) }}
                                     disabled={!r.source_readable}
                                     title={r.source_readable ? undefined : 'Their course no longer exists — there is nothing to apply'}
-                                    className="px-3 py-1.5 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    <Check className="w-3 h-3" /> Approve
-                                  </button>
-                                  <button
-                                    onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}
-                                    className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5"
-                                  >
-                                    <X className="w-3 h-3" /> Decline
-                                  </button>
+                                    Approve
+                                  </Button>
+                                  <Button size="sm" icon={X} onClick={() => { setDecide({ id: r.id, action: 'decline' }); setNote(''); setDiff(null) }}>
+                                    Decline
+                                  </Button>
                                 </div>
                               )}
                             </div>
@@ -648,38 +590,32 @@ export default function RequestsView({
 
             {/* ── Open requests (managers: view-only, 0026) ── */}
             {watching.length > 0 && (
-              <section>
+              <section className="otter-req-section">
                 {sectionHeader(null, 'Open requests', watching.length)}
-                <ul className="space-y-2">
+                <ul className="otter-req-list">
                   {watching.map(r => {
                     const isOpen = expandedId === r.id
                     return (
-                      <li key={r.id} className="bg-stone-900/60 border border-stone-700 rounded-control">
+                      <li key={r.id} className="otter-req">
                         <button
                           type="button"
                           onClick={() => setExpandedId(prev => (prev === r.id ? null : r.id))}
-                          className="w-full text-left px-3 py-2 flex items-start gap-2"
+                          aria-expanded={isOpen}
+                          className="otter-req-head"
                         >
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-dense font-semibold text-stone-200">
-                              {r.target_name ?? 'A company standard course'}
-                            </span>
-                            <span className="block text-dense font-mono truncate text-stone-500">
-                              {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
-                              {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
-                            </span>
-                          </span>
-                          <StatusChip status={r.status} />
+                          {rowHead(
+                            r.target_name ?? 'A company standard course',
+                            <>{r.proposer_label ?? 'someone'} · {fmt(r.created_at)}{(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}</>,
+                            r.status,
+                          )}
                         </button>
                         {isOpen && (
-                          <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                            <p className="text-label font-semibold uppercase mb-1 text-stone-500">
-                              What they changed, and why
-                            </p>
-                            <p className="text-dense whitespace-pre-wrap mb-2 text-stone-300">{r.summary}</p>
-                            <p className="text-dense flex items-center gap-1.5 text-stone-600">
-                              <Lock className="w-3 h-3 shrink-0" />
-                              An admin or the course&apos;s owner decides this one.
+                          <div className="otter-req-body">
+                            <p className="otter-req-label">What they changed, and why</p>
+                            <p className="otter-req-summary">{r.summary}</p>
+                            <p className="otter-req-note">
+                              <Lock className="otter-req-note-icon" aria-hidden="true" />
+                              <span>An admin or the course&apos;s owner decides this one.</span>
                             </p>
                           </div>
                         )}
@@ -695,60 +631,48 @@ export default function RequestsView({
                 two roles are equal. Approving PROMOTES the course and stands
                 the incumbent down, so it confirms both halves before firing. */}
             {(isApprover || nomMine.length > 0 || nomDecided.length > 0) && (
-              <section>
+              <section className="otter-req-section">
                 {sectionHeader(
-                  <ShieldCheck className="w-3.5 h-3.5" />,
+                  <ShieldCheck className="otter-req-section-icon" aria-hidden="true" />,
                   isApprover ? 'Put forward as company standard' : 'My nominations',
                   isApprover ? nomToDecide.length : nomMine.length)}
 
                 {isApprover && nomToDecide.length === 0 && nomMine.length === 0 && (
-                  <p className="text-stone-600 text-dense italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
+                  <p className="otter-req-empty">
                     Nothing is waiting on you. When someone puts a course forward to become
                     the company standard, it lands here.
                   </p>
                 )}
 
-                <ul className="space-y-2">
+                <ul className="otter-req-list">
                   {[...nomToDecide, ...nomMine].map(n => {
                     const isOpen = expandedId === n.id
                     const isMine = n.proposed_by === userId
                     const canDecide = isApprover && !isMine && n.status === 'open'
                     return (
-                      <li
-                        key={n.id}
-                        className={`rounded-control border ${n.status === 'changes_requested' && isMine
-                          ? 'bg-stone-900 border-orange-700/60'
-                          : 'bg-stone-900/60 border-stone-700'}`}
-                      >
+                      <li key={n.id} className="otter-req" data-attention={n.status === 'changes_requested' && isMine}>
                         <button
                           type="button"
                           onClick={() => { setExpandedId(prev => (prev === n.id ? null : n.id)); setNomDecide(null); setNomNote('') }}
-                          className="w-full text-left px-3 py-2 flex items-start gap-2"
+                          aria-expanded={isOpen}
+                          className="otter-req-head"
                         >
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-dense font-semibold text-stone-200">
-                              {n.course_name ?? 'A course'}
-                              {(n.revision ?? 1) > 1 && (
-                                <span className="text-stone-500 font-normal"> · round {n.revision}</span>
-                              )}
-                            </span>
-                            <span className="block text-dense font-mono truncate text-stone-500">
-                              {isMine ? 'put forward by you' : (n.proposer_label ?? 'someone')} · {fmt(n.created_at)}
-                            </span>
-                          </span>
-                          <StatusChip status={n.status} />
+                          {rowHead(
+                            n.course_name ?? 'A course',
+                            <>{isMine ? 'put forward by you' : (n.proposer_label ?? 'someone')} · {fmt(n.created_at)}</>,
+                            n.status,
+                            n.revision ?? 1,
+                          )}
                         </button>
 
                         {isOpen && (
-                          <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
-                            <p className="text-label font-semibold uppercase mb-1 text-stone-500">
-                              Why it should be the standard
-                            </p>
-                            <p className="text-dense whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
+                          <div className="otter-req-body">
+                            <p className="otter-req-label">Why it should be the standard</p>
+                            <p className="otter-req-summary">{n.summary}</p>
 
                             {isMine ? (
-                              <p className="text-dense flex items-start gap-1.5 text-stone-500">
-                                <Lock className="w-3 h-3 mt-0.5 shrink-0" />
+                              <p className="otter-req-note">
+                                <Lock className="otter-req-note-icon" aria-hidden="true" />
                                 <span>
                                   {n.status === 'changes_requested'
                                     ? `${n.reviewer_label ?? 'A reviewer'} asked for changes: “${n.review_note}” — respond from the course's “Share or submit…” menu.`
@@ -762,57 +686,42 @@ export default function RequestsView({
                             ) : (
                               <>
                                 {n.course_readable ? (
-                                  <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
-                                    <Eye className="w-3 h-3 mt-0.5 shrink-0" />
+                                  <p className="otter-req-note">
+                                    <Eye className="otter-req-note-icon" aria-hidden="true" />
                                     <span>
                                       Putting it forward opened their course to reviewers while this is
                                       undecided.{' '}
-                                      <button
-                                        type="button"
-                                        onClick={() => openNominatedCourse(n)}
-                                        className="underline font-semibold text-orange-400 inline-flex items-center gap-0.5"
-                                      >
-                                        Open their course <ExternalLink className="w-2.5 h-2.5" />
+                                      <button type="button" onClick={() => openNominatedCourse(n)} className="otter-req-link">
+                                        Open their course <ExternalLink aria-hidden="true" />
                                       </button>
                                     </span>
                                   </p>
                                 ) : (
-                                  <p className="text-dense mb-3 flex items-start gap-1.5 text-stone-500">
-                                    <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
+                                  <p className="otter-req-note">
+                                    <EyeOff className="otter-req-note-icon" aria-hidden="true" />
                                     <span>Their course is not readable right now — refresh to see its current state.</span>
                                   </p>
                                 )}
 
                                 {canDecide && nomDecide?.id === n.id && nomDecide.action === 'approve' ? (
-                                  <div className="bg-stone-800 border border-stone-600 rounded-control p-2.5">
-                                    <p className="text-dense mb-2 text-stone-300">
+                                  <div className="otter-req-confirm">
+                                    <p className="otter-req-confirm-text">
                                       This makes “{n.course_name}” the company standard, live for
                                       everyone immediately — anyone starting this topic will be
                                       offered it instead of generating their own. Any course
                                       currently holding that spot stands down to
                                       &ldquo;shared with the company&rdquo;; nothing is deleted.
                                     </p>
-                                    <div className="flex gap-2">
-                                      <button
-                                        onClick={() => setNomDecide(null)}
-                                        disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
-                                      >
-                                        Cancel
-                                      </button>
-                                      <button
-                                        onClick={() => approveNom(n)}
-                                        disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-control hover:bg-green-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                                      >
-                                        {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+                                    <div className="otter-req-actions">
+                                      <Button size="sm" onClick={() => setNomDecide(null)} disabled={nomBusy}>Cancel</Button>
+                                      <Button variant="primary" size="sm" icon={ShieldCheck} onClick={() => approveNom(n)} loading={nomBusy}>
                                         Make it the standard
-                                      </button>
+                                      </Button>
                                     </div>
                                   </div>
                                 ) : canDecide && nomDecide?.id === n.id && nomDecide.action === 'decline' ? (
-                                  <div className="bg-stone-800 border border-stone-600 rounded-control p-2.5">
-                                    <p className="text-dense mb-2 text-stone-300">
+                                  <div className="otter-req-confirm">
+                                    <p className="otter-req-confirm-text">
                                       Your note goes back to {n.proposer_label ?? 'the proposer'}. They can
                                       improve the course and resubmit, or accept the decision.
                                     </p>
@@ -820,52 +729,39 @@ export default function RequestsView({
                                       value={nomNote}
                                       onChange={(e) => setNomNote(e.target.value)}
                                       placeholder="What would have to change before this could be the company's official course?"
-                                      className="w-full h-16 bg-stone-950 text-white border border-stone-600 rounded-control p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600"
+                                      aria-label="Your note to the proposer"
+                                      className="ui-input otter-req-textarea"
+                                      data-surface="dark"
                                     />
-                                    <div className="flex gap-2 mt-2">
-                                      <button
-                                        onClick={() => { setNomDecide(null); setNomNote('') }}
-                                        disabled={nomBusy}
-                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold disabled:opacity-50"
-                                      >
-                                        Cancel
-                                      </button>
-                                      <button
-                                        onClick={() => declineNom(n)}
-                                        disabled={nomBusy || !nomNote.trim()}
-                                        className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-control hover:bg-orange-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                                      >
-                                        {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                    <div className="otter-req-actions">
+                                      <Button size="sm" onClick={() => { setNomDecide(null); setNomNote('') }} disabled={nomBusy}>Cancel</Button>
+                                      <Button variant="primary" size="sm" onClick={() => declineNom(n)} disabled={!nomNote.trim()} loading={nomBusy}>
                                         Send it back
-                                      </button>
+                                      </Button>
                                     </div>
                                     {!nomNote.trim() && (
-                                      <p className="text-dense mt-1 text-stone-500">
+                                      <p className="otter-req-hint">
                                         A note is required — the proposer needs to know what to change.
                                       </p>
                                     )}
                                   </div>
                                 ) : canDecide ? (
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => { setNomDecide({ id: n.id, action: 'approve' }); setNomNote('') }}
-                                      className="px-3 py-1.5 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5"
-                                    >
-                                      <Check className="w-3 h-3" /> Approve
-                                    </button>
-                                    <button
-                                      onClick={() => { setNomDecide({ id: n.id, action: 'decline' }); setNomNote('') }}
-                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5"
-                                    >
-                                      <X className="w-3 h-3" /> Decline
-                                    </button>
+                                  <div className="otter-req-actions">
+                                    <Button variant="primary" size="sm" icon={Check} onClick={() => { setNomDecide({ id: n.id, action: 'approve' }); setNomNote('') }}>
+                                      Approve
+                                    </Button>
+                                    <Button size="sm" icon={X} onClick={() => { setNomDecide({ id: n.id, action: 'decline' }); setNomNote('') }}>
+                                      Decline
+                                    </Button>
                                   </div>
                                 ) : (
-                                  <p className="text-dense flex items-center gap-1.5 text-stone-600">
-                                    <Lock className="w-3 h-3 shrink-0" />
-                                    {n.status === 'changes_requested'
-                                      ? 'Sent back to the proposer — waiting on them.'
-                                      : 'An admin or a manager decides this one.'}
+                                  <p className="otter-req-note">
+                                    <Lock className="otter-req-note-icon" aria-hidden="true" />
+                                    <span>
+                                      {n.status === 'changes_requested'
+                                        ? 'Sent back to the proposer — waiting on them.'
+                                        : 'An admin or a manager decides this one.'}
+                                    </span>
                                   </p>
                                 )}
                               </>
@@ -878,22 +774,22 @@ export default function RequestsView({
                 </ul>
 
                 {nomDecided.length > 0 && (
-                  <ul className="space-y-1.5 mt-2">
+                  <ul className="otter-req-list otter-req-settled">
                     {nomDecided.map(n => (
-                      <li key={n.id} className="bg-stone-900/40 border border-stone-800 rounded-control px-3 py-2 flex items-start gap-2">
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-dense font-semibold text-stone-400">
+                      <li key={n.id} className="otter-req otter-req-head" data-settled="true">
+                        <span className="otter-req-text">
+                          <span className="otter-req-title">
                             {n.course_name ?? 'A course'}
-                            <span className="font-normal text-stone-600"> · {n.proposer_label ?? 'someone'}</span>
+                            <span className="otter-req-round"> · {n.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-caption font-mono text-stone-600">
+                          <span className="otter-req-meta">
                             {fmt(n.reviewed_at ?? n.updated_at)}
                             {n.status === 'approved' && n.superseded_name
                               ? ` — replaced “${n.superseded_name}”`
                               : n.review_note ? ` — “${n.review_note}”` : ''}
                           </span>
                         </span>
-                        <StatusChip status={n.status} />
+                        <StatusBadge status={n.status} />
                       </li>
                     ))}
                   </ul>
@@ -902,100 +798,80 @@ export default function RequestsView({
             )}
 
             {/* ── My requests ── */}
-            <section>
+            <section className="otter-req-section">
               {sectionHeader(null, 'My requests', mine.length)}
               {mine.length === 0 ? (
-                <p className="text-stone-600 text-dense italic bg-stone-900/60 border border-stone-700 rounded-control p-3">
+                <p className="otter-req-empty">
                   You haven&apos;t suggested any changes yet. Fork a company standard course,
                   make it better, then use “Suggest a change” from the course row.
                 </p>
               ) : (
-                <ul className="space-y-2">
+                <ul className="otter-req-list">
                   {mine.map(r => {
                     const needsMe = r.status === 'changes_requested'
                     return (
-                      <li
-                        key={r.id}
-                        className={`rounded-control border ${needsMe
-                          ? 'bg-stone-900 border-orange-700/60'
-                          : 'bg-stone-900/60 border-stone-700'}`}
-                      >
-                        <div className="px-3 py-2 flex items-start gap-2">
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-dense font-semibold text-stone-200">
-                              {r.target_name ?? 'A company standard course'}
-                              {(r.revision ?? 1) > 1 && (
-                                <span className="text-stone-500 font-normal"> · round {r.revision}</span>
-                              )}
-                            </span>
-                            <span className="block text-dense font-mono truncate text-stone-500">
-                              sent {fmt(r.created_at)}
-                            </span>
-                          </span>
-                          <StatusChip status={r.status} />
+                      <li key={r.id} className="otter-req" data-attention={needsMe}>
+                        <div className="otter-req-head" data-static="true">
+                          {rowHead(r.target_name ?? 'A company standard course', <>sent {fmt(r.created_at)}</>, r.status, r.revision ?? 1)}
                         </div>
-                        <div className="px-3 pb-3">
-                          <p className="text-dense whitespace-pre-wrap text-stone-400 mb-2">{r.summary}</p>
+                        <div className="otter-req-body" data-flush="true">
+                          <p className="otter-req-summary">{r.summary}</p>
 
                           {needsMe && (
-                            <div className="bg-stone-950 border border-orange-700/40 rounded-control p-2.5 mb-2">
-                              <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
-                                <MessageSquareWarning className="w-3.5 h-3.5" />
+                            <div className="otter-req-feedback">
+                              <p className="otter-req-feedback-label">
+                                <MessageSquareWarning aria-hidden="true" />
                                 {r.reviewer_label ?? 'An admin'} asked for changes
                               </p>
-                              <p className="text-stone-200 text-dense whitespace-pre-wrap">“{r.review_note}”</p>
+                              <p className="otter-req-feedback-text">“{r.review_note}”</p>
                             </div>
                           )}
 
                           {!needsMe && r.status !== 'open' && (
-                            <p className="text-dense flex items-center gap-1.5 text-stone-500">
-                              <Lock className="w-3 h-3 shrink-0" />
-                              {r.status === 'withdrawn' ? (
-                                // A withdrawal is the PROPOSER's act — the server pins the
-                                // reviewer stamps to NULL, so there is no reviewer to name.
-                                <>Withdrawn by you on {fmt(r.updated_at)}</>
-                              ) : (
-                                <>
-                                  {(STATUS_STYLE[r.status] ?? STATUS_STYLE.open).label} by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
-                                  {r.review_note ? ` — “${r.review_note}”` : ''}
-                                  {r.status === 'approved' && r.applied_at ? ' · your changes are in the standard' : ''}
-                                </>
-                              )}
+                            <p className="otter-req-note">
+                              <Lock className="otter-req-note-icon" aria-hidden="true" />
+                              <span>
+                                {r.status === 'withdrawn' ? (
+                                  // A withdrawal is the PROPOSER's act — the server pins the
+                                  // reviewer stamps to NULL, so there is no reviewer to name.
+                                  <>Withdrawn by you on {fmt(r.updated_at)}</>
+                                ) : (
+                                  <>
+                                    {statusMeta(r.status).label} by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
+                                    {r.review_note ? ` — “${r.review_note}”` : ''}
+                                    {r.status === 'approved' && r.applied_at ? ' · your changes are in the standard' : ''}
+                                  </>
+                                )}
+                              </span>
                             </p>
                           )}
 
                           {(needsMe || r.status === 'open') && (
-                            <div className="flex gap-2 mt-1">
+                            <div className="otter-req-actions">
                               {r.source_course_id ? (
-                                <button
-                                  onClick={() => openMyDialog(r)}
-                                  className={`px-3 py-1.5 text-dense font-semibold rounded-control flex items-center gap-1.5 ${needsMe
-                                    ? 'bg-orange-600 text-white border border-orange-700 hover:bg-orange-700'
-                                    : 'bg-stone-700 text-stone-300 border border-stone-600 hover:bg-stone-600'}`}
-                                >
-                                  <GitPullRequestArrow className="w-3 h-3" />
+                                <Button variant={needsMe ? 'primary' : 'secondary'} size="sm" icon={GitPullRequestArrow} onClick={() => openMyDialog(r)}>
                                   {needsMe ? 'Review & respond' : 'Open my request'}
-                                </button>
+                                </Button>
                               ) : needsMe ? (
-                                <button
+                                <Button
+                                  size="sm"
+                                  icon={Check}
                                   onClick={() => settleWithoutFork(r, 'rejected')}
-                                  disabled={busy}
-                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                                  loading={busy}
                                   title="Your copy of the course no longer exists, so resubmitting is not possible"
                                 >
-                                  {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
                                   Accept the decision
-                                </button>
+                                </Button>
                               ) : (
-                                <button
+                                <Button
+                                  size="sm"
+                                  icon={X}
                                   onClick={() => settleWithoutFork(r, 'withdrawn')}
-                                  disabled={busy}
-                                  className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                                  loading={busy}
                                   title="Your copy of the course no longer exists, so editing or resubmitting is not possible"
                                 >
-                                  {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
                                   Withdraw request
-                                </button>
+                                </Button>
                               )}
                             </div>
                           )}
@@ -1009,29 +885,26 @@ export default function RequestsView({
 
             {/* ── Decided history (reviewers) ── */}
             {decided.length > 0 && (
-              <section>
-                <button
-                  type="button"
-                  onClick={() => setShowDecided(v => !v)}
-                  className="text-stone-500 text-dense font-semibold hover:text-stone-300 flex items-center gap-1.5"
-                >
-                  Decided · {decided.length} {showDecided ? '▾' : '▸'}
-                </button>
+              <section className="otter-req-section">
+                <Button variant="ghost" size="sm" onClick={() => setShowDecided(v => !v)} aria-expanded={showDecided} className="otter-req-decided">
+                  Decided · {decided.length}
+                  <ChevronRight className="otter-req-chevron" data-open={showDecided} aria-hidden="true" />
+                </Button>
                 {showDecided && (
-                  <ul className="space-y-1.5 mt-2">
+                  <ul className="otter-req-list otter-req-settled">
                     {decided.map(r => (
-                      <li key={r.id} className="bg-stone-900/40 border border-stone-800 rounded-control px-3 py-2 flex items-start gap-2">
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-dense font-semibold text-stone-400">
+                      <li key={r.id} className="otter-req otter-req-head" data-settled="true">
+                        <span className="otter-req-text">
+                          <span className="otter-req-title">
                             {r.target_name ?? 'A company standard course'}
-                            <span className="font-normal text-stone-600"> · {r.proposer_label ?? 'someone'}</span>
+                            <span className="otter-req-round"> · {r.proposer_label ?? 'someone'}</span>
                           </span>
-                          <span className="block text-caption font-mono text-stone-600">
+                          <span className="otter-req-meta">
                             {fmt(r.reviewed_at ?? r.updated_at)}
                             {r.review_note ? ` — “${r.review_note}”` : ''}
                           </span>
                         </span>
-                        <StatusChip status={r.status} />
+                        <StatusBadge status={r.status} />
                       </li>
                     ))}
                   </ul>
