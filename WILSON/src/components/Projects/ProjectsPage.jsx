@@ -254,7 +254,8 @@ export default function ProjectsPage({ onNavigate }) {
           name:            file.name,
           content:         reader.result,
           type:            file.type,
-          size:            file.size,
+          // The `files` column's name (B4): ProjectFilesTable reads one field.
+          size_bytes:      file.size,
           is_image:        isImg,
           is_core_definer: false,
           document_kind:   isImg ? null : (detectDocumentKind(file.name) || null),
@@ -428,21 +429,24 @@ export default function ProjectsPage({ onNavigate }) {
     // shrinks toward the single store on its own rather than by a migration
     // nobody asked for.
     //
-    // ProjectFilesTable keys on `name`, `size`, `type` and `is_image`; a cloud
-    // row spells two of those differently, so it is mapped rather than spread.
+    // ProjectFilesTable keys on `name`, `size_bytes`, `type` and `is_image`
+    // (B4: one size field, the `files` column's). A cloud row spells `type`
+    // differently, so it is mapped rather than spread. A legacy row written
+    // before B4 holds its size as `size`: that saved shape is read here, once.
     const allFiles = [
       ...normalized.documents.map(f => ({
         ...f,
+        size_bytes: f.size_bytes ?? f.size ?? null,
         is_image: f.is_image ?? isMediaMime(f.type),
       })),
       ...normalized.visualAssets.map(f => ({
         ...f,
+        size_bytes: f.size_bytes ?? f.size ?? null,
         is_image: f.is_image ?? true,
       })),
       ...cloudFiles.map(f => ({
         ...f,
         type:       f.mime_type || '',
-        size:       f.size_bytes ?? null,
         is_image:   isMediaMime(f.mime_type),
         created_at: f.uploaded_at || f.created_at || null,
         storage:    'cloud',

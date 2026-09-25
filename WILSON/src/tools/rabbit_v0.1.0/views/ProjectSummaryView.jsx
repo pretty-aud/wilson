@@ -478,7 +478,7 @@ export default function ProjectSummaryView() {
           if (allProjFiles.length === 0) return null
           return (
             <Card title="Project files" icon={FileText}>
-              <ProjectFilesTable files={withDisplaySize(allProjFiles)} readOnly maxHeight={220} />
+              <ProjectFilesTable files={allProjFiles} readOnly maxHeight={220} />
             </Card>
           )
         })()}
@@ -1136,7 +1136,7 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         <EmptyState compact Icon={FileText} title="No files attached" />
       ) : (
         <ProjectFilesTable
-          files={withDisplaySize(allFiles)}
+          files={allFiles}
           onUpdate={(id, patch) => ctx?.patchFile?.(id, patch)}
           onDelete={(id) => handleDelete(allFiles.find(f => f.id === id))}
           onAudit={(f) => setAuditFile(f)}
@@ -1352,17 +1352,10 @@ function Empty({ children }) {
   return <EmptyState compact Icon={FileText} title={children} />
 }
 
-// A cloud file row carries its size as `size_bytes`; ProjectFilesTable reads
-// `size`, the local shape — the same datum under another name, so SIZE showed
-// "—" for every cloud row (dev-fixtures hand-off, defect 11). This is the
-// display half, fixed at B1's two call sites. KIND stays "—" on purpose: the
-// column is the intake's `document_kind` (script, treatment…), and a cloud
-// row's `kind` (source / reference / other) is a different taxonomy, so
-// aliasing it would misstate the row. That half is a data gap, recorded for B4,
-// which owns the table.
-function withDisplaySize(rows) {
-  return rows.map(f => (f && f.size == null && f.size_bytes != null ? { ...f, size: f.size_bytes } : f))
-}
+// (B4, 2026-09-25) `withDisplaySize` is gone: ProjectFilesTable reads
+// `size_bytes`, the `files` column these rows already carry, so the mapper
+// B1 wrote at the two call sites above has nothing left to do. KIND stays "—"
+// for cloud rows on purpose — a data gap, recorded in ProjectFilesTable.
 
 function fmtMoney(n, currency) {
   if (n == null || isNaN(n)) return '—'

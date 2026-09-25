@@ -1,0 +1,145 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. Assets and files — lane B4's sheet
+   UI overhaul B4, 2026-09-25
+
+   Owns: components/ProjectFilesTable.jsx (drawn by Intake, Summary, the
+   Control Panel's ProjectFilesSection and the Projects page's detail panel —
+   plan §5 item 5), components/FileManager.jsx, FileThumbnail.jsx,
+   VideoPreview.jsx, RelationsPanel.jsx, RelinkDialog.jsx, FileAuditDrawer.jsx,
+   AssetStatusWarningModal.jsx, views/ProjectAssetsView.jsx, LevelsView.jsx and
+   ExperiencesView.jsx. Every class here is `rb-` plus this lane's second word
+   (`files`, `fm`, `asset`, `rel`, `ent`, `vid`, `thumb`): the `rb-` prefix is
+   what B1's scanners (rabbitCssGuards.js) key on; the second word keeps these
+   clear of B1's rabbitShell.css, B2's `rb-task-`, B3's `rb-tl-` and B6's
+   `bn-`.
+
+   Every value is a token. No hex, no colour literal, no size off the scale.
+
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST RULE OF THIS FILE, and it has
+   to be (rabbitShell.css's header; D1 hand-off §5 trap 1): this sheet is
+   imported from a component, so the bundler can emit it before index.css, and
+   a layer's position is fixed where it is FIRST named.
+
+   🚨 SPECIFICITY AGAINST THE KIT. This sheet may load before index.css, so an
+   equal-specificity fight with a kit rule is a coin toss (B1 trap 3). A rule
+   here that overrides a kit rule on the same element is written one class
+   heavier (`.rb-files-table .rb-files-icon-cell` (0,2,0) against `.ui-td`
+   (0,1,0)).
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ ProjectFilesTable ═══════════════════════════════════════════════════
+     The kit Table in a hairline frame. The fixed columns are declared here,
+     once, and read by the header cells (`<Th width="var(--rb-files-kind)">`);
+     Name and Description share what is left. Each width holds the widest
+     value its column can draw, measured in the browser at the cell's own
+     family and 13px (B4, 2026-09-25), plus the kit's 12px cell padding each
+     side:
+       Kind    "Pitch bible" 62.4 in the cell select, which adds 6px in and
+               16px for its caret and reaches 6px into the padding -> 100
+       Type    "MARKDOWN" 62.4 in the mono                              ->  88
+       Size    "1023.9 KB" 70.2 in the mono (MB above that)             ->  96
+       Created "Sep 19, 2026" 93.6 in the mono                          -> 120
+               (en-*; a wider locale ellipsizes, and the cell's title
+               carries the whole date)
+       Core    the 16px tick                                            ->  40
+       icons   a 28px IconButton in 6px                                 ->  40
+     Name and Description split the rest and never go under 100px each: the
+     table's min-width is the fixed columns plus 200, so a panel narrower
+     than that scrolls sideways (the Control Panel's 645px did before too)
+     and Intake's 686px, the narrowest page, just holds it. */
+  .rb-files-frame {
+    --rb-files-core: 40px;
+    --rb-files-kind: 100px;
+    --rb-files-type: 88px;
+    --rb-files-size: 96px;
+    --rb-files-date: 120px;
+    --rb-files-icon: 40px;
+    --rb-files-flex-min: 100px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+    background-color: var(--color-paper);
+  }
+  .rb-files-frame[data-audit="true"] { --rb-files-audit: var(--rb-files-icon); }
+  .rb-files-frame[data-delete="true"] { --rb-files-delete: var(--rb-files-icon); }
+  .rb-files-frame .rb-files-table {
+    min-width: calc(var(--rb-files-core) + var(--rb-files-kind) + var(--rb-files-type)
+      + var(--rb-files-size) + var(--rb-files-date) + var(--rb-files-audit, 0px)
+      + var(--rb-files-delete, 0px) + 2 * var(--rb-files-flex-min));
+  }
+  /* A caller-given height (220 / 280 / 300 / 380) turns the table into a
+     scroller with the kit's sticky head; `scroll-padding` keeps a focused
+     row clear of it and of the frame (B3d's pattern). */
+  .rb-files-frame[data-scroll="true"] .rb-files-scroll {
+    max-height: var(--rb-files-max);
+    scroll-padding-block: var(--table-head) 4px;
+  }
+
+  .rb-files-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-files-glyph { width: 14px; height: 14px; flex: none; color: var(--color-ink-3); }
+  .rb-files-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Figures and identifiers: the mono, tabular (plan §3.1). */
+  .rb-files-table .rb-files-mono {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-files-table .rb-files-size { color: var(--color-ink-2); }
+  .rb-files-table .rb-files-size[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* Read-only words (Summary's card): the second ink; an empty value, the
+     third. Never `#78716c`, which is what put this table under 4.5:1. */
+  .rb-files-quiet { color: var(--color-ink-2); }
+  .rb-files-quiet[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* The Core tick. A native checkbox in the signal colour: the kit has no
+     Checkbox yet (B3d-KR-1). A read-only table disables it, and the browser
+     greys it, as before. */
+  .rb-files-core {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    vertical-align: middle;
+    accent-color: var(--color-signal);
+    cursor: pointer;
+  }
+  .rb-files-core:disabled { cursor: default; }
+
+  /* The description editor: the cell's own text until hovered or focused,
+     the same answer as the kit CellSelect beside it. A native field (the kit
+     Input blurs on Enter: B3d-KR-2). */
+  .rb-files-cell-input {
+    display: block;
+    width: calc(100% + 12px);
+    min-width: 0;
+    height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 0 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    text-overflow: ellipsis;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-files-cell-input::placeholder { color: var(--color-ink-3); opacity: 1; }
+  .rb-files-cell-input:hover,
+  .rb-files-cell-input:focus { background-color: var(--color-hover); }
+
+  /* The two icon columns: a 28px kit IconButton in a 40px cell. The table is
+     `dense` (32px rows, like the Files page's), so a 28px control gets 2px
+     above and 1px below — the kit's numbers for its CellSelect. Written
+     (0,4,0)+ against the kit's `.ui-table[data-dense="true"] .ui-td` (0,3,0). */
+  .rb-files-frame .rb-files-table .ui-td.rb-files-icon-cell { padding: 2px 6px 1px; }
+  .rb-files-frame .rb-files-table .ui-td.rb-files-desc:has(> .rb-files-cell-input) { padding-top: 2px; padding-bottom: 1px; }
+
+}

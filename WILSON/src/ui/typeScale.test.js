@@ -2502,6 +2502,22 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(cssCounts(CSS_FILES).map((r) => r.hits)).toEqual(cssCounts(CSS_FILES, plain).map((r) => r.hits));
   });
 
+  it('CONTROL: rabbitFiles.css (B4) is scanned with no exemption — a hex or an off-scale size written into it is caught on its real path', () => {
+    // B3d's control, pointed at lane B4's sheet: the sheet as it is plus the
+    // exact colour that failed the files table (`#78716c`) in three
+    // spellings and one off-scale size, through cssCounts' real reader.
+    const FILES_SHEET = 'src/tools/rabbit_v0.1.0/views/rabbitFiles.css';
+    expect(CSS_FILES).toContain(FILES_SHEET);
+    const plus = (f) => `${readFileSync(f, 'utf8')}\n@layer components { .rb-files-x { color: #78716c; border-color: #78716C; outline-color: #777; font-size: 10px; } }\n`;
+    const row = (read, label) => cssCounts([FILES_SHEET], read).find((r) => r.label === label);
+    expect(row(plus, 'hex colour outside @theme').hits).toBe(3);
+    expect(pageSheetHits(row(plus, 'hex colour outside @theme'))).toEqual(['#78716c', '#78716C', '#777'].map((h) =>
+      expect.stringMatching(new RegExp(`^src/tools/rabbit_v0\\.1\\.0/views/rabbitFiles\\.css:\\d+ {2}${h}$`))));
+    expect(row(plus, 'font-size off the scale').hits).toBe(1);
+    // …and read as it is, the sheet scores 0 on every row.
+    expect(cssCounts([FILES_SHEET]).filter((r) => r.hits > 0).map((r) => r.label)).toEqual([]);
+  });
+
   /* 🚨 The 2px borders are NOT a defect row and are not asserted to zero.
      §3.2 gives the signal "a 2px selected-row edge", the kit's Tabs contract
      is literally "one 2px signal underline", and — the one that would do real
@@ -2679,13 +2695,16 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // a scan that opened nothing also returns. These are the denominators.
     // 9: B1 added rabbitShell.css, A1 dog.css, B6 bins.css and B2
     // rabbitTasks.css (all 2026-09-23); 10 and 11: A3 otter.css and B3
-    // rabbitTimeline.css (both 2026-09-24).
-    expect(CSS_FILES.length).toBe(11);
-    // …and the ninth is B2's sheet, the others A3's and B3's, each listed
-    // once (a duplicate line kept the count at 9 while dropping one; B2 round one).
+    // rabbitTimeline.css (both 2026-09-24); 12: B4 rabbitFiles.css
+    // (2026-09-25).
+    expect(CSS_FILES.length).toBe(12);
+    // …and the ninth is B2's sheet, the others A3's, B3's and B4's, each
+    // listed once (a duplicate line kept the count at 9 while dropping one;
+    // B2 round one).
     expect(CSS_FILES).toContain('src/tools/rabbit_v0.1.0/views/rabbitTasks.css');
     expect(CSS_FILES).toContain('src/tools/otter_v0.3.1/otter.css');
     expect(CSS_FILES).toContain('src/tools/rabbit_v0.1.0/views/rabbitTimeline.css');
+    expect(CSS_FILES).toContain('src/tools/rabbit_v0.1.0/views/rabbitFiles.css');
     expect(new Set(CSS_FILES).size).toBe(CSS_FILES.length);
     for (const f of CSS_FILES) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(1000);
     // Two rows that are SUPPOSED to be non-zero, so a scan returning nothing

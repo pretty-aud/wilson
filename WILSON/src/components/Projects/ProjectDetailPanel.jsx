@@ -329,15 +329,15 @@ export default function ProjectDetailPanel({
             }}
           />
 
-          {/* Files table — lane B's file (plan §6.5); it takes the page's
-              surface through the prop it already had. */}
+          {/* Files table — lane B4's file (plan §5 item 5). Since B4 it has
+              one language, the dark one this page is on, so there is no
+              surface to pass. */}
           {fileCount > 0 && (
             <ProjectFilesTable
               files={allFiles}
               onUpdate={onFileUpdate}
               onDelete={onFileDelete}
               maxHeight={380}
-              variant="dark"
             />
           )}
         </div>

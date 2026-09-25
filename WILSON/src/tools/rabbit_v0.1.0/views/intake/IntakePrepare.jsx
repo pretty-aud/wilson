@@ -115,7 +115,9 @@ export default function IntakePrepare({
         const dataUrl = await readDataUrl(f)
         accepted.push({
           id: `intake_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          name: f.name, size: f.size, mimeType: f.type, dataUrl, ext,
+          // `size_bytes`, the `files` column's name: ProjectFilesTable reads
+          // one field for all four of its callers (B4). Nothing else reads it.
+          name: f.name, size_bytes: f.size, mimeType: f.type, dataUrl, ext,
           document_kind: detectDocumentKind(f.name),
           is_core_definer: true, description: '',
           created_at: new Date().toISOString(),

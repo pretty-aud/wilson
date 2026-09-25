@@ -197,6 +197,11 @@ export const CSS_FILES = [
   // shipped hexes on purpose; B3b–B3d tokenised every one, and since B3d
   // (2026-09-25) typeScale.test.js holds it to no hex like every page sheet.
   'src/tools/rabbit_v0.1.0/views/rabbitTimeline.css',
+  // B4, 2026-09-25 — R.A.B.B.I.T.'s assets and files (ProjectFilesTable
+  // first, then FileManager, the assets views, relations, the player, Levels
+  // and Experiences). Added in the commit that created it; every value in it
+  // is a token, so it scores 0 on every row from its first line.
+  'src/tools/rabbit_v0.1.0/views/rabbitFiles.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting

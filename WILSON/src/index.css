@@ -839,6 +839,73 @@ select option {
      "sm"]` was the page-local copy and C3c retired it once this landed. */
   select.ui-input[data-size="sm"] { padding-right: 28px; }
 
+  /* ── CellSelect: a table cell's own select (B4, kit request B2 §4) ─────
+     Promoted from B2's `.rb-task-cell-editor` / `.rb-task-cell-select` (and
+     the Dashboard's `.dash-cell-editor` before it): a borderless 28px select
+     that reads as the cell's text until the row is hovered or focused, when
+     a 5px caret appears. A well-and-border field in a 36px row either grows
+     the row or crowds the text; this is the one answer the file tables and
+     the money tables share. The caret takes no room when hidden: 16px of
+     right padding holds it at 8px in. */
+  .ui-cell-select {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--color-ink-2);
+  }
+  .ui-cell-select > select {
+    appearance: none;
+    width: 100%;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 16px 0 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    cursor: pointer;
+    text-overflow: ellipsis;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .ui-cell-select > select:hover:not(:disabled) { background-color: var(--color-hover); }
+  .ui-cell-select > select:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .ui-cell-select > select[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-cell-select::after {
+    content: "";
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin-top: -4px;
+    border-right: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+    transform: rotate(45deg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .ui-tr:hover .ui-cell-select::after,
+  .ui-tr:focus-within .ui-cell-select::after,
+  .ui-cell-select:hover::after,
+  .ui-cell-select:focus-within::after { opacity: 1; }
+  .ui-cell-select:has(> select:disabled)::after { display: none; }
+  /* In a kit cell its text starts on the column's edge, under the header's
+     label, not 6px inside it: the select's own 6px goes into the cell's 12px
+     padding, and its hover fill with it. */
+  .ui-td > .ui-cell-select { margin-inline: -6px; }
+  /* …and a 28px control needs less than the cell's padding, or the row
+     grows: at 8px a 36px row measured 45 (B4). The cell's height is its
+     border box, hairline included, so a 36px row leaves 35 (4 + 28 + 3) and
+     a dense 32px row 31 (2 + 28 + 1) — B2's dense task table's numbers. */
+  .ui-td:has(> .ui-cell-select) { padding-top: 4px; padding-bottom: 3px; }
+  .ui-table[data-dense="true"] .ui-td:has(> .ui-cell-select) { padding-top: 2px; padding-bottom: 1px; }
+
   /* ── Field: Label role + control, 4px inside / 16px between ────────── */
   .ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .ui-field[data-inline="true"] { flex-direction: row; align-items: center; gap: 12px; }
