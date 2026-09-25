@@ -2216,6 +2216,68 @@
   .otter-req-chevron { transition: rotate var(--duration-response) var(--ease-response); }
   .otter-req-chevron[data-open='true'] { rotate: 90deg; }
 
+  /* ═══ SUGGEST A CHANGE (ChangeRequestDialog.jsx) — the kit's Dialog ═══
+     Review O27: its own 560 box on black/60, an orange H3 title in a
+     stone-700 bar, a hard offset shadow; orange Label-step labels; notes in
+     stone-900 boxes; a red box for errors in the body. Now the kit's Dialog
+     at the form width (the same 560): title and subtitle in its head,
+     Withdraw / Accept on the left of its footer and Close / send on the
+     right, as they stood; the reviewer's words in the Requests view's own
+     well; the field on A3's form label and `.ui-input`. */
+  .otter-cr-body { display: flex; flex-direction: column; gap: 12px; }
+  .otter-cr-note {
+    padding: 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  /* A request already open: the open status's tone (the signal) on the
+     box's edge; the words in the inks (orange-400 Label-step text before). */
+  .otter-cr-open {
+    padding: 12px;
+    background-color: var(--color-paper);
+    border: 1px solid color-mix(in srgb, var(--color-signal) 50%, transparent);
+    border-radius: var(--radius-control);
+  }
+  .otter-cr-open-label {
+    margin-bottom: 2px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .otter-cr-hint {
+    margin-top: 8px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-cr-open .otter-cr-hint { margin-top: 0; }
+  .ui-input.otter-cr-textarea { height: 144px; padding: 12px; resize: none; font-size: var(--text-body); }
+  .otter-cr-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-cr-count { font-variant-numeric: tabular-nums; }
+  .otter-cr-count[data-over='true'] { color: var(--color-danger); }
+  .ui-banner.otter-cr-done {
+    align-items: flex-start;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-cr-spacer { flex: 1 1 auto; }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
