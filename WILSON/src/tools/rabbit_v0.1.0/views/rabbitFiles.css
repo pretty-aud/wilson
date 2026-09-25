@@ -47,26 +47,49 @@
                carries the whole date)
        Core    the 16px tick                                            ->  40
        icons   a 28px IconButton in 6px                                 ->  40
-     Name and Description split the rest and never go under 100px each: the
-     table's min-width is the fixed columns plus 200, so a panel narrower
-     than that scrolls sideways (the Control Panel's 645px did before too)
-     and Intake's 686px, the narrowest page, just holds it. */
+     …and each column also holds its own HEADER: "CORE" is 33.4px in the
+     Label step and "DESCRIPTION" 81 (measured), so Core is 60, not the
+     tick's 40, and Name and Description never go under 105px (the table's
+     min-width is the fixed columns plus 210; a narrower panel scrolls
+     sideways, as the Control Panel's 645px did with the old grid).
+
+     🚨 NARROW (a frame under 740px: Intake's 686px column, the Control
+     Panel's 645px): the kit's 12px cell padding made the table ~60px wider
+     than the grid it replaced, and Intake would have scrolled or cut its own
+     headers. There the cells take 8px — the old grid's padding — and every
+     width is re-measured for it, so Intake holds the table with no scroll
+     and no header cut. A container query, so the table decides from its own
+     width and never from which page drew it. */
   .rb-files-frame {
-    --rb-files-core: 40px;
+    --rb-files-core: 60px;
     --rb-files-kind: 100px;
     --rb-files-type: 88px;
     --rb-files-size: 96px;
     --rb-files-date: 120px;
     --rb-files-icon: 40px;
-    --rb-files-flex-min: 100px;
+    --rb-files-flex-min: 105px;
+    container-type: inline-size;
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
     overflow: hidden;
     background-color: var(--color-paper);
   }
+  @container (max-width: 739px) {
+    .rb-files-frame .rb-files-table {
+      --rb-files-core: 52px;
+      --rb-files-kind: 92px;
+      --rb-files-type: 80px;
+      --rb-files-size: 88px;
+      --rb-files-date: 112px;
+      --rb-files-flex-min: 97px;
+    }
+    /* (0,4,0): one class over the kit's dense `.ui-td` rule (0,3,0). */
+    .rb-files-frame .ui-table.rb-files-table .ui-th,
+    .rb-files-frame .ui-table.rb-files-table .ui-td { padding-left: 8px; padding-right: 8px; }
+  }
   .rb-files-frame[data-audit="true"] { --rb-files-audit: var(--rb-files-icon); }
   .rb-files-frame[data-delete="true"] { --rb-files-delete: var(--rb-files-icon); }
-  .rb-files-frame .rb-files-table {
+  .rb-files-frame .ui-table.rb-files-table {
     min-width: calc(var(--rb-files-core) + var(--rb-files-kind) + var(--rb-files-type)
       + var(--rb-files-size) + var(--rb-files-date) + var(--rb-files-audit, 0px)
       + var(--rb-files-delete, 0px) + 2 * var(--rb-files-flex-min));

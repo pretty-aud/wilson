@@ -340,7 +340,9 @@ const KNOWN = {
      the kit's Dialog, Tabs and named checkboxes, and the Settings lock on
      the kit's Switch, and deleted the last four (2026-09-23). */
   anon: [
-    { key: 'projects-detail', text: 'lucide-trash2', n: 30 },
+    // B4 (2026-09-25): ProjectFilesTable's trash buttons are the kit
+    // IconButton named for their file — projects-detail's 30 and the
+    // Control Panel's 32 are deleted.
     { key: 'rabbit-asset-detail', text: 'lucide-square', n: 16 },
     { key: 'rabbit-asset-detail', text: 'lucide-trash2', n: 15 },
     { key: 'rabbit-asset-detail', text: 'lucide-x', n: 1 },
@@ -350,7 +352,6 @@ const KNOWN = {
     { key: 'rabbit-assets', text: 'lucide-square', n: 16 },
     { key: 'rabbit-assets', text: 'lucide-trash2', n: 15 },
     { key: 'rabbit-budget', text: 'no-icon', n: 1 },
-    { key: 'rabbit-control-panel', text: 'lucide-trash2', n: 32 },
     { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },
     { key: 'rabbit-scene-detail', text: 'lucide-trash2', n: 3 },
