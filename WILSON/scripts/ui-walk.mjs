@@ -189,11 +189,17 @@ const REGISTRY = [
   // button (asset 4 holds the fixture's video), the file manager's own
   // Gallery toggle rather than the Assets toolbar's behind its dialog.
   // The gallery card is the one place that prints "N task(s)".
+  // B4b: "Link Scenes" is the PICKER's title, not a control, so the step
+  // matched nothing and the screen measured the detail popup under it (both
+  // of B4's rows read the same). The control is the sidebar's "Link scene".
+  // And the fixture's video is in the workspace's own bucket, where the
+  // preview says playback is not available and draws no <video>: its words
+  // are the proof it opened.
   P('rabbit-assets-gallery', '/rabbit', { steps: ['@proj', 'Assets', 'Gallery'], expect: { text: ' task' } }),
   P('rabbit-asset-warning', '/rabbit', { steps: ['@proj', 'Assets', 'Tasks not yet done'], expect: { text: 'still in flight' } }),
-  P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details', 'Link Scenes'], expect: { text: ' linked)' } }),
+  P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details', 'Link scene'], expect: { text: ' linked)' } }),
   P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"], [style*="minmax(140px"]' } }),
-  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', 'Play Animatic_v2.mp4'], expect: { selector: 'video' } }),
+  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available yet' } }),
   // The drawer's title is set in capitals by CSS, so its innerText is not
   // "File activity"; any dialog proves it (the Control Panel is not one).
   P('rabbit-files-audit', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel', 'File activity'], expect: { dialog: true } }),
@@ -285,13 +291,9 @@ const KNOWN = {
     // B4 (2026-09-25): FileManager's "Add files" is the kit primary on the
     // signal fill (5.2:1), so its three lines (asset, scene and task popups)
     // are deleted.
-    { key: 'rabbit-asset-detail', text: '"Done"' },
-    { key: 'rabbit-asset-detail', text: '"New asset"' },
-    { key: 'rabbit-asset-detail', text: '"Table"' },
-    { key: 'rabbit-asset-new', text: '"New asset"' },
-    { key: 'rabbit-asset-new', text: '"Table"' },
-    { key: 'rabbit-assets', text: '"New asset"' },
-    { key: 'rabbit-assets', text: '"Table"' },
+    // B4b (2026-09-25): the Assets toolbar's New asset is the kit primary and
+    // its Table / Gallery the kit Tabs, and the detail popup's Done the kit
+    // primary in the Dialog's footer: the seven asset lines are deleted.
     { key: 'rabbit-scene-detail', text: '"Scene"' },
     { key: 'rabbit-scene-detail', text: '"Scenes"' },
     { key: 'rabbit-scene-detail', text: '"Table"' },
@@ -343,14 +345,9 @@ const KNOWN = {
     // B4 (2026-09-25): ProjectFilesTable's trash buttons are the kit
     // IconButton named for their file — projects-detail's 30 and the
     // Control Panel's 32 are deleted.
-    { key: 'rabbit-asset-detail', text: 'lucide-square', n: 16 },
-    { key: 'rabbit-asset-detail', text: 'lucide-trash2', n: 15 },
-    { key: 'rabbit-asset-detail', text: 'lucide-x', n: 1 },
-    { key: 'rabbit-asset-new', text: 'lucide-square', n: 16 },
-    { key: 'rabbit-asset-new', text: 'lucide-trash2', n: 15 },
-    { key: 'rabbit-asset-new', text: 'lucide-x', n: 1 },
-    { key: 'rabbit-assets', text: 'lucide-square', n: 16 },
-    { key: 'rabbit-assets', text: 'lucide-trash2', n: 15 },
+    // B4b (2026-09-25): the Assets rows' select and delete controls and both
+    // asset popups' close are named (the kit's), so the eight lines for
+    // rabbit-assets, rabbit-asset-new and rabbit-asset-detail are deleted.
     { key: 'rabbit-budget', text: 'no-icon', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },

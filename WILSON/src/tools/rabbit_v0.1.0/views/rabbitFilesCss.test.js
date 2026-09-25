@@ -32,6 +32,7 @@ const LANE_RE = new RegExp(`^rb-(${LANE})-`)
 const FILES = {
   filesTable: { file: '../components/ProjectFilesTable.jsx', prefix: 'rb-files-' },
   fileManager: { file: '../components/FileManager.jsx', prefix: 'rb-fm-' },
+  assets: { file: '../views/ProjectAssetsView.jsx', prefix: 'rb-asset-' },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
@@ -150,5 +151,19 @@ describe('no state is decided in a style or a className', () => {
   it('CONTROL: a hover colour in a style and a state in a className template are caught', () => {
     expect(inlineStateTernaries("<b style={{ color: hovered ? '#fb923c' : '#78716c' }} />").length).toBeGreaterThan(0)
     expect(stateLeaks("<b className={`x ${on ? 'a' : 'b'}`} />", [], []).length).toBeGreaterThan(0)
+  })
+})
+
+/* ── 5. a geometry the fixtures cannot show ──────────────────────────────── */
+describe('the asset thumbnail keeps its click (C1)', () => {
+  // No fixture asset has a thumbnail, so no walk can hover one. The remove
+  // control sits over the picture's corner, and the kit's 28px `sm` box
+  // covered most of a 36px (1x) picture: a click meant to change the
+  // thumbnail would mostly remove it (B4b; kit request B4b-KR-1).
+  it('the remove control is the icon plus 2px a side, never the kit box', () => {
+    const rule = rulesOf(sheet).find(({ sel }) => /\.rb-asset-thumb-remove$/.test(sel))
+    expect(rule, 'the remove control has its own rule').toBeTruthy()
+    expect(rule.body).toMatch(/(^|[\s;])width:\s*calc\(var\(--icon-sm\) \+ 4px\)/)
+    expect(rule.body).toMatch(/(^|[\s;])height:\s*calc\(var\(--icon-sm\) \+ 4px\)/)
   })
 })
