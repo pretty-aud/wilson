@@ -544,7 +544,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                   onChange={e => setPitch(e.target.value)}
                   disabled={nomBusy}
                   placeholder="Why should this be the company's official course on this topic?"
-                  aria-label="Why this should be the company standard"
+                  aria-label="Why this course should be the standard"
                   className="ui-input otter-share-pitch"
                   data-surface="dark"
                 />
