@@ -11,7 +11,7 @@
 //     second Escape closes it;
 //   · K5 — a press on the backdrop keeps a save-on-blur edit (it discarded it);
 //   · the files column's layers (FileManager's, lane B4's) own their Escape:
-//     a fixed overlay (its VideoPreview) and a text field (its notes);
+//     its VideoPreview (the kit Dialog since B4c) and a text field (its notes);
 //   · the template editor's dependency picker: Escape closes the picker, then
 //     the editor, then the manager, one layer per press; its scrim takes the
 //     click that dismisses it.
@@ -32,25 +32,39 @@ vi.mock('../../../components/TeamMembers/useRosterMembers', () => ({ useRosterMe
 vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => ({ entries: [] }) }))
 vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({ role: 'admin', ready: true }) }))
 // FileManager is lane B4's; the popup only has to leave its layers their keys.
-// Its real VideoPreview is fixed by a CLASS (`fixed inset-0`), as the kit
-// Dialog's backdrop is; the sheet below gives jsdom the two rules a browser
-// has, so a check that reads only inline styles, or one that scans the whole
-// document (and so finds the backdrop), fails here as it would in the app.
-const files = vi.hoisted(() => ({ overlay: false, noteEscape: vi.fn() }))
-vi.mock('../components/FileManager', () => ({
-  default: () => (
-    <div>
-      {/* B4: FileManager's notes editor marks its own Escape (K4's mark) —
-          the popup's `markFilesEscape`, which marked it from outside, is gone.
-          `unmarked` is a text field that does NOT, to prove the popup no
-          longer marks on anyone's behalf. */}
-      <input type="text" aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); files.noteEscape() } }} />
-      <input type="text" aria-label="Unmarked field" />
-      <button type="button">Download</button>
-      {files.overlay && <div data-testid="preview" className="fixed inset-0">preview</div>}
-    </div>
-  ),
-}))
+// B4c: its VideoPreview is the kit Dialog, portalled into <body> and opened
+// by a row's play control once the popup is up — so this mock opens one the
+// same way, and the popup's `filesLayerOpen` guard (which walked the column
+// for a fixed hand-rolled layer) is gone. The sheet below still gives jsdom
+// the two position rules a browser has, so a check that reads only inline
+// styles, or one that scans the whole document (and so finds the backdrop),
+// fails here as it would in the app.
+const files = vi.hoisted(() => ({ noteEscape: vi.fn() }))
+vi.mock('../components/FileManager', async () => {
+  const { useState } = await import('react')
+  const { createPortal } = await import('react-dom')
+  const { Dialog } = await import('../../../ui/Dialog')
+  function FileManagerMock() {
+    const [preview, setPreview] = useState(false)
+    return (
+      <div>
+        {/* B4: FileManager's notes editor marks its own Escape (K4's mark) —
+            the popup's `markFilesEscape`, which marked it from outside, is gone.
+            `unmarked` is a text field that does NOT, to prove the popup no
+            longer marks on anyone's behalf. */}
+        <input type="text" aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); files.noteEscape() } }} />
+        <input type="text" aria-label="Unmarked field" />
+        <button type="button">Download</button>
+        <button type="button" onClick={() => setPreview(true)}>Play clip.mov</button>
+        {preview && createPortal(
+          <Dialog title="clip.mov" dismissOnBackdrop onClose={() => setPreview(false)}>preview</Dialog>,
+          document.body,
+        )}
+      </div>
+    )
+  }
+  return { default: FileManagerMock }
+})
 let positions
 beforeAll(() => {
   positions = document.createElement('style')
@@ -65,7 +79,7 @@ vi.mock('../../../components/TaskTemplates/useTaskTemplates', () => ({ useTaskTe
 const { default: TaskDetailPopup } = await import('../components/TaskDetailPopup')
 const { default: TaskTemplateManager } = await import('../../../components/TaskTemplates/TaskTemplateManager')
 
-afterEach(() => { cleanup(); _resetOverlaysForTests(); files.overlay = false; files.noteEscape.mockClear(); menuOpened.mockClear() })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); files.noteEscape.mockClear(); menuOpened.mockClear() })
 
 const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
 
@@ -170,12 +184,15 @@ describe('TaskDetailPopup, rendered', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it("an overlay open in the files column (FileManager's video preview) keeps the popup open on Escape", () => {
-    files.overlay = true
+  it("B4c: the files column's video preview is the kit Dialog on the modal stack — one Escape closes it and the popup stays, with no guard in the popup", () => {
     const { onClose } = popup({ withFiles: true })
-    expect(screen.getByTestId('preview')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Play clip.mov' }))
+    expect(screen.getByRole('dialog', { name: 'clip.mov' })).toBeTruthy()
     escape()
+    expect(screen.queryByRole('dialog', { name: 'clip.mov' })).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

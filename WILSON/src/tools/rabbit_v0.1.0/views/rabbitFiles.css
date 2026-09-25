@@ -957,8 +957,7 @@
   .rb-asset-detail .ui-dialog-head > div:first-child { min-width: 0; }
   .rb-asset-detail-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
   /* The relations column: RelationsPanel's sidebar is the kit Panel at its
-     own width (`lg`, 300px) and scrolls itself; this only holds it (and is
-     the layer guard's first root). */
+     own width (`lg`, 300px) and scrolls itself; this only holds it. */
   .rb-asset-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
   .rb-asset-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; }
 
@@ -1443,4 +1442,99 @@
   }
   /* The create question's words (W9), on the kit Dialog. */
   .rb-rel-confirm { margin: 0; color: var(--color-ink); }
+
+  /* ═══ FileThumbnail ═══════════════════════════════════════════════════════
+     A file's preview tile at FileManager's two sites: the table's 32px
+     square (`data-size="small"`) and the gallery card's 120px one
+     (`large`). The picture when there is one, else the file type's glyph
+     and, at the large size, its extension. R4-35, the part that is purely
+     visual: the tile is the asset previews' own paper ground, one hairline
+     and the control radius. Its geometry is recorded, not applied — one
+     16:9 ratio would change what a user sees of every picture (C1) — so
+     both squares keep the size they had (B4c, 2026-09-25). */
+  .rb-thumb-tile {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-thumb-tile[data-size="small"] { width: 32px; height: 32px; }
+  .rb-thumb-tile[data-size="large"] { width: 120px; height: 120px; }
+  .rb-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* The glyph in the second ink: the icon step in the small tile, 40px (no
+     step; it was 40) in the large. */
+  .rb-thumb-icon { flex-shrink: 0; color: var(--color-ink-2); }
+  .rb-thumb-tile[data-size="small"] .rb-thumb-icon { width: var(--icon-md); height: var(--icon-md); }
+  .rb-thumb-tile[data-size="large"] .rb-thumb-icon { width: 40px; height: 40px; }
+  /* The extension is a label: the Label step, in the third ink — 5.04:1 on
+     the tile's paper, where the old literal measured 3.65:1 (the gallery's
+     one contrast failure). */
+  .rb-thumb-ext {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ VideoPreview ════════════════════════════════════════════════════════
+     The player (S40, §5d.2) on the kit Dialog (R4-12), portalled into
+     <body>: of its three hosts the scene popup still centres itself with
+     `transform`. The kit brings the one backdrop, surface, radius and
+     shadow, the file's name as the title (as stored, never re-cased), the
+     Close, and Escape on the modal stack (Q17) — so the task popup's and the
+     asset popup's layer guards are gone (B4c, 2026-09-25).
+
+     🚨 THE PLAYER KEEPS ITS OWN SIZE (C1). The hand-rolled panel wrapped its
+     video: a stage of at least 480×270, the video at its own size up to
+     86vw × 72vh, no padding. The kit Dialog is a fixed width, so the player
+     takes the form width, which holds that stage, and grows to its content
+     when a video is wider (`min-width` beats the inline width) — the video
+     is exactly as big as it was and runs to the dialog's edge, as it ran to
+     the panel's. */
+  .ui-dialog.rb-vid-dialog { min-width: fit-content; }
+  .rb-vid-dialog .ui-dialog-body { padding: 0; }
+  /* A long name ellipsizes on its line instead of widening the player or
+     pushing the Close out: the title's box adds nothing to the dialog's
+     width (width 0), then takes the head's free width. */
+  .rb-vid-dialog .ui-dialog-head > div:first-child { flex: 1 1 auto; width: 0; min-width: 0; }
+  .rb-vid-dialog .ui-dialog-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-vid-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 480px;
+    min-height: 270px;
+  }
+  /* Only the video's box: every attribute is the component's, autoplay
+     included. The recessed paper shows until the first frame arrives. */
+  .rb-vid-player {
+    display: block;
+    max-width: 86vw;
+    max-height: 72vh;
+    background-color: var(--color-paper-recessed);
+  }
+  /* Why there is no picture, and the one control that helps when there is
+     one (the kit's primary Button: dark text on the orange, C6). */
+  .rb-vid-unavailable {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 32px;
+    text-align: center;
+  }
+  .rb-vid-detail {
+    max-width: 380px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
 }

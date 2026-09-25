@@ -11,7 +11,7 @@
 // columns. Relation dropdowns for scene/shot/level/experience
 // only appear when the corresponding database is toggled on.
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Trash2, DollarSign,
   ChevronDown, ChevronRight, Film, Clapperboard,
@@ -131,21 +131,11 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // Collapsible left-column sections
   const [collapsed, setCollapsed] = useState({})
 
-  // The files column holds FileManager (lane B4's). Its VideoPreview is a
-  // fixed overlay not yet on the kit's modal stack, and used to lose to this
-  // dialog's Escape (one Escape closed the preview AND this popup; before B2
-  // Escape did nothing there), so the popup refuses to close while one is
-  // up. (B4, 2026-09-25) Its notes editor marks its own Escape now (K4's
-  // mark), so the `markFilesEscape` that did it from here is gone.
-  const filesRef = useRef(null)
-  function filesLayerOpen() {
-    const col = filesRef.current
-    if (!col) return false
-    for (const el of col.querySelectorAll('*')) {
-      if (getComputedStyle(el).position === 'fixed') return true
-    }
-    return false
-  }
+  // The files column holds FileManager (lane B4's), read-only here. The one
+  // layer it opens, its VideoPreview, is the kit Dialog on the modal stack
+  // since B4c, so an Escape there is the player's alone and this popup needs
+  // no guard (B2 §4: `filesLayerOpen` is gone). Its notes editor marks its
+  // own Escape (K4's mark, B4).
   function toggleCollapse(key) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
   }
@@ -184,7 +174,6 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
       // The backdrop closed it before, and still does. Escape now closes it
       // too (Q17), after an open editor's own Escape has reverted (W2).
       dismissOnBackdrop
-      onBeforeClose={() => !filesLayerOpen()}
       onClose={onClose}
       className="rb-task-detail"
       footer={(
@@ -211,7 +200,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
         {/* ── LEFT COLUMN — files & relations ── */}
         {hasLeftColumn && (
-          <div className="rb-task-detail-files" ref={filesRef}>
+          <div className="rb-task-detail-files">
             {/* Asset files */}
             {linkedAsset && (
               <CollapsibleSection

@@ -27,9 +27,23 @@
 // bucket over. A signed URL EXPIRES, so a sticky "this failed" flag pins the
 // player to an error message that a fresh URL would have fixed. One re-mint on
 // error, then the message. Bounded, so a codec nothing can decode does not loop.
+//
+// UI overhaul B4c, surface 5 (2026-09-25): the player is the kit Dialog
+// (R4-12) on lane B4's sheet, rabbitFiles.css (`rb-vid-`) — the kit's one
+// backdrop, surface, radius and shadow, the file's name as its title (as
+// stored: a file name is never re-cased) and its Close. 🚨 PORTALLED into
+// <body>: the kit Dialog does not portal (B4-KR-2), and of the three popups
+// that host FileManager the scene popup centres itself with `transform`,
+// which lays a `position: fixed` child out inside its box. On the kit's modal
+// stack an Escape is the player's alone, so the layer guards the task popup
+// and the asset popup kept for it are gone. Every attribute of the <video>,
+// the source logic and every state message are unchanged (C1) — autoplay too.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, ExternalLink, Loader2 } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ExternalLink } from 'lucide-react'
+import { Dialog, Button, Spinner } from '../../../ui'
+import '../views/rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
 import { managedStreamUrl } from '../storage/managedVideoThumbnail'
 
@@ -46,7 +60,6 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
   const [status, setStatus] = useState('loading') // loading | playing | unavailable
   const [detail, setDetail] = useState(null)
   const remints = useRef(0)
-  const backdropPress = useRef(false)
 
   // 🚨 DEPEND ON THE METHOD, NOT ON `ctx` — S39's review finding, and it is
   // worse here than it was there. RabbitProvider rebuilds its context value
@@ -108,99 +121,79 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
       : 'Preview isn\'t available for this format. Download it to view it.')
   }, [managed, load])
 
-  const label = file?.stored_name || file?.name || 'file'
+  // The name as stored. The fallback only titles a row with no name at all.
+  const label = file?.stored_name || file?.name || 'File'
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-6"
-      style={{ backgroundColor: 'rgba(0,0,0,0.72)' }}
+  return createPortal(
+    <Dialog
+      // The form width holds the 480×270 stage; the sheet lets the dialog
+      // grow to a video wider than that, so the player keeps its own size.
+      width="form"
+      className="rb-vid-dialog"
+      title={label}
       // 🚨 CLOSE ONLY WHEN THE PRESS *STARTED* ON THE BACKDROP. Dragging the
       // native <video> scrub bar and releasing outside the panel dispatches the
       // resulting `click` on the backdrop — so a plain `onClick={onClose}` shut
       // the player every time someone scrubbed past the edge, which is the
-      // single most common gesture in a video preview. Recording where the
-      // press began separates "clicked the backdrop to dismiss" from "finished
-      // a drag out here". Found by the pre-push adversarial review.
-      onMouseDown={(e) => { backdropPress.current = e.target === e.currentTarget }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && backdropPress.current) onClose?.()
-        backdropPress.current = false
-      }}
+      // single most common gesture in a video preview (found by the pre-push
+      // adversarial review). The hand-rolled backdrop recorded where the press
+      // began; the kit's backdrop closes on the press itself and only when
+      // that press's target IS the backdrop (src/ui/Dialog.jsx), so a drag
+      // that began on the scrub bar never closes it. This turns it on.
+      dismissOnBackdrop
+      onClose={onClose}
+      // A click inside the player stays inside it, as the hand-rolled panel's
+      // did: through the portal, React would otherwise carry it up through
+      // FileManager into the popup that hosts it.
+      onClick={(e) => e.stopPropagation()}
     >
-      <div
-        className="rounded-control overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#1c1917',
-          border: '1px solid #44403c',
-          maxWidth: '90vw',
-          maxHeight: '86vh',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          className="flex items-center justify-between gap-4 px-3 py-1.5"
-          style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
-        >
-          <span className="text-label uppercase truncate" style={{ color: '#fb923c' }}>
-            {label}
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-0.5 rounded-control hover:bg-stone-700"
-            style={{ color: '#a8a29e' }}
-            title="Close"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-center" style={{ minWidth: 480, minHeight: 270 }}>
-          {status === 'unavailable' ? (
-            <div className="flex flex-col items-center gap-3 p-8 text-center">
-              <span className="text-dense" style={{ color: '#d6d3d1', maxWidth: 380 }}>
-                {detail}
-              </span>
-              {managed && onOpenExternally && (
-                <button
-                  type="button"
-                  onClick={() => { onOpenExternally(); onClose?.() }}
-                  className="flex items-center gap-1 px-2 py-1 text-dense rounded-control hover:brightness-110"
-                  style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  {/* ⚠️ "Show in folder", not "Open in default app". The IPC
-                      behind this is rabbit:open-in-explorer →
-                      shell.showItemInFolder, which REVEALS the file in
-                      Explorer; it does not open it. The old label described a
-                      behaviour the button does not have. */}
-                  Show in folder
-                </button>
-              )}
-            </div>
-          ) : src ? (
-            <video
-              key={src}
-              src={src}
-              controls
-              autoPlay
-              // Same reason as the thumbnail path: set BEFORE the source is
-              // fetched, and required the day an s3 presigned URL lands here.
-              crossOrigin="anonymous"
-              onError={handleError}
-              // A successful load means the previous failure was transient, so
-              // the re-mint budget refills. Without this, MAX_REMINTS is a
-              // budget for the whole modal session: one early hiccup and the
-              // NEXT expiry — an hour into a long cut — is reported to the
-              // viewer as a codec problem, which it is not.
-              onLoadedData={() => { remints.current = 0; setStatus('playing') }}
-              style={{ maxWidth: '86vw', maxHeight: '72vh', display: 'block', backgroundColor: '#000' }}
-            />
-          ) : (
-            <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#78716c' }} />
-          )}
-        </div>
+      <div className="rb-vid-stage">
+        {status === 'unavailable' ? (
+          <div className="rb-vid-unavailable">
+            <span className="rb-vid-detail">
+              {detail}
+            </span>
+            {managed && onOpenExternally && (
+              <Button
+                variant="primary"
+                size="sm"
+                Icon={ExternalLink}
+                onClick={() => { onOpenExternally(); onClose?.() }}
+              >
+                {/* ⚠️ "Show in folder", not "Open in default app". The IPC
+                    behind this is rabbit:open-in-explorer →
+                    shell.showItemInFolder, which REVEALS the file in
+                    Explorer; it does not open it. The old label described a
+                    behaviour the button does not have. */}
+                Show in folder
+              </Button>
+            )}
+          </div>
+        ) : src ? (
+          <video
+            key={src}
+            src={src}
+            controls
+            autoPlay
+            // Same reason as the thumbnail path: set BEFORE the source is
+            // fetched, and required the day an s3 presigned URL lands here.
+            crossOrigin="anonymous"
+            onError={handleError}
+            // A successful load means the previous failure was transient, so
+            // the re-mint budget refills. Without this, MAX_REMINTS is a
+            // budget for the whole modal session: one early hiccup and the
+            // NEXT expiry — an hour into a long cut — is reported to the
+            // viewer as a codec problem, which it is not.
+            onLoadedData={() => { remints.current = 0; setStatus('playing') }}
+            className="rb-vid-player"
+          />
+        ) : (
+          // The kit's spinner, under the title that says what is loading
+          // (R4-40).
+          <Spinner size="lg" />
+        )}
       </div>
-    </div>
+    </Dialog>,
+    document.body,
   )
 }

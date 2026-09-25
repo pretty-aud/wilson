@@ -27,12 +27,21 @@
 // File glyph with a blank extension label, because iconForExt was
 // being handed undefined. Both are fixed by deriving the extension
 // from the row's name when the column is missing.
+//
+// UI overhaul B4c, surface 5 (2026-09-25): on lane B4's sheet,
+// rabbitFiles.css (`rb-thumb-`). The tile is the paper ground in one
+// hairline at the control radius, sized by `data-size` (the 32px and
+// 120px squares it always was — R4-35's 16:9 is recorded, not applied:
+// C1); the glyph is the second ink and the extension the Label step in
+// the third, which reads 5.04:1 on the tile where the old literal read
+// 3.65. No inline style is left: every value is a token in the sheet.
 
 import { useState } from 'react'
 import {
   File, FileText, FileVideo2, FileAudio, FileCode2,
   FileSpreadsheet, FileImage, FileArchive,
 } from 'lucide-react'
+import '../views/rabbitFiles.css'
 // Session 40: the ONE definition of "this row is a video", shared with the
 // upload notices and mirrored (unavoidably, CJS vs ESM) in electron/main.cjs.
 import { VIDEO_EXTENSIONS as VIDEO_THUMB_EXTS } from '../storage/videoThumbnails'
@@ -79,8 +88,6 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
   // is set the <img> is not rendered at all.)
   const [erroredSrc, setErroredSrc] = useState(null)
   const ext = extensionOf(file)
-  const px = size === 'large' ? 120 : 32
-  const iconPx = size === 'large' ? 40 : 16
   const label = ext.replace('.', '').toUpperCase()
   const alt = file.file_name || file.name || 'file'
 
@@ -108,23 +115,13 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
 
   if (src && erroredSrc !== src) {
     return (
-      <div
-        className="rounded-control overflow-hidden flex items-center justify-center"
-        style={{
-          width: px,
-          height: px,
-          backgroundColor: '#1c1917',
-          border: '1px solid #44403c',
-          flexShrink: 0,
-        }}
-      >
+      <div className="rb-thumb-tile" data-size={size}>
         <img
           key={src}
           src={src}
           alt={alt}
           onError={() => setErroredSrc(src)}
-          className="object-cover"
-          style={{ width: '100%', height: '100%' }}
+          className="rb-thumb-img"
           loading="lazy"
         />
       </div>
@@ -133,19 +130,10 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
 
   const Icon = iconForExt(ext)
   return (
-    <div
-      className="rounded-control flex flex-col items-center justify-center gap-0.5"
-      style={{
-        width: px,
-        height: px,
-        backgroundColor: '#1c1917',
-        border: '1px solid #44403c',
-        flexShrink: 0,
-      }}
-    >
-      <Icon style={{ width: iconPx, height: iconPx, color: '#a8a29e' }} />
+    <div className="rb-thumb-tile" data-size={size}>
+      <Icon aria-hidden="true" className="rb-thumb-icon" />
       {size === 'large' && label && (
-        <span className="text-label uppercase" style={{ color: '#78716c' }}>
+        <span className="rb-thumb-ext">
           {label}
         </span>
       )}

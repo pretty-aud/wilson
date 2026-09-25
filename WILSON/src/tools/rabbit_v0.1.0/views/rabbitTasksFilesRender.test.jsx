@@ -7,11 +7,11 @@
 // on TEXTAREA, and in the app one Escape in the (real, <input>) notes editor
 // closed the whole popup with the suite green. This file mounts lane B4's
 // component as it is, so when B4 changes it these tests say what the popup
-// still needs (and when `markFilesEscape` / `filesLayerOpen` can go).
+// still needs (`markFilesEscape` went in B4; `filesLayerOpen` in B4c).
 //
 //   · W2 in the real notes editor: Escape cancels the note, the popup stays;
-//   · the real VideoPreview (a class-fixed overlay, not on overlay.js's
-//     stack): Escape leaves the popup open while it is up.
+//   · the real VideoPreview (the kit Dialog in <body> since B4c, on
+//     overlay.js's stack): one Escape closes it and the popup stays.
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest'
@@ -71,12 +71,21 @@ describe('TaskDetailPopup with the real FileManager', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('the real VideoPreview open (a class-fixed overlay): Escape leaves the popup open', () => {
+  // B4c: the preview left the files column for <body>, a kit Dialog on the
+  // modal stack, so the popup's `filesLayerOpen` guard is gone — and ONE
+  // Escape closes the player, where it used to close nothing (the guard
+  // refused the popup's close and the hand-rolled overlay had no Escape).
+  it('the real VideoPreview open (the kit Dialog in <body>): one Escape closes it and the popup stays; the next closes the popup', () => {
     const { onClose } = popup()
-    fireEvent.click(screen.getAllByTitle(/^Play /)[0])
-    const preview = [...document.querySelectorAll('.rb-task-detail-files .fixed')]
-    expect(preview.length).toBeGreaterThan(0)
-    fireEvent.keyDown(document.body, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Play table_read_v001.mov' }))
+    const preview = screen.getByRole('dialog', { name: 'table_read_v001.mov' })
+    expect(preview.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(document.querySelector('.rb-task-detail-files').contains(preview)).toBe(false)
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'table_read_v001.mov' })).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Lock the script' })).toBeTruthy()
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

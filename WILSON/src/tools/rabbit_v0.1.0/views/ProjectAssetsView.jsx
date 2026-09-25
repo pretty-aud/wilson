@@ -1729,25 +1729,12 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
     }
   }
 
-  // Escape closes the popup (Q17) — except while a hand-rolled fixed layer is
-  // open inside it: the relation pickers (the sidebar's, and the four fields'
-  // below) and FileManager's VideoPreview are not on the kit's modal stack,
-  // so one Escape would close the layer AND the popup. The two columns are
-  // walked for any descendant whose computed position is fixed (the pattern
-  // and the reason: TaskDetailPopup's `filesLayerOpen`). The main column
-  // hosts the four pickers and FileManager; the kit's own backdrop sits
-  // outside both, so it never counts.
-  const sideRef = useRef(null)
-  const mainRef = useRef(null)
-  function layerOpen() {
-    for (const col of [sideRef.current, mainRef.current]) {
-      if (!col) continue
-      for (const el of col.querySelectorAll('*')) {
-        if (getComputedStyle(el).position === 'fixed') return true
-      }
-    }
-    return false
-  }
+  // Escape closes the popup (Q17). Every layer it can open is the kit Dialog,
+  // portalled into <body> and on the modal stack — the relation pickers (the
+  // sidebar's and the four fields', B4b), FileManager's delete question (B4)
+  // and its VideoPreview (B4c) — so an Escape with one open is that layer's
+  // alone. The `layerOpen` guard that walked the two columns for a fixed
+  // hand-rolled layer had nothing left to find, and is gone (B4c).
 
   if (!asset) return null
 
@@ -1809,7 +1796,6 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
       subtitle={<StatusBadge status={asset.status || 'not_started'} />}
       // The backdrop closed it before, and still does.
       dismissOnBackdrop
-      onBeforeClose={() => !layerOpen()}
       onClose={onClose}
       footer={(
         <Button variant="primary" onClick={onClose}>
@@ -1819,12 +1805,12 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
     >
       <div className="rb-asset-detail-body">
         {/* LEFT COLUMN — Relations sidebar (RelationsPanel's) */}
-        <div className="rb-asset-detail-side" ref={sideRef}>
+        <div className="rb-asset-detail-side">
           <AssetRelationsSidebar asset={asset} ctx={ctx} />
         </div>
 
         {/* RIGHT COLUMN — Properties */}
-        <div className="rb-asset-detail-main" ref={mainRef}>
+        <div className="rb-asset-detail-main">
 
           {/* Thumbnail section */}
           <div className="rb-asset-detail-thumbrow">

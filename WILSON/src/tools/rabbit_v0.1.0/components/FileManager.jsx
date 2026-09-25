@@ -1021,12 +1021,14 @@ export default function FileManager({
             <div key={f.id} className="rb-fm-card">
               <div className="rb-fm-card-media">
                 {/* §5d.2, same rule as the table: on a video card the still
-                    frame is the play control. */}
+                    frame is the play control. On any other card it is inert
+                    and named for its file (B4c: a picture tile left it with
+                    no name at all). */}
                 <button
                   type="button"
                   onClick={isVideoRow(f) ? () => setPreviewFile(f) : undefined}
                   disabled={!isVideoRow(f)}
-                  title={isVideoRow(f) ? `Play ${displayName(f)}` : undefined}
+                  title={isVideoRow(f) ? `Play ${displayName(f)}` : displayName(f)}
                   className="rb-fm-play"
                   data-playable={isVideoRow(f) ? 'true' : undefined}
                 >

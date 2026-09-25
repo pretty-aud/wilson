@@ -275,10 +275,12 @@ describe('ProjectAssetsView — the page on the kit', () => {
 
 describe('ProjectAssetsView — the popups on the kit', () => {
   // jsdom loads no stylesheet: give it the position rules a browser has — the
-  // hand-rolled layers' `fixed` (Tailwind's) and the kit backdrop's — so the
-  // layer guard is tested against what the app computes, and a guard that
-  // scanned the whole document (and found the backdrop) would fail here too.
-  // FileManager asks the desktop route for video support on mount.
+  // hand-rolled layers' `fixed` (Tailwind's) and the kit backdrop's — so any
+  // check that reads a computed position is tested against what the app
+  // computes. (The popup's own layer guard is gone since B4c: every layer it
+  // opens is a kit Dialog on the modal stack — rabbitVideoRender.test.jsx
+  // opens its player.) FileManager asks the desktop route for video support
+  // on mount.
   let positions, realFetch
   beforeAll(() => {
     positions = document.createElement('style')

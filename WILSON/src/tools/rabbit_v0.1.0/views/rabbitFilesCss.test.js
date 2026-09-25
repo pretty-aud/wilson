@@ -34,6 +34,10 @@ const FILES = {
   fileManager: { file: '../components/FileManager.jsx', prefix: 'rb-fm-' },
   assets: { file: '../views/ProjectAssetsView.jsx', prefix: 'rb-asset-' },
   relations: { file: '../components/RelationsPanel.jsx', prefix: 'rb-rel-' },
+  // B4c, surface 5: the player on the kit Dialog and the preview tile. Neither
+  // writes a style: the tile's size is `data-size`, the player's is the sheet's.
+  video: { file: '../components/VideoPreview.jsx', prefix: 'rb-vid-' },
+  thumb: { file: '../components/FileThumbnail.jsx', prefix: 'rb-thumb-' },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */

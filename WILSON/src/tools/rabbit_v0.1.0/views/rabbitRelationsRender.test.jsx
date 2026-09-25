@@ -489,9 +489,10 @@ function page(extra = {}) {
 }
 
 describe('the asset popup — its four relation fields and the pickers they open', () => {
-  // As rabbitAssetsRender's: the position rules a browser has, so the popup's
-  // layer guard is tested against what the app computes; FileManager asks
-  // the desktop route for video support on mount.
+  // As rabbitAssetsRender's: the position rules a browser has, so a check
+  // that reads a computed position meets what the app computes (the popup's
+  // layer guard is gone since B4c); FileManager asks the desktop route for
+  // video support on mount.
   let positions, realFetch
   beforeAll(() => {
     positions = document.createElement('style')
