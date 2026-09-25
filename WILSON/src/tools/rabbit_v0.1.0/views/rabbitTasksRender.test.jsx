@@ -40,7 +40,12 @@ const files = vi.hoisted(() => ({ overlay: false, noteEscape: vi.fn() }))
 vi.mock('../components/FileManager', () => ({
   default: () => (
     <div>
-      <input type="text" aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') files.noteEscape() }} />
+      {/* B4: FileManager's notes editor marks its own Escape (K4's mark) —
+          the popup's `markFilesEscape`, which marked it from outside, is gone.
+          `unmarked` is a text field that does NOT, to prove the popup no
+          longer marks on anyone's behalf. */}
+      <input type="text" aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); files.noteEscape() } }} />
+      <input type="text" aria-label="Unmarked field" />
       <button type="button">Download</button>
       {files.overlay && <div data-testid="preview" className="fixed inset-0">preview</div>}
     </div>
@@ -132,6 +137,16 @@ describe('TaskDetailPopup, rendered', () => {
     fireEvent.keyDown(note, { key: 'Escape' })
     expect(files.noteEscape).toHaveBeenCalledTimes(1)
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('B4: the popup no longer marks a files-column Escape for anyone — an unmarked field\'s Escape closes it', () => {
+    // `markFilesEscape` is gone: a layer in the files column owns its Escape
+    // by marking it (FileManager's notes editor does, since B4).
+    const { onClose } = popup({ withFiles: true })
+    const field = screen.getByLabelText('Unmarked field')
+    field.focus()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it("an Escape on a files-column control that is not a text field closes the popup (only typing is the column's own)", () => {

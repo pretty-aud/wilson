@@ -31,11 +31,13 @@ const LANE_RE = new RegExp(`^rb-(${LANE})-`)
 /** B4's files on this sheet, relative to this directory, and the prefix each writes. */
 const FILES = {
   filesTable: { file: '../components/ProjectFilesTable.jsx', prefix: 'rb-files-' },
+  fileManager: { file: '../components/FileManager.jsx', prefix: 'rb-fm-' },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
 const STYLES = {
   filesTable: ["{{ '--rb-files-max': maxHeight ? `${maxHeight}px` : undefined }}"],
+  fileManager: ["{{ '--rb-fm-pct': `${copyProgress.percent}%` }}"],
 }
 const source = Object.fromEntries(Object.entries(FILES).map(([k, { file }]) => [k, read(file)]))
 const code = Object.fromEntries(Object.entries(source).map(([k, s]) => [k, normal(jsCode(s))]))

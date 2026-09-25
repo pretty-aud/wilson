@@ -282,7 +282,9 @@ const KNOWN = {
     // A3 (2026-09-24) deleted the O.T.T.E.R. rows it fixed: the course filter
     // chip and its count, New, New course, Next and the skill level all left
     // the orange fill. The Validator's own button is A4's and stays.
-    { key: 'rabbit-asset-detail', text: '"Add files"' },
+    // B4 (2026-09-25): FileManager's "Add files" is the kit primary on the
+    // signal fill (5.2:1), so its three lines (asset, scene and task popups)
+    // are deleted.
     { key: 'rabbit-asset-detail', text: '"Done"' },
     { key: 'rabbit-asset-detail', text: '"New asset"' },
     { key: 'rabbit-asset-detail', text: '"Table"' },
@@ -290,14 +292,12 @@ const KNOWN = {
     { key: 'rabbit-asset-new', text: '"Table"' },
     { key: 'rabbit-assets', text: '"New asset"' },
     { key: 'rabbit-assets', text: '"Table"' },
-    { key: 'rabbit-scene-detail', text: '"Add files"' },
     { key: 'rabbit-scene-detail', text: '"Scene"' },
     { key: 'rabbit-scene-detail', text: '"Scenes"' },
     { key: 'rabbit-scene-detail', text: '"Table"' },
     { key: 'rabbit-scenes', text: '"Scene"' },
     { key: 'rabbit-scenes', text: '"Scenes"' },
     { key: 'rabbit-scenes', text: '"Table"' },
-    { key: 'rabbit-task-detail', text: '"Add files"' },
     // rabbit-timeline's two ("Task", "Week") left with B3b: + Task is the kit
     // primary on signal-fill and the zoom is the kit Tabs' underline.
   ],

@@ -131,14 +131,12 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // Collapsible left-column sections
   const [collapsed, setCollapsed] = useState({})
 
-  // The files column holds FileManager (lane B4's), which is not on the kit's
-  // modal stack. Two of its layers used to lose to this dialog's Escape:
-  // its VideoPreview, a fixed overlay (one Escape closed the preview AND
-  // this popup; before B2 Escape did nothing there), and its notes editor,
-  // whose Escape cancels the note without stopping the key (W2: revert
-  // first, close on the second press). Round-one review, both. The notes
-  // editor is an <input type="text">: round one keyed on TEXTAREA from a
-  // mock, and in the desktop app the mark never fired (round two).
+  // The files column holds FileManager (lane B4's). Its VideoPreview is a
+  // fixed overlay not yet on the kit's modal stack, and used to lose to this
+  // dialog's Escape (one Escape closed the preview AND this popup; before B2
+  // Escape did nothing there), so the popup refuses to close while one is
+  // up. (B4, 2026-09-25) Its notes editor marks its own Escape now (K4's
+  // mark), so the `markFilesEscape` that did it from here is gone.
   const filesRef = useRef(null)
   function filesLayerOpen() {
     const col = filesRef.current
@@ -147,15 +145,6 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
       if (getComputedStyle(el).position === 'fixed') return true
     }
     return false
-  }
-  const NOT_TYPING = ['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color', 'image']
-  function markFilesEscape(e) {
-    // A text field in the files column (FileManager's notes) has had its
-    // Escape: mark it handled so the Dialog stands down (K4's mark).
-    const t = e.target
-    const typing = !!t && (t.tagName === 'TEXTAREA' || t.isContentEditable
-      || (t.tagName === 'INPUT' && !NOT_TYPING.includes(t.type)))
-    if (e.key === 'Escape' && typing) e.preventDefault()
   }
   function toggleCollapse(key) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
@@ -222,7 +211,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
         {/* ── LEFT COLUMN — files & relations ── */}
         {hasLeftColumn && (
-          <div className="rb-task-detail-files" ref={filesRef} onKeyDown={markFilesEscape}>
+          <div className="rb-task-detail-files" ref={filesRef}>
             {/* Asset files */}
             {linkedAsset && (
               <CollapsibleSection

@@ -58,13 +58,15 @@ function popup() {
 
 describe('TaskDetailPopup with the real FileManager', () => {
   it('W2 in the real notes editor (an <input>): Escape cancels the note and the popup stays; the next closes it', () => {
+    // B4: the prompt is "Add notes…" (one ellipsis glyph, R4-19), and the
+    // mark is FileManager's own now (`markFilesEscape` is gone).
     const { onClose } = popup()
-    fireEvent.click(screen.getAllByText('Add notes...')[0])
+    fireEvent.click(screen.getAllByText('Add notes…')[0])
     const note = document.activeElement
     expect(note.closest('.rb-task-detail-files')).not.toBeNull()
     fireEvent.keyDown(note, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
-    expect(screen.getAllByText('Add notes...').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Add notes…').length).toBeGreaterThan(0)
     fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })

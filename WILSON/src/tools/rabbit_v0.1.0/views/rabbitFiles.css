@@ -165,4 +165,223 @@
   .rb-files-frame .rb-files-table .ui-td.rb-files-icon-cell { padding: 2px 6px 1px; }
   .rb-files-frame .rb-files-table .ui-td.rb-files-desc:has(> .rb-files-cell-input) { padding-top: 2px; padding-bottom: 1px; }
 
+  /* ═══ FileManager ═════════════════════════════════════════════════════════
+     The asset popup's, the task popup's and the scene popup's file section.
+     Its whole body was 9 and 10px (R4-41); it is the scale now: the section
+     name in the Label role, cells Dense, figures in the mono. The fixed
+     columns hold, measured at 13px plus the kit's 12px padding each side:
+       thumb    the 32px tile                                   ->  56
+       Version  its header, "VERSION" 53.4 in the Label step    ->  80
+       Size     "1023.9 MB" 70.2 in the mono                    ->  96
+       Date     "Sep 19, 2026" 93.6 in the mono                 -> 120
+       Actions  two 28px IconButtons, 4px apart                 ->  84
+     Name takes the rest and never goes under 120px. Under 560px (the task
+     popup's 400px column) the cells take 8px and the widths are re-measured
+     for it, as ProjectFilesTable's are; the table still needs ~500px there
+     and scrolls sideways — every column reachable, where it used to cut the
+     Download column off and wrap the size (B2 §4). */
+  .rb-fm-root {
+    --rb-fm-thumb: 56px;
+    --rb-fm-version: 80px;
+    --rb-fm-size: 96px;
+    --rb-fm-date: 120px;
+    --rb-fm-acts: 84px;
+    --rb-fm-name-min: 120px;
+    container-type: inline-size;
+    min-width: 0;
+  }
+  @container (max-width: 559px) {
+    .rb-fm-root .rb-fm-table {
+      --rb-fm-thumb: 48px;
+      --rb-fm-version: 72px;
+      --rb-fm-size: 88px;
+      --rb-fm-date: 112px;
+      --rb-fm-acts: 76px;
+      --rb-fm-name-min: 100px;
+    }
+    .rb-fm-root .ui-table.rb-fm-table .ui-th,
+    .rb-fm-root .ui-table.rb-fm-table .ui-td { padding-left: 8px; padding-right: 8px; }
+  }
+
+  /* One row of 28px controls on one baseline (R4-08, R4-16). */
+  .rb-fm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: var(--control-sm);
+    margin-bottom: 8px;
+  }
+  .rb-fm-title-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .rb-fm-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    white-space: nowrap;
+  }
+  .rb-fm-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+  .rb-fm-notice { margin-bottom: 8px; }
+  .rb-fm-refused { display: flex; flex-direction: column; gap: 4px; }
+
+  /* The copy bar: one shape for both transports (review "What works"). */
+  .rb-fm-progress { margin-bottom: 8px; }
+  .rb-fm-progress-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .rb-fm-progress-name {
+    min-width: 0;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink-2);
+  }
+  .rb-fm-progress-pct {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .rb-fm-progress-track {
+    height: 3px;
+    overflow: hidden;
+    border-radius: 9999px;
+    background-color: var(--color-rule);
+  }
+  .rb-fm-progress-fill {
+    width: var(--rb-fm-pct, 0%);
+    height: 100%;
+    border-radius: 9999px;
+    background-color: var(--color-signal);
+    transition: width var(--duration-state) ease-out;
+  }
+
+  .rb-fm-panel { min-width: 0; }
+
+  .rb-fm-root .ui-table.rb-fm-table {
+    min-width: calc(var(--rb-fm-thumb) + var(--rb-fm-version) + var(--rb-fm-size)
+      + var(--rb-fm-date) + var(--rb-fm-acts) + var(--rb-fm-name-min));
+  }
+  /* The 32px tile and the 28px buttons keep the 36px row: its border box
+     leaves 35 (2 + 32 + 1; 4 + 28 + 3). (0,4,0) against the kit's `.ui-td`. */
+  .rb-fm-root .rb-fm-table .ui-td.rb-fm-thumb-cell { padding-top: 2px; padding-bottom: 1px; }
+  .rb-fm-root .rb-fm-table .ui-td.rb-fm-acts-cell { padding-top: 4px; padding-bottom: 3px; }
+  .rb-fm-acts { display: flex; align-items: center; gap: 4px; }
+
+  /* The tile is the play control on a video row, inert on any other. */
+  .rb-fm-play {
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    cursor: default;
+  }
+  .rb-fm-play[data-playable="true"] { cursor: pointer; }
+
+  .rb-fm-name-stack { display: flex; flex-direction: column; min-width: 0; }
+  .rb-fm-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  .rb-fm-row-notice {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-warning);
+  }
+  .rb-fm-notes {
+    display: block;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  /* 🚨 The SECOND ink for the quiet text here, not the third: FileManager is
+     drawn inside other popups, and the scene popup (B5's) still paints
+     `#292524`, where the third ink is 4.37:1 (4.66 on the kit Dialog, 5.04
+     on paper). Measured, B4. */
+  .rb-fm-notes[data-empty="true"] { color: var(--color-ink-2); font-style: italic; }
+  .rb-fm-notes:hover { text-decoration: underline; }
+  .rb-fm-notes-edit { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+  /* A native field (the kit Input blurs on Enter: B3d-KR-2), dressed as the
+     kit's small well. */
+  .rb-fm-notes-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 8px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+
+  /* A figure outside the table (the gallery card's size). In the table the
+     kit's `numeric` cell already sets the mono and the figures; the size
+     only takes the second ink there. */
+  .rb-fm-figure {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-fm-root .rb-fm-table .rb-fm-size { color: var(--color-ink-2); }
+  .rb-fm-root .rb-fm-table .rb-fm-date {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-fm-none { color: var(--color-ink-2); }   /* the second ink: see .rb-fm-notes */
+
+  .rb-fm-gallery {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+  .rb-fm-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-fm-card-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100px;
+    background-color: var(--color-paper);
+  }
+  .rb-fm-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; }
+  .rb-fm-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rb-fm-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 0;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .rb-fm-confirm { margin: 0; color: var(--color-ink); }
 }
