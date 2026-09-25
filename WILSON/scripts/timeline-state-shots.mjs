@@ -147,17 +147,22 @@ if (await visible(mini)) {
 
 // ── The settings panel (SettingsPanel) ─────────────────────────────────────
 if (await step('24-settings', page.locator('[aria-label="RABBIT settings"]'), 'click')) {
-  const panel = page.locator('.fixed.inset-0').last();
-  await step('25-settings-hover-tab', panel.getByRole('button', { name: 'System Prompts', exact: true }));
-  const switches = panel.locator('button.w-11.h-6');
+  // The kit Drawer since B3d (its tabs are the kit Tabs, its switches the
+  // kit Switch); the old slide-out`s scrim wrapper for a before run.
+  const panel = page.locator('aside.ui-drawer.rb-tl-settings, .fixed.inset-0').last();
+  const promptsTab = panel.getByRole('tab', { name: 'System prompts', exact: true })
+    .or(panel.getByRole('button', { name: 'System Prompts', exact: true }));
+  await step('25-settings-hover-tab', promptsTab);
+  // The lock first (it unlocks the tab), then Show weekends.
+  const switches = panel.locator('[role="switch"], button.w-11.h-6');
   await step('26-settings-toggle-1', switches.nth(0), 'click');
   await step('27-settings-toggle-2', switches.nth(1), 'click');
-  await step('28-settings-prompts-tab', panel.getByRole('button', { name: 'System Prompts', exact: true }), 'click');
+  await step('28-settings-prompts-tab', promptsTab, 'click');
   const section = panel.locator('button').filter({ hasText: /prompt|scheduler|recommend|generator/i }).first();
   await step('29-settings-section-open', section, 'click');
   await page.keyboard.press('Escape');
   await sleep(300);
-  if (await visible(panel.getByRole('button', { name: 'System Prompts', exact: true }))) {
+  if (await visible(promptsTab)) {
     await page.mouse.click(10, H / 2);
     await sleep(300);
   }

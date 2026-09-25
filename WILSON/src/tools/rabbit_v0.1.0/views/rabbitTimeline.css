@@ -63,7 +63,9 @@
      `stone-750`, which is not a Tailwind colour, so it generates no CSS
      and has never painted;
    - "Manage Task Templates" declares a hover fill beside an inline
-     background, which beats it: never painted;
+     background, which beats it: never painted (both went with B3d's move
+     to the kit: the header's hover is `--color-hover` now, the button the
+     kit's);
    - EditHistoryDrawer's `entryActionMeta(entry) || {…}` fallback cannot
      run (entryActionMeta always returns an object; its own unknown-action
      fallback is the same grey, `.rb-hist-action`'s default);
@@ -127,18 +129,18 @@
      .rb-tl-ed-title                  data-milestone = true|false: amber | orange
      (the zoom toolbar's undo pair, zoom, grouping and sort are the kit's
      IconButton and Tabs since B3b: their states live in index.css)
-     .rb-tl-set-tab                   data-active = true: raised, orange, underlined
-     .rb-tl-lock-label, .rb-tl-lock-hint, .rb-tl-prompt-title
-                                      data-locked = true|false: stone | orange
-                                      (the hint: stone-500 | stone-400)
-     .rb-tl-switch                    data-on = true|false: orange, knob right
-     .rb-tl-set-body                  data-locked = true: dimmed and inert
-     .rb-tl-prompts                   data-locked = true: dimmed
-     .rb-tl-type-check                data-checked = true: filled orange
+     (SettingsPanel's tabs, switches, buttons and fields are the kit's Tabs,
+     Switch, Button, IconButton, Input and TextArea since B3d: their states
+     live in index.css)
+     .rb-tl-lock-bar                  data-locked = true|false: the icon and
+                                      the label ink-3 | the signal and ink-2
+     .rb-tl-set-body                  data-locked = true: its text ink-3, out
+                                      of the pointer's reach (its controls
+                                      are disabled)
+     .rb-tl-prompt-title              data-locked = true|false: ink-3 | ink-2
+     .rb-tl-type-check                data-checked = true: the filled primary;
+                                      :disabled: ink-3 when ticked, not-allowed
      .rb-tl-prompt-chevron            data-open = true: turned 90°
-     .rb-tl-prompt-text, .rb-tl-prompt-act
-                                      :disabled: not-allowed (an action's ink
-                                      dims); :hover lightens an enabled action
      .rb-tl-help-item                 data-active = true|false: the open page
                                       the ink at 600 on the signal tint, an
                                       inside 2px signal edge | lit to the ink
@@ -636,47 +638,114 @@
      undo pair's two inks and ZoomControls' chips went with their elements. */
   .rb-tl-tb-sep { flex: none; width: 1px; height: 16px; background-color: var(--color-rule); }
 
-  /* ═══ The settings panel (SettingsPanel) ════════════════════════════════ */
-
-  /* The two tabs: the open one raised, orange, with an orange underline. */
-  .rb-tl-set-tab {
-    color: oklch(70.9% 0.01 56.259);             /* stone-400 */
-    border-color: transparent;
-    background-color: oklch(37.4% 0.01 67.558);  /* stone-700 */
+  /* ═══ The settings panel (SettingsPanel) — stage 2 (B3d) ════════════════
+     The kit's Drawer (a backdrop, the right side), Tabs, Toolbar, Switch,
+     Button, IconButton, Input and TextArea carry every control and state,
+     laid out as D.O.G.'s and O.T.T.E.R.'s settings drawers are (A2, A4), so
+     the three tools' settings read as one. The title bar is the Drawer's
+     `--titlebar-offset` (TL-24), where the panel padded itself 32px under
+     Electron. What is left here: the drawer's shape, the lock bar's inks,
+     the cards, the project-type grid (the kit has no checkbox) and the
+     holiday list.
+     🚨 THE WIDTH IS THE PANEL'S, AS IT WAS: 40% of the window over the kit's
+     xl (420, B3c-KR-1) as the floor, so 576 at 1440, 512 at 1280 and 420 at
+     1024 — and the same rule D.O.G.'s and O.T.T.E.R.'s settings drawers
+     carry (A2-KR-2, a working-drawer width, is the kit request that retires
+     all three). `aside` makes it (0,2,1) over the kit's (0,2,0): a tie is
+     a loss, and a bare [data-width] is not a selector this sheet may write.
+     🚨 THE LOCK IS THE DISABLED TOKEN, NOT AN OPACITY. The Settings tab went
+     to opacity 60% (the walk measured 80 lines of it, down to 2.18:1) and
+     the System Prompts tab too; now every control is `disabled` (the kit's
+     disabled ink and track) and the text steps to ink-3, 5.04:1 on the
+     cards, as D.O.G.'s lock does. The Settings tab stays out of the
+     pointer's reach while locked, as it was. */
+  aside.ui-drawer.rb-tl-settings { width: 40%; min-width: var(--panel-xl); }
+  .rb-tl-settings .ui-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* A1-KR-3 (open): a header dimmer than the labels under it inverts the
+       order, so the settings drawers' titles take ink-2 (D.O.G., O.T.T.E.R.). */
+    color: var(--color-ink-2);
   }
-  .rb-tl-set-tab[data-active="true"] {
-    color: oklch(75% 0.183 55.934);              /* orange-400 */
-    border-color: oklch(70.5% 0.213 47.604);     /* orange-500 */
-    background-color: oklch(21.6% 0.006 56.043); /* stone-900 */
+  .rb-tl-set-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  /* The tabs and the lock bar stay put while the tab scrolls, as they did:
+     the drawer's body is a column and only the tab panel scrolls. */
+  .rb-tl-settings .ui-drawer-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
   }
-  /* The lock bar, and each prompt section's title: stone while locked. */
-  .rb-tl-lock-label,
-  .rb-tl-prompt-title { color: oklch(75% 0.183 55.934); }         /* orange-400 */
-  .rb-tl-lock-label[data-locked="true"],
-  .rb-tl-prompt-title[data-locked="true"] { color: oklch(55.3% 0.013 58.071); } /* stone-500 */
-  .rb-tl-lock-hint { color: oklch(70.9% 0.01 56.259); }           /* stone-400 */
-  .rb-tl-lock-hint[data-locked="true"] { color: oklch(55.3% 0.013 58.071); } /* stone-500 */
-  /* The two switches (the lock, "Show weekends"): on is orange, knob right. */
-  .rb-tl-switch { background-color: oklch(44.4% 0.011 73.639); }  /* stone-600 */
-  .rb-tl-switch[data-on="true"] { background-color: oklch(70.5% 0.213 47.604); } /* orange-500 */
-  .rb-tl-switch-knob { left: 0.25rem; }                            /* left-1 */
-  .rb-tl-switch[data-on="true"] > .rb-tl-switch-knob { left: 1.5rem; } /* left-6 */
-  /* The Settings tab's body while locked: dimmed and inert. The System
-     Prompts tab's while locked: dimmed (its sections still open). */
-  .rb-tl-set-body[data-locked="true"] { opacity: 60%; pointer-events: none; }
-  .rb-tl-prompts[data-locked="true"] { opacity: 60%; }
-  /* Project-type defaults: a ticked box is filled orange. */
-  .rb-tl-type-check { background-color: transparent; border: 1px solid #57534e; }
-  .rb-tl-type-check[data-checked="true"] { background-color: #ea580c; border-color: #ea580c; }
-  /* A prompt section's chevron turns when it is open. */
+  /* Under the drawer's class: `.ui-toolbar .ui-tabs` (0,2,0) sets the same
+     two properties, and a tie is a loss even where it cannot meet. */
+  .rb-tl-settings .ui-tabs.rb-tl-set-tabs { flex-shrink: 0; flex-wrap: nowrap; border-bottom: 1px solid var(--color-rule); }
+  .ui-tabs.rb-tl-set-tabs > .ui-tab { flex: 1 1 0; justify-content: center; }
+  .ui-tabs.rb-tl-set-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
+  /* The lock bar. Unlocked is the one active state: the signal on the icon
+     only, never under text. */
+  .rb-tl-lock-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
+  .rb-tl-lock-label { color: var(--color-ink-2); }
+  .rb-tl-lock-hint { color: var(--color-ink-3); }
+  .rb-tl-lock-bar[data-locked="true"] .rb-tl-lock-icon,
+  .rb-tl-lock-bar[data-locked="true"] .rb-tl-lock-label { color: var(--color-ink-3); }
+  /* A section of the Settings tab: a card of the paper under the rule, as
+     the history drawer's entries are. Its title the ink, a label ink-2, a
+     description ink-3; the footer's note ink-3 on the raised paper, 4.69:1. */
+  .rb-tl-set-card { background-color: var(--color-paper); border: 1px solid var(--color-rule); }
+  .rb-tl-set-title { color: var(--color-ink); }
+  .rb-tl-set-label { color: var(--color-ink-2); }
+  .rb-tl-set-desc,
+  .rb-tl-set-note { color: var(--color-ink-3); }
+  .rb-tl-set-body[data-locked="true"] { pointer-events: none; }
+  .rb-tl-set-body[data-locked="true"] :is(.rb-tl-set-title, .rb-tl-set-label, .rb-tl-type-name, .rb-tl-hol-date, .rb-tl-hol-name) {
+    color: var(--color-ink-3);
+  }
+  /* Project-type defaults: a grid under the rule, its head the Label step
+     in ink-3; a ticked box is the kit's filled primary (the fill and its
+     ink), a locked one ink-3 under the paper. */
+  .rb-tl-type-table { border: 1px solid var(--color-rule); }
+  .rb-tl-type-head { color: var(--color-ink-3); border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-type-row { border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-type-row:last-child { border-bottom-width: 0; }
+  .rb-tl-type-name { color: var(--color-ink-2); }
+  .rb-tl-type-check { color: var(--color-on-fill); background-color: transparent; border: 1px solid var(--color-ink-3); }
+  .rb-tl-type-check[data-checked="true"] { background-color: var(--color-signal-fill); border-color: var(--color-signal-fill); }
+  .rb-tl-type-check:disabled { cursor: not-allowed; }
+  .rb-tl-type-check[data-checked="true"]:disabled {
+    color: var(--color-paper);
+    background-color: var(--color-ink-3);
+    border-color: var(--color-ink-3);
+  }
+  /* The holiday list: the recessed paper it was (#0c0a09), rows under the
+     rule; a date ink-2, its name the ink, the count and the empty line ink-3. */
+  .rb-tl-hol-count { color: var(--color-ink-3); }
+  .rb-tl-hol-list { background-color: var(--color-paper-recessed); border: 1px solid var(--color-rule); }
+  .rb-tl-hol-row { border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-hol-row:last-child { border-bottom-width: 0; }
+  .rb-tl-hol-date { color: var(--color-ink-2); }
+  .rb-tl-hol-name { color: var(--color-ink); }
+  .rb-tl-hol-empty { color: var(--color-ink-3); }
+  /* System Prompts: one section per prompt under the rule, its head a row
+     that opens it — the title ink-2 (ink-3 while locked), its line and the
+     chevron ink-3; the chevron turns when it is open. The editor and its
+     two actions are the kit's, `disabled` exactly while locked. */
+  .rb-tl-prompt { border-bottom: 1px solid var(--color-rule); }
+  .rb-tl-prompt-head { background-color: transparent; transition: background-color var(--duration-state) ease-out; }
+  .rb-tl-prompt-title { color: var(--color-ink-2); }
+  .rb-tl-prompt-title[data-locked="true"] { color: var(--color-ink-3); }
+  .rb-tl-prompt-desc { color: var(--color-ink-3); }
+  .rb-tl-prompt-chevron { color: var(--color-ink-3); transition: rotate var(--duration-state) ease-out; }
   .rb-tl-prompt-chevron[data-open="true"] { rotate: 90deg; }
-  /* The prompt editor and its two actions: `disabled` is exactly "locked". */
-  .rb-tl-prompt-text:disabled { cursor: not-allowed; }
-  .rb-tl-prompt-act { color: oklch(75% 0.183 55.934); }            /* orange-400 */
   @media (hover: hover) {
-    .rb-tl-prompt-act:hover:not(:disabled) { color: oklch(83.7% 0.128 66.29); } /* orange-300 */
+    .rb-tl-type-row:hover,
+    .rb-tl-hol-row:hover,
+    .rb-tl-prompt-head:hover { background-color: var(--color-hover); }
   }
-  .rb-tl-prompt-act:disabled { color: oklch(44.4% 0.011 73.639); cursor: not-allowed; } /* stone-600 */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-tl-prompt-head,
+    .rb-tl-prompt-chevron { transition: none; }
+  }
 
   /* ═══ Help (HelpModal) — stage 2 (B3c) ═════════════════════════════════
      The kit's Dialog (reading, 720), laid out as D.O.G.'s Help is, so the

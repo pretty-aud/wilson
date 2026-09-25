@@ -96,6 +96,10 @@ import { Toolbar } from '../../../ui/Toolbar'
 import { Tabs } from '../../../ui/Tabs'
 import { Stat } from '../../../ui/Stat'
 import { Dialog } from '../../../ui/Dialog'
+import { Drawer } from '../../../ui/Drawer'
+import { Switch } from '../../../ui/Switch'
+import { Input } from '../../../ui/Input'
+import { TextArea } from '../../../ui/TextArea'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -5146,8 +5150,12 @@ const DETAIL_PANEL_ID = 'rb-tl-detail'
 //   • Importing a CSV (one YYYY-MM-DD per line)
 //   • Exporting the current list as CSV
 //   • Removing individual dates
+// B3d: on the kit (Input, Button, IconButton), its colours in the sheet.
+// `locked` is the Settings tab's lock: every control is disabled while it
+// holds, where the old tab went to opacity 60% with pointer-events off —
+// which a keyboard walked straight through.
 // ============================================================
-function HolidaysEditor({ holidays, onChange }) {
+function HolidaysEditor({ holidays, onChange, locked = false }) {
   // holidays is a Map<date, title>
   const [newDate, setNewDate] = useState('')
   const [newTitle, setNewTitle] = useState('')
@@ -5195,108 +5203,104 @@ function HolidaysEditor({ holidays, onChange }) {
   }
 
   return (
-    <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-      <label className="block text-h3 font-semibold mb-1 text-orange-400">
-        Holidays / Blocked Days
-      </label>
-      <p className="text-dense text-stone-500 mb-3">
+    <section className="rounded-control p-4 mb-4 rb-tl-set-card">
+      <h3 className="text-h3 font-semibold mb-1 rb-tl-set-title">
+        Holidays / blocked days
+      </h3>
+      <p className="text-dense mb-3 rb-tl-set-desc">
         Dates listed here are excluded from the working-day count.
         Import a CSV (YYYY-MM-DD,Title per line) or add individual dates.
       </p>
 
       {/* Add individual date + title */}
       <div className="flex items-center gap-2 mb-3">
-        <input
+        <Input
           type="date"
+          size="sm"
           value={newDate}
-          onChange={(e) => setNewDate(e.target.value)}
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-control text-dense text-stone-300 focus:border-orange-500"
+          onChange={setNewDate}
+          disabled={locked}
+          aria-label="Holiday date"
         />
-        <input
-          type="text"
+        <Input
+          size="sm"
           value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
+          onChange={setNewTitle}
           placeholder="Holiday name"
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-control text-dense text-stone-300 focus:border-orange-500 flex-1 min-w-0"
+          disabled={locked}
+          aria-label="Holiday name"
+          className="flex-1 min-w-0"
         />
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="primary"
+          icon={Plus}
+          disabled={locked}
           onClick={() => { if (newDate) { addDate(newDate, newTitle); setNewDate(''); setNewTitle('') } }}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control flex-shrink-0"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+          className="flex-shrink-0"
         >
-          <Plus className="w-3 h-3" />
           Add
-        </button>
+        </Button>
       </div>
 
       {/* Import / Export */}
       <div className="flex items-center gap-2 mb-3">
         <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleImport} className="hidden" />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <Upload className="w-3 h-3" />
+        <Button size="sm" icon={Upload} disabled={locked} onClick={() => fileRef.current?.click()}>
           Import CSV
-        </button>
-        <button
-          type="button"
-          onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-1 text-dense rounded-control"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <Download className="w-3 h-3" />
+        </Button>
+        <Button size="sm" icon={Download} disabled={locked} onClick={handleExport}>
           Export CSV
-        </button>
-        <span className="text-dense font-mono text-stone-500 ml-auto">
+        </Button>
+        <span className="text-dense font-mono ml-auto rb-tl-hol-count">
           {sorted.length} date{sorted.length === 1 ? '' : 's'}
         </span>
       </div>
 
       {/* Date list */}
-      <div
-        className="overflow-y-auto border border-stone-700 rounded-control"
-        style={{ maxHeight: 200, backgroundColor: '#0c0a09' }}
-      >
+      <div className="overflow-y-auto rounded-control rb-tl-hol-list" style={{ maxHeight: 200 }}>
         {sorted.length === 0 ? (
-          <div className="px-3 py-4 text-dense text-stone-600 text-center">
+          <div className="px-3 py-4 text-dense text-center rb-tl-hol-empty">
             No holidays configured
           </div>
         ) : (
           sorted.map(([iso, title]) => (
-            <div
-              key={iso}
-              className="flex items-center gap-2 px-3 py-1 border-b border-stone-800 last:border-b-0 hover:bg-stone-900"
-            >
-              <span className="text-dense text-stone-400 flex-shrink-0" style={{ width: 90 }}>
+            <div key={iso} className="flex items-center gap-2 px-3 py-1 rb-tl-hol-row">
+              <span className="text-dense flex-shrink-0 rb-tl-hol-date" style={{ width: 90 }}>
                 {iso}
               </span>
-              <span className="text-dense text-stone-300 truncate flex-1 min-w-0">
+              <span className="text-dense truncate flex-1 min-w-0 rb-tl-hol-name">
                 {title || ''}
               </span>
-              <button
-                type="button"
-                onClick={() => removeDate(iso)}
-                className="p-0.5 hover:bg-stone-700 rounded-control transition-colors flex-shrink-0"
-                title="Remove this date"
-              >
-                <X className="w-3 h-3 text-stone-500 hover:text-red-400" />
-              </button>
+              <IconButton size="sm" icon={X} title="Remove this date" disabled={locked} onClick={() => removeDate(iso)} />
             </div>
           ))
         )}
       </div>
-    </div>
+    </section>
   )
 }
 
 // ============================================================
 // SettingsPanel — slide-out from the right with two tabs:
 // Settings + System Prompts (matches DOG/OTTER pattern).
+// B3d: the kit's Drawer (xl, a backdrop), Tabs, Toolbar, Switch, Button,
+// IconButton, Input and TextArea, laid out as D.O.G.'s and O.T.T.E.R.'s
+// settings drawers are. The title bar is the Drawer's `--titlebar-offset`
+// (TL-24); the panel no longer pads itself 32px under Electron. The lock
+// is the disabled token (every control disabled, the text a step dimmer),
+// where the Settings tab went to opacity 60% (the walk measured 80 lines
+// of it). TaskTemplateManager, B2's kit Dialog, renders BESIDE the drawer:
+// the kit Dialog does not portal (B3c trap 4).
 // ============================================================
+const SETTINGS_PANEL_ID = 'rb-tl-settings-panel'
+/** The project-type columns, with the word each checkbox is named by (the
+    head abbreviates the third). */
+const TYPE_FIELDS = [
+  { field: 'scenes_enabled', name: 'Scenes' },
+  { field: 'levels_enabled', name: 'Levels' },
+  { field: 'experiences_enabled', name: 'Experiences' },
+]
 export function SettingsPanel({ settings, patchSettings, settingsTab, setSettingsTab, holidays, onHolidaysChange, onClose, onOpenHelp }) {
   const [promptsLocked, setPromptsLocked] = useState(true)
   const [toolsLocked, setToolsLocked]     = useState(true)
@@ -5328,163 +5332,169 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
     { key: 'phaseGenerator',  title: 'Phase Generator',  desc: 'Proposes high-level phases from a project description',      defaultVal: RABBIT_PHASE_GENERATOR_PROMPT },
   ]
 
+  function toggleLock() {
+    if (settingsTab === 'prompts') setPromptsLocked(!promptsLocked)
+    else setToolsLocked(!toolsLocked)
+  }
+
   return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/50 transition-opacity" onClick={onClose} />
-      <div
-        className="absolute top-0 right-0 h-full bg-stone-800 border-l border-stone-600 shadow-2xl flex flex-col"
-        style={{
-          width: '40%',
-          minWidth: '420px',
-          paddingTop: typeof window !== 'undefined' && window.electronAPI ? '32px' : '0px',
-          animation: 'slideInRight 0.3s ease-out',
-        }}
+    <>
+      <Drawer
+        open
+        onClose={onClose}
+        backdrop
+        side="right"
+        width="xl"
+        label="RABBIT settings"
+        className="rb-tl-settings"
+        title={(
+          <>
+            <SettingsIcon className="rb-tl-set-icon" aria-hidden="true" />
+            RABBIT settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={onClose} />}
+        footer={(
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-dense flex-1 min-w-0 rb-tl-set-note">
+              Changes are applied immediately. Use &quot;Reset to default&quot; to restore
+              original settings.
+            </p>
+            {onOpenHelp && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={HelpCircle}
+                onClick={onOpenHelp}
+                title="Open RABBIT help & documentation"
+                className="flex-shrink-0"
+              >
+                Help
+              </Button>
+            )}
+          </div>
+        )}
       >
-        {/* Header */}
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0">
-          <div className="flex items-center gap-2">
-            <SettingsIcon className="w-5 h-5 text-orange-400" />
-            <span className="font-semibold text-orange-400">RABBIT Settings</span>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control transition-colors">
-            <X className="w-5 h-5 text-stone-400" />
-          </button>
-        </div>
+        {/* The two tabs, halves of the drawer as they were. */}
+        <Tabs
+          items={[{ id: 'settings', label: 'Settings' }, { id: 'prompts', label: 'System prompts' }]}
+          value={settingsTab}
+          onChange={setSettingsTab}
+          label="Settings sections"
+          panelId={SETTINGS_PANEL_ID}
+          className="rb-tl-set-tabs"
+        />
 
-        {/* Tabs */}
-        <div className="flex shrink-0">
-          <button
-            onClick={() => setSettingsTab('settings')}
-            className="flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 rb-tl-set-tab"
-            data-active={settingsTab === 'settings' ? 'true' : 'false'}
-          >
-            Settings
-          </button>
-          <button
-            onClick={() => setSettingsTab('prompts')}
-            className="flex-1 px-4 py-2 text-body font-semibold transition-colors border-b-2 rb-tl-set-tab"
-            data-active={settingsTab === 'prompts' ? 'true' : 'false'}
-          >
-            System Prompts
-          </button>
-        </div>
+        {/* The lock bar: the open tab's lock. "Editable" is the switch's name
+            and its state is the switch's; the words beside it are unchanged. */}
+        <Toolbar
+          className="rb-tl-lock-bar"
+          data-locked={isLocked ? 'true' : 'false'}
+          right={(
+            <>
+              <span className="text-label font-semibold uppercase rb-tl-lock-hint">
+                {isLocked ? 'Read Only' : 'Editable'}
+              </span>
+              <Switch checked={!isLocked} onChange={toggleLock} aria-label="Editable" />
+            </>
+          )}
+        >
+          {isLocked
+            ? <Lock className="rb-tl-lock-icon" aria-hidden="true" />
+            : <Unlock className="rb-tl-lock-icon" aria-hidden="true" />}
+          <span className="text-label font-semibold uppercase rb-tl-lock-label">
+            {isLocked ? 'Locked' : 'Unlocked'}
+          </span>
+        </Toolbar>
 
-        {/* Lock bar */}
-        <div className="bg-stone-900 px-4 py-2 border-b border-stone-600 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-2">
-            {isLocked
-              ? <Lock className="w-4 h-4 text-stone-500" />
-              : <Unlock className="w-4 h-4 text-orange-400" />}
-            <span className="text-label font-semibold uppercase rb-tl-lock-label" data-locked={isLocked ? 'true' : 'false'}>
-              {isLocked ? 'Locked' : 'Unlocked'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-label uppercase rb-tl-lock-hint" data-locked={isLocked ? 'true' : 'false'}>
-              {isLocked ? 'Read Only' : 'Editable'}
-            </span>
-            <button
-              onClick={() => {
-                if (settingsTab === 'prompts') setPromptsLocked(!promptsLocked)
-                else setToolsLocked(!toolsLocked)
-              }}
-              className="relative w-11 h-6 rounded-full transition-colors rb-tl-switch"
-              data-on={isLocked ? 'false' : 'true'}
-            >
-              <span
-                className="absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform rb-tl-switch-knob"
-              />
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Content: the one part of the drawer that scrolls. */}
+        <div
+          id={SETTINGS_PANEL_ID}
+          role="tabpanel"
+          aria-label={settingsTab === 'prompts' ? 'System prompts' : 'Settings'}
+          className="flex-1 min-h-0 overflow-y-auto p-4"
+        >
           {settingsTab === 'settings' && (
             <div className="rb-tl-set-body" data-locked={toolsLocked ? 'true' : 'false'}>
-              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-                <label className="block text-h3 font-semibold mb-2 text-orange-400">Timeline Display</label>
-                <div className="flex items-center justify-between">
+              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
+                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">Timeline display</h3>
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-dense font-semibold text-stone-300">Show weekends</div>
-                    <p className="text-dense text-stone-500 mt-1">
+                    <div className="text-dense font-semibold rb-tl-set-label">Show weekends</div>
+                    <p className="text-dense mt-1 rb-tl-set-desc">
                       When OFF, Saturday + Sunday columns are hidden from the day-view gantt entirely.
                       When ON, weekends get a soft tint so they read as non-work days.
                     </p>
                   </div>
-                  <button
-                    onClick={() => patchSettings({ showWeekends: !settings.showWeekends })}
-                    className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-3 rb-tl-switch"
-                    data-on={settings.showWeekends ? 'true' : 'false'}
-                  >
-                    <span
-                      className="absolute top-1 w-4 h-4 bg-stone-200 rounded-full transition-transform rb-tl-switch-knob"
-                    />
-                  </button>
+                  <Switch
+                    checked={Boolean(settings.showWeekends)}
+                    onChange={(on) => patchSettings({ showWeekends: on })}
+                    disabled={toolsLocked}
+                    aria-label="Show weekends"
+                    className="flex-shrink-0"
+                  />
                 </div>
-              </div>
-              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-                <label className="block text-h3 font-semibold mb-2 text-orange-400">About</label>
-                <p className="text-dense text-stone-500">
+              </section>
+              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
+                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">About</h3>
+                <p className="text-dense rb-tl-set-desc">
                   RABBIT is WILSON's resource allocation tool. Settings are scoped to the
                   current browser profile and persist via localStorage.
                 </p>
-              </div>
+              </section>
 
-              {/* ── Task Templates ── */}
-              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-                <label className="block text-h3 font-semibold mb-2 text-orange-400">Task Templates</label>
-                <p className="text-dense text-stone-500 mb-3">
+              {/* ── Task Templates: opens B2's TaskTemplateManager, as it did ── */}
+              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
+                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">Task templates</h3>
+                <p className="text-dense mb-3 rb-tl-set-desc">
                   Create and manage reusable task templates that can be applied when creating new assets.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowTemplateManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-                  style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                >
-                  <ListChecks className="w-3.5 h-3.5" />
-                  Manage Task Templates
-                </button>
-              </div>
+                <Button size="sm" icon={ListChecks} disabled={toolsLocked} onClick={() => setShowTemplateManager(true)}>
+                  Manage task templates
+                </Button>
+              </section>
 
               {/* ── Project Type Defaults ── */}
-              <div className="bg-stone-900 border border-stone-600 rounded-control p-4 mb-4">
-                <label className="block text-h3 font-semibold mb-2 text-orange-400">Project Type Defaults</label>
-                <p className="text-dense text-stone-500 mb-3">
+              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
+                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">Project type defaults</h3>
+                <p className="text-dense mb-3 rb-tl-set-desc">
                   When creating a new project, these databases will be toggled on by default based on the project type.
                   You can override these per-project in the Project Control Panel.
                 </p>
-                <div className="rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
+                <div className="rounded-control overflow-hidden rb-tl-type-table">
                   {/* Header row */}
-                  <div className="flex items-center px-3 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                    <span className="flex-1 text-label uppercase font-semibold" style={{ color: '#78716c' }}>Type</span>
-                    <span className="w-16 text-label uppercase font-semibold text-center" style={{ color: '#78716c' }}>Scenes</span>
-                    <span className="w-16 text-label uppercase font-semibold text-center" style={{ color: '#78716c' }}>Levels</span>
-                    <span className="w-16 text-label uppercase font-semibold text-center" style={{ color: '#78716c' }}>Exp.</span>
+                  <div className="flex items-center px-3 py-2 rb-tl-type-head">
+                    <span className="flex-1 text-label uppercase font-semibold">Type</span>
+                    <span className="w-16 text-label uppercase font-semibold text-center">Scenes</span>
+                    <span className="w-16 text-label uppercase font-semibold text-center">Levels</span>
+                    <span className="w-16 text-label uppercase font-semibold text-center">Exp.</span>
                   </div>
                   {/* Rows — one per project type */}
                   {PROJECT_TYPE_LIST.map(type => {
                     const tpl = settings.projectTypeTemplates?.[type] || DEFAULT_PROJECT_TYPE_TEMPLATES[type] || {}
+                    const typeName = type.replace(/_/g, ' ')
                     return (
-                      <div key={type} className="flex items-center px-3 py-1.5 hover:bg-stone-800/40 transition-colors"
-                        style={{ borderBottom: '1px solid #292524' }}>
-                        <span className="flex-1 text-dense capitalize" style={{ color: '#d6d3d1' }}>
-                          {type.replace(/_/g, ' ')}
+                      <div key={type} className="flex items-center px-3 py-1.5 rb-tl-type-row">
+                        <span className="flex-1 text-dense capitalize rb-tl-type-name">
+                          {typeName}
                         </span>
-                        {['scenes_enabled', 'levels_enabled', 'experiences_enabled'].map(field => (
+                        {TYPE_FIELDS.map(({ field, name }) => (
                           <span key={field} className="w-16 flex justify-center">
                             <button
                               type="button"
+                              role="checkbox"
+                              aria-checked={tpl[field] ? 'true' : 'false'}
+                              aria-label={`${name}: ${typeName}`}
+                              disabled={toolsLocked}
                               onClick={() => {
                                 const templates = { ...(settings.projectTypeTemplates || DEFAULT_PROJECT_TYPE_TEMPLATES) }
                                 templates[type] = { ...(templates[type] || {}), [field]: !tpl[field] }
                                 patchSettings({ projectTypeTemplates: templates })
                               }}
-                              className="w-4 h-4 rounded-control flex items-center justify-center transition-colors rb-tl-type-check"
+                              className="w-4 h-4 rounded-control flex items-center justify-center rb-tl-type-check"
                               data-checked={tpl[field] ? 'true' : 'false'}
                             >
-                              {tpl[field] && <Check className="w-2.5 h-2.5 text-white" />}
+                              {tpl[field] && <Check className="w-2.5 h-2.5" aria-hidden="true" />}
                             </button>
                           </span>
                         ))}
@@ -5492,69 +5502,73 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     )
                   })}
                 </div>
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={toolsLocked}
                   onClick={() => patchSettings({ projectTypeTemplates: { ...DEFAULT_PROJECT_TYPE_TEMPLATES } })}
-                  className="text-dense text-orange-400 hover:text-orange-300 transition-colors mt-2"
+                  className="mt-2"
                 >
                   Reset to defaults
-                </button>
-              </div>
+                </Button>
+              </section>
 
               {/* ── Holidays / blocked days ── */}
               <HolidaysEditor
                 holidays={holidays}
                 onChange={onHolidaysChange}
+                locked={toolsLocked}
               />
             </div>
           )}
 
           {settingsTab === 'prompts' && (
-            <div className="rb-tl-prompts" data-locked={promptsLocked ? 'true' : 'false'}>
+            <div>
               {promptSections.map(s => (
-                <div key={s.key} className="border-b border-stone-700 overflow-hidden">
+                <div key={s.key} className="overflow-hidden rb-tl-prompt">
                   <button
+                    type="button"
                     onClick={() => setOpenSection(openSection === s.key ? null : s.key)}
-                    className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors"
+                    aria-expanded={openSection === s.key}
+                    className="flex items-center justify-between gap-2 w-full px-3 py-2 rb-tl-prompt-head"
                   >
-                    <div className="text-left">
+                    <div className="text-left min-w-0">
                       <span className="text-label font-semibold uppercase rb-tl-prompt-title" data-locked={promptsLocked ? 'true' : 'false'}>
                         {s.title}
                       </span>
-                      <p className="text-dense text-stone-500">{s.desc}</p>
+                      <p className="text-dense rb-tl-prompt-desc">{s.desc}</p>
                     </div>
                     <ChevronRight
-                      className="w-4 h-4 text-stone-500 transition-transform flex-shrink-0 rb-tl-prompt-chevron"
+                      className="w-4 h-4 flex-shrink-0 rb-tl-prompt-chevron"
+                      aria-hidden="true"
                       data-open={openSection === s.key ? 'true' : 'false'}
                     />
                   </button>
                   {openSection === s.key && (
                     <div className="px-3 pb-3 pt-2">
-                      <textarea
+                      <TextArea
                         value={editingPrompts[s.key] || ''}
-                        onChange={(e) =>
-                          setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))
+                        onChange={(value) =>
+                          setEditingPrompts(prev => ({ ...prev, [s.key]: value }))
                         }
                         disabled={promptsLocked}
-                        className="w-full h-48 px-3 py-2 bg-stone-950 border border-stone-600 rounded-control text-orange-400 text-dense focus:border-orange-500 resize-none rb-tl-prompt-text"
+                        aria-label={`${s.title} prompt`}
+                        className="w-full h-48 resize-none"
                       />
                       <div className="flex gap-3 mt-1">
-                        <button
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={promptsLocked}
                           onClick={() =>
                             setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))
                           }
-                          disabled={promptsLocked}
-                          className="text-dense rb-tl-prompt-act"
                         >
                           Reset to default
-                        </button>
-                        <button
-                          onClick={savePrompts}
-                          disabled={promptsLocked}
-                          className="text-dense rb-tl-prompt-act"
-                        >
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={promptsLocked} onClick={savePrompts}>
                           Save
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -5563,32 +5577,15 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
             </div>
           )}
         </div>
+      </Drawer>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-stone-600 flex-shrink-0 flex items-center justify-between gap-3">
-          <p className="text-dense text-stone-500 flex-1">
-            Changes are applied immediately. Use &quot;Reset to default&quot; to restore
-            original settings.
-          </p>
-          {onOpenHelp && (
-            <button
-              type="button"
-              onClick={onOpenHelp}
-              title="Open RABBIT help & documentation"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-control text-dense font-semibold transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-              Help
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Task Template Manager popup ── */}
+      {/* ── Task Template Manager popup: B2's kit Dialog, a SIBLING of the
+          drawer — the kit Dialog does not portal, and inside the drawer it
+          would share the drawer's stacking context (60) under its own 70 ── */}
       {showTemplateManager && (
         <TaskTemplateManager onClose={() => setShowTemplateManager(false)} />
       )}
-    </div>
+    </>
   )
 }
 

@@ -165,7 +165,7 @@ const REGISTRY = [
   // R.A.B.B.I.T. — the nine tabs with the project open, then what opens off them.
   ...['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins'].map((t) =>
     P(`rabbit-${t.toLowerCase()}`, '/rabbit', { steps: ['@proj', t], expect: { active: t } })),
-  P('rabbit-settings', '/rabbit', { steps: ['RABBIT settings'], expect: { text: 'Holidays / Blocked Days' } }),
+  P('rabbit-settings', '/rabbit', { steps: ['RABBIT settings'], expect: { text: 'Holidays / blocked days' } }),
   P('rabbit-help', '/rabbit', { steps: ['Help & documentation'], expect: { text: 'Key Features' } }),
   P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel'], expect: { text: 'Budget variables' } }),
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
@@ -329,9 +329,6 @@ const KNOWN = {
     { key: 'rabbit-scene-detail', text: 'lucide-x', n: 1 },
     { key: 'rabbit-scenes', text: 'lucide-arrow-up-down', n: 1 },
     { key: 'rabbit-scenes', text: 'lucide-chevron-right', n: 6 },
-    { key: 'rabbit-settings', text: 'lucide-check', n: 11 },
-    { key: 'rabbit-settings', text: 'lucide-x', n: 1 },
-    { key: 'rabbit-settings', text: 'no-icon', n: 27 },
     { key: 'shell-quit', text: 'no-icon', n: 3 },
   ],
 };

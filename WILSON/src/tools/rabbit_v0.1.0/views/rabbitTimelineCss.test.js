@@ -496,3 +496,50 @@ describe('W9: no native confirm is left, and each question asks on the kit Dialo
     expect(nativeConfirms("dialog.confirm('x'); const confirmed = 1")).toBe(0)
   })
 })
+
+/* ── 11. SettingsPanel on the kit (B3d) ───────────────────────────────────── */
+/** TimelineView's raw source from one marker to the next. */
+const between = (src, from, to) => {
+  const i = src.indexOf(from)
+  const j = i < 0 ? -1 : src.indexOf(to, i + from.length)
+  if (i < 0 || j < 0) throw new Error(`no slice from "${from}" to "${to}"`)
+  return src.slice(i, j)
+}
+const PANEL = between(source.timeline, 'export function SettingsPanel(', 'export function HelpModal(')
+const PANEL_CODE = normal(jsCode(PANEL))
+const HOLIDAYS = between(source.timeline, 'function HolidaysEditor(', 'const SETTINGS_PANEL_ID')
+const SETTINGS_TAB = between(PANEL, "settingsTab === 'settings' &&", "settingsTab === 'prompts' &&")
+/** The controls of a slice — the kit's, and the project-type checkbox — that
+    do not carry the lock as `disabled`. */
+const CONTROL_TAGS = new Set(['Switch', 'Button', 'IconButton', 'Input', 'TextArea'])
+const unlocked = (src, lock) => elementsOf(src)
+  .filter((e) => CONTROL_TAGS.has(e.tag) || (e.tag === 'button' && /\srole="checkbox"/.test(e.attrs)))
+  .filter((e) => !new RegExp(`\\sdisabled=\\{${lock}\\}`).test(e.attrs))
+  .map((e) => e.attrs.slice(0, 60))
+
+describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lock disables, the manager sits beside', () => {
+  it('it is the kit Drawer with its backdrop, and nothing in it measures the title bar or paints a scrim of its own (TL-24)', () => {
+    expect(PANEL_CODE).toMatch(/<Drawer\s+open\s+onClose=\{onClose\}\s+backdrop\s/)
+    expect(PANEL_CODE).not.toMatch(/electronAPI|paddingTop|inset-0|slideInRight/)
+    // …and the Drawer reads the one token: 0 in a browser, 32px under Electron.
+    expect(cssCode(indexCss)).toMatch(/\.ui-drawer\s*\{[^}]*top:\s*var\(--titlebar-offset\)/)
+  })
+  it('TaskTemplateManager renders BESIDE the drawer, never inside it: the kit Dialog does not portal (B3c trap 4)', () => {
+    expect(PANEL_CODE.indexOf('</Drawer>')).toBeGreaterThan(-1)
+    expect(PANEL_CODE.indexOf('<TaskTemplateManager')).toBeGreaterThan(PANEL_CODE.indexOf('</Drawer>'))
+  })
+  it('every control on the Settings tab carries its lock as `disabled`, and no section draws a lock as an opacity', () => {
+    // The tab was opacity 60% with pointer-events off: 80 lines under 4.5:1
+    // in the walk, and a keyboard still reached (and changed) every control.
+    expect(unlocked(SETTINGS_TAB, 'toolsLocked')).toEqual([])
+    expect(unlocked(HOLIDAYS, 'locked')).toEqual([])
+    expect(normal(jsCode(SETTINGS_TAB))).toMatch(/<HolidaysEditor[^>]*\slocked=\{toolsLocked\}/)
+    expect(cssCode(sectionsOf(sheet).find((s) => /SettingsPanel/.test(s.banner)).body)).not.toMatch(/opacity/)
+  })
+  it('CONTROL: a control without its lock is named, a plain button is not a control here, and a missing marker throws', () => {
+    expect(unlocked('const A = () => <div><Button onClick={go}>Add</Button><Switch disabled={locked} /></div>', 'locked')).toHaveLength(1)
+    expect(unlocked('const A = () => <button type="button" role="checkbox" onClick={go} />', 'locked')).toHaveLength(1)
+    expect(unlocked('const A = () => <button type="button" onClick={go} />', 'locked')).toEqual([])
+    expect(() => between('abc', 'x', 'c')).toThrow()
+  })
+})
