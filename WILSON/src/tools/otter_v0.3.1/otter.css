@@ -2278,6 +2278,87 @@
   }
   .otter-cr-spacer { flex: 1 1 auto; }
 
+  /* ═══ SHARE OR SUBMIT (ShareCourseDialog.jsx) — the kit's Dialog ══════
+     Review O27, O26: 520 on its own backdrop with a hard offset shadow, an
+     orange H3 title in a stone-700 bar, three stone-900 boxes with orange
+     titles, a second radio card of its own (O26: drawn twice), and no
+     footer. Now the kit's Dialog at the form width (560), the three
+     sections kit Cards on paper-raised, the tiers A3's `.otter-radio-card`
+     (the kit's one selected treatment, the Chip's: the signal tint and a
+     1px signal edge) stacked as they were, the editors on hairlined rows,
+     the add row the kit's Select and Button. */
+  .otter-share-body { display: flex; flex-direction: column; gap: 16px; }
+  .otter-share-text {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-share-lead { margin-bottom: 8px; }
+  .otter-share-fixed { display: flex; align-items: center; gap: 8px; }
+  .otter-share-shield { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  .otter-share-nominate .ui-card-title { display: flex; align-items: center; gap: 6px; }
+  .otter-share-tiers { display: flex; flex-direction: column; gap: 6px; }
+  /* Stacked, not side by side: the radio card at the width of the card. */
+  .otter-radio-card.otter-share-tier { flex: none; width: 100%; padding: 8px; }
+  .otter-radio-card.otter-share-tier:disabled { cursor: not-allowed; }
+  .otter-share-tier-head { display: flex; align-items: center; gap: 8px; }
+  .otter-share-tier-label {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+  }
+  .otter-share-tier-busy { margin-left: auto; }
+  .otter-share-tier .otter-radio-desc { display: block; margin-top: 2px; }
+  .otter-share-tiers .otter-form-hint { margin-top: 2px; }
+  .otter-share-want { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--color-rule); }
+  .otter-share-want-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .otter-share-editors { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .otter-share-editor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--control-sm);
+    padding: 0 4px 0 8px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-share-editor-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-share-editor-off { color: var(--color-ink-3); }
+  .otter-share-add { display: flex; align-items: center; gap: 8px; }
+  .ui-input.otter-share-pick { flex: 1 1 auto; width: auto; }
+  .otter-share-tidy { display: flex; align-items: center; gap: 8px; }
+  .otter-share-tidy .otter-share-text { flex: 1 1 auto; color: var(--color-ink-2); }
+  .ui-input.otter-share-pitch { height: 80px; resize: none; }
+  .otter-share-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .ui-banner.otter-share-done { margin-top: 8px; }
+  /* The confirmation that drops the standard tier, as the footer: its
+     sentence on a line of its own above the two buttons. */
+  .otter-share-drop {
+    flex: 1 1 100%;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }

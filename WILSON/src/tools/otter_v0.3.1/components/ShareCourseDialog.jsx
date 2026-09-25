@@ -32,10 +32,11 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  X, Loader2, Check, AlertCircle, Trash2, UserPlus, ShieldCheck,
+  Check, Trash2, UserPlus, ShieldCheck,
   Send, Undo2, MessageSquareWarning,
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
+import { Dialog, Card, Button, IconButton, Select, Banner, Loading, Spinner } from '../../../ui'
 import { useWorkspaceMembers } from '../../../components/TeamMembers/useWorkspaceMembers'
 import {
   VISIBILITY_META, selectableVisibilities, canManageEditors,
@@ -313,368 +314,283 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
     m => m.is_active && m.user_id !== course?.owner_id && !granted.has(m.user_id),
   )
 
+  // A4: the kit's Dialog at the form width (review O27: 520 on its own
+  // backdrop, a hard offset shadow, an orange title, three bordered boxes and
+  // no footer). The three sections are kit Cards; the tiers are A3's radio
+  // card, stacked as they were; the confirmation that drops the standard tier
+  // is the footer, where it sat; a failure is the Dialog's footer error.
+  // Q17: Escape and the modal stack; the busy lock while a change is saving.
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
-      <div
-        className="bg-stone-800 border border-stone-600 rounded-control w-[520px] max-h-[80vh] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* header */}
-        <div className="bg-stone-700 px-4 py-2.5 flex items-center justify-between border-b border-stone-600 shrink-0">
-          <div className="min-w-0">
-            {/* Matches the menu item that opens it ("Share or submit…") — a
-                user who clicked looking for "submit" must land somewhere that
-                still uses the word. */}
-            <h3 className="text-orange-400 font-semibold text-h3 truncate">Share or submit</h3>
-            <p className="text-stone-400 text-dense truncate">{course?.name}</p>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded-control shrink-0" aria-label="Close">
-            <X className="w-4 h-4 text-stone-400" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* ── who can see this ── */}
-          <section className="bg-stone-900 border border-stone-700 rounded-control p-3">
-            <h4 className="text-h3 font-semibold text-orange-400 mb-2">
-              Who can see this
-            </h4>
-
-            {tiers.length === 0 ? (
-              <div className="flex items-center gap-2">
-                <VisibilityBadge visibility={current} showPersonal />
-                <p className="text-stone-500 text-dense">
-                  {current === 'company_standard'
-                    ? 'Only an admin can change a company standard course.'
-                    : 'Only the owner or an admin can change this.'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {tiers.map(tier => {
-                  const meta = VISIBILITY_META[tier]
-                  const active = current === tier
-                  const isStandard = tier === 'company_standard'
-                  return (
-                    <button
-                      key={tier}
-                      type="button"
-                      disabled={busy === 'visibility'}
-                      onClick={() => chooseVisibility(tier)}
-                      className={`w-full text-left p-2 rounded-control border transition-colors disabled:opacity-60 ${
-                        active
-                          ? 'bg-orange-600/15 border-orange-500'
-                          : 'bg-stone-950 border-stone-700 hover:border-stone-500'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={`text-dense font-semibold ${active ? 'text-white' : 'text-stone-300'}`}>
-                          {active ? '●' : '○'} {meta.label}
-                        </span>
-                        {isStandard && <ShieldCheck className="w-3 h-3 text-orange-400" />}
-                        {active && busy === 'visibility' && (
-                          <Loader2 className="w-3 h-3 animate-spin text-orange-400 ml-auto" />
-                        )}
-                      </div>
-                      <p className="text-stone-500 text-dense mt-0.5">{meta.blurb}</p>
-                    </button>
-                  )
-                })}
-                {role === 'admin' ? (
-                  <p className="text-stone-600 text-dense pt-1">
-                    Company standard is admin-only, and there can be just one per topic.
-                  </p>
-                ) : (
-                  // PHASE 5 — THIS IS THE ANSWER TO AUDREY'S QUESTION.
-                  //
-                  // The sentence above was gated on `role === 'admin'`, so the
-                  // only explanation of the third tier was shown exclusively to
-                  // the people for whom it was not missing. A non-admin owner
-                  // saw a two-option list with no hint that a company-standard
-                  // tier existed, let alone how to reach it.
-                  //
-                  // Since 0064 the answer is no longer "go and ask someone".
-                  // Anyone may put their own course forward, and an admin or a
-                  // manager decides — so this points at the control that does
-                  // it rather than describing a conversation to go and have.
-                  <div className="pt-2 mt-1 border-t border-stone-800">
-                    <p className="text-stone-300 text-dense font-semibold flex items-center gap-1.5">
-                      <ShieldCheck className="w-3 h-3 text-orange-400 shrink-0" />
-                      Want this to be the company standard?
-                    </p>
-                    <p className="text-stone-500 text-dense mt-0.5 leading-relaxed">
-                      Only an admin or a manager can set that tier — but you can put this
-                      course forward for it, at the bottom of this dialog.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
-          {/* ── who can edit it ── */}
-          <section className="bg-stone-900 border border-stone-700 rounded-control p-3">
-            <h4 className="text-h3 font-semibold text-orange-400 mb-1">
-              Who can edit it
-            </h4>
-            <p className="text-stone-500 text-dense mb-2">
-              The owner and workspace admins can always edit. Anyone you add here can too —
-              but they cannot add anyone else.
-            </p>
-
-            {loading ? (
-              <p className="text-stone-500 text-dense flex items-center gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+    <Dialog
+      title="Share or submit"
+      subtitle={course?.name}
+      width="form"
+      busy={!!busy || nomBusy}
+      error={error}
+      dismissOnBackdrop
+      onClose={onClose}
+      className="otter-share"
+      footer={confirmDrop ? (
+        <>
+          {/* leaving company standard — the one genuinely consequential move */}
+          <p className="otter-share-drop">
+            Remove this as the company standard? People will stop being offered it instead of
+            generating their own course. Existing copies are not affected.
+          </p>
+          <Button onClick={() => setConfirmDrop(null)}>Keep it</Button>
+          <Button variant="primary" onClick={() => setVisibility(confirmDrop)}>Remove standard</Button>
+        </>
+      ) : null}
+    >
+      <div className="otter-share-body">
+        {/* ── who can see this ── */}
+        <Card title="Who can see this" className="otter-share-card">
+          {tiers.length === 0 ? (
+            <div className="otter-share-fixed">
+              <VisibilityBadge visibility={current} showPersonal />
+              <p className="otter-share-text">
+                {current === 'company_standard'
+                  ? 'Only an admin can change a company standard course.'
+                  : 'Only the owner or an admin can change this.'}
               </p>
-            ) : (
-              <>
-                {editors.length === 0 ? (
-                  <p className="text-stone-600 text-dense italic mb-2">No one else has edit access.</p>
-                ) : (
-                  <ul className="space-y-1 mb-2">
-                    {editors.map(ed => (
-                      <li
-                        key={ed.user_id}
-                        className="flex items-center gap-2 bg-stone-950 border border-stone-700 rounded-control px-2 py-1"
-                      >
-                        <span className="text-stone-300 text-dense truncate flex-1">
-                          {ed.label}
-                          {!ed.is_active && <span className="text-stone-600 ml-1">(deactivated)</span>}
-                        </span>
-                        {(mayEdit || ed.user_id === userId) && (
-                          <button
-                            type="button"
-                            onClick={() => removeEditor(ed.user_id)}
-                            disabled={!!busy}
-                            title={ed.user_id === userId ? 'Give back your edit access' : 'Remove edit access'}
-                            className="p-0.5 text-stone-600 hover:text-red-400 transition-colors disabled:opacity-50"
-                          >
-                            {busy === `editor:${ed.user_id}`
-                              ? <Loader2 className="w-3 h-3 animate-spin" />
-                              : <Trash2 className="w-3 h-3" />}
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+            </div>
+          ) : (
+            <div className="otter-share-tiers">
+              {tiers.map(tier => {
+                const meta = VISIBILITY_META[tier]
+                const active = current === tier
+                const isStandard = tier === 'company_standard'
+                return (
+                  <button
+                    key={tier}
+                    type="button"
+                    disabled={busy === 'visibility'}
+                    onClick={() => chooseVisibility(tier)}
+                    className="otter-radio-card otter-share-tier"
+                    data-selected={active}
+                  >
+                    <span className="otter-share-tier-head">
+                      <span className="otter-share-tier-label">{active ? '●' : '○'} {meta.label}</span>
+                      {isStandard && <ShieldCheck className="otter-share-shield" aria-hidden="true" />}
+                      {active && busy === 'visibility' && <Spinner size="sm" className="otter-share-tier-busy" />}
+                    </span>
+                    <span className="otter-radio-desc">{meta.blurb}</span>
+                  </button>
+                )
+              })}
+              {role === 'admin' ? (
+                <p className="otter-form-hint">
+                  Company standard is admin-only, and there can be just one per topic.
+                </p>
+              ) : (
+                // PHASE 5 — THIS IS THE ANSWER TO AUDREY'S QUESTION.
+                //
+                // The sentence above was gated on `role === 'admin'`, so the
+                // only explanation of the third tier was shown exclusively to
+                // the people for whom it was not missing. A non-admin owner
+                // saw a two-option list with no hint that a company-standard
+                // tier existed, let alone how to reach it.
+                //
+                // Since 0064 the answer is no longer "go and ask someone".
+                // Anyone may put their own course forward, and an admin or a
+                // manager decides — so this points at the control that does
+                // it rather than describing a conversation to go and have.
+                <div className="otter-share-want">
+                  <p className="otter-share-want-title">
+                    <ShieldCheck className="otter-share-shield" aria-hidden="true" />
+                    Want this to be the company standard?
+                  </p>
+                  <p className="otter-share-text">
+                    Only an admin or a manager can set that tier — but you can put this
+                    course forward for it, at the bottom of this dialog.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
 
-                {mayEdit ? (
-                  <div className="flex gap-2">
-                    <select
-                      value={pick}
-                      onChange={e => setPick(e.target.value)}
-                      disabled={!!busy || candidates.length === 0}
-                      className="flex-1 bg-stone-950 text-white border border-stone-600 rounded-control px-2 py-1 text-dense focus:border-orange-500 disabled:opacity-50"
-                    >
-                      <option value="">
-                        {candidates.length === 0 ? 'Everyone already has access' : 'Choose someone…'}
-                      </option>
-                      {candidates.map(m => (
-                        <option key={m.user_id} value={m.user_id}>
-                          {m.display_name || m.username}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={addEditor}
-                      disabled={!pick || !!busy}
-                      className="px-2.5 py-1 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 transition-colors text-dense font-semibold flex items-center gap-1 disabled:opacity-50"
-                    >
-                      {busy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
-                      Add
-                    </button>
+        {/* ── who can edit it ── */}
+        <Card title="Who can edit it" className="otter-share-card">
+          <p className="otter-share-text otter-share-lead">
+            The owner and workspace admins can always edit. Anyone you add here can too —
+            but they cannot add anyone else.
+          </p>
+
+          {loading ? (
+            <Loading label="Loading…" />
+          ) : (
+            <>
+              {editors.length === 0 ? (
+                <p className="otter-share-text otter-share-lead">No one else has edit access.</p>
+              ) : (
+                <ul className="otter-share-editors">
+                  {editors.map(ed => (
+                    <li key={ed.user_id} className="otter-share-editor">
+                      <span className="otter-share-editor-name">
+                        {ed.label}
+                        {!ed.is_active && <span className="otter-share-editor-off"> (deactivated)</span>}
+                      </span>
+                      {(mayEdit || ed.user_id === userId) && (
+                        <IconButton
+                          size="sm"
+                          danger
+                          icon={busy === `editor:${ed.user_id}` ? Spinner : Trash2}
+                          onClick={() => removeEditor(ed.user_id)}
+                          disabled={!!busy}
+                          title={ed.user_id === userId ? 'Give back your edit access' : 'Remove edit access'}
+                        />
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {mayEdit ? (
+                <div className="otter-share-add">
+                  <Select
+                    value={pick}
+                    onChange={(v) => setPick(v ?? '')}
+                    disabled={!!busy || candidates.length === 0}
+                    placeholder={candidates.length === 0 ? 'Everyone already has access' : 'Choose someone…'}
+                    options={candidates.map(m => ({ value: m.user_id, label: m.display_name || m.username }))}
+                    aria-label="Someone to give edit access"
+                    size="sm"
+                    className="otter-share-pick"
+                  />
+                  <Button size="sm" icon={UserPlus} onClick={addEditor} disabled={!pick} loading={busy === 'add'}>
+                    Add
+                  </Button>
+                </div>
+              ) : (
+                <p className="otter-share-text">
+                  Only this course&apos;s owner can give someone edit access to a personal course.
+                </p>
+              )}
+            </>
+          )}
+        </Card>
+
+        {/* ── put it forward as the company standard (0064) ──
+            THE ANSWER TO "how does a user submit a course to be part of the
+            company wide otter tool?". Shown for any course the caller owns
+            that is not already the standard — including an admin's, who could
+            set the tier directly above but may still want it reviewed.
+            Submitting opens this course to admins and managers, read-only,
+            until the nomination is decided; that consent is the whole reason
+            the window exists, so it is stated on the control itself. */}
+        {/* `|| nom`: an admin owner can put their own course forward and then
+            set the tier directly from the picker above. Gating solely on
+            `current !== 'company_standard'` unmounted the panel at that
+            moment — taking the Withdraw button with it — and left an open
+            nomination in every approver's queue, pointing at a course that
+            already IS the standard, with no reachable control to clear it. */}
+        {(current !== 'company_standard' || !!nom) && course?.is_own !== false && (
+          <Card
+            title={<><ShieldCheck className="otter-share-shield" aria-hidden="true" /> Put it forward as the company standard</>}
+            className="otter-share-card otter-share-nominate"
+          >
+            {nomLoading ? (
+              <Loading label="Loading…" />
+            ) : nom ? (
+              <>
+                {nom.status === 'changes_requested' ? (
+                  <div className="otter-req-feedback">
+                    <p className="otter-req-feedback-label">
+                      <MessageSquareWarning aria-hidden="true" />
+                      {nom.reviewer_label ?? 'A reviewer'} asked for changes
+                      {(nom.revision ?? 1) > 1 ? ` (round ${nom.revision})` : ''}
+                    </p>
+                    <p className="otter-req-feedback-text">“{nom.review_note}”</p>
+                    <p className="otter-cr-hint">
+                      Improve the course, update the note below, and resubmit — or accept
+                      the decision to close it.
+                    </p>
                   </div>
                 ) : (
-                  <p className="text-stone-600 text-dense italic">
-                    Only this course&apos;s owner can give someone edit access to a personal course.
+                  <p className="otter-share-text otter-share-lead">
+                    Put forward and waiting on a reviewer
+                    {(nom.revision ?? 1) > 1 ? ` · round ${nom.revision}` : ''}. You can edit
+                    the note below, or withdraw it.
                   </p>
                 )}
               </>
+            ) : (
+              <p className="otter-share-text otter-share-lead">
+                Anyone can put a course forward. An admin or a manager decides. While it is
+                under review they can open this course read-only, even if it is just for
+                you — that access ends when the nomination is decided.
+              </p>
             )}
-          </section>
 
-          {/* ── put it forward as the company standard (0064) ──
-              THE ANSWER TO "how does a user submit a course to be part of the
-              company wide otter tool?". Shown for any course the caller owns
-              that is not already the standard — including an admin's, who could
-              set the tier directly above but may still want it reviewed.
-              Submitting opens this course to admins and managers, read-only,
-              until the nomination is decided; that consent is the whole reason
-              the window exists, so it is stated on the control itself. */}
-          {/* `|| nom`: an admin owner can put their own course forward and then
-              set the tier directly from the picker above. Gating solely on
-              `current !== 'company_standard'` unmounted the panel at that
-              moment — taking the Withdraw button with it — and left an open
-              nomination in every approver's queue, pointing at a course that
-              already IS the standard, with no reachable control to clear it. */}
-          {(current !== 'company_standard' || !!nom) && course?.is_own !== false && (
-            <section className="bg-stone-900 border border-stone-700 rounded-control p-3">
-              <h4 className="text-h3 font-semibold text-orange-400 mb-1 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Put it forward as the company standard
-              </h4>
-
-              {nomLoading ? (
-                <p className="text-stone-500 text-dense flex items-center gap-1.5">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+            {/* Already the standard, but a nomination is still open: nothing
+                left to submit, everything left to tidy up. */}
+            {!nomLoading && current === 'company_standard' && nom && (
+              <div className="otter-share-tidy">
+                <p className="otter-share-text">
+                  This course is already the company standard, so there is nothing left to
+                  put forward — but your nomination is still open in the review queue.
                 </p>
-              ) : nom ? (
-                <>
-                  {nom.status === 'changes_requested' ? (
-                    <div className="bg-stone-950 border border-orange-700/60 rounded-control p-2.5 mb-2">
-                      <p className="text-orange-400 text-label font-semibold uppercase mb-1 flex items-center gap-1.5">
-                        <MessageSquareWarning className="w-3.5 h-3.5" />
-                        {nom.reviewer_label ?? 'A reviewer'} asked for changes
-                        {(nom.revision ?? 1) > 1 ? ` (round ${nom.revision})` : ''}
-                      </p>
-                      <p className="text-stone-200 text-dense whitespace-pre-wrap mb-1">
-                        “{nom.review_note}”
-                      </p>
-                      <p className="text-stone-500 text-dense">
-                        Improve the course, update the note below, and resubmit — or accept
-                        the decision to close it.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-stone-500 text-dense mb-2">
-                      Put forward and waiting on a reviewer
-                      {(nom.revision ?? 1) > 1 ? ` · round ${nom.revision}` : ''}. You can edit
-                      the note below, or withdraw it.
-                    </p>
+                <Button size="sm" icon={Undo2} onClick={() => settleNomination('withdrawn', 'Withdrawn.')} loading={nomBusy}>
+                  Withdraw
+                </Button>
+              </div>
+            )}
+
+            {!nomLoading && current !== 'company_standard' && (
+              <>
+                <textarea
+                  value={pitch}
+                  onChange={e => setPitch(e.target.value)}
+                  disabled={nomBusy}
+                  placeholder="Why should this be the company's official course on this topic?"
+                  aria-label="Why this should be the company standard"
+                  className="ui-input otter-share-pitch"
+                  data-surface="dark"
+                />
+                <div className="otter-cr-meta">
+                  <span>This is what the reviewer reads first.</span>
+                  <span className="otter-cr-count" data-over={pitch.length > 4000}>{pitch.length} / 4000</span>
+                </div>
+
+                <div className="otter-share-actions">
+                  {nom && nom.status === 'changes_requested' && (
+                    <Button size="sm" icon={Check} onClick={() => settleNomination('rejected', 'Closed. You can put it forward again later.')} disabled={nomBusy}>
+                      Accept the decision
+                    </Button>
                   )}
-                </>
-              ) : (
-                <p className="text-stone-500 text-dense mb-2 leading-relaxed">
-                  Anyone can put a course forward. An admin or a manager decides. While it is
-                  under review they can open this course read-only, even if it is just for
-                  you — that access ends when the nomination is decided.
-                </p>
-              )}
-
-              {/* Already the standard, but a nomination is still open: nothing
-                  left to submit, everything left to tidy up. */}
-              {!nomLoading && current === 'company_standard' && nom && (
-                <div className="flex items-center gap-2">
-                  <p className="text-stone-400 text-dense flex-1">
-                    This course is already the company standard, so there is nothing left to
-                    put forward — but your nomination is still open in the review queue.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
-                    disabled={nomBusy}
-                    className="shrink-0 px-2.5 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                  {nom && nom.status === 'open' && (
+                    <Button size="sm" icon={Undo2} onClick={() => settleNomination('withdrawn', 'Withdrawn.')} disabled={nomBusy}>
+                      Withdraw
+                    </Button>
+                  )}
+                  <span className="otter-cr-spacer" aria-hidden="true" />
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={Send}
+                    onClick={nom ? resubmitNomination : submitNomination}
+                    disabled={!pitch.trim() || pitch.length > 4000}
+                    loading={nomBusy}
                   >
-                    {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Undo2 className="w-3 h-3" />}
-                    Withdraw
-                  </button>
+                    {nom
+                      ? (nom.status === 'changes_requested' ? 'Resubmit' : 'Save note')
+                      : 'Put it forward'}
+                  </Button>
                 </div>
-              )}
+              </>
+            )}
 
-              {!nomLoading && current !== 'company_standard' && (
-                <>
-                  <textarea
-                    value={pitch}
-                    onChange={e => setPitch(e.target.value)}
-                    disabled={nomBusy}
-                    placeholder="Why should this be the company's official course on this topic?"
-                    className="w-full h-20 bg-stone-950 text-white border border-stone-600 rounded-control p-2 text-dense resize-none focus:border-orange-500 placeholder-stone-600 disabled:opacity-60"
-                  />
-                  <div className="flex justify-between items-center mt-1 mb-2">
-                    <span className="text-stone-600 text-caption">
-                      This is what the reviewer reads first.
-                    </span>
-                    <span className={`text-dense ${pitch.length > 4000 ? 'text-red-400' : 'text-stone-600'}`}>
-                      {pitch.length} / 4000
-                    </span>
-                  </div>
+            {nomDone && !error && (
+              <Banner tone="success" icon={Check} className="otter-cr-done otter-share-done">{nomDone}</Banner>
+            )}
+          </Card>
+        )}
 
-                  <div className="flex gap-2">
-                    {nom && nom.status === 'changes_requested' && (
-                      <button
-                        type="button"
-                        onClick={() => settleNomination('rejected', 'Closed. You can put it forward again later.')}
-                        disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        <Check className="w-3 h-3" /> Accept the decision
-                      </button>
-                    )}
-                    {nom && nom.status === 'open' && (
-                      <button
-                        type="button"
-                        onClick={() => settleNomination('withdrawn', 'Withdrawn.')}
-                        disabled={nomBusy}
-                        className="px-2.5 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-control hover:bg-stone-600 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        <Undo2 className="w-3 h-3" /> Withdraw
-                      </button>
-                    )}
-                    <div className="flex-1" />
-                    <button
-                      type="button"
-                      onClick={nom ? resubmitNomination : submitNomination}
-                      disabled={nomBusy || !pitch.trim() || pitch.length > 4000}
-                      className="px-3 py-1.5 bg-orange-600 text-white border border-orange-700 rounded-control hover:bg-orange-700 text-dense font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                      {nom
-                        ? (nom.status === 'changes_requested' ? 'Resubmit' : 'Save note')
-                        : 'Put it forward'}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {nomDone && !error && (
-                <div className="mt-2 bg-green-900/25 border border-green-800 rounded-control p-2 flex items-center gap-2">
-                  <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                  <p className="text-green-300 text-dense">{nomDone}</p>
-                </div>
-              )}
-            </section>
-          )}
-
-          {error && (
-            <div className="bg-red-900/30 border border-red-700 rounded-control p-2.5 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-              <p className="text-red-300 text-dense">{error}</p>
-            </div>
-          )}
-          {notice && !error && (
-            <div className="bg-green-900/25 border border-green-800 rounded-control p-2.5 flex items-center gap-2">
-              <Check className="w-4 h-4 text-green-400 shrink-0" />
-              <p className="text-green-300 text-dense">{notice}</p>
-            </div>
-          )}
-        </div>
-
-        {/* leaving company standard — the one genuinely consequential move */}
-        {confirmDrop && (
-          <div className="border-t border-stone-600 bg-stone-900 p-3 shrink-0">
-            <p className="text-stone-300 text-dense mb-2">
-              Remove this as the company standard? People will stop being offered it instead of
-              generating their own course. Existing copies are not affected.
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmDrop(null)}
-                className="flex-1 bg-stone-700 text-stone-300 border border-stone-600 py-1.5 rounded-control hover:bg-stone-600 text-dense font-semibold"
-              >
-                Keep it
-              </button>
-              <button
-                onClick={() => setVisibility(confirmDrop)}
-                className="flex-1 bg-orange-600 text-white border border-orange-700 py-1.5 rounded-control hover:bg-orange-700 text-dense font-semibold"
-              >
-                Remove standard
-              </button>
-            </div>
-          </div>
+        {notice && !error && (
+          <Banner tone="success" icon={Check} className="otter-cr-done">{notice}</Banner>
         )}
       </div>
-    </div>
+    </Dialog>
   )
 }

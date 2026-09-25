@@ -231,6 +231,11 @@ const KNOWN = {
     { key: 'otter-new-course', text: '○ Share with the com' },
     { key: 'otter-new-course', text: '● Just for me' },
     { key: 'otter-new-course', text: '● New course' },
+    // A4: the share dialog's tier cards draw the prompt form's ●/○ — the same
+    // glyphs, the same open question (A3 §6 question 11), walked from A4 on.
+    { key: 'otter-share', text: '○Just for me' },
+    { key: 'otter-share', text: '○Share with the company' },
+    { key: 'otter-share', text: '●Company standard' },
   ],
   weight: [],
   upper: [],
