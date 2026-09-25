@@ -1232,7 +1232,11 @@ select option {
   }
   .ui-dialog-title { font-size: var(--text-h2); line-height: 1.3; font-weight: 600; color: var(--color-ink); }
   .ui-dialog-subtitle { margin-top: 2px; font-size: var(--text-dense); line-height: 1.45; color: var(--color-ink-2); }
-  .ui-dialog-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 24px; font-size: var(--text-body); line-height: 1.5; }
+  /* scroll-padding (A4-KR-9): Tab scrolls the next control until it touches
+     the body's edge, and the ring drawn outside it (3px) fell past the edge —
+     0px of its bottom showed on Share's "Choose someone…" at 1280x700 (A4
+     review round 2, measured). 4px keeps the whole ring in view. */
+  .ui-dialog-body { flex: 1; min-height: 0; overflow-y: auto; scroll-padding-block: 4px; padding: 16px 24px; font-size: var(--text-body); line-height: 1.5; }
   .ui-dialog-foot {
     display: flex;
     align-items: center;
