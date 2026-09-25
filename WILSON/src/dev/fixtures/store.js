@@ -16,7 +16,11 @@ import {
   PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, TASK_LINKS,
   COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
-import { SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES } from './data/scenes'
+import {
+  SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES,
+  GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS,
+} from './data/scenes'
+import { fid } from './ids'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
@@ -40,6 +44,32 @@ export function newId() {
 
 export function now() {
   return new Date().toISOString()
+}
+
+/**
+ * The `?fixtures=game` variant (B4): Salt Hours with levels and experiences
+ * switched on, four levels, three experiences and five assets linked to them.
+ * Applied to a store AFTER `createStore()`, only when the page asked for it,
+ * so the default dataset is untouched. Returns the store.
+ */
+export function applyGameVariant(store) {
+  const project = store.projects[0]
+  project.levels_enabled = true
+  project.experiences_enabled = true
+  store.levels = clone(GAME_LEVELS)
+  store.experiences = clone(GAME_EXPERIENCES)
+  for (const [n, levels, experiences] of GAME_LINKS) {
+    const asset = store.assets.find(a => a.id === fid('asset', n))
+    if (!asset) throw new Error(`[fixtures] game variant: no asset ${n}`)
+    asset.level_ids = levels.map(l => fid('level', l))
+    asset.experience_ids = experiences.map(x => fid('experience', x))
+  }
+  return store
+}
+
+/** `game` when the page was loaded with `?fixtures=game`, else null. */
+export function fixtureVariant(search = typeof location === 'undefined' ? '' : location.search) {
+  return new URLSearchParams(search).get('fixtures') === 'game' ? 'game' : null
 }
 
 export function createStore() {

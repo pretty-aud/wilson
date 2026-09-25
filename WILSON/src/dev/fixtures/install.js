@@ -10,15 +10,18 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById } from './store'
+import { createStore, clone, now, findById, applyGameVariant, fixtureVariant } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
 import { PROJECT } from './data/project'
 import { BUILTIN } from '../../lib/aiModels'
 
-export function buildDevFixtures() {
+// `variant: 'game'` (the page loaded with `?fixtures=game`) switches Salt
+// Hours' levels and experiences on — B4's walk screens for those two views.
+export function buildDevFixtures({ variant = null } = {}) {
   const store = createStore()
+  if (variant === 'game') applyGameVariant(store)
   const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID }
   let rabbitAdapter = null
 
@@ -83,4 +86,4 @@ export function buildDevFixtures() {
   }
 }
 
-installDevFixtures(buildDevFixtures())
+installDevFixtures(buildDevFixtures({ variant: fixtureVariant() }))

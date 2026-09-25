@@ -183,6 +183,34 @@ const REGISTRY = [
     P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { styled: t } })),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
   P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details'], expect: { dialog: true } }),
+  // B4 (2026-09-25): the rest of the files and assets surface, each proven
+  // open by something only it renders. `@in:<text>::<label>` clicks the
+  // <label> control NEAREST <text> — the Storyboards row's own details
+  // button (asset 4 holds the fixture's video), the file manager's own
+  // Gallery toggle rather than the Assets toolbar's behind its dialog.
+  // The gallery card is the one place that prints "N task(s)".
+  P('rabbit-assets-gallery', '/rabbit', { steps: ['@proj', 'Assets', 'Gallery'], expect: { text: ' task' } }),
+  P('rabbit-asset-warning', '/rabbit', { steps: ['@proj', 'Assets', 'Tasks not yet done'], expect: { text: 'still in flight' } }),
+  P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details', 'Link Scenes'], expect: { text: ' linked)' } }),
+  P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"], [style*="minmax(140px"]' } }),
+  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', 'Play Animatic_v2.mp4'], expect: { selector: 'video' } }),
+  // The drawer's title is set in capitals by CSS, so its innerText is not
+  // "File activity"; any dialog proves it (the Control Panel is not one).
+  P('rabbit-files-audit', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel', 'File activity'], expect: { dialog: true } }),
+  // Levels and Experiences exist only with the project flags on: the
+  // fixtures' `?fixtures=game` variant switches them on for Salt Hours
+  // (src/dev/fixtures/store.js, applyGameVariant) and leaves every other
+  // screen's dataset byte-identical. `query` is loaded, not routed.
+  ...[['levels', 'Levels', 'Harbour Approach'], ['experiences', 'Experiences', 'First Light']].flatMap(([k, tab, first]) => {
+    const G = { query: '?fixtures=game' };
+    return [
+      P(`rabbit-${k}`, '/rabbit', { ...G, steps: ['@proj', tab], expect: { active: tab } }),
+      P(`rabbit-${k}-gallery`, '/rabbit', { ...G, steps: ['@proj', tab, 'Gallery'], expect: { selector: '[data-entity-view="gallery"], [title$=" cards"]' } }),
+      P(`rabbit-${k.slice(0, -1)}-detail`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details'], expect: { dialog: first } }),
+      P(`rabbit-${k.slice(0, -1)}-assets`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add asset relation'], expect: { selector: 'input[placeholder="Search assets…"]' } }),
+      P(`rabbit-${k.slice(0, -1)}-task`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add new task'], expect: { selector: 'input[placeholder="Task title…"]' } }),
+    ];
+  }),
   // "Lighthouse, dawn" is on the Scenes table before the dialog opens.
   P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: 'Lighthouse, dawn' } }),
 
@@ -429,6 +457,27 @@ async function stepOnce(page, s, lastTry) {
     const r = [...document.querySelectorAll('tbody tr, [role="row"]')].find((r) => r.offsetParent !== null && (r.textContent || '').includes(t));
     if (!r) return false; (r.querySelector('td') || r).click(); return true;
   }, s.slice(5));
+  /* B4: `@in:<text>::<label>` — of every visible control the plain matcher
+     would accept for <label>, the one whose closest ancestor containing
+     <text> is the fewest levels up. */
+  if (s.startsWith('@in:')) return page.evaluate(([text, label]) => {
+    const vis = (e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0;
+    const inShell = (e) => !!e.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
+    const norm = (x) => (x || '').replace(/\s+/g, ' ').trim();
+    const named = (e) => [e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean);
+    const ok = (e) => norm(e.textContent) === label || named(e).some((n) => n === label || n.startsWith(label));
+    const cands = [...document.querySelectorAll('button, [role="button"], [role="tab"], a')].filter((e) => vis(e) && !inShell(e) && ok(e));
+    let best = null; let bestDepth = Infinity;
+    for (const c of cands) {
+      let depth = 0;
+      for (let a = c.parentElement; a && depth < 14; a = a.parentElement, depth++) {
+        if ((a.textContent || '').includes(text)) { if (depth < bestDepth) { best = c; bestDepth = depth; } break; }
+      }
+    }
+    if (!best) return false;
+    best.click();
+    return true;
+  }, s.slice(4).split('::'));
   if (s === '@lesson') {
     // ui-shots.mjs's driveToLesson, by the same two titles.
     const wide = (text) => page.evaluate((text) => {
@@ -492,7 +541,9 @@ async function visit(ctx, entry) {
   });
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + String(e).slice(0, 110)));
 
-  await page.goto(BASE + entry.path, { waitUntil: 'domcontentloaded' });
+  // `query` (B4): a dev-fixtures switch read once at load (`?fixtures=game`).
+  // It is not part of the route the screen must land on.
+  await page.goto(BASE + entry.path + (entry.query || ''), { waitUntil: 'domcontentloaded' });
   await sleep(5000);
   let drove = true;
   let preexisting = false;

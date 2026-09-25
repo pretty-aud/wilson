@@ -193,3 +193,53 @@ export const SHOT_TAKES = TAKE_ROWS.map(([n, shot, file, role, position]) => ({
 
 export const LEVELS = []
 export const EXPERIENCES = []
+
+// ── The `?fixtures=game` variant (B4, 2026-09-25) ──────────────────────────
+// Salt Hours has `levels_enabled` and `experiences_enabled` off, so the
+// Levels and Experiences views — and their detail popups, relations panel and
+// asset picker — could not be opened on the fixtures at all. These rows are
+// applied ONLY when the page loads with `?fixtures=game` (store.js,
+// `applyGameVariant`), so the default dataset every other screen measures is
+// byte-identical. Same shape as a scene row.
+
+const GAME_ROW = (kind, [n, name, status, s, e, tint, description], i) => ({
+  id: fid(kind, n),
+  project_id: PROJECT_ID,
+  workspace_id: WORKSPACE_ID,
+  name,
+  description,
+  notes: '',
+  status,
+  thumbnail_image: placeholder({ label: name, sub: kind, tint }),
+  start_date: day(s),
+  end_date: day(e),
+  sort_order: i,
+  created_at: stamp(20, 11, i),
+  created_by: MEMBER_ID.theo,
+  updated_at: stamp(38, 11, i),
+  updated_by: MEMBER_ID.theo,
+})
+
+export const GAME_LEVELS = [
+  // [n, name, status, startDay, endDay, tint, description]
+  [1, 'Harbour Approach', 'approved',       21, 40, 'sea',   'Opening traversal along the breakwater; teaches the lamp.'],
+  [2, 'Lamp Room',        'in_progress',    30, 55, 'ember', 'The lighthouse top: a puzzle room around the lens.'],
+  [3, 'Cliff Path',       'not_started',    40, 70, 'moss',  'Night climb with the storm lantern.'],
+  [4, 'Café at Dusk',     'pending_review', 35, 60, 'sand',  'Hub level: conversations and the compass.'],
+].map((r, i) => GAME_ROW('level', r, i))
+
+export const GAME_EXPERIENCES = [
+  [1, 'First Light', 'in_progress',     21, 50, 'slate', 'Onboarding: the player learns to aim the lamp.'],
+  [2, 'The Storm',   'needs_revisions', 45, 75, 'sea',   'Set piece across the Lamp Room and the Cliff Path.'],
+  [3, 'Homecoming',  'not_started',     60, 90, 'plum',  'The ending, back at the harbour.'],
+].map((r, i) => GAME_ROW('experience', r, i))
+
+/** Asset number → the levels and experiences it belongs to, in the variant. */
+export const GAME_LINKS = [
+  // [asset n, level ns, experience ns]
+  [4,  [1, 2], [1]],
+  [7,  [2],    [1, 2]],
+  [8,  [3],    [2]],
+  [10, [4],    [3]],
+  [11, [2, 3], [2]],
+]

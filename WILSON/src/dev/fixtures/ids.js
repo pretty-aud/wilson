@@ -22,6 +22,8 @@ const KINDS = {
   expense: '0018', override: '0019', note: '001a', noteSubject: '001b',
   milestone: '001c', template: '001d', history: '001e', fileEvent: '001f',
   course: '0020', subject: '0021', quiz: '0022', run: '0023',
+  // B4 (2026-09-25): the `?fixtures=game` variant's levels and experiences.
+  level: '0024', experience: '0025',
 }
 
 export function fid(kind, n) {
