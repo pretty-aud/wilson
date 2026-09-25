@@ -29,9 +29,15 @@
 //                       for 30 days, and now the user can see that.
 // =============================================================================
 
-import { Loader2, RotateCcw, Trash2, BookOpen, AlertCircle } from 'lucide-react'
+import { RotateCcw, Trash2, BookOpen, AlertCircle } from 'lucide-react'
 import { daysUntilPurge } from './otterSharing.js'
 import { VisibilityBadge } from './CourseBadges.jsx'
+import { Button, IconButton, SectionTitle, EmptyState, Banner, Loading, Spinner } from '../../../ui'
+
+// A4: both halves onto the kit and the tokens (review O27's sibling: this
+// panel was stone-800 cards with a hard shadow, orange titles and Restore
+// on an orange-600 fill; the sidebar list stone text and an orange hover).
+// The trash keeps its dashed edge — a deleted thing is not a live card.
 
 function Countdown({ purgesAt }) {
   const days = daysUntilPurge(purgesAt)
@@ -39,7 +45,8 @@ function Countdown({ purgesAt }) {
   const urgent = days <= 7
   return (
     <span
-      className={`text-dense font-mono ${urgent ? 'text-red-400' : 'text-stone-500'}`}
+      className="otter-trash-countdown"
+      data-urgent={urgent}
       title={`Deleted for good on ${new Date(purgesAt).toLocaleDateString()}`}
     >
       {days === 0 ? 'deletes today' : `${days}d left`}
@@ -61,25 +68,18 @@ function Countdown({ purgesAt }) {
 export function TrashSidebarList({ rows, loading, busyId, error, onDismissError, onRestore }) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center gap-1.5 py-6 text-stone-500 text-caption">
-        <Loader2 className="w-3 h-3 animate-spin" /> Loading…
-      </div>
+      <div className="otter-trash-side-loading"><Loading label="Loading…" /></div>
     )
   }
   // An error means we do not KNOW the trash is empty. Saying "Nothing deleted"
   // here would be the exact lie this feature exists to prevent.
   const banner = error ? (
-    <div className="m-2 bg-red-900/30 border border-red-700 rounded-control p-2">
-      <p className="text-red-300 text-dense leading-snug">{error}</p>
+    <Banner tone="danger" className="otter-trash-side-error">
+      <span className="otter-trash-side-error-text">{error}</span>
       {onDismissError && (
-        <button
-          onClick={onDismissError}
-          className="mt-1 text-red-400 hover:text-red-200 text-dense font-semibold underline"
-        >
-          Dismiss
-        </button>
+        <Button variant="ghost" size="sm" onClick={onDismissError} className="otter-trash-dismiss">Dismiss</Button>
       )}
-    </div>
+    </Banner>
   ) : null
 
   if (rows.length === 0) {
@@ -87,11 +87,7 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
       <div>
         {banner}
         {!error && (
-          <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
-            <Trash2 className="w-7 h-7 text-stone-600 mb-2" />
-            <p className="text-stone-500 text-dense">Nothing deleted</p>
-            <p className="text-stone-600 text-dense mt-1">Deleted courses stay here for 30 days.</p>
-          </div>
+          <EmptyState compact icon={Trash2} title="Nothing deleted" body="Deleted courses stay here for 30 days." className="otter-trash-side-empty" />
         )}
       </div>
     )
@@ -100,28 +96,21 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
     <div>
       {banner}
       {rows.map(r => (
-        <div
-          key={`${r.kind}:${r.id}`}
-          className="flex items-center gap-1 px-2 py-1.5 border-b border-stone-700/40"
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-stone-400 text-dense truncate" title={r.name}>{r.name}</p>
-            <div className="flex items-center gap-1.5">
-              {r.kind === 'subject' && <span className="text-stone-600 text-caption">subject</span>}
+        <div key={`${r.kind}:${r.id}`} className="otter-trash-row">
+          <div className="otter-trash-row-text">
+            <p className="otter-trash-row-name" title={r.name}>{r.name}</p>
+            <div className="otter-trash-row-meta">
+              {r.kind === 'subject' && <span>subject</span>}
               <Countdown purgesAt={r.purges_at} />
             </div>
           </div>
-          <button
-            type="button"
+          <IconButton
+            size="sm"
+            icon={busyId === r.id ? Spinner : RotateCcw}
             onClick={() => onRestore(r)}
             disabled={!!busyId}
             title="Restore"
-            className="p-1 text-stone-500 hover:text-orange-400 transition-colors disabled:opacity-40 shrink-0"
-          >
-            {busyId === r.id
-              ? <Loader2 className="w-3 h-3 animate-spin" />
-              : <RotateCcw className="w-3 h-3" />}
-          </button>
+          />
         </div>
       ))}
     </div>
@@ -131,84 +120,77 @@ export function TrashSidebarList({ rows, loading, busyId, error, onDismissError,
 /** The fuller cards for the Library pane, reusing its existing grid shape. */
 export default function TrashPanel({ rows, loading, busyId, error, onRestore, onDismissError }) {
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-h1 font-semibold text-orange-400">Recently deleted</h2>
-            <p className="text-stone-500 text-body">
-              Deleted courses and subjects stay here for 30 days, then they are gone for good.
-            </p>
-          </div>
-        </div>
+    <div className="otter-view">
+      <div className="otter-view-page" data-width="data">
+        <SectionTitle
+          rule={false}
+          className="otter-view-title"
+          description="Deleted courses and subjects stay here for 30 days, then they are gone for good."
+        >
+          Recently deleted
+        </SectionTitle>
 
         {error && (
-          <div className="mb-4 bg-red-900/30 border border-red-700 rounded-control p-3 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-red-300 text-body flex-1">{error}</p>
-            <button onClick={onDismissError} className="text-red-400 hover:text-red-200 text-dense font-semibold">
-              Dismiss
-            </button>
-          </div>
+          <Banner
+            tone="danger"
+            icon={AlertCircle}
+            className="otter-trash-error"
+            action={<Button variant="ghost" size="sm" onClick={onDismissError}>Dismiss</Button>}
+          >
+            {error}
+          </Banner>
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-20 text-stone-500">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading…
-          </div>
+          <div className="otter-trash-loading"><Loading label="Loading…" /></div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <Trash2 className="w-16 h-16 text-stone-600 mb-4" />
-            <h3 className="text-h1 font-semibold text-orange-400 mb-2">Nothing deleted</h3>
-            <p className="text-stone-500 max-w-md">
-              When you delete a course it waits here for 30 days, so you can always change your mind.
-            </p>
-          </div>
+          <EmptyState
+            icon={Trash2}
+            title="Nothing deleted"
+            body="When you delete a course it waits here for 30 days, so you can always change your mind."
+          />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="otter-card-grid">
             {rows.map(r => (
-              <div
-                key={`${r.kind}:${r.id}`}
-                className="bg-stone-800 border border-dashed border-stone-600 rounded-control p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] flex flex-col"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="text-stone-300 font-semibold text-h2 leading-tight line-clamp-2">{r.name}</h3>
+              <div key={`${r.kind}:${r.id}`} className="otter-trash-card">
+                <div className="otter-trash-card-head">
+                  <h3 className="otter-trash-card-title">{r.name}</h3>
                   <Countdown purgesAt={r.purges_at} />
                 </div>
 
-                <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                <div className="otter-course-card-badges">
                   {r.kind === 'subject' ? (
-                    <span className="inline-flex items-center gap-1 text-caption text-stone-500">
-                      <BookOpen className="w-2.5 h-2.5" /> subject in {r.course_name}
+                    <span className="otter-trash-card-kind">
+                      <BookOpen aria-hidden="true" /> subject in {r.course_name}
                     </span>
                   ) : (
                     <>
                       <VisibilityBadge visibility={r.visibility} showPersonal />
-                      <span className="text-caption text-stone-500">
+                      <span className="otter-course-card-meta">
                         {r.subject_count} subject{r.subject_count === 1 ? '' : 's'}
                       </span>
                     </>
                   )}
                 </div>
 
-                <p className="text-stone-600 text-dense">
+                <p className="otter-trash-card-owner">
                   {r.is_own ? 'Yours' : `Owned by ${r.owner_label ?? 'someone else'}`}
                   {r.deleted_by_label ? ` · deleted by ${r.deleted_by_label}` : ''}
                   {r.deleted_at ? ` · ${new Date(r.deleted_at).toLocaleDateString()}` : ''}
                 </p>
 
-                <div className="flex-1" />
-                <button
-                  type="button"
+                <div className="otter-trash-card-spacer" />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={RotateCcw}
                   onClick={() => onRestore(r)}
-                  disabled={!!busyId}
-                  className="mt-3 w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-control border border-orange-700 hover:bg-orange-700 transition-colors text-body font-semibold disabled:opacity-50"
+                  disabled={!!busyId && busyId !== r.id}
+                  loading={busyId === r.id}
+                  className="otter-trash-restore"
                 >
-                  {busyId === r.id
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <RotateCcw className="w-4 h-4" />}
                   Restore
-                </button>
+                </Button>
               </div>
             ))}
           </div>

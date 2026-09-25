@@ -32,7 +32,7 @@ const JSX_FILES = ['./Otter.jsx', './components/CourseBadges.jsx', './components
   './components/CourseRowMenu.jsx', './components/SidebarCollapse.jsx',
   // A4's surfaces
   './Validator.jsx', './components/RequestsView.jsx', './components/ChangeRequestDialog.jsx',
-  './components/ShareCourseDialog.jsx']
+  './components/ShareCourseDialog.jsx', './components/TrashPanel.jsx']
   .map((f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8'))
 
 /** A colour written as a value rather than read from a token: hex (also

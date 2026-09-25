@@ -2359,6 +2359,101 @@
     color: var(--color-ink-2);
   }
 
+  /* ═══ RECENTLY DELETED (TrashPanel.jsx) — the pane and the sidebar ═════
+     The pane: A3's view scaffold (the data width; max-w-6xl before) under
+     the view title, its cards on the library's own grid (.otter-card-grid)
+     and surface, kept dashed — a deleted thing is not a live card — the
+     title at H3 (A3's library cards; H2 orange-free stone-300 before),
+     Restore the primary sm Button (an orange-600 fill with white 14px text,
+     a C6 row). The sidebar: rows on hairlines like A3's, the name in the
+     second ink, Restore a named IconButton (stone-500 with an orange hover).
+     The countdown's one state, the last week, is the danger token. */
+  .otter-trash-countdown {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .otter-trash-countdown[data-urgent='true'] { color: var(--color-danger); }
+  .ui-banner.otter-trash-error {
+    margin-bottom: 16px;
+    align-items: flex-start;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-trash-loading { display: flex; justify-content: center; padding: 48px 0; color: var(--color-ink-2); }
+  .otter-trash-card {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-trash-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .otter-trash-card-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .otter-trash-card-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-trash-card-kind > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .otter-trash-card-owner {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .otter-trash-card-spacer { flex: 1 1 auto; }
+  .ui-btn.otter-trash-restore { width: 100%; margin-top: 12px; }
+
+  .otter-trash-side-loading { display: flex; justify-content: center; padding: 24px 0; color: var(--color-ink-2); }
+  .ui-banner.otter-trash-side-error {
+    margin: 8px;
+    align-items: flex-start;
+    padding: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .otter-trash-side-error-text { display: block; }
+  .ui-btn.otter-trash-dismiss { margin: 4px 0 0 -10px; }
+  .otter-trash-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 4px 6px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .otter-trash-row-text { flex: 1 1 auto; min-width: 0; }
+  .otter-trash-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-trash-row-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
   /* ═══ A4: REDUCED MOTION — every transition in the second half ═══════ */
   @media (prefers-reduced-motion: reduce) {
     .otter-help-nav { transition: none; }
