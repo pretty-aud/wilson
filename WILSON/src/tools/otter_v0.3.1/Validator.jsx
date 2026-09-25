@@ -807,28 +807,33 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           </Button>
         </Toolbar>
 
-        {/* Validation Queue */}
+        {/* Validation Queue. Its head sits above the list, not in it: the
+            list scrolls and holds nothing focusable, so the browser makes it
+            a Tab stop, and a sticky head inside it covered the top of its
+            focus ring (A4 review round 2). */}
         {validationQueue.length > 0 && (
-          <div className="otter-val-queue wilson-dark-scroll">
+          <div className="otter-val-queue-box">
             <div className="otter-val-section-head">
               Queue {queuedCount > 0 && `(${queuedCount} remaining)`}
             </div>
-            {validationQueue.map(item => (
-              <div key={item.id} className="otter-val-queue-row" data-status={item.status}>
-                <div className="otter-val-queue-line">
-                  {item.status === 'queued' && <StatusDot tone="neutral" label="Queued" />}
-                  {item.status === 'in-progress' && <Loader2 className="otter-val-status-icon animate-spin" role="img" aria-label="Validating" />}
-                  {item.status === 'completed' && <Check className="otter-val-status-icon" role="img" aria-label="Done" />}
-                  {item.status === 'failed' && <AlertCircle className="otter-val-status-icon" role="img" aria-label="Failed" />}
-                  <span className="otter-val-queue-title">{item.lessonTitle}</span>
+            <div className="otter-val-queue wilson-dark-scroll">
+              {validationQueue.map(item => (
+                <div key={item.id} className="otter-val-queue-row" data-status={item.status}>
+                  <div className="otter-val-queue-line">
+                    {item.status === 'queued' && <StatusDot tone="neutral" label="Queued" />}
+                    {item.status === 'in-progress' && <Loader2 className="otter-val-status-icon animate-spin" role="img" aria-label="Validating" />}
+                    {item.status === 'completed' && <Check className="otter-val-status-icon" role="img" aria-label="Done" />}
+                    {item.status === 'failed' && <AlertCircle className="otter-val-status-icon" role="img" aria-label="Failed" />}
+                    <span className="otter-val-queue-title">{item.lessonTitle}</span>
+                  </div>
+                  {/* S30: the reason, on the row that failed. It used to go to
+                      the console only, so a red dot was the whole explanation. */}
+                  {item.status === 'failed' && item.error && (
+                    <div className="otter-val-queue-error">{item.error}</div>
+                  )}
                 </div>
-                {/* S30: the reason, on the row that failed. It used to go to
-                    the console only, so a red dot was the whole explanation. */}
-                {item.status === 'failed' && item.error && (
-                  <div className="otter-val-queue-error">{item.error}</div>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 

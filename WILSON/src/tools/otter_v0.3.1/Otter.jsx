@@ -3023,7 +3023,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               { divider: true },
               // The menu item is gone before Import closes, so Import would
               // hand focus to <body>: it takes it from Edit instead (A4 review).
-              { label: 'Import subjects', Icon: Upload, onClick: () => { editButtonRef.current?.focus(); setShowImportModal(true); } },
+              { label: 'Import subjects', Icon: Upload, onClick: () => { editButtonRef.current?.focus({ preventScroll: true }); setShowImportModal(true); } },
               { label: 'Export all', Icon: Download, onClick: exportAll },
             ]}
           />
@@ -3288,9 +3288,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               value={searchQuery}
               onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
               onKeyDown={e => {
-                // Escape is the Dialog's (it marks the key handled, so the
-                // layer under Search stays open); the field only moves the
-                // selection and opens a result.
+                // Escape closes Search here AND is marked handled, so the
+                // Dialog under the same key and any layer under Search (the
+                // settings Drawer, another Dialog) stand down: one press, one
+                // layer. Left to the Dialog alone, the first press was lost
+                // whenever Home's page-wide key handler (P1's) had already
+                // blocked it (A4 review round 2).
+                if (e.key === 'Escape') { e.preventDefault(); setShowSearchModal(false); return; }
                 if (e.key === 'ArrowDown' && searchResults.length > 0) {
                   e.preventDefault();
                   setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
