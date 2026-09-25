@@ -556,14 +556,14 @@ const fires = (re, s) => new RegExp(re.source, re.flags.replace('g', '')).test(s
 describe('the sweep can see the app', () => {
   it('reads the whole converted scope', () => {
     expect(sourceFiles().length).toBeGreaterThan(200);
-    // A floor on what the sweep SEES, not on what the app keeps: every lane's
-    // restyle moves scale-step utilities into its own sheet, so the number
-    // falls by design (2170 raw before A4; 1688 swept at A4's end, 1280 of
-    // them R.A.B.B.I.T.'s, D.O.G. 3, O.T.T.E.R. 0). It only notices a sweep
-    // gone blind, and sits well under the count so lane B's restyles do not
-    // trip it; the two checks below are the real sight guard (A4 review
-    // round 1). Was 2000, then 1000 (A4).
-    expect(sweep(SCALE_STEP).length).toBeGreaterThan(400);
+    // No floor on how many scale-step utilities the sweep finds: every lane's
+    // restyle moves them into its own sheet, so the count falls by design
+    // (2170 raw before A4; 1688 at A4's end, 1280 of them R.A.B.B.I.T.'s,
+    // 176 src/data, 136 admin, 64 components, 25 agent, 4 cloud, 3 D.O.G.,
+    // 0 O.T.T.E.R.). The floor A4 set (400) would have failed lane B for
+    // moving R.A.B.B.I.T.'s and the agent panel's (A4 review round 2: 383),
+    // and it saw nothing the two checks below do not: every area's files,
+    // and how much of each file the sweep can read.
   });
 
   /* A4 review round 1: a count of utilities falls as lanes restyle, so it

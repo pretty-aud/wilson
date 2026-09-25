@@ -509,8 +509,14 @@ async function visit(ctx, entry) {
   /* One more try at the LAST step, then the proof again — only when every
      step up to it drove and the retry's own click lands. The gate caught
      `rabbit-intake` measuring Summary: the Intake click landed while Summary
-     was still settling and was swallowed. A second failure is still a miss. */
-  if (!isOpen && drove && !preexisting && entry.steps.length && !(await page.evaluate(openDialog))) {
+     was still settling and was swallowed. A second failure is still a miss.
+     Not over an open dialog — but the kit Drawer is not one: the settings
+     drawer HOSTS the last step of otter-help and otter-clear, and its
+     backdrop made openDialog() report it, so neither could be retried (A4
+     review round 2). */
+  const drawerOnly = await page.evaluate(() => !!document.querySelector('.ui-drawer')
+    && ![...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].some((e) => e.getClientRects().length > 0));
+  if (!isOpen && drove && !preexisting && entry.steps.length && (drawerOnly || !(await page.evaluate(openDialog)))) {
     await sleep(2500);
     const again = await step(page, entry.steps[last]);
     await sleep(3500);
