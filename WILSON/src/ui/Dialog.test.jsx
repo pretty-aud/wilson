@@ -132,6 +132,29 @@ describe('Dialog', () => {
     expect(screen.getByRole('dialog', { name: 'Titled' })).toBeTruthy()
   })
 
+  it("a node title with no aria-label names nothing (not \"[object Object]\"); no title keeps the caller's name (A4 review round 1)", () => {
+    // Two wrong fixes of A4-KR-1 the first test let through: stringifying the
+    // node, and dropping the caller's label when there is no title at all.
+    render(<Dialog title={<b>x</b>} onClose={() => {}}>x</Dialog>)
+    expect(screen.getByRole('dialog').getAttribute('aria-label')).toBeNull()
+    cleanup()
+    render(<Dialog aria-label="Named" onClose={() => {}}>x</Dialog>)
+    expect(screen.getByRole('dialog', { name: 'Named' })).toBeTruthy()
+  })
+
+  it('a backdrop press keeps focus where the close hands it back — its default action is prevented (A4-KR-7)', () => {
+    // The browser's mousedown default moves focus to <body> after the
+    // Dialog's cleanup restored it to the opener. The press on the backdrop
+    // is prevented; a press inside the dialog is not.
+    const onClose = vi.fn()
+    render(<Dialog title="Backdrop" dismissOnBackdrop onClose={onClose}><input aria-label="Field" /></Dialog>)
+    const inside = screen.getByLabelText('Field')
+    expect(fireEvent.mouseDown(inside)).toBe(true)
+    const backdrop = document.querySelector('.ui-dialog-backdrop')
+    expect(fireEvent.mouseDown(backdrop)).toBe(false)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('accepts a legacy numeric width for Bins, and reports an unknown named one', () => {
     render(<Dialog title="Legacy" width={640} onClose={() => {}}>x</Dialog>)
     expect(screen.getByRole('dialog', { name: 'Legacy' }).style.width).toBe('640px')
