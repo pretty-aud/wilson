@@ -154,7 +154,9 @@ export default function ProjectFilesTable({
             <Th width="var(--rb-files-kind)">Kind</Th>
             <Th width="var(--rb-files-type)">Type</Th>
             <Th width="var(--rb-files-size)" numeric>Size</Th>
-            <Th>Description</Th>
+            {/* Undefined (so `auto`, sharing with Name) until a narrow frame
+                sets it: see rabbitFiles.css. */}
+            <Th width="var(--rb-files-desc)">Description</Th>
             <Th width="var(--rb-files-date)">Created</Th>
             {onAudit && <Th width="var(--rb-files-icon)"><span className="sr-only">File activity</span></Th>}
             {onDelete && <Th width="var(--rb-files-icon)"><span className="sr-only">Delete</span></Th>}

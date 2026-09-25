@@ -67,13 +67,18 @@
     --rb-files-size: 96px;
     --rb-files-date: 120px;
     --rb-files-icon: 40px;
-    --rb-files-flex-min: 105px;
+    --rb-files-desc-min: 105px;
+    --rb-files-name-min: 105px;
     container-type: inline-size;
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
     overflow: hidden;
     background-color: var(--color-paper);
   }
+  /* In a narrow frame the NAME keeps the room — it is the row's anchor
+     (R4-03): Description holds exactly its header ("DESCRIPTION" 81 + 16)
+     and Name takes the rest, never under 125. At 97 each the Control Panel
+     showed seven characters of a file name. */
   @container (max-width: 739px) {
     .rb-files-frame .rb-files-table {
       --rb-files-core: 52px;
@@ -81,7 +86,9 @@
       --rb-files-type: 80px;
       --rb-files-size: 88px;
       --rb-files-date: 112px;
-      --rb-files-flex-min: 97px;
+      --rb-files-desc: 97px;
+      --rb-files-desc-min: 97px;
+      --rb-files-name-min: 125px;
     }
     /* (0,4,0): one class over the kit's dense `.ui-td` rule (0,3,0). */
     .rb-files-frame .ui-table.rb-files-table .ui-th,
@@ -92,7 +99,7 @@
   .rb-files-frame .ui-table.rb-files-table {
     min-width: calc(var(--rb-files-core) + var(--rb-files-kind) + var(--rb-files-type)
       + var(--rb-files-size) + var(--rb-files-date) + var(--rb-files-audit, 0px)
-      + var(--rb-files-delete, 0px) + 2 * var(--rb-files-flex-min));
+      + var(--rb-files-delete, 0px) + var(--rb-files-desc-min) + var(--rb-files-name-min));
   }
   /* A caller-given height (220 / 280 / 300 / 380) turns the table into a
      scroller with the kit's sticky head; `scroll-padding` keeps a focused
