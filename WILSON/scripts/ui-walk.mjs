@@ -305,10 +305,12 @@ const KNOWN = {
   ],
   /* V1-09 — buttons nested inside buttons, counted in the DOM per screen
      (React warns once per tag pair per page load, so its warning cannot
-     count them). The larger count of the two window sizes. */
+     count them). The larger count of the two window sizes.
+     B4b surface 4 (2026-09-25): both screens' two were RelationsPanel's —
+     each group head held its own buttons inside its toggle. They are
+     siblings now (nest=0 at 1440x900 and 1280x700), and the two lines are
+     deleted. */
   nested: [
-    { key: 'rabbit-asset-detail', n: 2 },
-    { key: 'rabbit-scene-detail', n: 2 },
   ],
   errors: [
     /* Environment, not UI. The dev tester has NO session (App.jsx: "sign-in
@@ -320,12 +322,10 @@ const KNOWN = {
     { key: 'admin-storage', text: 'status of 401' },
     { key: 'admin-requests', text: 'status of 401' },
     { key: 'shell-quit', text: 'status of 404' },
-    /* V1-09 — a <button> nested inside a <button>. React's warning, with its
-       %s placeholders filled from the console arguments so the ELEMENTS are
-       part of what is excused, not just the kind of warning. B4 and B5. */
-    { key: 'rabbit-asset-detail', text: 'In HTML, <button> cannot be a descendant of <button>' },
-    { key: 'rabbit-asset-detail', text: '<button> cannot contain a nested <button>' },
-    { key: 'rabbit-scene-detail', text: 'In HTML, <button> cannot be a descendant of <button>' },
+    /* V1-09 — a <button> nested inside a <button>: React's warning. B4b
+       surface 4 (2026-09-25) took the nesting out of RelationsPanel, and
+       the three lines for rabbit-asset-detail and rabbit-scene-detail went
+       with it (err=0 on both, at both sizes). */
   ],
   /* V1-05 — icon-only controls with no text, aria-label, title or
      labelledby (§3.3). Keyed on the EXACT icon class (`lucide-x` no longer

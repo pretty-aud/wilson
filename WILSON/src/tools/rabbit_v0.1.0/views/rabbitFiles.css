@@ -956,8 +956,9 @@
   /* A long name ellipsizes instead of pushing the close button out. */
   .rb-asset-detail .ui-dialog-head > div:first-child { min-width: 0; }
   .rb-asset-detail-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
-  /* The relations column: RelationsPanel's sidebar draws its own 320px and
-     scrolls itself; this only holds it (and is the layer guard's first root). */
+  /* The relations column: RelationsPanel's sidebar is the kit Panel at its
+     own width (`lg`, 300px) and scrolls itself; this only holds it (and is
+     the layer guard's first root). */
   .rb-asset-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
   .rb-asset-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; }
 
@@ -1053,26 +1054,8 @@
     padding: 3px 5px;
     line-height: var(--text-dense--line-height);
   }
-  /* The four relation fields: quiet buttons, one control tall, their words
-     ("N scene(s)") in the ink and none an em dash in the third ink. */
-  .rb-asset-relation {
-    align-self: stretch;
-    height: var(--control-sm);
-    margin-inline: -6px;
-    padding: 0 6px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: left;
-    font-size: var(--text-dense);
-    color: var(--color-ink);
-    background-color: transparent;
-    border: 0;
-    border-radius: var(--radius-control);
-    transition: background-color var(--duration-state) ease-out;
-  }
-  .rb-asset-relation:hover { background-color: var(--color-hover); }
-  .rb-asset-relation[data-empty="true"] { color: var(--color-ink-3); }
+  /* The four relation fields are RelationsPanel's RelationBadge (R4-27):
+     its rules are that file's section, below. */
 
   /* Tasks and Files: a Label-step heading (as FileManager's "Files (N)"),
      a hairline above the files. */
@@ -1116,4 +1099,348 @@
      B3d-KR-2), at the words' height and place, so nothing jumps when it
      opens. (0,3,0) over the kit's small well (0,2,0). */
   .ui-input.rb-asset-inline-input[data-size="sm"] { height: auto; padding: 1px 3px; line-height: var(--text-dense--line-height); }
+
+  /* ═══ RelationsPanel ═══════════════════════════════════════════════════════
+     The relations sidebar and what it opens (B4b, surface 4). RelationsPanel
+     (the Level, Experience and Scene popups' left column) and
+     AssetRelationsSidebar (the asset popup's) are ONE kit Panel, `lg`: 300px
+     where they were 360 and 320 (R4-23), the kit's hairline on the docked
+     edge. The groups lost their boxes, which were chrome: each is a head row
+     — its collapse toggle, then its own buttons, as SIBLINGS (R4-24: the
+     buttons sat inside the toggle) — over rows at the dense 32px. A row's
+     status stays where it was: the kit's StatusDot at its start and, where
+     it printed a word, the kit's words at its end (R4-25's size fix, not its
+     pill). Measured in the browser (B4b, 2026-09-25) in the 300px column:
+     the words are 26px ("Final") to 87 ("Needs revisions") at Caption, so a
+     row's name keeps 128 to 189px beside them and the 28px remove control,
+     a task's 164 to 225, a scene's 150 and a shot's 70 to 131 — where the
+     kit StatusBadge (63 to 137px) left a shot's name 36 to 110 and cut
+     "The boat". Every name carries its whole text in its title. */
+  /* The column paints the paper, as it did: its hosts differ (the asset
+     popup is the kit Dialog's raised paper; the Level, Experience and Scene
+     popups still paint the legacy #292524), and the third ink passes on the
+     paper (5.04:1) where it fails on the legacy ground (4.37). (0,2,0) over
+     the kit's `.ui-panel { background: none }`. It is also the in-panel
+     asset picker's containing block. */
+  .ui-panel.rb-rel-panel { position: relative; background-color: var(--color-paper); }
+  .rb-rel-list { display: flex; flex-direction: column; padding: 4px 8px 12px; }
+
+  /* One hairline between groups stands for the box each group drew. */
+  .rb-rel-section + .rb-rel-section { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
+  /* The head row, at the kit Panel head's 32px: the toggle takes the row and
+     the group's 28px IconButtons follow it. */
+  .rb-rel-head { display: flex; align-items: center; gap: 4px; min-height: var(--panel-header); }
+  .rb-rel-toggle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 8px 0 4px;
+    text-align: left;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .rb-rel-toggle:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-rel-chevron { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  /* An entity glyph (a group's, a scene's, a shot's) in the second ink: the
+     orange it was is the one active treatment, and a kind is not a state. */
+  .rb-rel-glyph { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+  /* The group's name and count: the Label step (it was 9.5 to 10.5px). */
+  .rb-rel-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+  }
+  .rb-rel-body { display: flex; flex-direction: column; padding-bottom: 4px; }
+
+  /* A row: the name at Dense in the ink (R4-25; it was 11px), a hover fill;
+     a row that opens something (an asset, a task) shows the pointer, as it
+     did. Its remove control is the kit's HoverActions slot (`ui-hover-host`
+     on the row): reserved, and shown on focus as well as on hover. */
+  .rb-rel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: var(--row-dense);
+    padding: 2px 4px;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-rel-row:hover { background-color: var(--color-hover); }
+  .rb-rel-row[data-clickable="true"] { cursor: pointer; }
+  .rb-rel-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  /* A row's status words, at its end where the badge was: the kit's words,
+     Caption, the second ink (7.3:1 under the hover fill), the tone the
+     row's dot (R4-05's language: no status colour on text). */
+  .rb-rel-status {
+    flex: none;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    white-space: nowrap;
+    color: var(--color-ink-2);
+  }
+  /* A task row's two lines: the task, then the asset it is for. */
+  .rb-rel-stack { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .rb-rel-stack > .rb-rel-name { flex: none; }
+  .rb-rel-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* A scene's count of its linked shots: Caption, tabular (R4-25; it was
+     8px), the third ink at rest and the second under the row's hover fill,
+     where the third measures 4.34:1. */
+  .rb-rel-count {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-rel-row:hover .rb-rel-count { color: var(--color-ink-2); }
+  /* An orphan shot holds the chevron's 28px, so its glyph sits under the
+     scene rows' glyphs. */
+  .rb-rel-slot { flex: none; width: var(--control-sm); }
+  /* A scene's own shots: the hairline spine under the scene's chevron (the
+     list's 8 + 18 = the chevron's centre, 26px in), their glyph, dot and
+     name under the scene's (48, 70 and 86px in), their names in the second
+     ink as they were. Depth is the indent and the spine, never a smaller
+     size (R4-25: the nested status was 7px). */
+  .rb-rel-nest {
+    display: flex;
+    flex-direction: column;
+    margin-left: 18px;
+    padding-left: 17px;
+    border-left: 1px solid var(--color-rule);
+  }
+  .rb-rel-nest .rb-rel-name { color: var(--color-ink-2); }
+  /* Between a scene's rows and the shots whose scene is not linked. */
+  .rb-rel-rule { height: 1px; margin: 4px 8px; background-color: var(--color-rule); }
+  /* An empty group: one Caption line in sentence case (it was 9.5px
+     capitals; R4-13), in the third ink, 5.04:1 on the column's paper. */
+  .rb-rel-empty {
+    margin: 0;
+    padding: 6px 4px 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* ── The two pickers: one head, one search field, one row (R4-43) ──
+     RelationPickerPopup is the kit Dialog (the head's frame and the footer
+     are the kit's); AssetPickerOverlay covers the column as it did, with the
+     same title, field, rows and empty state, at the column's 12px gutter
+     where the Dialog's is 24. */
+  .rb-rel-pick {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-paper);
+  }
+  .rb-rel-pick-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 8px 8px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  /* The title at the kit Dialog title's step (H2) in the ink — it was 10 to
+     13px in the orange — and the Dialog's count after it, in the mono. */
+  .rb-rel-pick-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-rel-pick-glyph { flex: none; align-self: center; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-rel-pick-count {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* The Dialog's body holds the field over a list that scrolls on its own.
+     (0,2,0) against the kit's (0,1,0) body. */
+  .rb-rel-picker .ui-dialog-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  .rb-rel-pick-search { flex: none; padding: 12px; border-bottom: 1px solid var(--color-rule); }
+  .rb-rel-picker .rb-rel-pick-search { padding: 12px var(--spacing-gutter); }
+  .rb-rel-pick-field { position: relative; display: flex; align-items: center; }
+  .rb-rel-pick-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  /* (0,3,0) over the kit's small well's padding (0,2,0). */
+  .rb-rel-pick-field > .ui-input.rb-rel-pick-search-input { padding-left: 28px; }
+  .rb-rel-pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 0; }
+  .rb-rel-picker .rb-rel-pick-list { padding: 4px 12px; }
+  /* A row: the sidebar's 32px row, as a button. A linked row carries the
+     kit's selected fill (the signal tint, where the name was orange) and its
+     box the signal; the doubled attribute out-ranks the hover, as the kit
+     Table's selected row does. */
+  .rb-rel-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--row-dense);
+    padding: 2px 12px;
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-rel-pick-row:hover { background-color: var(--color-hover); }
+  .rb-rel-pick-row[data-selected="true"][data-selected="true"] { background-color: var(--color-signal-tint); }
+  .rb-rel-pick-check { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-rel-pick-row[data-selected="true"] .rb-rel-pick-check { color: var(--color-signal); }
+  .rb-rel-pick-add { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+
+  /* ── RelationBadge: the asset popup's four relation fields (R4-27) ──
+     The kit Chip's language in this lane's classes (a Chip is a filter and
+     announces itself pressed; this opens a picker): 28px, the control
+     radius, the glyph and the count in the tabular mono. ONE active
+     treatment, the Chip's — the signal as a tint and an edge, the ink
+     unchanged — when anything is linked; nothing linked, the second ink
+     (7.7:1 on the Dialog's raised paper) and the hairline. */
+  .rb-rel-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-sm);
+    padding: 0 10px;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .rb-rel-badge[data-active="false"]:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-rel-badge[data-active="true"] { color: var(--color-ink); background-color: var(--color-signal-tint); border-color: var(--color-signal); }
+  .rb-rel-badge-glyph { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-rel-badge-count {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── NewTaskSidePopup: the task form beside the Level, Experience and
+     Scene popups ──
+     Still the panel its hosts place (C1), on the kit Dialog's surface
+     tokens — the raised paper, the hairline, the float radius and shadow —
+     where it was a 2px orange frame. The head is the Dialog's language (the
+     H2 title, the kit's close), the fields B2's NewTaskPopup's (the kit
+     Field over a native field in the kit's small well), the footer the
+     kit's Buttons. It takes its host's cap (`max-height: inherit`: every
+     host wraps it at 85vh), so in a short window its body scrolls and its
+     footer stays on screen. */
+  .rb-rel-task {
+    display: flex;
+    flex-direction: column;
+    width: 400px;
+    height: 100%;
+    max-height: inherit;
+    overflow: hidden;
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-rel-task-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 8px 8px 16px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-rel-task-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-rel-task-glyph { flex: none; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-rel-task-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+  /* Two fields side by side (three for the bid and its dates), 12px apart
+     as they were. The kit's stacked-field margin stands down in the grid.
+     The three share their row 3 : 4 : 4, where it was thirds: a date is
+     75px of figures plus the picker's glyph, and at a third (110px with the
+     body's scrollbar, measured) its last digit went under the glyph, as it
+     did before; the bid is a short figure ("12.5", 26px) in its 90. */
+  .rb-rel-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .rb-rel-task-grid[data-cols="3"] { grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 4fr); }
+  .rb-rel-task-grid > .ui-field + .ui-field { margin-top: 0; }
+  /* An empty choice reads in the third ink (4.66:1 in the raised well); a
+     set one in the ink. A disabled field keeps the kit's. */
+  .ui-input.rb-rel-task-field[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
+  .ui-input.rb-rel-task-number {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+  }
+  /* The dates' native picker dark (R4-28), their figures tabular. */
+  .ui-input.rb-rel-task-date { color-scheme: dark; font-variant-numeric: tabular-nums; }
+  /* Status: the kit's dot inside the field, the kit's words in the select. */
+  .rb-rel-task-status { position: relative; display: block; }
+  .rb-rel-task-status > .ui-status-dot { position: absolute; left: 8px; top: 50%; margin-top: -4px; pointer-events: none; }
+  .rb-rel-task-status > .ui-input.rb-rel-task-status-input { padding-left: 24px; }
+  .rb-rel-task-foot {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+  /* The create question's words (W9), on the kit Dialog. */
+  .rb-rel-confirm { margin: 0; color: var(--color-ink); }
 }

@@ -1756,7 +1756,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
   // carries the name as its aria-label.
   const name = asset.name || 'Untitled asset'
   const initials = (asset.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('')
-  // What each relation field prints: "N scene(s)", or an em dash for none.
+  // What each relation field's RelationBadge counts.
   const linked = {
     scenes: asset.scene_ids?.length || 0,
     shots: asset.shot_ids?.length || 0,
@@ -1967,44 +1967,33 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {asset.created_at && <PropField label="Created" value={new Date(asset.created_at).toLocaleDateString()} />}
             {asset.updated_at && <PropField label="Updated" value={new Date(asset.updated_at).toLocaleDateString()} />}
 
-            {/* ── Relation fields ── quiet buttons, as the grid's other
-                editors are: the words they printed ("N scene(s)"), an em dash
-                for none (R4-19), the same click. The next lane swaps them for
-                RelationBadge. */}
+            {/* ── Relation fields ── RelationsPanel's RelationBadge (R4-27):
+                the kind's glyph and the count, the one active treatment when
+                anything is linked, named "Scenes: N linked"; the "(s)" words
+                and the em dash went with it. Each keeps its place and its
+                click: it opens that field's picker. */}
             {project?.scenes_enabled && (
               <PropField label="Scenes">
-                <button type="button" onClick={() => setShowScenePicker(true)}
-                  className="rb-asset-relation"
-                  data-empty={linked.scenes ? 'false' : 'true'}>
-                  {linked.scenes ? `${linked.scenes} scene(s)` : '—'}
-                </button>
+                <RelationBadge icon={Film} count={linked.scenes} label="Scenes"
+                  onClick={() => setShowScenePicker(true)} />
               </PropField>
             )}
             {project?.scenes_enabled && (
               <PropField label="Shots">
-                <button type="button" onClick={() => setShowShotPicker(true)}
-                  className="rb-asset-relation"
-                  data-empty={linked.shots ? 'false' : 'true'}>
-                  {linked.shots ? `${linked.shots} shot(s)` : '—'}
-                </button>
+                <RelationBadge icon={Clapperboard} count={linked.shots} label="Shots"
+                  onClick={() => setShowShotPicker(true)} />
               </PropField>
             )}
             {project?.levels_enabled && (
               <PropField label="Levels">
-                <button type="button" onClick={() => setShowLevelPicker(true)}
-                  className="rb-asset-relation"
-                  data-empty={linked.levels ? 'false' : 'true'}>
-                  {linked.levels ? `${linked.levels} level(s)` : '—'}
-                </button>
+                <RelationBadge icon={Gamepad2} count={linked.levels} label="Levels"
+                  onClick={() => setShowLevelPicker(true)} />
               </PropField>
             )}
             {project?.experiences_enabled && (
               <PropField label="Experiences">
-                <button type="button" onClick={() => setShowExperiencePicker(true)}
-                  className="rb-asset-relation"
-                  data-empty={linked.experiences ? 'false' : 'true'}>
-                  {linked.experiences ? `${linked.experiences} experience(s)` : '—'}
-                </button>
+                <RelationBadge icon={Sparkles} count={linked.experiences} label="Experiences"
+                  onClick={() => setShowExperiencePicker(true)} />
               </PropField>
             )}
           </div>
@@ -2012,7 +2001,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           {/* ── Relation picker popups ── */}
           {showScenePicker && (
             <RelationPickerPopup
-              title="Link Scenes"
+              title="Link scenes"
               icon={Film}
               items={ctx?.scenes || []}
               selectedIds={asset.scene_ids || []}
@@ -2026,7 +2015,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           )}
           {showShotPicker && (
             <RelationPickerPopup
-              title="Link Shots"
+              title="Link shots"
               icon={Clapperboard}
               items={ctx?.shots || []}
               selectedIds={asset.shot_ids || []}
@@ -2040,7 +2029,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           )}
           {showLevelPicker && (
             <RelationPickerPopup
-              title="Link Levels"
+              title="Link levels"
               icon={Gamepad2}
               items={ctx?.levels || []}
               selectedIds={asset.level_ids || []}
@@ -2054,7 +2043,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           )}
           {showExperiencePicker && (
             <RelationPickerPopup
-              title="Link Experiences"
+              title="Link experiences"
               icon={Sparkles}
               items={ctx?.experiences || []}
               selectedIds={asset.experience_ids || []}

@@ -11,30 +11,114 @@
 //   • RelationBadge — clickable badge for asset table rows
 //   • NewTaskSidePopup — task creation form (appears to left)
 //   • AssetRelationsSidebar — left sidebar for asset popup
+//
+// UI overhaul B4b, surface 4 (2026-09-25): on the shared kit (src/ui) and
+// lane B4's sheet, rabbitFiles.css (`rb-rel-`). Both sidebars are the kit
+// Panel at `lg`, one width (R4-23); a group's head is a row of SIBLINGS —
+// its collapse toggle, then its link buttons, the kit's small IconButtons —
+// where the buttons used to sit inside the toggle (R4-24); every status is
+// the kit's StatusDot and the kit's words, from the one STATUS map. The two
+// pickers share one head, search field and row spec (R4-43):
+// RelationPickerPopup is the kit Dialog, portalled into <body>, and
+// AssetPickerOverlay stays the in-panel overlay it was (C1). NewTaskSidePopup
+// is on the kit's surface tokens, its fields the kit Field over native
+// `ui-input`s, and its "Create task …?" question the kit Dialog (W9).
+// RelationBadge is drawn at last, in the asset popup's four relation fields
+// (R4-27). Every state is a `data-*` attribute or a real :hover resolved in
+// the sheet.
 
 import { useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Boxes, ListChecks, Plus, X, Search,
-  ChevronDown, ChevronRight, Check,
+  ChevronDown, ChevronRight, Square, CheckSquare,
   Film, Clapperboard, Gamepad2, Sparkles,
 } from 'lucide-react'
+import {
+  Panel, Dialog, Button, IconButton, Field, EmptyState, HoverActions,
+  StatusDot, statusMeta,
+} from '../../../ui'
+import '../views/rabbitFiles.css'
 
-// ── Status colors ──
-function statusColor(status) {
-  switch (status) {
-    case 'in_progress':     return '#fb923c'
-    case 'pending_review':  return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':        return '#4ade80'
-    case 'final':           return '#22c55e'
-    case 'blocked':         return '#ef4444'
-    case 'on_hold':         return '#fcd34d'
-    case 'omitted':         return '#57534e'
-    case 'waiting_to_start': return '#a8a29e'
-    default:                return '#a8a29e'
-  }
+// A priority's words, in sentence case ("low" -> "Low"). A status's words
+// are the kit's (`statusMeta`), and its colour the kit's tone: the local
+// status colour map this file kept is gone.
+function fmt(s) { return (s || '').replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) }
+
+
+// ═════════════════════════════════════════════════════════
+// The parts both sidebars and both pickers are made of
+// ═════════════════════════════════════════════════════════
+
+// ── A relation group: its head row, then its rows ──
+// The head is SIBLINGS: the collapse toggle (chevron, glyph, the group's
+// name and its count) and then the group's own buttons, where they were.
+// Those buttons used to be nested INSIDE the toggle — a <button> in a
+// <button>, which React warned about on every asset popup (R4-24).
+function RelSection({ Icon, title, collapsed, onToggle, actions, children }) {
+  const Chevron = collapsed ? ChevronRight : ChevronDown
+  return (
+    <div className="rb-rel-section">
+      <div className="rb-rel-head">
+        <button type="button" onClick={onToggle} aria-expanded={!collapsed} className="rb-rel-toggle">
+          <Chevron aria-hidden="true" className="rb-rel-chevron" />
+          <Icon aria-hidden="true" className="rb-rel-glyph" />
+          <span className="rb-rel-title">{title}</span>
+        </button>
+        {actions}
+      </div>
+      {!collapsed && <div className="rb-rel-body">{children}</div>}
+    </div>
+  )
 }
-function fmt(s) { return (s || '').replace(/_/g, ' ') }
+
+// ── A row's status, in the two places the row showed it ──
+// The kit's dot at the row's start (its tone, from the one STATUS map), and,
+// where the row printed a word, the kit's words at its end: Caption, in the
+// second ink, where they were 7 and 8px capitals in a status colour. A
+// row's dot is hidden from assistive technology when its words say it, as
+// StatusBadge hides its own. (The StatusBadge pill, 63 to 137px wide, left a
+// shot's name 36 to 110px of the 300px column: measured, B4b.)
+function QuietDot({ status }) {
+  return <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+}
+function StatusWord({ status }) {
+  return <span className="rb-rel-status">{statusMeta(status).label}</span>
+}
+
+// ── A row's remove control ──
+// The kit's small IconButton in the kit's reserved hover slot: it shows on
+// the row's hover as it did, and now on keyboard focus too (Q17b) — it used
+// to be invisible while it had focus.
+function RemoveButton({ title, onClick }) {
+  return (
+    <HoverActions>
+      <IconButton size="sm" Icon={X} danger title={title} onClick={onClick} />
+    </HoverActions>
+  )
+}
+
+// ── The pickers' search field: one field for both (R4-43) ──
+// A native field in the kit's small well, as the Assets toolbar's search.
+function PickerSearch({ value, onChange, placeholder, label }) {
+  return (
+    <div className="rb-rel-pick-search">
+      <div className="rb-rel-pick-field">
+        <Search aria-hidden="true" className="rb-rel-pick-search-icon" />
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          aria-label={label}
+          autoFocus
+          className="ui-input rb-rel-pick-search-input"
+          data-size="sm"
+        />
+      </div>
+    </div>
+  )
+}
 
 
 // ═════════════════════════════════════════════════════════
@@ -107,140 +191,74 @@ export default function RelationsPanel({
   )
 
   return (
-    <div className="relative flex-shrink-0 overflow-auto" style={{ width: 360, borderRight: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-      <div className="p-3 flex flex-col gap-1">
+    <Panel width="lg" side="left" className="rb-rel-panel">
+      <div className="rb-rel-list">
 
         {/* ── Related Assets ── */}
-        <div className="rounded-control" style={{ border: '1px solid #292524' }}>
-          <button type="button"
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
-            onClick={() => setCollapsedAssets(!collapsedAssets)}
-            style={{ borderBottom: collapsedAssets ? 'none' : '1px solid #292524' }}>
-            {collapsedAssets
-              ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
-              : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
-            <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fb923c' }}>
-              Assets ({relatedAssets.length})
-            </span>
-            <button type="button"
-              onClick={e => { e.stopPropagation(); setShowAssetPicker(true) }}
-              className="ml-auto p-0.5 rounded-control hover:bg-stone-700 transition-colors"
-              style={{ color: '#78716c' }}
-              title="Add asset relation">
-              <Plus className="w-3 h-3" />
-            </button>
-          </button>
-
-          {!collapsedAssets && (
-            <div className="px-1 pb-1">
-              {relatedAssets.length === 0 ? (
-                <div className="px-3 py-3 text-center">
-                  <p className="text-label uppercase" style={{ color: '#57534e' }}>
-                    No assets linked
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  {relatedAssets.map(a => (
-                    <div key={a.id}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel cursor-pointer"
-                      onClick={() => onOpenAsset?.(a.id)}>
-                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(a.status) }} />
-                      <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
-                        {a.name || 'Untitled'}
-                      </span>
-                      <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                        style={{ color: statusColor(a.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(a.status)}30` }}>
-                        {fmt(a.status || 'not_started')}
-                      </span>
-                      <button type="button"
-                        onClick={e => { e.stopPropagation(); removeAssetRelation(a.id) }}
-                        className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
-                        style={{ color: '#ef4444' }}
-                        title="Remove relation">
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+        <RelSection
+          Icon={Boxes}
+          title={`Assets (${relatedAssets.length})`}
+          collapsed={collapsedAssets}
+          onToggle={() => setCollapsedAssets(!collapsedAssets)}
+          actions={<IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => setShowAssetPicker(true)} />}
+        >
+          {relatedAssets.length === 0 ? (
+            <p className="rb-rel-empty">No assets linked</p>
+          ) : relatedAssets.map(a => (
+            <div key={a.id}
+              onClick={() => onOpenAsset?.(a.id)}
+              className="rb-rel-row ui-hover-host"
+              data-clickable="true">
+              <QuietDot status={a.status || 'not_started'} />
+              <span className="rb-rel-name" title={a.name || 'Untitled'}>
+                {a.name || 'Untitled'}
+              </span>
+              <StatusWord status={a.status || 'not_started'} />
+              <RemoveButton title="Remove relation"
+                onClick={e => { e.stopPropagation(); removeAssetRelation(a.id) }} />
             </div>
-          )}
-        </div>
+          ))}
+        </RelSection>
 
         {/* ── Related Tasks ── */}
-        <div className="rounded-control" style={{ border: '1px solid #292524' }}>
-          <button type="button"
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
-            onClick={() => setCollapsedTasks(!collapsedTasks)}
-            style={{ borderBottom: collapsedTasks ? 'none' : '1px solid #292524' }}>
-            {collapsedTasks
-              ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} />
-              : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
-            <ListChecks className="w-3.5 h-3.5" style={{ color: '#fbbf24' }} />
-            <span className="text-label font-mono uppercase font-semibold" style={{ color: '#fbbf24' }}>
-              Tasks ({relatedTasks.length})
-            </span>
-            {onCreateTask && (
-              <button type="button"
-                onClick={e => { e.stopPropagation(); onCreateTask() }}
-                className="ml-auto p-0.5 rounded-control hover:bg-stone-700 transition-colors"
-                style={{ color: '#78716c' }}
-                title="Add new task">
-                <Plus className="w-3 h-3" />
-              </button>
-            )}
-          </button>
-
-          {!collapsedTasks && (
-            <div className="px-1 pb-1">
-              {relatedTasks.length === 0 ? (
-                <div className="px-3 py-3 text-center">
-                  <p className="text-label uppercase" style={{ color: '#57534e' }}>
-                    No tasks linked
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  {relatedTasks.map(t => {
-                    const linkedAsset = t.asset_id ? assets.find(a => a.id === t.asset_id) : null
-                    return (
-                      <div key={t.id}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors cursor-pointer"
-                        onClick={() => onOpenTask?.(t.id)}>
-                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(t.status) }} />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-dense truncate block" style={{ color: '#d6d3d1' }}>
-                            {t.title || 'Untitled'}
-                          </span>
-                          {linkedAsset && (
-                            <span className="text-dense truncate block" style={{ color: '#57534e' }}>
-                              {linkedAsset.name}
-                            </span>
-                          )}
-                        </div>
-                        <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                          style={{ color: statusColor(t.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(t.status)}30` }}>
-                          {fmt(t.status || 'waiting_to_start')}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+        <RelSection
+          Icon={ListChecks}
+          title={`Tasks (${relatedTasks.length})`}
+          collapsed={collapsedTasks}
+          onToggle={() => setCollapsedTasks(!collapsedTasks)}
+          actions={onCreateTask && (
+            <IconButton size="sm" Icon={Plus} title="Add new task" onClick={() => onCreateTask()} />
           )}
-        </div>
+        >
+          {relatedTasks.length === 0 ? (
+            <p className="rb-rel-empty">No tasks linked</p>
+          ) : relatedTasks.map(t => {
+            const linkedAsset = t.asset_id ? assets.find(a => a.id === t.asset_id) : null
+            return (
+              <div key={t.id}
+                onClick={() => onOpenTask?.(t.id)}
+                className="rb-rel-row"
+                data-clickable="true">
+                <QuietDot status={t.status || 'waiting_to_start'} />
+                <span className="rb-rel-stack">
+                  <span className="rb-rel-name" title={t.title || 'Untitled'}>
+                    {t.title || 'Untitled'}
+                  </span>
+                  {linkedAsset && (
+                    <span className="rb-rel-sub">
+                      {linkedAsset.name}
+                    </span>
+                  )}
+                </span>
+                <StatusWord status={t.status || 'waiting_to_start'} />
+              </div>
+            )
+          })}
+        </RelSection>
 
-        {/* No relations at all */}
+        {/* No relations at all: the kit's empty state (R4-13) */}
         {relatedAssets.length === 0 && relatedTasks.length === 0 && (
-          <div className="px-3 py-4 text-center">
-            <Boxes className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-            <p className="text-label uppercase" style={{ color: '#57534e' }}>
-              No assets or tasks linked yet
-            </p>
-          </div>
+          <EmptyState compact Icon={Boxes} title="No assets or tasks linked yet" />
         )}
       </div>
 
@@ -252,7 +270,7 @@ export default function RelationsPanel({
           onClose={() => setShowAssetPicker(false)}
         />
       )}
-    </div>
+    </Panel>
   )
 }
 
@@ -260,6 +278,10 @@ export default function RelationsPanel({
 // ═════════════════════════════════════════════════════════
 // AssetPickerOverlay — mini-picker for adding assets
 // ═════════════════════════════════════════════════════════
+// Still the overlay over the sidebar it was (C1: where the picker appears is
+// Audrey's call — R4-43's "one Dialog for both" is recorded, not assumed). It
+// shares RelationPickerPopup's head, search field, row and empty state, so
+// the two read as one component in two shells.
 function AssetPickerOverlay({ assets, onPick, onClose }) {
   const [search, setSearch] = useState('')
 
@@ -270,47 +292,30 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
   }, [assets, search])
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+    <div className="rb-rel-pick">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
-          Link Asset
-        </span>
-        <div className="flex-1" />
-        <button type="button" onClick={onClose}
-          className="p-0.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}>
-          <X className="w-3 h-3" />
-        </button>
+      <div className="rb-rel-pick-head">
+        <span className="rb-rel-pick-title">Link asset</span>
+        <IconButton size="sm" Icon={X} title="Close" onClick={onClose} />
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2" style={{ borderBottom: '1px solid #292524' }}>
-        <div className="flex items-center rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
-          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search assets…"
-            className="flex-1 px-2 py-1.5 text-dense bg-transparent"
-            style={{ color: '#d6d3d1' }}
-            autoFocus />
-        </div>
-      </div>
+      <PickerSearch value={search} onChange={setSearch} placeholder="Search assets…" label="Search assets" />
 
       {/* List */}
-      <div className="flex-1 overflow-auto px-1 py-1">
+      <div className="rb-rel-pick-list">
         {filtered.length === 0 ? (
-          <div className="px-3 py-4 text-center text-label font-mono uppercase" style={{ color: '#57534e' }}>
-            {assets.length === 0 ? 'All assets already linked' : 'No matches'}
-          </div>
+          <EmptyState compact title={assets.length === 0 ? 'All assets already linked' : 'No matches'} />
         ) : (
           filtered.map(a => (
             <button key={a.id} type="button"
               onClick={() => onPick(a.id)}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors text-left">
-              <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(a.status) }} />
-              <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
+              className="rb-rel-pick-row">
+              <StatusDot status={a.status || 'not_started'} />
+              <span className="rb-rel-name">
                 {a.name || 'Untitled'}
               </span>
-              <Plus className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
+              <Plus aria-hidden="true" className="rb-rel-pick-add" />
             </button>
           ))
         )}
@@ -376,13 +381,14 @@ export function NewTaskSidePopup({
     end_date: '',
     description: '',
   })
+  // W9: the "Create task …?" question, which was `window.confirm`.
+  const [confirming, setConfirming] = useState(false)
 
   function upd(patch) { setDraft(prev => ({ ...prev, ...patch })) }
 
   function handleConfirm() {
     if (!draft.title.trim()) return
-    if (!window.confirm(`Create task "${draft.title}"?`)) return
-    onConfirm(draft)
+    setConfirming(true)
   }
 
   const scenesOn = project?.scenes_enabled
@@ -395,209 +401,222 @@ export function NewTaskSidePopup({
     : shots
 
   return (
-    <div className="flex flex-col h-full overflow-hidden rounded-control"
-      style={{ width: 400, backgroundColor: '#292524', border: '2px solid #f97316', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
-        <div className="flex items-center gap-2">
-          <ListChecks className="w-4 h-4" style={{ color: '#fbbf24' }} />
-          <span className="text-dense font-semibold" style={{ color: '#fbbf24' }}>New Task</span>
-        </div>
-        <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-          <X className="w-4 h-4" />
-        </button>
+    <div className="rb-rel-task">
+      {/* Header: the kit Dialog's head, in sentence case */}
+      <div className="rb-rel-task-head">
+        <span className="rb-rel-task-title">
+          <ListChecks aria-hidden="true" className="rb-rel-task-glyph" />
+          New task
+        </span>
+        <IconButton size="sm" Icon={X} title="Close" onClick={onClose} />
       </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-auto px-4 py-3">
+      {/* Scrollable body: the kit Field (its label the Label step) over a
+          native field in the kit's small well, as B2's NewTaskPopup. An
+          empty value reads in the third ink; set, in the ink (it was the
+          orange). */}
+      <div className="rb-rel-task-body ui-field-stack">
         {/* Title */}
-        <div className="mb-3">
-          <SideLabel>Title *</SideLabel>
+        <Field label="Title *">
           <input type="text" value={draft.title} onChange={e => upd({ title: e.target.value })}
             placeholder="Task title…" autoFocus
-            className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
-        </div>
+            className="ui-input"
+            data-size="sm" />
+        </Field>
 
         {/* Status + Priority */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <SideLabel>Status</SideLabel>
-            <select value={draft.status} onChange={e => upd({ status: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
-              {TASK_STATUSES_LIST.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-            </select>
-          </div>
-          <div>
-            <SideLabel>Priority</SideLabel>
+        <div className="rb-rel-task-grid">
+          <Field label="Status">
+            {/* The kit's dot inside the field, the kit's words in the select:
+                the status colour on the text and on every option is gone. */}
+            <span className="rb-rel-task-status">
+              <StatusDot status={draft.status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+              <select value={draft.status} onChange={e => upd({ status: e.target.value })}
+                className="ui-input rb-rel-task-status-input"
+                data-size="sm">
+                {TASK_STATUSES_LIST.map(s => <option key={s} value={s}>{statusMeta(s).label}</option>)}
+              </select>
+            </span>
+          </Field>
+          <Field label="Priority">
             <select value={draft.priority} onChange={e => upd({ priority: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
+              className="ui-input"
+              data-size="sm">
               {PRIORITIES_LIST.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
             </select>
-          </div>
+          </Field>
         </div>
 
         {/* Asset + Phase */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <SideLabel>Asset</SideLabel>
+        <div className="rb-rel-task-grid">
+          <Field label="Asset">
             <select value={draft.asset_id || ''} onChange={e => upd({ asset_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: draft.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-              <option value="">--</option>
+              className="ui-input rb-rel-task-field"
+              data-size="sm"
+              data-empty={draft.asset_id ? 'false' : 'true'}>
+              <option value="">—</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
             </select>
-          </div>
-          <div>
-            <SideLabel>Phase</SideLabel>
+          </Field>
+          <Field label="Phase">
             <select value={draft.phase_id || ''} onChange={e => upd({ phase_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-              <option value="">--</option>
+              className="ui-input rb-rel-task-field"
+              data-size="sm"
+              data-empty={draft.phase_id ? 'false' : 'true'}>
+              <option value="">—</option>
               {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
             </select>
-          </div>
+          </Field>
         </div>
 
         {/* Scene / Shot (conditional) */}
         {scenesOn && (
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <SideLabel>Scene</SideLabel>
+          <div className="rb-rel-task-grid">
+            <Field label="Scene">
               <select value={draft.scene_id || ''} onChange={e => upd({ scene_id: e.target.value || null, shot_id: null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: draft.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
+                className="ui-input rb-rel-task-field"
+                data-size="sm"
+                data-empty={draft.scene_id ? 'false' : 'true'}
                 disabled={entityType === 'scene'}>
-                <option value="">--</option>
+                <option value="">—</option>
                 {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
               </select>
-            </div>
-            <div>
-              <SideLabel>Shot</SideLabel>
+            </Field>
+            <Field label="Shot">
               <select value={draft.shot_id || ''} onChange={e => upd({ shot_id: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: draft.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
+                className="ui-input rb-rel-task-field"
+                data-size="sm"
+                data-empty={draft.shot_id ? 'false' : 'true'}
                 disabled={entityType === 'shot'}>
-                <option value="">--</option>
+                <option value="">—</option>
                 {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
               </select>
-            </div>
+            </Field>
           </div>
         )}
 
         {/* Level / Experience (conditional) */}
         {(levelsOn || experiencesOn) && (
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="rb-rel-task-grid">
             {levelsOn && (
-              <div>
-                <SideLabel>Level</SideLabel>
+              <Field label="Level">
                 <select value={draft.level_id || ''} onChange={e => upd({ level_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
+                  className="ui-input rb-rel-task-field"
+                  data-size="sm"
+                  data-empty={draft.level_id ? 'false' : 'true'}
                   disabled={entityType === 'level'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
                 </select>
-              </div>
+              </Field>
             )}
             {experiencesOn && (
-              <div>
-                <SideLabel>Experience</SideLabel>
+              <Field label="Experience">
                 <select value={draft.experience_id || ''} onChange={e => upd({ experience_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: draft.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
+                  className="ui-input rb-rel-task-field"
+                  data-size="sm"
+                  data-empty={draft.experience_id ? 'false' : 'true'}
                   disabled={entityType === 'experience'}>
-                  <option value="">--</option>
+                  <option value="">—</option>
                   {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
                 </select>
-              </div>
+              </Field>
             )}
           </div>
         )}
 
         {/* Assignee + Role */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <SideLabel>Assignee</SideLabel>
+        <div className="rb-rel-task-grid">
+          <Field label="Assignee">
             <select value={draft.assignee_id || ''} onChange={e => upd({ assignee_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: draft.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-              <option value="">--</option>
+              className="ui-input rb-rel-task-field"
+              data-size="sm"
+              data-empty={draft.assignee_id ? 'false' : 'true'}>
+              <option value="">—</option>
               {projectMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-          </div>
-          <div>
-            <SideLabel>Role</SideLabel>
+          </Field>
+          <Field label="Role">
             <select value={draft.assigned_role_slug || ''} onChange={e => upd({ assigned_role_slug: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: draft.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-              <option value="">--</option>
+              className="ui-input rb-rel-task-field"
+              data-size="sm"
+              data-empty={draft.assigned_role_slug ? 'false' : 'true'}>
+              <option value="">—</option>
               {roleEntries.map(r => <option key={r.role_slug} value={r.role_slug}>{r.role_label}</option>)}
             </select>
-          </div>
+          </Field>
         </div>
 
-        {/* Bid + Dates */}
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <div>
-            <SideLabel>Bid days</SideLabel>
+        {/* Bid + Dates: the figures in the mono, the dates' picker dark */}
+        <div className="rb-rel-task-grid" data-cols="3">
+          <Field label="Bid days">
             <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
               onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
-              placeholder="--" />
-          </div>
-          <div>
-            <SideLabel>Start</SideLabel>
+              className="ui-input rb-rel-task-number"
+              data-size="sm"
+              placeholder="—" />
+          </Field>
+          <Field label="Start">
             <input type="date" value={draft.start_date || ''} onChange={e => upd({ start_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
-          </div>
-          <div>
-            <SideLabel>End</SideLabel>
+              className="ui-input rb-rel-task-field rb-rel-task-date"
+              data-size="sm"
+              data-empty={draft.start_date ? 'false' : 'true'} />
+          </Field>
+          <Field label="End">
             <input type="date" value={draft.end_date || ''} onChange={e => upd({ end_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
-          </div>
+              className="ui-input rb-rel-task-field rb-rel-task-date"
+              data-size="sm"
+              data-empty={draft.end_date ? 'false' : 'true'} />
+          </Field>
         </div>
 
         {/* Description */}
-        <div className="mb-3">
-          <SideLabel>Description</SideLabel>
+        <Field label="Description">
           <textarea value={draft.description} onChange={e => upd({ description: e.target.value })}
             rows={3}
-            className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
-            style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
+            className="ui-input"
             placeholder="Task description…" />
-        </div>
+        </Field>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
-        <button type="button" onClick={onClose}
-          className="px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+      <div className="rb-rel-task-foot">
+        <Button size="sm" onClick={onClose}>
           Cancel
-        </button>
-        <button type="button" onClick={handleConfirm}
-          disabled={!draft.title.trim()}
-          className="px-4 py-1.5 text-dense rounded-control transition-colors"
-          style={{
-            color: draft.title.trim() ? '#fff7ed' : '#78716c',
-            backgroundColor: draft.title.trim() ? '#ea580c' : '#292524',
-            border: draft.title.trim() ? '1px solid #c2410c' : '1px solid #44403c',
-          }}>
-          Create Task
-        </button>
+        </Button>
+        <Button size="sm" variant="primary" onClick={handleConfirm}
+          disabled={!draft.title.trim()}>
+          Create task
+        </Button>
       </div>
+
+      {/* W9 (B4b): the create question, on the kit Dialog — the same words,
+          Cancel leaves the draft as it was, Create creates exactly as the
+          browser's OK did. 🚨 PORTALLED: the kit Dialog does not portal, and
+          this panel is drawn inside other popups' fixed layers. Create takes
+          focus, as the browser's OK did, so Enter still creates. */}
+      {confirming && createPortal(
+        <Dialog
+          width="confirm"
+          title="Create task"
+          onClose={() => setConfirming(false)}
+          footer={(
+            <>
+              <Button onClick={() => setConfirming(false)}>Cancel</Button>
+              <Button variant="primary" autoFocus onClick={() => { setConfirming(false); onConfirm(draft) }}>
+                Create
+              </Button>
+            </>
+          )}
+        >
+          <p className="rb-rel-confirm">
+            {`Create task "${draft.title}"?`}
+          </p>
+        </Dialog>,
+        document.body,
+      )}
     </div>
   )
-}
-
-function SideLabel({ children }) {
-  return <div className="text-label uppercase mb-1" style={{ color: '#78716c' }}>{children}</div>
 }
 
 
@@ -689,238 +708,152 @@ export function AssetRelationsSidebar({ asset, ctx }) {
   // Standalone sections (levels, experiences)
   const extraSections = []
   if (levelsOn) {
-    extraSections.push({ key: 'levels', label: 'Levels', icon: Gamepad2, color: '#fbbf24', items: relLevels, field: 'level_ids', allItems: levels })
+    extraSections.push({ key: 'levels', label: 'Levels', icon: Gamepad2, items: relLevels, field: 'level_ids', allItems: levels })
   }
   if (experiencesOn) {
-    extraSections.push({ key: 'experiences', label: 'Experiences', icon: Sparkles, color: '#e879f9', items: relExperiences, field: 'experience_ids', allItems: experiences })
+    extraSections.push({ key: 'experiences', label: 'Experiences', icon: Sparkles, items: relExperiences, field: 'experience_ids', allItems: experiences })
   }
 
   const sceneShotCount = relScenes.length + relShots.length
   const sceneShotCollapsed = collapsed['scenes_shots']
 
   return (
-    <div className="flex-shrink-0 overflow-auto" style={{ width: 320, borderRight: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-      <div className="p-3 flex flex-col gap-1">
+    <Panel width="lg" side="left" className="rb-rel-panel">
+      <div className="rb-rel-list">
 
         {/* ── Combined Scenes & Shots section ── */}
+        {/* Its two link buttons sit after the toggle, where they were, as
+            the kit's small IconButtons with one glyph each (they were 10px
+            Film+Plus and Clapperboard+Plus pairs in an 18px target, R4-24). */}
         {scenesOn && (
-          <div className="rounded-control" style={{ border: '1px solid #292524' }}>
-            {/* Section header */}
-            <button type="button"
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
-              onClick={() => toggle('scenes_shots')}
-              style={{ borderBottom: sceneShotCollapsed ? 'none' : '1px solid #292524' }}>
-              {sceneShotCollapsed
-                ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-                : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-              <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-label font-mono tabular-nums uppercase font-semibold" style={{ color: '#fb923c' }}>
-                Scenes & Shots ({sceneShotCount})
-              </span>
-              <div className="ml-auto flex items-center gap-0.5">
-                <button type="button"
-                  onClick={e => { e.stopPropagation(); setShowPicker('scenes') }}
-                  className="p-1 rounded-control hover:bg-stone-700 transition-colors flex items-center gap-0.5"
-                  style={{ color: '#78716c' }}
-                  title="Link scene">
-                  <Film className="w-2.5 h-2.5" /><Plus className="w-2.5 h-2.5" />
-                </button>
-                <button type="button"
-                  onClick={e => { e.stopPropagation(); setShowPicker('shots') }}
-                  className="p-1 rounded-control hover:bg-stone-700 transition-colors flex items-center gap-0.5"
-                  style={{ color: '#78716c' }}
-                  title="Link shot">
-                  <Clapperboard className="w-2.5 h-2.5" /><Plus className="w-2.5 h-2.5" />
-                </button>
-              </div>
-            </button>
-
-            {!sceneShotCollapsed && (
-              <div className="px-1 pb-1">
-                {relScenes.length === 0 && orphanShots.length === 0 ? (
-                  <div className="px-3 py-2 text-center">
-                    <p className="text-label uppercase" style={{ color: '#57534e' }}>
-                      No scenes or shots linked
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-0.5">
-                    {/* Scene rows — each expandable to show child shots */}
-                    {relScenes.map(sc => {
-                      const childShots = shotsByScene[sc.id] || []
-                      const isExpanded = expandedScenes.has(sc.id)
-                      return (
-                        <div key={sc.id}>
-                          {/* Scene row */}
-                          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel">
-                            {/* Expand chevron */}
-                            <button type="button"
-                              onClick={() => toggleSceneExpand(sc.id)}
-                              className="p-0.5 rounded-control hover:bg-stone-700/50 transition-colors flex-shrink-0"
-                              style={{ color: '#78716c' }}>
-                              {childShots.length > 0 ? (
-                                isExpanded
-                                  ? <ChevronDown className="w-3.5 h-3.5" />
-                                  : <ChevronRight className="w-3.5 h-3.5" />
-                              ) : (
-                                <span className="w-3.5 h-3.5 block" />
-                              )}
-                            </button>
-                            <Film className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sc.status) }} />
-                            <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
-                              {sc.name || 'Untitled'}
-                            </span>
-                            {childShots.length > 0 && (
-                              <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
-                                {childShots.length}
-                              </span>
-                            )}
-                            <button type="button"
-                              onClick={() => removeRelation('scene_ids', sc.id)}
-                              className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
-                              style={{ color: '#ef4444' }}
-                              title="Remove scene">
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </div>
-
-                          {/* Nested shots */}
-                          {isExpanded && childShots.length > 0 && (
-                            <div className="ml-5 flex flex-col gap-0.5" style={{ borderLeft: '1px solid #292524' }}>
-                              {childShots.map(sh => (
-                                <div key={sh.id}
-                                  className="flex items-center gap-2 pl-3 pr-2 py-1 rounded-control hover:bg-stone-800/50 transition-colors group/sh">
-                                  <Clapperboard className="w-2.5 h-2.5 flex-shrink-0" style={{ color: '#f97316' }} />
-                                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sh.status) }} />
-                                  <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>
-                                    {sh.name || 'Untitled'}
-                                  </span>
-                                  <span className="px-1 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                                    style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
-                                    {fmt(sh.status || 'not_started')}
-                                  </span>
-                                  <button type="button"
-                                    onClick={() => removeRelation('shot_ids', sh.id)}
-                                    className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/sh:opacity-100 flex-shrink-0"
-                                    style={{ color: '#ef4444' }}
-                                    title="Remove shot">
-                                    <X className="w-2.5 h-2.5" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-
-                    {/* Orphan shots (related but parent scene not linked) */}
-                    {orphanShots.length > 0 && (
-                      <>
-                        {relScenes.length > 0 && (
-                          <div className="mx-2 my-1" style={{ borderTop: '1px solid #292524' }} />
-                        )}
-                        {orphanShots.map(sh => (
-                          <div key={sh.id}
-                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel">
-                            <span className="w-3.5 h-3.5 block flex-shrink-0" />
-                            <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#f97316' }} />
-                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sh.status) }} />
-                            <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
-                              {sh.name || 'Untitled'}
-                            </span>
-                            <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                              style={{ color: statusColor(sh.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sh.status)}30` }}>
-                              {fmt(sh.status || 'not_started')}
-                            </span>
-                            <button type="button"
-                              onClick={() => removeRelation('shot_ids', sh.id)}
-                              className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
-                              style={{ color: '#ef4444' }}
-                              title="Remove shot">
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+          <RelSection
+            Icon={Film}
+            title={`Scenes & Shots (${sceneShotCount})`}
+            collapsed={sceneShotCollapsed}
+            onToggle={() => toggle('scenes_shots')}
+            actions={(
+              <>
+                <IconButton size="sm" Icon={Film} title="Link scene" onClick={() => setShowPicker('scenes')} />
+                <IconButton size="sm" Icon={Clapperboard} title="Link shot" onClick={() => setShowPicker('shots')} />
+              </>
             )}
-          </div>
+          >
+            {relScenes.length === 0 && orphanShots.length === 0 ? (
+              <p className="rb-rel-empty">No scenes or shots linked</p>
+            ) : (
+              <>
+                {/* Scene rows — each expandable to show child shots */}
+                {relScenes.map(sc => {
+                  const childShots = shotsByScene[sc.id] || []
+                  const isExpanded = expandedScenes.has(sc.id)
+                  const hasShots = childShots.length > 0
+                  const Chevron = isExpanded ? ChevronDown : ChevronRight
+                  return (
+                    <div key={sc.id}>
+                      {/* Scene row */}
+                      <div className="rb-rel-row ui-hover-host">
+                        {/* Expand chevron: the button it always was, in every
+                            scene row, now named; a scene with no linked
+                            shots draws no chevron in it, as before. */}
+                        <IconButton size="sm"
+                          Icon={hasShots ? Chevron : undefined}
+                          title={`Shots in ${sc.name || 'Untitled'}`}
+                          aria-expanded={hasShots ? isExpanded : undefined}
+                          onClick={() => toggleSceneExpand(sc.id)} />
+                        <Film aria-hidden="true" className="rb-rel-glyph" />
+                        <StatusDot status={sc.status || 'not_started'} />
+                        <span className="rb-rel-name" title={sc.name || 'Untitled'}>
+                          {sc.name || 'Untitled'}
+                        </span>
+                        {hasShots && (
+                          <span className="rb-rel-count">
+                            {childShots.length}
+                          </span>
+                        )}
+                        <RemoveButton title="Remove scene" onClick={() => removeRelation('scene_ids', sc.id)} />
+                      </div>
+
+                      {/* Nested shots: the indent and the hairline spine
+                          say the depth; the status is the same size at
+                          every depth (R4-25: it was 7px here, 8 above). */}
+                      {isExpanded && hasShots && (
+                        <div className="rb-rel-nest">
+                          {childShots.map(sh => (
+                            <div key={sh.id} className="rb-rel-row ui-hover-host">
+                              <Clapperboard aria-hidden="true" className="rb-rel-glyph" />
+                              <QuietDot status={sh.status || 'not_started'} />
+                              <span className="rb-rel-name" title={sh.name || 'Untitled'}>
+                                {sh.name || 'Untitled'}
+                              </span>
+                              <StatusWord status={sh.status || 'not_started'} />
+                              <RemoveButton title="Remove shot" onClick={() => removeRelation('shot_ids', sh.id)} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Orphan shots (related but parent scene not linked) */}
+                {orphanShots.length > 0 && (
+                  <>
+                    {relScenes.length > 0 && (
+                      <div className="rb-rel-rule" />
+                    )}
+                    {orphanShots.map(sh => (
+                      <div key={sh.id} className="rb-rel-row ui-hover-host">
+                        {/* The chevron's slot, held empty */}
+                        <span className="rb-rel-slot" />
+                        <Clapperboard aria-hidden="true" className="rb-rel-glyph" />
+                        <QuietDot status={sh.status || 'not_started'} />
+                        <span className="rb-rel-name" title={sh.name || 'Untitled'}>
+                          {sh.name || 'Untitled'}
+                        </span>
+                        <StatusWord status={sh.status || 'not_started'} />
+                        <RemoveButton title="Remove shot" onClick={() => removeRelation('shot_ids', sh.id)} />
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </RelSection>
         )}
 
         {/* ── Levels / Experiences sections ── */}
-        {extraSections.map(sec => {
-          const Icon = sec.icon
-          const isCollapsed = collapsed[sec.key]
-          return (
-            <div key={sec.key} className="rounded-control" style={{ border: '1px solid #292524' }}>
-              <button type="button"
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-800/50 transition-colors"
-                onClick={() => toggle(sec.key)}
-                style={{ borderBottom: isCollapsed ? 'none' : '1px solid #292524' }}>
-                {isCollapsed
-                  ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-                  : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                <Icon className="w-3.5 h-3.5" style={{ color: sec.color }} />
-                <span className="text-label uppercase font-semibold" style={{ color: sec.color }}>
-                  {sec.label} ({sec.items.length})
+        {extraSections.map(sec => (
+          <RelSection
+            key={sec.key}
+            Icon={sec.icon}
+            title={`${sec.label} (${sec.items.length})`}
+            collapsed={collapsed[sec.key]}
+            onToggle={() => toggle(sec.key)}
+            actions={(
+              <IconButton size="sm" Icon={Plus} title={`Add ${sec.label.toLowerCase()} relation`}
+                onClick={() => setShowPicker(sec.key)} />
+            )}
+          >
+            {sec.items.length === 0 ? (
+              <p className="rb-rel-empty">No {sec.label.toLowerCase()} linked</p>
+            ) : sec.items.map(item => (
+              <div key={item.id} className="rb-rel-row ui-hover-host">
+                <QuietDot status={item.status || 'not_started'} />
+                <span className="rb-rel-name" title={item.name || 'Untitled'}>
+                  {item.name || 'Untitled'}
                 </span>
-                <button type="button"
-                  onClick={e => { e.stopPropagation(); setShowPicker(sec.key) }}
-                  className="ml-auto p-0.5 rounded-control hover:bg-stone-700 transition-colors"
-                  style={{ color: '#78716c' }}
-                  title={`Add ${sec.label.toLowerCase()} relation`}>
-                  <Plus className="w-3 h-3" />
-                </button>
-              </button>
-
-              {!isCollapsed && (
-                <div className="px-1 pb-1">
-                  {sec.items.length === 0 ? (
-                    <div className="px-3 py-2 text-center">
-                      <p className="text-label uppercase" style={{ color: '#57534e' }}>
-                        No {sec.label.toLowerCase()} linked
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-0.5">
-                      {sec.items.map(item => (
-                        <div key={item.id}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-control hover:bg-stone-800/50 transition-colors group/rel">
-                          <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(item.status) }} />
-                          <span className="text-dense truncate flex-1" style={{ color: '#d6d3d1' }}>
-                            {item.name || 'Untitled'}
-                          </span>
-                          <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                            style={{ color: statusColor(item.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(item.status)}30` }}>
-                            {fmt(item.status || 'not_started')}
-                          </span>
-                          <button type="button"
-                            onClick={() => removeRelation(sec.field, item.id)}
-                            className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/rel:opacity-100 flex-shrink-0"
-                            style={{ color: '#ef4444' }}
-                            title="Remove relation">
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
+                <StatusWord status={item.status || 'not_started'} />
+                <RemoveButton title="Remove relation" onClick={() => removeRelation(sec.field, item.id)} />
+              </div>
+            ))}
+          </RelSection>
+        ))}
       </div>
 
-      {/* Picker popup */}
+      {/* Picker popup (the kit Dialog, in <body>) */}
       {showPicker === 'scenes' && (
         <RelationPickerPopup
-          title="Link Scenes"
+          title="Link scenes"
           icon={Film}
           items={scenes}
           selectedIds={asset?.scene_ids || []}
@@ -930,7 +863,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
       )}
       {showPicker === 'shots' && (
         <RelationPickerPopup
-          title="Link Shots"
+          title="Link shots"
           icon={Clapperboard}
           items={shots}
           selectedIds={asset?.shot_ids || []}
@@ -943,7 +876,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
         if (!sec) return null
         return (
           <RelationPickerPopup
-            title={`Link ${sec.label}`}
+            title={`Link ${sec.label.toLowerCase()}`}
             icon={sec.icon}
             items={sec.allItems}
             selectedIds={asset?.[sec.field] || []}
@@ -952,7 +885,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
           />
         )
       })()}
-    </div>
+    </Panel>
   )
 }
 
@@ -963,6 +896,15 @@ export function AssetRelationsSidebar({ asset, ctx }) {
 //
 // Shows all available items (scenes/shots/levels/experiences)
 // with checkboxes for toggling relations on the given asset.
+//
+// The kit's Dialog (it was a hand-rolled centred modal with its own
+// backdrop): its backdrop still closes it, Done still closes it, and the
+// kit adds Escape, the focus trap and the modal stack (Q17) — so an Escape
+// here closes the picker and not the asset popup under it. 🚨 PORTALLED:
+// the kit Dialog does not portal, and the asset popup that opens this
+// centres itself with `transform`, which would lay a fixed child out
+// inside its box. React events still bubble through the tree it was
+// written in.
 //
 // Props:
 //   title           — popup title
@@ -997,99 +939,61 @@ export function RelationPickerPopup({
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
-  return (
-    <>
-      <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-md rounded-control overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#292524',
-          border: '2px solid #f97316',
-          maxHeight: '70vh',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        }}
-        onClick={e => e.stopPropagation()}>
+  return createPortal(
+    <Dialog
+      width="confirm"
+      className="rb-rel-picker"
+      // A title that is a node names nothing: the dialog carries its title
+      // as its name ("Link scenes", in sentence case — Q2).
+      aria-label={title}
+      title={(
+        <span className="rb-rel-pick-title">
+          {Icon && <Icon aria-hidden="true" className="rb-rel-pick-glyph" />}
+          {title}
+          <span className="rb-rel-pick-count">
+            ({selectedIds.length} linked)
+          </span>
+        </span>
+      )}
+      dismissOnBackdrop
+      onClose={onClose}
+      footer={(
+        <Button onClick={onClose}>
+          Done
+        </Button>
+      )}
+    >
+      {/* Search */}
+      <PickerSearch value={search} onChange={setSearch} placeholder="Search…" label="Search" />
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <div className="flex items-center gap-2">
-            {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
-            <span className="text-dense font-semibold" style={{ color: '#fb923c' }}>
-              {title}
-            </span>
-            <span className="text-dense font-mono" style={{ color: '#78716c' }}>
-              ({selectedIds.length} linked)
-            </span>
-          </div>
-          <button type="button" onClick={onClose}
-            className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-4 py-2" style={{ borderBottom: '1px solid #292524' }}>
-          <div className="flex items-center rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-            <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search…"
-              className="flex-1 px-2 py-1.5 text-dense bg-transparent"
-              style={{ color: '#d6d3d1' }}
-              autoFocus />
-          </div>
-        </div>
-
-        {/* Items */}
-        <div className="flex-1 overflow-auto px-2 py-1">
-          {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-label uppercase" style={{ color: '#57534e' }}>
-              No items found
-            </div>
-          ) : (
-            filtered.map(item => {
-              const isSelected = selectedSet.has(item.id)
-              const st = getStatus(item)
-              return (
-                <button key={item.id} type="button"
-                  onClick={() => onToggle(item.id)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-control hover:bg-stone-800/50 transition-colors text-left"
-                  style={{ backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.08)' : 'transparent' }}>
-                  {/* Checkbox */}
-                  <div className="w-4 h-4 rounded-control flex items-center justify-center flex-shrink-0"
-                    style={{
-                      border: `1.5px solid ${isSelected ? '#fb923c' : '#57534e'}`,
-                      backgroundColor: isSelected ? '#ea580c' : 'transparent',
-                    }}>
-                    {isSelected && <Check className="w-2.5 h-2.5" style={{ color: '#fff' }} />}
-                  </div>
-                  {/* Status dot */}
-                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(st) }} />
-                  {/* Name */}
-                  <span className="text-dense truncate flex-1"
-                    style={{ color: isSelected ? '#f4a261' : '#d6d3d1' }}>
-                    {getName(item)}
-                  </span>
-                  {/* Status badge */}
-                  <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                    style={{ color: statusColor(st), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(st)}30` }}>
-                    {fmt(st)}
-                  </span>
-                </button>
-              )
-            })
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-4 py-2.5 flex justify-end" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Done
-          </button>
-        </div>
+      {/* Items: each row is the toggle it was, and says so (aria-pressed);
+          the box is the lane's checkbox glyph, the signal when linked. */}
+      <div className="rb-rel-pick-list">
+        {filtered.length === 0 ? (
+          <EmptyState compact title="No items found" />
+        ) : (
+          filtered.map(item => {
+            const isSelected = selectedSet.has(item.id)
+            const Box = isSelected ? CheckSquare : Square
+            return (
+              <button key={item.id} type="button"
+                onClick={() => onToggle(item.id)}
+                aria-pressed={isSelected}
+                className="rb-rel-pick-row"
+                data-selected={isSelected ? 'true' : 'false'}>
+                <Box aria-hidden="true" className="rb-rel-pick-check" />
+                <QuietDot status={getStatus(item)} />
+                <span className="rb-rel-name">
+                  {getName(item)}
+                </span>
+                <StatusWord status={getStatus(item)} />
+              </button>
+            )
+          })
+        )}
       </div>
-    </>
+    </Dialog>,
+    document.body,
   )
 }
 
@@ -1097,17 +1001,23 @@ export function RelationPickerPopup({
 // ═════════════════════════════════════════════════════════
 // RelationBadge — clickable badge for inline in table rows
 // ═════════════════════════════════════════════════════════
+// The kit Chip's language in this lane's classes (R4-27): 28px, the
+// control radius, the glyph and the count in the tabular mono; ONE active
+// treatment — the signal as a tint and an edge, the ink unchanged — when
+// anything is linked, and the second ink at rest when nothing is. It names
+// itself ("Scenes: 3 linked"). Not the kit Chip: a Chip is a filter and
+// announces itself pressed; this opens a picker.
 export function RelationBadge({ icon: Icon, count, label, onClick }) {
+  const n = count || 0
+  const name = label ? `${label}: ${n} linked` : `${n} linked`
   return (
     <button type="button" onClick={onClick}
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded-control hover:bg-stone-800 transition-colors"
-      style={{
-        color: count > 0 ? '#f4a261' : '#57534e',
-        border: `1px solid ${count > 0 ? '#f4a261' + '40' : '#44403c'}`,
-        backgroundColor: count > 0 ? 'rgba(249, 115, 22, 0.06)' : 'transparent',
-      }}>
-      {Icon && <Icon className="w-3 h-3" />}
-      <span className="text-dense font-mono tabular-nums">{count}</span>
+      title={name}
+      aria-label={name}
+      className="rb-rel-badge"
+      data-active={n > 0 ? 'true' : 'false'}>
+      {Icon && <Icon aria-hidden="true" className="rb-rel-badge-glyph" />}
+      <span className="rb-rel-badge-count">{n}</span>
     </button>
   )
 }

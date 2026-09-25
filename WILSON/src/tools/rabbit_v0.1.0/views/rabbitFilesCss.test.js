@@ -33,6 +33,7 @@ const FILES = {
   filesTable: { file: '../components/ProjectFilesTable.jsx', prefix: 'rb-files-' },
   fileManager: { file: '../components/FileManager.jsx', prefix: 'rb-fm-' },
   assets: { file: '../views/ProjectAssetsView.jsx', prefix: 'rb-asset-' },
+  relations: { file: '../components/RelationsPanel.jsx', prefix: 'rb-rel-' },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */

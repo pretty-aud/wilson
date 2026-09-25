@@ -523,7 +523,11 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     expect(within(dialog).getByText('No tasks on this asset').closest('.ui-empty')).not.toBeNull()
   })
 
-  it('the relation fields keep their words and clicks; a picker open inside the popup (its own, or the sidebar\'s) keeps it open on Escape', () => {
+  // B4b surface 4 rewrote this one: the fields are RelationsPanel's
+  // RelationBadge now (R4-27; the "N scene(s)" words it pinned are gone), and
+  // the pickers are the kit Dialog, portalled: on the modal stack, so an
+  // Escape is the picker's alone and needs no guard from the popup.
+  it('the relation fields are the RelationBadge and keep their clicks; a picker opened from the popup (its own, or the sidebar\'s) is a kit Dialog on top, so Escape closes only it', () => {
     const assets = ASSETS()
     assets[0].scene_ids = ['s1']
     page({
@@ -533,26 +537,31 @@ describe('ProjectAssetsView — the popups on the kit', () => {
       shots: [],
     })
     const dialog = openDetail('Mara')
-    // "N scene(s)", and an em dash for none (it printed "--").
-    const scenes = within(dialog).getByRole('button', { name: '1 scene(s)' })
-    const shots = within(dialog).getByRole('button', { name: '—' })
-    expect(scenes.className).toBe('rb-asset-relation')
-    expect(shots.getAttribute('data-empty')).toBe('true')
+    // The count and the one active treatment; none is "0", quiet.
+    const scenes = within(dialog).getByRole('button', { name: 'Scenes: 1 linked' })
+    const shots = within(dialog).getByRole('button', { name: 'Shots: 0 linked' })
+    expect(scenes.className).toBe('rb-rel-badge')
+    expect(scenes.getAttribute('data-active')).toBe('true')
+    expect(shots.getAttribute('data-active')).toBe('false')
 
     fireEvent.click(scenes)
-    expect(within(dialog).getByText('Link Scenes')).toBeTruthy()
+    const picker = screen.getByRole('dialog', { name: 'Link scenes' })
+    expect(picker.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     escape()
+    expect(screen.queryByRole('dialog', { name: 'Link scenes' })).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Mara' })).toBeTruthy()
-    // The picker closes on its own backdrop; then Escape is the popup's again.
-    fireEvent.click(dialog.querySelector('.rb-asset-detail-main > .fixed.inset-0'))
-    expect(dialog.querySelector('.rb-asset-detail-main .fixed')).toBeNull()
+    // The picker still closes on its own backdrop, and the popup stays.
+    fireEvent.click(scenes)
+    fireEvent.mouseDown(screen.getByRole('dialog', { name: 'Link scenes' }).parentElement)
+    expect(screen.queryByRole('dialog', { name: 'Link scenes' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Mara' })).toBeTruthy()
 
-    // The relations sidebar's own picker is guarded the same way.
-    fireEvent.click(within(dialog.querySelector('.rb-asset-detail-side')).getByTitle('Link scene'))
-    expect(dialog.querySelector('.rb-asset-detail-side .fixed')).not.toBeNull()
+    // The relations sidebar's own picker: the same Dialog, the same Escape.
+    fireEvent.click(within(dialog.querySelector('.rb-asset-detail-side')).getByRole('button', { name: 'Link scene' }))
+    expect(screen.getByRole('dialog', { name: 'Link scenes' })).toBeTruthy()
     escape()
+    expect(screen.queryByRole('dialog', { name: 'Link scenes' })).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Mara' })).toBeTruthy()
-    fireEvent.click(dialog.querySelector('.rb-asset-detail-side .fixed.inset-0'))
     escape()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
