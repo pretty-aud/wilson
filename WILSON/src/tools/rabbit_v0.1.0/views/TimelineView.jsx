@@ -98,8 +98,7 @@ import { Stat } from '../../../ui/Stat'
 import { Dialog } from '../../../ui/Dialog'
 import { Drawer } from '../../../ui/Drawer'
 import { Switch } from '../../../ui/Switch'
-import { Input } from '../../../ui/Input'
-import { TextArea } from '../../../ui/TextArea'
+import { Card } from '../../../ui/Card'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -5150,11 +5149,22 @@ const DETAIL_PANEL_ID = 'rb-tl-detail'
 //   • Importing a CSV (one YYYY-MM-DD per line)
 //   • Exporting the current list as CSV
 //   • Removing individual dates
-// B3d: on the kit (Input, Button, IconButton), its colours in the sheet.
+// B3d: the kit's Card, Button and IconButton, its colours in the sheet.
 // `locked` is the Settings tab's lock: every control is disabled while it
 // holds, where the old tab went to opacity 60% with pointer-events off —
 // which a keyboard walked straight through.
+// 🚨 The two fields wear the kit's `ui-input` on a NATIVE input, as D.O.G.'s
+// and O.T.T.E.R.'s settings fields do, not the kit `Input`: that one blurs
+// on Enter, and the app's window-level Enter (App.jsx) then finds nothing
+// focused and toggles the companion; and it reverts on Escape (review
+// round 1). They keep Escape to themselves (`keepEscape`), as they did.
 // ============================================================
+/** A settings field keeps Escape as it always did: it answers the key (the
+    kit Drawer's contract: a layer that answers Escape marks it) so the
+    drawer does not close under it. For the prompt editor that is the
+    difference between keeping and losing an unsaved draft, which lives only
+    in this panel. */
+const keepEscape = (e) => { if (e.key === 'Escape') e.preventDefault() }
 function HolidaysEditor({ holidays, onChange, locked = false }) {
   // holidays is a Map<date, title>
   const [newDate, setNewDate] = useState('')
@@ -5203,33 +5213,38 @@ function HolidaysEditor({ holidays, onChange, locked = false }) {
   }
 
   return (
-    <section className="rounded-control p-4 mb-4 rb-tl-set-card">
-      <h3 className="text-h3 font-semibold mb-1 rb-tl-set-title">
-        Holidays / blocked days
-      </h3>
+    <Card title="Holidays / blocked days">
       <p className="text-dense mb-3 rb-tl-set-desc">
         Dates listed here are excluded from the working-day count.
         Import a CSV (YYYY-MM-DD,Title per line) or add individual dates.
       </p>
 
-      {/* Add individual date + title */}
+      {/* Add individual date + title. The date field keeps its own width:
+          `.ui-input` is width 100%, which gave it the row and left the name
+          18px (review round 1). */}
       <div className="flex items-center gap-2 mb-3">
-        <Input
+        <input
           type="date"
-          size="sm"
           value={newDate}
-          onChange={setNewDate}
+          onChange={(e) => setNewDate(e.target.value)}
+          onKeyDown={keepEscape}
           disabled={locked}
           aria-label="Holiday date"
+          className="ui-input w-auto flex-none"
+          data-size="sm"
+          data-surface="dark"
         />
-        <Input
-          size="sm"
+        <input
+          type="text"
           value={newTitle}
-          onChange={setNewTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={keepEscape}
           placeholder="Holiday name"
           disabled={locked}
           aria-label="Holiday name"
-          className="flex-1 min-w-0"
+          className="ui-input flex-1 min-w-0"
+          data-size="sm"
+          data-surface="dark"
         />
         <Button
           size="sm"
@@ -5277,16 +5292,17 @@ function HolidaysEditor({ holidays, onChange, locked = false }) {
           ))
         )}
       </div>
-    </section>
+    </Card>
   )
 }
 
 // ============================================================
 // SettingsPanel — slide-out from the right with two tabs:
 // Settings + System Prompts (matches DOG/OTTER pattern).
-// B3d: the kit's Drawer (xl, a backdrop), Tabs, Toolbar, Switch, Button,
-// IconButton, Input and TextArea, laid out as D.O.G.'s and O.T.T.E.R.'s
-// settings drawers are. The title bar is the Drawer's `--titlebar-offset`
+// B3d: the kit's Drawer (xl, a backdrop), Tabs, Toolbar, Switch, Card,
+// Button and IconButton, and its fields native in the kit's `ui-input` (see
+// HolidaysEditor), laid out as D.O.G.'s and O.T.T.E.R.'s settings drawers
+// are. The title bar is the Drawer's `--titlebar-offset`
 // (TL-24); the panel no longer pads itself 32px under Electron. The lock
 // is the disabled token (every control disabled, the text a step dimmer),
 // where the Settings tab went to opacity 60% (the walk measured 80 lines
@@ -5360,17 +5376,15 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               Changes are applied immediately. Use &quot;Reset to default&quot; to restore
               original settings.
             </p>
+            {/* D.O.G.'s and O.T.T.E.R.'s footer Help: the kit IconButton,
+                named by its title (a text button wrapped the note at 1440). */}
             {onOpenHelp && (
-              <Button
+              <IconButton
                 size="sm"
-                variant="ghost"
                 icon={HelpCircle}
                 onClick={onOpenHelp}
                 title="Open RABBIT help & documentation"
-                className="flex-shrink-0"
-              >
-                Help
-              </Button>
+              />
             )}
           </div>
         )}
@@ -5412,12 +5426,14 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
           id={SETTINGS_PANEL_ID}
           role="tabpanel"
           aria-label={settingsTab === 'prompts' ? 'System prompts' : 'Settings'}
-          className="flex-1 min-h-0 overflow-y-auto p-4"
+          className="flex-1 min-h-0 overflow-y-auto"
         >
+          {/* Settings: kit Cards 16px apart on their own 12px, as O.T.T.E.R.'s
+              tool settings are; the prompts run edge to edge, as both
+              siblings' do (review round 1). */}
           {settingsTab === 'settings' && (
-            <div className="rb-tl-set-body" data-locked={toolsLocked ? 'true' : 'false'}>
-              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
-                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">Timeline display</h3>
+            <div className="flex flex-col gap-4 p-3 rb-tl-set-body" data-locked={toolsLocked ? 'true' : 'false'}>
+              <Card title="Timeline display">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-dense font-semibold rb-tl-set-label">Show weekends</div>
@@ -5434,29 +5450,26 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     className="flex-shrink-0"
                   />
                 </div>
-              </section>
-              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
-                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">About</h3>
+              </Card>
+              <Card title="About">
                 <p className="text-dense rb-tl-set-desc">
                   RABBIT is WILSON's resource allocation tool. Settings are scoped to the
                   current browser profile and persist via localStorage.
                 </p>
-              </section>
+              </Card>
 
               {/* ── Task Templates: opens B2's TaskTemplateManager, as it did ── */}
-              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
-                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">Task templates</h3>
+              <Card title="Task templates">
                 <p className="text-dense mb-3 rb-tl-set-desc">
                   Create and manage reusable task templates that can be applied when creating new assets.
                 </p>
                 <Button size="sm" icon={ListChecks} disabled={toolsLocked} onClick={() => setShowTemplateManager(true)}>
                   Manage task templates
                 </Button>
-              </section>
+              </Card>
 
               {/* ── Project Type Defaults ── */}
-              <section className="rounded-control p-4 mb-4 rb-tl-set-card">
-                <h3 className="text-h3 font-semibold mb-2 rb-tl-set-title">Project type defaults</h3>
+              <Card title="Project type defaults">
                 <p className="text-dense mb-3 rb-tl-set-desc">
                   When creating a new project, these databases will be toggled on by default based on the project type.
                   You can override these per-project in the Project Control Panel.
@@ -5507,11 +5520,11 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                   variant="ghost"
                   disabled={toolsLocked}
                   onClick={() => patchSettings({ projectTypeTemplates: { ...DEFAULT_PROJECT_TYPE_TEMPLATES } })}
-                  className="mt-2"
+                  className="mt-2 -ml-2.5"
                 >
                   Reset to defaults
                 </Button>
-              </section>
+              </Card>
 
               {/* ── Holidays / blocked days ── */}
               <HolidaysEditor
@@ -5533,7 +5546,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     className="flex items-center justify-between gap-2 w-full px-3 py-2 rb-tl-prompt-head"
                   >
                     <div className="text-left min-w-0">
-                      <span className="text-label font-semibold uppercase rb-tl-prompt-title" data-locked={promptsLocked ? 'true' : 'false'}>
+                      <span className="block text-label font-semibold uppercase rb-tl-prompt-title" data-locked={promptsLocked ? 'true' : 'false'}>
                         {s.title}
                       </span>
                       <p className="text-dense rb-tl-prompt-desc">{s.desc}</p>
@@ -5546,20 +5559,27 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                   </button>
                   {openSection === s.key && (
                     <div className="px-3 pb-3 pt-2">
-                      <TextArea
+                      {/* A native textarea in the kit's `ui-input`, as both
+                          siblings' prompt editors are: the kit TextArea
+                          reverts on Escape, which wiped an unsaved draft
+                          (review round 1). */}
+                      <textarea
                         value={editingPrompts[s.key] || ''}
-                        onChange={(value) =>
-                          setEditingPrompts(prev => ({ ...prev, [s.key]: value }))
+                        onChange={(e) =>
+                          setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))
                         }
+                        onKeyDown={keepEscape}
                         disabled={promptsLocked}
                         aria-label={`${s.title} prompt`}
-                        className="w-full h-48 resize-none"
+                        className="ui-input w-full h-48 resize-none"
+                        data-surface="dark"
                       />
                       <div className="flex gap-3 mt-1">
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={promptsLocked}
+                          className="-ml-2.5"
                           onClick={() =>
                             setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))
                           }

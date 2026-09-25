@@ -627,11 +627,12 @@
      The editor's chrome is inline and is question 6 (V2 or P1); its title
      is this sheet's. 🚨 ITS GROUND IS THE HEADER BAND, `#44403c` inline, not
      the editor's `#292524` body (measured in the running app, B3d): there
-     orange-400 was 4.45:1 and amber 4.78:1 at the 11px Label step, and the
-     signal would be 2.89:1. The title is the ink for every kind — 9.08:1 on
-     the band, above 13:1 on the body and on the raised paper — so it holds
-     whatever question 6 decides, and it is the ink the kit Dialog's title
-     already is. The kind stays in the icon beside it and in its words ("New
+     orange-400 was 4.54:1 at the 11px Label step (it passed, by 0.04, and it
+     is no token) and amber 4.79:1, and the signal — the token for that
+     orange — would be 2.89:1. The title is the ink for every kind — 9.08:1
+     on the band, above 13:1 on the body and on the raised paper — so it
+     holds whatever question 6 decides, and it is the ink the kit Dialog's
+     title already is. The kind stays in the icon beside it and in its words ("New
      key date", "Edit asset", "Edit phase"). */
   .rb-tl-ed-title { color: var(--color-ink); }
   /* W9 (B3c): the second sentence of a delete question, in the kit Dialog
@@ -648,13 +649,14 @@
 
   /* ═══ The settings panel (SettingsPanel) — stage 2 (B3d) ════════════════
      The kit's Drawer (a backdrop, the right side), Tabs, Toolbar, Switch,
-     Button, IconButton, Input and TextArea carry every control and state,
+     Card, Button and IconButton carry every control and state, and the
+     three fields are native in the kit's `ui-input` (TimelineView says why),
      laid out as D.O.G.'s and O.T.T.E.R.'s settings drawers are (A2, A4), so
      the three tools' settings read as one. The title bar is the Drawer's
      `--titlebar-offset` (TL-24), where the panel padded itself 32px under
-     Electron. What is left here: the drawer's shape, the lock bar's inks,
-     the cards, the project-type grid (the kit has no checkbox) and the
-     holiday list.
+     Electron. What is left here: the drawer's shape, the lock bar, the
+     project-type grid (the kit has no checkbox), the holiday list and the
+     prompt sections.
      🚨 THE WIDTH IS THE PANEL'S, AS IT WAS: 40% of the window over the kit's
      xl (420, B3c-KR-1) as the floor, so 576 at 1440, 512 at 1280 and 420 at
      1024 — and the same rule D.O.G.'s and O.T.T.E.R.'s settings drawers
@@ -664,9 +666,9 @@
      🚨 THE LOCK IS THE DISABLED TOKEN, NOT AN OPACITY. The Settings tab went
      to opacity 60% (the walk measured 80 lines of it, down to 2.18:1) and
      the System Prompts tab too; now every control is `disabled` (the kit's
-     disabled ink and track) and the text steps to ink-3, 5.04:1 on the
-     cards, as D.O.G.'s lock does. The Settings tab stays out of the
-     pointer's reach while locked, as it was. */
+     disabled ink and track) and the text steps to ink-3, 4.66:1 on the
+     cards' raised paper, as D.O.G.'s lock does. The Settings tab stays out
+     of the pointer's reach while locked, as it was. */
   aside.ui-drawer.rb-tl-settings { width: 40%; min-width: var(--panel-xl); }
   .rb-tl-settings .ui-drawer-title {
     display: flex;
@@ -690,36 +692,42 @@
   .rb-tl-settings .ui-tabs.rb-tl-set-tabs { flex-shrink: 0; flex-wrap: nowrap; border-bottom: 1px solid var(--color-rule); }
   .ui-tabs.rb-tl-set-tabs > .ui-tab { flex: 1 1 0; justify-content: center; }
   .ui-tabs.rb-tl-set-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
-  /* The lock bar. Unlocked is the one active state: the signal on the icon
-     only, never under text. */
+  /* The lock bar, on the siblings' 12px (the kit Toolbar's own is 24).
+     Unlocked is the one active state: the signal on the icon only, never
+     under text. */
+  .rb-tl-settings .ui-toolbar.rb-tl-lock-bar { padding: 0 12px; }
   .rb-tl-lock-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
   .rb-tl-lock-label { color: var(--color-ink-2); }
   .rb-tl-lock-hint { color: var(--color-ink-3); }
   .rb-tl-lock-bar[data-locked="true"] .rb-tl-lock-icon,
   .rb-tl-lock-bar[data-locked="true"] .rb-tl-lock-label { color: var(--color-ink-3); }
-  /* A section of the Settings tab: a card of the paper under the rule, as
-     the history drawer's entries are. Its title the ink, a label ink-2, a
-     description ink-3; the footer's note ink-3 on the raised paper, 4.69:1. */
-  .rb-tl-set-card { background-color: var(--color-paper); border: 1px solid var(--color-rule); }
-  .rb-tl-set-title { color: var(--color-ink); }
+  /* A section of the Settings tab is the kit Card (its title the ink); in
+     it a label ink-2 and a description ink-3, 4.66:1 on the raised paper,
+     as the footer's note is. Locked, the titles, labels and names step to
+     ink-3 too (under the drawer's class: `.ui-card[data-surface="light"]
+     .ui-card-title` is (0,3,0), and a tie is a loss). */
   .rb-tl-set-label { color: var(--color-ink-2); }
   .rb-tl-set-desc,
   .rb-tl-set-note { color: var(--color-ink-3); }
   .rb-tl-set-body[data-locked="true"] { pointer-events: none; }
-  .rb-tl-set-body[data-locked="true"] :is(.rb-tl-set-title, .rb-tl-set-label, .rb-tl-type-name, .rb-tl-hol-date, .rb-tl-hol-name) {
-    color: var(--color-ink-3);
-  }
+  .rb-tl-settings .rb-tl-set-body[data-locked="true"] .ui-card-title,
+  .rb-tl-set-body[data-locked="true"] .rb-tl-set-label,
+  .rb-tl-set-body[data-locked="true"] .rb-tl-type-name,
+  .rb-tl-set-body[data-locked="true"] .rb-tl-hol-date,
+  .rb-tl-set-body[data-locked="true"] .rb-tl-hol-name { color: var(--color-ink-3); }
   /* Project-type defaults: a grid under the rule, its head the Label step
      in ink-3; a ticked box is the kit's filled primary (the fill and its
-     ink), a locked one ink-3 under the paper. */
+     ink) inside a signal edge, so the box still reads at 3:1 on a hovered
+     row (the fill's own edge was 2.91:1 there, review round 1); a locked
+     one ink-3 under the paper. No `:disabled` cursor: the locked tab is out
+     of the pointer's reach, so it would never show. */
   .rb-tl-type-table { border: 1px solid var(--color-rule); }
   .rb-tl-type-head { color: var(--color-ink-3); border-bottom: 1px solid var(--color-rule); }
   .rb-tl-type-row { border-bottom: 1px solid var(--color-rule); }
   .rb-tl-type-row:last-child { border-bottom-width: 0; }
   .rb-tl-type-name { color: var(--color-ink-2); }
   .rb-tl-type-check { color: var(--color-on-fill); background-color: transparent; border: 1px solid var(--color-ink-3); }
-  .rb-tl-type-check[data-checked="true"] { background-color: var(--color-signal-fill); border-color: var(--color-signal-fill); }
-  .rb-tl-type-check:disabled { cursor: not-allowed; }
+  .rb-tl-type-check[data-checked="true"] { background-color: var(--color-signal-fill); border-color: var(--color-signal); }
   .rb-tl-type-check[data-checked="true"]:disabled {
     color: var(--color-paper);
     background-color: var(--color-ink-3);
@@ -740,15 +748,23 @@
      two actions are the kit's, `disabled` exactly while locked. */
   .rb-tl-prompt { border-bottom: 1px solid var(--color-rule); }
   .rb-tl-prompt-head { background-color: transparent; transition: background-color var(--duration-state) ease-out; }
+  /* The section clips its overflow, so the head's ring sits inside it (it
+     was cut on every side; O.T.T.E.R.'s fix, review round 1). */
+  .rb-tl-prompt-head:focus-visible { outline-offset: -2px; }
   .rb-tl-prompt-title { color: var(--color-ink-2); }
   .rb-tl-prompt-title[data-locked="true"] { color: var(--color-ink-3); }
   .rb-tl-prompt-desc { color: var(--color-ink-3); }
-  .rb-tl-prompt-chevron { color: var(--color-ink-3); transition: rotate var(--duration-state) ease-out; }
+  .rb-tl-prompt-chevron { color: var(--color-ink-3); transition: rotate var(--duration-response) var(--ease-response); }
   .rb-tl-prompt-chevron[data-open="true"] { rotate: 90deg; }
+  /* Under the pointer a row takes the hover wash; on a prompt head the
+     wash would put ink-3 at 3.96:1, so its line (and a locked title) lift
+     to ink-2, as O.T.T.E.R.'s do. */
   @media (hover: hover) {
     .rb-tl-type-row:hover,
     .rb-tl-hol-row:hover,
     .rb-tl-prompt-head:hover { background-color: var(--color-hover); }
+    .rb-tl-prompt-head:hover .rb-tl-prompt-desc,
+    .rb-tl-prompt-head:hover .rb-tl-prompt-title[data-locked="true"] { color: var(--color-ink-2); }
   }
   @media (prefers-reduced-motion: reduce) {
     .rb-tl-prompt-head,

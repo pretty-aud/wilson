@@ -158,7 +158,9 @@ if (await step('24-settings', page.locator('[aria-label="RABBIT settings"]'), 'c
   await step('26-settings-toggle-1', switches.nth(0), 'click');
   await step('27-settings-toggle-2', switches.nth(1), 'click');
   await step('28-settings-prompts-tab', promptsTab, 'click');
-  const section = panel.locator('button').filter({ hasText: /prompt|scheduler|recommend|generator/i }).first();
+  // Task Recommender: the Scheduler section is open by default, and `/prompt/`
+  // matched the 'System prompts' tab first, so shot 29 was shot 28 (B3d round 1).
+  const section = panel.locator('button').filter({ hasText: /recommend/i }).first();
   await step('29-settings-section-open', section, 'click');
   await page.keyboard.press('Escape');
   await sleep(300);
