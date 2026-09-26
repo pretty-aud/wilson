@@ -27,6 +27,9 @@ const { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTa
 const { default: BudgetPopover, placePopover } = await import('./budget/BudgetPopover')
 const { default: MarginContPopover } = await import('./budget/MarginContPopover')
 const clientModule = await import('./budget/ClientViewTab')
+const { default: InvoiceAttachment } = await import('../../../components/Budget/InvoiceAttachment')
+const { default: CrewTeamTab } = await import('./budget/CrewTeamTab')
+const { default: TalentTab } = await import('./budget/TalentTab')
 
 afterEach(() => { cleanup() })
 
@@ -672,6 +675,350 @@ describe('surface 2b', () => {
   })
 })
 
+/* ── surface 4: the Crew/team and Talent tabs (R3-05 … R3-37, W9) ────────── */
+describe('surface 4', () => {
+  afterEach(() => {
+    cleanup()
+    _resetOverlaysForTests()
+  })
+
+  /** Every declaration of a colour, a ground or an edge in an inline style. */
+  const inlineColours = (root) => [...root.querySelectorAll('[style]')]
+    .map((el) => el.getAttribute('style'))
+    .filter((s) => /(^|;)\s*(color|background(-color)?|border(-[a-z]+)*|fill|stroke|opacity)\s*:/i.test(s))
+  const sheet = read('./rabbitBudget.css')
+  const heads = (table) => [...table.querySelectorAll('thead th')].map((th) => th.textContent)
+  const cells = (tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)
+  const numerics = (tr) => [...tr.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)
+  const escape = () => {
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { document.activeElement.dispatchEvent(esc) })
+    return esc
+  }
+  // Count mode: the period headers are "#1…#3", whatever today's date.
+  const PROJECT = { id: 'p1', budget_actual_column_mode: 'count', budget_actual_column_count: 3, budget_margin_pct: 0, budget_contingency_pct: 5 }
+
+  describe('Crew/team', () => {
+    /** One member (500/day x 4 bid days, a line with a 10% margin and a
+        $1,200 actual in period 1, its invoice attached), in one department. */
+    const hook = (over = {}) => ({
+      lines: [{ id: 'l1', sheet: 'crew', team_member_id: 'm1', margin_pct: 10, contingency_pct: null }],
+      actualsByLine: { l1: [{ id: 'a1', line_id: 'l1', column_index: 0, value: 1200, invoice_number: 'INV-7', attachment_name: 'inv.pdf', attachment_path: 'file:f1' }] },
+      addLine: vi.fn(async () => ({ id: 'new' })),
+      updateLine: vi.fn(async () => {}),
+      upsertActual: vi.fn(async () => {}),
+      deleteActual: vi.fn(),
+      ...over,
+    })
+    const tab = (h = hook(), over = {}) => (
+      <CrewTeamTab
+        budgetHook={h}
+        project={PROJECT}
+        tasks={[{ assigned_role_slug: 'anim', bid_days: 4 }]}
+        roleRates={{}}
+        rateCard={{ entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }] }}
+        teamMembers={[{ id: 'm1', name: 'Ana Ruiz', title: 'Animator', department: 'Animation', employment_type: 'fulltime' }]}
+        currency="USD"
+        {...over}
+      />
+    )
+    const memberRow = (root) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Ana Ruiz'))
+
+    it('is ONE kit table: the header reads … Bid total, Actual, Variance, then the periods (R3-05, R3-20)', () => {
+      const { container } = render(tab())
+      const tables = container.querySelectorAll('table')
+      expect(tables).toHaveLength(1)
+      expect(tables[0].className).toBe('ui-table rb-crew-table')
+      expect(heads(tables[0])).toEqual(['Member / role', 'Type', 'Rate', 'Days', 'Subtotal', 'Margin', 'Conting.', 'Bid total', 'Actual', 'Variance', '#1', '#2', '#3'])
+      // Each width is the sheet's, declared once and read by its header cell.
+      const ths = [...tables[0].querySelectorAll('thead th')]
+      expect(ths.map((th) => th.style.width)).toEqual(['', 'var(--rb-crew-w-type)', 'var(--rb-crew-w-rate)', 'var(--rb-crew-w-days)',
+        ...Array(6).fill('var(--rb-crew-w-money)'), ...Array(3).fill('var(--rb-crew-w-period)')])
+      // The table's one style is the period count the sheet sizes it by.
+      expect(tables[0].getAttribute('style')).toBe('--rb-crew-cols: 3;')
+      // A member's row: Actual before the Variance derived from it, every figure a numeric cell.
+      expect(numerics(memberRow(container))).toEqual(['$500', '4.0', '$2,000', '+$200', '+$100', '$2,000', '$1,200', '-$800'])
+      expect(memberRow(container).querySelector('.rb-crew-var').getAttribute('data-tone')).toBe('success')
+      // The department's header and subtotal are rows of the same table, the subtotal in the same order.
+      const group = container.querySelector('tbody tr.rb-crew-group')
+      expect(group.textContent).toBe('Animation1')
+      expect(group.getAttribute('data-selected')).toBeNull()
+      const subtotal = container.querySelector('tbody tr.rb-crew-subtotal')
+      expect(cells(subtotal)).toEqual(['Animation total', '$2,000', '+$200', '+$100', '$2,000', '$1,200', '-$800', ''])
+      expect(subtotal.getAttribute('data-selected')).toBeNull()
+    })
+
+    it('the grand total is the table\'s <tfoot>, in the same order', () => {
+      const { container } = render(tab())
+      const foot = container.querySelector('table > tfoot')
+      expect(foot).not.toBeNull()
+      expect(cells(foot.querySelector('tr'))).toEqual(['Grand total', '$2,000', '+$200', '+$100', '$2,000', '$1,200', '-$800', ''])
+      // Its columns are the header's: the label spans four, the periods one filler.
+      const spans = [...foot.querySelectorAll('td')].reduce((n, td) => n + Number(td.getAttribute('colspan') || 1), 0)
+      expect(spans).toBe(container.querySelectorAll('thead th').length)
+    })
+
+    it('a period cell is the same 28px button, whose click opens the lane\'s popover in <body>; Escape and an outside press close it (R3-33, R3-32)', () => {
+      const { container } = render(tab())
+      const buttons = [...memberRow(container).querySelectorAll('button.rb-crew-cell')]
+      expect(buttons).toHaveLength(3)
+      expect(sheet).toMatch(/\.rb-crew-cell,\s*\.rb-talent-cell \{[^}]*height: var\(--control-sm\);/)
+      // An empty cell's text is its middle dot (the walk's step); a value is the money figure, its invoice a paperclip.
+      expect(buttons.map((b) => b.textContent)).toEqual(['$1,200', '·', '·'])
+      expect(buttons.map((b) => b.getAttribute('data-empty'))).toEqual([null, 'true', 'true'])
+      expect(buttons[0].querySelector('.rb-money-figure')).not.toBeNull()
+      expect(buttons[0].querySelector('svg.rb-crew-clip')).not.toBeNull()
+      const open = (b) => { fireEvent.click(b); return screen.getByRole('dialog', { name: 'Ana Ruiz / #2' }) }
+      let pop = open(buttons[1])
+      expect(pop.parentElement).toBe(document.body)
+      expect(container.contains(pop)).toBe(false)
+      expect(pop.className).toBe('rb-pop-panel')
+      expect(within(pop).getByText('Invoice #')).toBeTruthy()
+      expect(document.activeElement).toBe(within(pop).getByRole('spinbutton', { name: 'Amount (USD)' }))
+      expect(escape().defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+      pop = open(buttons[1])
+      fireEvent.mouseDown(within(pop).getByRole('textbox', { name: 'Invoice #' }))
+      expect(pop.isConnected).toBe(true)
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+    })
+
+    it('a popover belongs to its cell: opened on another cell while one is open, it starts from that cell, never the last one\'s draft', () => {
+      const { container } = render(tab())
+      const [, second, third] = memberRow(container).querySelectorAll('button.rb-crew-cell')
+      fireEvent.click(second)
+      const first = screen.getByRole('dialog', { name: 'Ana Ruiz / #2' })
+      fireEvent.change(within(first).getByRole('spinbutton', { name: 'Amount (USD)' }), { target: { value: '999' } })
+      // A click with no mousedown is the keyboard's (Enter / Space on the
+      // cell), so nothing outside the open popover was pressed.
+      fireEvent.click(third)
+      const next = screen.getByRole('dialog', { name: 'Ana Ruiz / #3' })
+      expect(within(next).getByRole('spinbutton', { name: 'Amount (USD)' }).value).toBe('')
+    })
+
+    it('the popover saves and clears as it did: Save the kit primary, Clear the kit danger', async () => {
+      const h = hook()
+      const { container } = render(tab(h))
+      const [filled, empty] = memberRow(container).querySelectorAll('button.rb-crew-cell')
+      fireEvent.click(empty)
+      let pop = screen.getByRole('dialog', { name: 'Ana Ruiz / #2' })
+      expect(within(pop).queryByRole('button', { name: 'Clear' })).toBeNull()
+      fireEvent.change(within(pop).getByRole('spinbutton', { name: 'Amount (USD)' }), { target: { value: '300' } })
+      fireEvent.change(within(pop).getByRole('textbox', { name: 'Invoice #' }), { target: { value: ' INV-9 ' } })
+      const save = within(pop).getByRole('button', { name: 'Save' })
+      expect(save.getAttribute('data-variant')).toBe('primary')
+      await act(async () => { fireEvent.click(save) })
+      expect(h.upsertActual).toHaveBeenCalledWith({
+        line_id: 'l1', column_index: 1, value: 300, invoice_number: 'INV-9',
+        attachment_name: null, attachment_path: null, source: 'manual',
+      })
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+      // A cell with a value opens on its own values, and Clear deletes it.
+      fireEvent.click(filled)
+      pop = screen.getByRole('dialog', { name: 'Ana Ruiz / #1' })
+      expect(within(pop).getByRole('spinbutton', { name: 'Amount (USD)' }).value).toBe('1200')
+      expect(within(pop).getByRole('textbox', { name: 'Invoice #' }).value).toBe('INV-7')
+      const clear = within(pop).getByRole('button', { name: 'Clear' })
+      expect(clear.getAttribute('data-variant')).toBe('danger')
+      fireEvent.click(clear)
+      expect(h.deleteActual).toHaveBeenCalledWith('a1')
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #1' })).toBeNull()
+    })
+
+    it('Margin and Contingency open the lane\'s one editor, on the line\'s bid total (R3-32)', () => {
+      const { container } = render(tab())
+      const wells = memberRow(container).querySelectorAll('button.rb-crew-mc')
+      expect([...wells].map((w) => w.textContent)).toEqual(['+$200', '+$100'])
+      fireEvent.click(wells[1])
+      const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+      expect(pop.parentElement).toBe(document.body)
+      expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('10')
+      expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('5')
+      expect(pop.querySelector('.rb-pop-amount').getAttribute('title')).toBe('Bid total $2,000 × 10%')
+    })
+
+    it('W9: Reset M/C asks on the kit Dialog in <body>; Cancel keeps the values, Reset clears them through the hook', async () => {
+      const confirm = vi.spyOn(window, 'confirm')
+      const h = hook()
+      render(tab(h))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      let dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      expect(dialog.getAttribute('data-width')).toBe('confirm')
+      expect(dialog.querySelector('.ui-dialog-body').textContent)
+        .toBe('Reset all margin & contingency values to the project defaults? This cannot be undone.')
+      expect(document.activeElement.textContent).toBe('Cancel')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(h.updateLine).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' })) })
+      expect(h.updateLine.mock.calls).toEqual([['l1', { margin_pct: null, contingency_pct: null }]])
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(confirm).not.toHaveBeenCalled()
+      confirm.mockRestore()
+    })
+
+    it('the tiles are the kit Stat and the bar the kit Toolbar, in sentence case; no brightness hover, no inline colour (R3-10, R3-23, Q2)', () => {
+      const { container } = render(tab())
+      const tiles = [...container.querySelectorAll('.ui-stat.rb-crew-stat')]
+      expect(tiles.map((t) => t.querySelector('.ui-stat-label').textContent)).toEqual(['Bid total', 'Actual total', 'Variance', 'Members'])
+      expect(tiles[2].querySelector('.ui-stat-value').getAttribute('data-tone')).toBe('success')
+      const bar = container.querySelector('.ui-toolbar.rb-crew-toolbar')
+      expect(bar.textContent).toContain('Crew/team budget')
+      expect([...bar.querySelectorAll('.ui-badge')].map((b) => b.textContent)).toEqual(['Margin: 0%', 'Contingency: 5%'])
+      expect(within(bar).getByRole('button', { name: 'Reset M/C' }).getAttribute('data-size')).toBe('sm')
+      expect(container.innerHTML).not.toMatch(/brightness|Grand Total|Bid Total|Actual Total/)
+      expect(inlineColours(container)).toEqual([])
+    })
+
+    it('no team is the kit EmptyState, in sentence case (R3-19)', () => {
+      const { container } = render(tab(hook(), { teamMembers: [], tasks: [] }))
+      expect(container.querySelector('table')).toBeNull()
+      expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No crew/team data yet')
+      expect(container.querySelector('.ui-empty > svg')).not.toBeNull()
+    })
+  })
+
+  describe('Talent', () => {
+    const hook = (over = {}) => ({
+      lines: [
+        { id: 't1', sheet: 'talent', label: 'Mara (lead)', talent_type: 'actor', rate: 900, days: 10, talent_agency_fee_pct: 15, margin_pct: null, contingency_pct: 10, union_id: 'EQ-1' },
+        { id: 't2', sheet: 'talent', label: 'Log book VO', talent_type: 'voice_actor', rate: 0, days: 0 },
+      ],
+      lineComputations: {
+        t1: { subtotal: 9000, agencyFee: 1350, bidTotal: 10350, actualTotal: 500, variance: -9850 },
+        t2: { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0, variance: 0 },
+      },
+      actualsByLine: { t1: [{ id: 'x1', line_id: 't1', column_index: 2, value: 500 }] },
+      addLine: vi.fn(async () => {}),
+      updateLine: vi.fn(async () => {}),
+      deleteLine: vi.fn(),
+      upsertActual: vi.fn(async () => {}),
+      deleteActual: vi.fn(),
+      loading: false,
+      ...over,
+    })
+    const tab = (h = hook()) => <TalentTab budgetHook={h} project={{ ...PROJECT, budget_contingency_pct: 0 }} currency="USD" />
+    const lineRow = (root, name) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(name))
+
+    it('is ONE kit table: the header reads … Bid total, Actual, Variance, then the periods; the grand total its <tfoot> (R3-05, R3-20)', () => {
+      const { container } = render(tab())
+      const tables = container.querySelectorAll('table')
+      expect(tables).toHaveLength(1)
+      expect(heads(tables[0])).toEqual(['Name', 'Type', 'Rate', 'Days', 'Subtotal', 'Agent %', 'Margin', 'Conting.', 'Bid total', 'Actions', 'Actual', 'Variance', '#1', '#2', '#3'])
+      expect(tables[0].getAttribute('style')).toBe('--rb-talent-cols: 3;')
+      expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$1,035', '$10,350', '$500', '-$9,850'])
+      const foot = tables[0].querySelector('tfoot tr')
+      expect(cells(foot)).toEqual(['Grand total', '$9,000', '', '—', '+$1,035', '$10,350', '', '$500', '-$9,850', ''])
+      expect([...foot.querySelectorAll('td')].reduce((n, td) => n + Number(td.getAttribute('colspan') || 1), 0)).toBe(15)
+    })
+
+    it('a period cell opens the lane\'s popover in <body>, closed by Escape and an outside press (R3-33, R3-32)', () => {
+      const { container } = render(tab())
+      const buttons = [...lineRow(container, 'Mara (lead)').querySelectorAll('button.rb-talent-cell')]
+      expect(buttons.map((b) => b.textContent)).toEqual(['·', '·', '$500'])
+      fireEvent.click(buttons[0])
+      let pop = screen.getByRole('dialog', { name: 'Mara (lead) / #1' })
+      expect(pop.parentElement).toBe(document.body)
+      expect(within(pop).getByText('Invoice #')).toBeTruthy()
+      escape()
+      expect(screen.queryByRole('dialog', { name: 'Mara (lead) / #1' })).toBeNull()
+      fireEvent.click(buttons[0])
+      pop = screen.getByRole('dialog', { name: 'Mara (lead) / #1' })
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByRole('dialog', { name: 'Mara (lead) / #1' })).toBeNull()
+    })
+
+    it('a line\'s details open as a full-width row of the table under it, and close again', () => {
+      const { container } = render(tab())
+      fireEvent.click(within(lineRow(container, 'Mara (lead)')).getByRole('button', { name: 'Show details' }))
+      const rows = [...container.querySelectorAll('tbody tr')]
+      expect(rows).toHaveLength(3)
+      const detail = rows[1].querySelectorAll('td')
+      expect(detail).toHaveLength(1)
+      expect(detail[0].getAttribute('colspan')).toBe('15')
+      expect([...detail[0].querySelectorAll('.ui-field-label')].map((l) => l.textContent)).toEqual(['Union / Guild #', 'Agency', 'Agent', 'Phone', 'Email', 'Notes'])
+      expect(detail[0].textContent).toContain('EQ-1')
+      const hide = within(rows[0]).getByRole('button', { name: 'Hide details' })
+      expect(hide.getAttribute('aria-expanded')).toBe('true')
+      fireEvent.click(hide)
+      expect(container.querySelectorAll('tbody tr')).toHaveLength(2)
+    })
+
+    it('the inline cells keep Escape-reverts and Enter-commits; the type is the kit CellSelect, in sentence case', () => {
+      const h = hook()
+      const { container } = render(tab(h))
+      const row = () => lineRow(container, 'Mara (lead)')
+      fireEvent.click(within(row()).getByRole('button', { name: '900' }))
+      let input = row().querySelector('input.ui-input.rb-talent-cell-input')
+      expect(document.activeElement).toBe(input)
+      fireEvent.change(input, { target: { value: '950' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(h.updateLine).not.toHaveBeenCalled()
+      expect(within(row()).getByRole('button', { name: '900' })).toBeTruthy()
+      fireEvent.click(within(row()).getByRole('button', { name: '900' }))
+      input = row().querySelector('input.rb-talent-cell-input')
+      fireEvent.change(input, { target: { value: '950' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(h.updateLine).toHaveBeenCalledWith('t1', { rate: 950 })
+      // The type: the kit's in-cell select, its options in sentence case.
+      const select = within(row()).getByRole('combobox', { name: 'Talent type for Mara (lead)' })
+      expect(select.closest('.ui-cell-select')).not.toBeNull()
+      expect([...select.options].map((o) => o.textContent)).toEqual(['Actor', 'Voice actor', 'Extra', 'Background', 'Stunt performer', 'Motion capture performer', 'Other'])
+      fireEvent.change(select, { target: { value: 'extra' } })
+      expect(h.updateLine).toHaveBeenLastCalledWith('t1', { talent_type: 'extra' })
+    })
+
+    it('Delete is in the kit HoverActions (hover and focus); Reset M/C asks on the kit Dialog (R3-24, W9)', async () => {
+      const confirm = vi.spyOn(window, 'confirm')
+      const h = hook()
+      const { container } = render(tab(h))
+      const slot = lineRow(container, 'Mara (lead)').querySelector('.ui-hover-actions')
+      expect(slot.getAttribute('data-always')).toBeNull()
+      const del = within(slot).getByRole('button', { name: 'Delete' })
+      del.focus()
+      expect(document.activeElement).toBe(del)
+      fireEvent.click(del)
+      expect(h.deleteLine).toHaveBeenCalledWith('t1')
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      let dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      expect(h.updateLine).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' })) })
+      expect(h.updateLine.mock.calls).toEqual([['t1', { margin_pct: null, contingency_pct: null }]])
+      expect(confirm).not.toHaveBeenCalled()
+      confirm.mockRestore()
+    })
+
+    it('tiles, toolbar and words in sentence case; no brightness hover, no inline colour (R3-10, R3-23, Q2)', () => {
+      const { container } = render(tab())
+      expect([...container.querySelectorAll('.ui-stat.rb-talent-stat .ui-stat-label')].map((l) => l.textContent)).toEqual(['Bid total', 'Actual total', 'Variance', 'Talent'])
+      const add = within(container.querySelector('.ui-toolbar.rb-talent-toolbar')).getByRole('button', { name: 'Add talent' })
+      expect(add.getAttribute('data-variant')).toBe('primary')
+      expect(container.innerHTML).not.toMatch(/brightness|Grand Total|Add Talent|Voice Actor/)
+      expect(inlineColours(container)).toEqual([])
+    })
+
+    it('"Loading talent..." is the kit Loading; no lines is the kit EmptyState with its Add talent (R3-19)', async () => {
+      const { container, rerender } = render(tab(hook({ loading: true })))
+      expect(container.querySelector('.ui-loading-inline')?.getAttribute('aria-label')).toBe('Loading talent...')
+      expect(container.querySelector('.ui-empty')).toBeNull()
+      const h = hook({ lines: [] })
+      rerender(tab(h))
+      expect(container.querySelector('.ui-loading-inline')).toBeNull()
+      expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No talent budget lines yet')
+      await act(async () => { fireEvent.click(within(container.querySelector('.ui-empty')).getByRole('button', { name: 'Add talent' })) })
+      expect(h.addLine).toHaveBeenCalledWith({ sheet: 'talent', department: 'Talent', label: 'Talent 1', sort_order: 1, talent_type: 'actor' })
+    })
+  })
+})
+
 /* ── surface 5: the client estimate (R3-27, R3-39, C9) ───────────────────── */
 describe('the client estimate', () => {
   const { default: ClientViewTab, estimateDocument } = clientModule
@@ -785,5 +1132,27 @@ describe('the client estimate', () => {
   it('estimateDocument is pure: the same input, the same document', () => {
     const input = { title: 'T', code: 'C', date: '1/1/2026', rows: [{ label: 'a', amount: 1 }], total: 1, currency: 'USD', faces: '' }
     expect(estimateDocument(input)).toBe(estimateDocument(input))
+  })
+})
+
+/* ── surface 4's tail: the popovers' invoice field ────────────────────────── */
+describe('InvoiceAttachment', () => {
+  const noStyle = (root) => expect([...root.querySelectorAll('[style]')].map((e) => e.getAttribute('style'))).toEqual([])
+  it('with no file: the Label-step "Invoice file" over the kit secondary Button "Attach invoice" (Q2)', () => {
+    const { container } = render(<InvoiceAttachment getAdapter={() => null} projectId="p1" lineId="l1" name="" path="" onChange={() => {}} />)
+    expect(container.querySelector('.rb-inv-label').textContent).toBe('Invoice file')
+    const attach = screen.getByRole('button', { name: 'Attach invoice' })
+    expect(attach.classList.contains('ui-btn')).toBe(true)
+    expect(attach.getAttribute('data-variant')).toBe('secondary')
+    noStyle(container)
+  })
+  it('with a file: its name, then the kit icon buttons Open invoice and Remove attachment; Remove clears it', () => {
+    const onChange = vi.fn()
+    const { container } = render(<InvoiceAttachment getAdapter={() => null} projectId="p1" lineId="l1" name="inv.pdf" path="file:f1" onChange={onChange} />)
+    expect(container.querySelector('.rb-inv-name').textContent).toBe('inv.pdf')
+    expect(screen.getByRole('button', { name: 'Open invoice' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove attachment' }))
+    expect(onChange).toHaveBeenCalledWith({ name: '', path: '' })
+    noStyle(container)
   })
 })

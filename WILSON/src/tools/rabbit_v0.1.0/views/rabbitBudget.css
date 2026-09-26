@@ -72,11 +72,16 @@
   .rb-budget-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
   /* Words that say where a figure comes from ("Rates via", "cols"): Dense in
-     the third ink (they were #78716c, 3.65:1). */
-  .rb-budget-hint { font-size: var(--text-dense); color: var(--color-ink-3); }
+     the third ink (they were #78716c, 3.65:1). Crew's and Talent's toolbar
+     notes too (they were #57534e, 2.3:1). */
+  .rb-budget-hint,
+  .rb-crew-hint,
+  .rb-talent-hint { font-size: var(--text-dense); color: var(--color-ink-3); }
 
-  /* A Label-step heading over a block that is not a section. */
-  .rb-budget-eyebrow {
+  /* A Label-step heading over a block that is not a section (Crew's
+     "Crew/team budget" as well; it was #78716c). */
+  .rb-budget-eyebrow,
+  .rb-crew-eyebrow {
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
     letter-spacing: var(--text-label--letter-spacing);
@@ -93,11 +98,15 @@
 
   /* The day tiles: one kit Stat each (R3-10), on the raised paper with one
      hairline as B2's Tasks tiles are, in one row at the 24px gutter. They
-     share the row evenly (the Expenses tab's four as well) and wrap under
-     120px. One class over `.ui-stat`, whose `min-width: 0` this sheet may
-     load before. */
-  .rb-budget-stats { display: flex; flex-wrap: wrap; gap: var(--spacing-gutter); }
-  .ui-stat.rb-budget-stat {
+     share the row evenly (the Expenses, Crew and Talent tabs' four as well)
+     and wrap under 120px. One class over `.ui-stat`, whose `min-width: 0`
+     this sheet may load before. */
+  .rb-budget-stats,
+  .rb-crew-stats,
+  .rb-talent-stats { display: flex; flex-wrap: wrap; gap: var(--spacing-gutter); }
+  .ui-stat.rb-budget-stat,
+  .ui-stat.rb-crew-stat,
+  .ui-stat.rb-talent-stat {
     flex: 1 1 0;
     min-width: 120px;
     padding: 12px 16px;
@@ -233,9 +242,11 @@
   /* A cell holding a 28px control pads 4 above and 3 below it, so the row
      stays the kit's 36 and the focus ring's 3px still fits inside the cell's
      clip. (0,4,0): one class over the kit's dense `.ui-td` rule. The
-     Expenses list's actions cell is one too (surface 2b). */
+     Expenses list's actions cell is one too (surface 2b), and Talent's
+     Delete slot (surface 4). */
   .rb-budget-versions .ui-tr > .ui-td.rb-budget-icon-cell,
-  .rb-budget-exp .ui-tr > .ui-td.rb-budget-icon-cell { padding-top: 4px; padding-bottom: 3px; }
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-icon-cell,
+  .rb-talent-table .ui-tr > .ui-td.rb-talent-acts { padding-top: 4px; padding-bottom: 3px; }
   /* The active and locked markers: the glyph where a set-active button's
      would be (7px into its 28), in the one active tone and the success tone.
      The ACTIVE row is also the kit's selected row; LOCKED is its badge. */
@@ -334,18 +345,31 @@
   }
 
   /* ═══ The tables' figures ════════════════════════════════════════════════ */
+  /* The Crew and Talent tables' figures are these (surface 4). */
   /* A secondary figure (counts, days, a subtotal): the second ink. */
-  .rb-budget-quiet { color: var(--color-ink-2); }
+  .rb-budget-quiet,
+  .rb-crew-quiet,
+  .rb-talent-quiet { color: var(--color-ink-2); }
   /* A figure that may be absent: its em dash at the third ink (R3-13; the
      dashes were #57534e, 2.3:1). */
-  .rb-budget-dash[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-budget-dash[data-empty="true"],
+  .rb-crew-dash[data-empty="true"],
+  .rb-talent-dash[data-empty="true"] { color: var(--color-ink-3); }
   /* A variance's news is its figure's tone: over the bid the danger token,
      under it the success token, level the third ink. The arrow sits inside
      the figure at the cell icon size. */
-  .rb-budget-var { display: inline-flex; align-items: center; gap: 4px; }
-  .rb-budget-var[data-tone="danger"] { color: var(--color-danger); }
-  .rb-budget-var[data-tone="success"] { color: var(--color-success); }
-  .rb-budget-var[data-tone="zero"] { color: var(--color-ink-3); }
+  .rb-budget-var,
+  .rb-crew-var,
+  .rb-talent-var { display: inline-flex; align-items: center; gap: 4px; }
+  .rb-budget-var[data-tone="danger"],
+  .rb-crew-var[data-tone="danger"],
+  .rb-talent-var[data-tone="danger"] { color: var(--color-danger); }
+  .rb-budget-var[data-tone="success"],
+  .rb-crew-var[data-tone="success"],
+  .rb-talent-var[data-tone="success"] { color: var(--color-success); }
+  .rb-budget-var[data-tone="zero"],
+  .rb-crew-var[data-tone="zero"],
+  .rb-talent-var[data-tone="zero"] { color: var(--color-ink-3); }
   .rb-budget-var-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
 
   /* ═══ The Topsheet rollup ════════════════════════════════════════════════ */
@@ -366,9 +390,13 @@
     font-weight: 600;
   }
   /* The grand total row (R3-08) is the kit's footer: its words and figures at
-     H3, the step over the rows it totals, under the one 1px signal rule.
+     H3, the step over the rows it totals, under the one 1px signal rule —
+     the Topsheet's, Crew's and Talent's alike (it was a 12.5px orange label
+     under a 2px orange rule in both).
      (0,4,1): over the kit's `.ui-table tfoot > .ui-tr > .ui-td` (0,3,1). */
-  .ui-table.rb-budget-top tfoot > .ui-tr > .ui-td {
+  .ui-table.rb-budget-top tfoot > .ui-tr > .ui-td,
+  .ui-table.rb-crew-table tfoot > .ui-tr > .ui-td,
+  .ui-table.rb-talent-table tfoot > .ui-tr > .ui-td {
     font-size: var(--text-h3);
     border-top-color: var(--color-signal);
   }
@@ -393,15 +421,22 @@
      the kit Toolbar with the same eleven controls in the same order at the
      28px height (C1), the filters, then the list. All four start on one left
      edge, the shell's gutter (R3-31): the toolbar was 4px in from it, the
-     header 12 and the rows 13. */
-  .rb-budget-exp-tab { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+     header 12 and the rows 13. The Crew and Talent tabs are the same stack
+     (surface 4): tiles, the kit Toolbar, the table. */
+  .rb-budget-exp-tab,
+  .rb-crew-tab,
+  .rb-talent-tab { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
   /* The toolbar sits inside the shell's gutter, so it takes none of its own.
      (0,2,0): one class over `.ui-toolbar`. It wraps, as it always did, rather
      than push the search off the row at Electron's 1024px floor (the Tasks
-     toolbar does the same). */
-  .ui-toolbar.rb-budget-exp-toolbar { padding-left: 0; padding-right: 0; }
-  .rb-budget-exp-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
+     toolbar does the same; Crew's and Talent's info bars wrapped too). */
+  .ui-toolbar.rb-budget-exp-toolbar,
+  .ui-toolbar.rb-crew-toolbar,
+  .ui-toolbar.rb-talent-toolbar { padding-left: 0; padding-right: 0; }
+  .rb-budget-exp-toolbar > .ui-toolbar-slot,
+  .rb-crew-toolbar > .ui-toolbar-slot,
+  .rb-talent-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
   /* A group's separator: one 16px hairline, the Tasks toolbar's (they were
      three 1x20 #44403c rules). */
   .rb-budget-divider { flex-shrink: 0; width: 1px; height: 16px; background-color: var(--color-rule); }
@@ -610,9 +645,14 @@
      right-aligned under its header (a #33302e box with orange figures
      before). The cell pads 4 a side, so a signed `+$1,234,567` (104px in its
      well) fits the 112 column, and 4 above and 3 below, so the row stays 36
-     and the ring fits inside the cell's clip. (0,4,0), as above. */
-  .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-mc-cell { padding: 4px 4px 3px; }
-  .ui-input.rb-budget-exp-mc {
+     and the ring fits inside the cell's clip. (0,4,0), as above. Crew's and
+     Talent's Margin and Contingency are the same cell (surface 4). */
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-mc-cell,
+  .rb-crew-table .ui-tr > .ui-td.rb-crew-mc-cell,
+  .rb-talent-table .ui-tr > .ui-td.rb-talent-mc-cell { padding: 4px 4px 3px; }
+  .ui-input.rb-budget-exp-mc,
+  .ui-input.rb-crew-mc,
+  .ui-input.rb-talent-mc {
     display: inline-flex;
     align-items: center;
     width: auto;
@@ -634,9 +674,14 @@
   .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-group-cell {
     padding-left: calc(var(--rb-budget-exp-col-check) + var(--cell-pad-x));
   }
-  .rb-budget-exp-group-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-  .rb-budget-exp-group-label { font-weight: 600; color: var(--color-ink); }
-  .rb-budget-exp-group-count {
+  /* A Crew department's name and count are these too (surface 4; the name
+     was an orange Label-step run). */
+  .rb-budget-exp-group-head,
+  .rb-crew-group-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .rb-budget-exp-group-label,
+  .rb-crew-group-label { font-weight: 600; color: var(--color-ink); }
+  .rb-budget-exp-group-count,
+  .rb-crew-group-count {
     font-family: var(--font-mono);
     font-size: calc(var(--text-caption) * var(--mono-size-adjust));
     font-variant-numeric: tabular-nums;
@@ -795,8 +840,12 @@
   /* MarginContPopover: a field and the amount it adds, twice, then its two
      buttons. The kit's field is full width; here it shares its row. (0,3,0):
      over every kit rule that sizes a field, the Team Members search's
-     `.tm-search .ui-input` (0,2,0) among them. */
-  .rb-pop-field { display: flex; flex-direction: column; gap: 4px; }
+     `.tm-search .ui-input` (0,2,0) among them. Crew's and Talent's period
+     popovers (surface 4) stack their fields and their Save and Clear the
+     same way. */
+  .rb-pop-field,
+  .rb-crew-field,
+  .rb-talent-field { display: flex; flex-direction: column; gap: 4px; }
   .rb-pop-row { display: flex; align-items: center; gap: 8px; }
   .rb-pop-row > .ui-input.rb-pop-input { flex: 1 1 auto; width: auto; }
   .rb-pop-amount {
@@ -807,8 +856,12 @@
     white-space: nowrap;
     color: var(--color-ink);
   }
-  .rb-pop-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-  .ui-btn.rb-pop-save { flex: 1 1 auto; }
+  .rb-pop-actions,
+  .rb-crew-pop-actions,
+  .rb-talent-pop-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .ui-btn.rb-pop-save,
+  .ui-btn.rb-crew-save,
+  .ui-btn.rb-talent-save { flex: 1 1 auto; }
 
   /* ═══ BudgetView: the shell and the tab strip (surface 3) ════════════════
      The view on the paper; the strip is the kit Tabs (R3-16, R3-17, R3-18,
@@ -923,6 +976,242 @@
   .rb-client-sign-line { flex: 1 1 auto; height: 18px; border-bottom: 1px solid var(--color-ink-3); }
   .rb-client-sign-line[data-short="true"] { flex: 0 0 200px; }
 
+  /* ═══ CrewTeamTab and TalentTab (surface 4) ══════════════════════════════
+     The Crew/team and Talent tabs, one shape. Their tiles, toolbar, figures,
+     Margin and Contingency wells, popover fields and grand-total row are the
+     rules above (each carries these tabs' classes in its selector list);
+     what follows is theirs alone. The table is the kit Table (R3-20): a
+     member or a talent line is ONE row spanning the bid zone and the actual
+     zone — the contract the flex rows kept by hand and a <tr> keeps for
+     free — and the department headers, subtotals, the talent details and
+     the grand total (the <tfoot>) are rows of the same table.
+
+     Each table's column widths are declared once, here, and read by its
+     header cells (`<Th width="var(--rb-crew-w-money)">`, R3-35's lesson).
+     Each holds its widest value and its own Label-step header, measured in
+     the browser in Geist / Geist Mono at the step it draws, plus the kit's
+     12px cell padding a side:
+       type    Crew: the FT / FR badge 28.4; "TYPE" 29.5                    ->  56
+               Talent: "Motion capture performer" 152 in the kit
+               CellSelect, whose text sits 34px inside its column          -> 188
+       rate    Crew: "$1,234,567" 78 in the 13px mono; "RATE" 29.8        -> 104
+               Talent: the typed rate, a plain "1234567" 54.6              ->  80
+       days    "1234.5" 46.8; "DAYS" 30.5                                  ->  72
+       pct     Talent's "AGENT %" 52.6 (it wrapped at 60)                  ->  80
+       money   "+$1,234,567" 92.4 at the grand total's 14px (R3-08), the
+               widest figure a money cell draws; "SUBTOTAL" 61.1           -> 120
+       acts    Talent's 28px Delete in the kit HoverActions slot           ->  52
+       period  "WK20 12/31" 70.3 at the Label step, in a header padded 4px
+               a side; "$99,999" 54.6 + 2 + the 14px paperclip, 70.6, in
+               the 28px button, in a cell padded 4px a side                ->  80
+     The periods were 72px: at the Label step a weekly header, and a
+     five-figure amount beside its paperclip at the icon size, no longer fit
+     (the paperclip was 10px and the headers 8.5px when 72 was chosen). The
+     name column takes the rest, never under 180px: the table is as wide as
+     its columns — `--rb-crew-cols` / `--rb-talent-cols` is the period count,
+     the one style each file writes — and scrolls sideways in the kit's own
+     scroller (it was the page that scrolled), so the tiles and the toolbar
+     stay on the gutter while every period stays reachable. */
+  .ui-table.rb-crew-table {
+    --rb-crew-w-type: 56px;
+    --rb-crew-w-rate: 104px;
+    --rb-crew-w-days: 72px;
+    --rb-crew-w-money: 120px;
+    --rb-crew-w-period: 80px;
+    min-width: calc(180px + var(--rb-crew-w-type) + var(--rb-crew-w-rate) + var(--rb-crew-w-days)
+      + 6 * var(--rb-crew-w-money) + var(--rb-crew-cols) * var(--rb-crew-w-period));
+  }
+  .ui-table.rb-talent-table {
+    --rb-talent-w-type: 188px;
+    --rb-talent-w-rate: 80px;
+    --rb-talent-w-days: 72px;
+    --rb-talent-w-pct: 80px;
+    --rb-talent-w-money: 120px;
+    --rb-talent-w-acts: 52px;
+    --rb-talent-w-period: 80px;
+    min-width: calc(180px + var(--rb-talent-w-type) + var(--rb-talent-w-rate) + var(--rb-talent-w-days)
+      + var(--rb-talent-w-pct) + 6 * var(--rb-talent-w-money) + var(--rb-talent-w-acts)
+      + var(--rb-talent-cols) * var(--rb-talent-w-period));
+  }
+
+  /* The actual zone (R3-37, R3-21): ONE ground, the recessed paper, on
+     every body and footer cell from Actual to the last period (it was
+     #1a1915 on a member's row and #1f1d1a on the totals), and one hairline
+     down its left edge where a 3px orange rule ran, header included. The
+     header cells stay the kit's (R3-12: the sky-blue and slate went); the
+     zone's own words name it. The third ink measures 5.7:1 on this ground.
+     (0,5,0): over the kit's selected fill (0,4,0) and its raised footer. */
+  .ui-table.rb-crew-table .ui-tr > .ui-td.rb-crew-zone,
+  .ui-table.rb-talent-table .ui-tr > .ui-td.rb-talent-zone { background-color: var(--color-paper-recessed); }
+  .ui-table.rb-crew-table .ui-tr > .rb-crew-zone-edge,
+  .ui-table.rb-talent-table .ui-tr > .rb-talent-zone-edge { border-left: 1px solid var(--color-rule); }
+
+  /* A period's header: the Label step centred over its cell, 4px a side
+     (the kit's 12 would cut "P20 12/31" in 80px). (0,4,0): over `.ui-th`. */
+  .ui-table.rb-crew-table .ui-th.rb-crew-period-th,
+  .ui-table.rb-talent-table .ui-th.rb-talent-period-th { padding: 0 4px; }
+  /* A period's cell holds its 28px button 4px in, and 4 above and 3 below,
+     so the row stays the kit's 36 and the focus ring fits inside the cell's
+     clip. */
+  .rb-crew-table .ui-tr > .ui-td.rb-crew-period,
+  .rb-talent-table .ui-tr > .ui-td.rb-talent-period { padding: 4px 4px 3px; }
+  /* A period's actual (R3-33): the same 28px button in every cell (it was
+     about 16px tall), opening the same popover. A cell with a value sits on
+     the raised paper instead of inside a border; an empty one is its middle
+     dot at the third ink (it was #44403c, under 2:1). The figure is the one
+     money figure; the paperclip beside it is the cell icon size (it was
+     10px and orange). A hover lays the kit's hover screen over either
+     ground. */
+  .rb-crew-cell,
+  .rb-talent-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 100%;
+    height: var(--control-sm);
+    padding: 0;
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+  .rb-crew-cell[data-empty="true"],
+  .rb-talent-cell[data-empty="true"] { color: var(--color-ink-3); background-color: transparent; }
+  .rb-crew-cell:hover,
+  .rb-talent-cell:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  .rb-crew-clip,
+  .rb-talent-clip { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+
+  /* A money cell's figure at 600: a member's and a line's Bid total, as it
+     was. */
+  .ui-td.rb-crew-bid,
+  .ui-td.rb-talent-bid { font-weight: 600; }
+
+  /* ── Crew: members, departments, subtotals ── */
+  /* A member: the name over the company title (and its role slug), a line
+     each, cut with an ellipsis (the title was #78716c); then the project's
+     own title, typed in place (Session 24) — borderless, as it was, in the
+     second ink (it was orange words). */
+  .rb-crew-name,
+  .rb-crew-title { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .rb-crew-title { color: var(--color-ink-3); }
+  .rb-crew-role {
+    display: block;
+    width: 100%;
+    margin-top: 2px;
+    padding: 0;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    text-overflow: ellipsis;
+  }
+  /* A department's header row and its subtotal row, on the raised paper
+     the old #292524 band gave them (their actual zone keeps its one ground,
+     above); a subtotal is 600, the Topsheet's section total. Never the
+     kit's `selected`: a total is not a row anyone picked. */
+  .rb-crew-group > .ui-td,
+  .rb-crew-subtotal > .ui-td { background-color: var(--color-paper-raised); }
+  .rb-crew-subtotal > .ui-td { font-weight: 600; }
+
+  /* ── Talent: its inline editors and a line's details ── */
+  /* The cells that hold a 28px editor pad 4 above and 3 below (the row
+     stays 36) and 6 a side, so the editor's text, 6px inside it, starts
+     12px in, under its header's label. (0,4,0), as above. */
+  .rb-talent-table .ui-tr > .ui-td.rb-talent-ctl { padding: 4px 6px 3px; }
+  /* A line's name: the Show details chevron, then the name's editor. */
+  .rb-talent-name { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  /* An inline editor at rest (C1: the same editor, Enter committing and
+     Escape reverting): a 28px borderless button that reads as the cell's
+     text and lifts on hover, B2's cell editors'; editing, the kit's 28px
+     field in its place. Both take their cell's alignment — a figure's cell
+     is right-aligned, a name's left (it was an inline `textAlign`). An
+     empty one is its placeholder at the third ink, the second on the hover
+     fill, where the third measures 4.34:1. */
+  .rb-talent-cell-text {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: inherit;
+    line-height: var(--control-sm);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-talent-cell-text:hover { background-color: var(--color-hover); }
+  .rb-talent-cell-text[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-talent-cell-text[data-empty="true"]:hover { color: var(--color-ink-2); }
+  .rb-talent-cell-text:disabled { cursor: not-allowed; }
+  /* (0,3,0): over the kit's small field's padding (0,2,0). */
+  .ui-input.rb-talent-cell-input[data-size="sm"] { padding: 0 6px; text-align: inherit; }
+  /* A line's details: a full-width row of the table under its line, on the
+     recessed paper its old near-black matched, its fields wrapping as they
+     did; each field its Label-step label over the same editor as the
+     cells. (0,5,0): over the kit's selected fill. */
+  .ui-table.rb-talent-table .ui-tr > .ui-td.rb-talent-detail-cell {
+    padding: 12px var(--spacing-gutter);
+    white-space: normal;
+    background-color: var(--color-paper-recessed);
+  }
+  .rb-talent-details { display: flex; flex-wrap: wrap; column-gap: 16px; row-gap: 8px; }
+  .rb-talent-detail-field { display: flex; flex-direction: column; gap: 4px; width: 150px; }
+  .rb-talent-detail-field[data-wide="true"] { flex: 1 1 auto; width: auto; min-width: 200px; }
+
+  /* ═══ InvoiceAttachment (the period popovers' invoice field) ══════════════
+     components/Budget/InvoiceAttachment.jsx, whose only hosts are the Crew
+     and Talent popovers (the raised paper). The Label step over the field;
+     an attached file is a hairline row at the small control height with the
+     kit's icon buttons; the attach action is the kit secondary Button. Its
+     label was #78716c (3.37:1), the popovers' last contrast failure. */
+  .rb-inv-field { display: flex; flex-direction: column; gap: 4px; }
+  .rb-inv-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: var(--text-label--font-weight);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rb-inv-file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--control-sm);
+    padding: 0 2px 0 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
+  .rb-inv-glyph { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-2); }
+  .rb-inv-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+  }
+  .rb-inv-note { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-2); }
+  .rb-inv-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-danger);
+  }
+  .rb-inv-error-glyph { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 2px; }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped: its twin here with the
      same selector and `transition: none` alone. THE LAST BLOCK OF THE LAYER:
@@ -931,6 +1220,7 @@
     .rb-budget-menu-item { transition: none; }
     .rb-budget-check { transition: none; }
     .rb-budget-rel-option { transition: none; }
+    .rb-talent-cell-text { transition: none; }
   }
 
 }

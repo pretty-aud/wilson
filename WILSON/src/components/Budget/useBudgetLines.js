@@ -31,7 +31,7 @@ export const DEFAULT_CREW_DEPARTMENTS = [
 
 // ── Column mode options ──
 export const COLUMN_MODES = [
-  { value: 'fortnightly', label: 'Bi-Weekly (2-week periods)' },
+  { value: 'fortnightly', label: 'Bi-weekly (2-week periods)' },
   { value: 'weekly',      label: 'Weekly' },
   { value: 'count',       label: 'Numbered (no dates)' },
 ]

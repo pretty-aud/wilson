@@ -5,17 +5,29 @@
 // Derives bid from: team members + rate card + tasks
 // Actuals from: budget_actuals (manual invoice/timecard entry)
 //
-// Layout: Each row is a SINGLE element spanning both bid and
-// actual zones, guaranteeing vertical alignment.
-// No internal scroll — the page-level scroll handles overflow.
-// Popovers render position:fixed so they escape the table frame.
+// Layout (B5 surface 4): ONE kit Table (R3-20). Each member is one <tr>
+// spanning the bid zone and the actual zone, so the two halves cannot drift
+// apart however many period columns there are — the contract the flex rows
+// kept by hand. The department headers, the department subtotals and the
+// grand total (the table's <tfoot>) are rows of the same table. The money
+// reads in the lane's one order (R3-05): Subtotal, Margin, Contingency, Bid
+// total, then Actual and the Variance derived from it, then the periods.
+// The column widths are rabbitBudget.css's, declared once and read by the
+// header cells; the table scrolls sideways in its own scroller, as wide as
+// its columns, so every period stays reachable.
+// The popovers are the lane's one BudgetPopover, portalled into <body>.
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Users, X, RotateCcw, Paperclip, FolderOpen } from 'lucide-react'
+import { Fragment, useState, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import { Users, RotateCcw, Paperclip } from 'lucide-react'
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
 import { useRabbit } from '../../state/RabbitProvider'
-import { formatMoney } from '../../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
+import { Table, Th, Td, Row, Stat, Toolbar, Button, Badge, Dialog, EmptyState } from '../../../../ui'
+import BudgetPopover from './BudgetPopover'
+import MarginContPopover from './MarginContPopover'
+import '../rabbitBudget.css'
 
 // Session 24: the local-server BASE_URL that used to sit here is gone.
 // Invoice attachment now goes through the adapter (InvoiceAttachment),
@@ -32,44 +44,24 @@ function columnLabel(index, mode, projectStart) {
   return `P${index + 1} ${month}/${day}`
 }
 
-// ── Bid zone widths (px) ──────────────────────────────────
-const W_NAME  = 180
-const W_TYPE  = 56
-const W_RATE  = 80
-const W_DAYS  = 60
-const W_SUB   = 88
-const W_BID   = 96
-const W_MARGIN = 80
-const W_CONT   = 80
-const BID_W   = W_NAME + W_TYPE + W_RATE + W_DAYS + W_SUB + W_BID + W_MARGIN + W_CONT
-// ── Actual zone widths ────────────────────────────────────
-const W_DIV   = 3
-const W_ACT   = 88
-const W_VAR   = 80
-const W_COL   = 72
+// The bid zone's columns (Member / role, Type, Rate, Days, Subtotal, Margin,
+// Conting., Bid total), the four a total's label spans, and the actual
+// zone's two before its periods (Actual, Variance).
+const BID_COLUMNS = 8
+const LABEL_COLUMNS = 4
+const ACTUAL_COLUMNS = 2
 
-// ── Fixed-position popover (renders outside any overflow container) ──
-function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId, onSave, onDelete, onClose }) {
+// ── A period's actual, on the lane's one popover (R3-32) ────
+// Every field, label and button of the hand-rolled popover — the amount, the
+// invoice number, the invoice file, Save and Clear — on BudgetPopover, which
+// places itself by its own measured box (no written 280 x 320) and closes on
+// a press outside it, as this did, and on Escape (Q17).
+function ActualPopover({ anchor, actual, colLabel, memberName, currency, projectId, onSave, onDelete, onClose }) {
   const [value, setValue]     = useState(actual?.value ?? '')
   const [invoice, setInvoice] = useState(actual?.invoice_number || '')
   const [attachName, setAttachName] = useState(actual?.attachment_name || '')
   const [attachPath, setAttachPath] = useState(actual?.attachment_path || '')
   const getAdapter = useRabbit()?.getAdapter
-  const ref = useRef(null)
-
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [onClose])
-
-  const popW = 280
-  const popH = 320
-  const left = Math.min(pos.x, window.innerWidth - popW - 12)
-  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4
-    : pos.y + pos.h + 4
-
 
   function handleSave() {
     onSave({
@@ -81,30 +73,30 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
   }
 
   return (
-    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2 p-3"
-      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
-        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-label uppercase truncate" style={{ color: '#fb923c' }}>
-          {memberName} / {colLabel}
-        </span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
-          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
-        </button>
+    <BudgetPopover anchor={anchor} title={`${memberName} / ${colLabel}`} onClose={onClose}>
+      <div className="rb-crew-field">
+        <span className="ui-field-label">Amount ({currency})</span>
+        <input
+          type="number" step="any"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          aria-label={`Amount (${currency})`}
+          className="ui-input"
+          data-size="sm"
+          autoFocus
+        />
       </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Amount ({currency})</label>
-        <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
-          autoFocus />
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Invoice #</label>
-        <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)}
+      <div className="rb-crew-field">
+        <span className="ui-field-label">Invoice #</span>
+        <input
+          type="text"
+          value={invoice}
+          onChange={e => setInvoice(e.target.value)}
           placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+          aria-label="Invoice #"
+          className="ui-input"
+          data-size="sm"
+        />
       </div>
       <InvoiceAttachment
         getAdapter={getAdapter}
@@ -114,94 +106,17 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
         path={attachPath}
         onChange={({ name, path }) => { setAttachName(name); setAttachPath(path) }}
       />
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={handleSave}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
-          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
+      <div className="rb-crew-pop-actions">
+        <Button size="sm" variant="primary" className="rb-crew-save" onClick={handleSave}>
           Save
-        </button>
+        </Button>
         {actual?.id && onDelete && (
-          <button type="button" onClick={() => onDelete(actual.id)}
-            className="px-2 py-1.5 text-dense rounded-control"
-            style={{ color: '#ef4444', border: '1px solid #7f1d1d' }}>
+          <Button size="sm" variant="danger" onClick={() => onDelete(actual.id)}>
             Clear
-          </button>
+          </Button>
         )}
       </div>
-    </div>
-  )
-}
-
-// ── Margin / Contingency popover ─────────────────────────
-function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, defaultCont, currency, onSave, onClose }) {
-  const [margin, setMargin] = useState(marginPct ?? '')
-  const [cont, setCont]     = useState(contPct ?? '')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [onClose])
-
-  const popW = 280
-  const popH = 280
-  const left = Math.min(pos.x, window.innerWidth - popW - 12)
-  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4
-    : pos.y + pos.h + 4
-
-  const mPct = Number(margin) || 0
-  const cPct = Number(cont) || 0
-  const marginAmt = bidTotal * mPct / 100
-  const contAmt   = bidTotal * cPct / 100
-
-  return (
-    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2.5 p-3"
-      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
-        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-label uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
-          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
-        </button>
-      </div>
-
-      {/* Margin */}
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Margin %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
-            placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(marginAmt, currency, { sign: 'always' })}</span>
-        </div>
-      </div>
-
-      {/* Contingency */}
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Contingency %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
-            placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(contAmt, currency, { sign: 'always' })}</span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
-          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
-        <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-control"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Default
-        </button>
-      </div>
-    </div>
+    </BudgetPopover>
   )
 }
 
@@ -209,7 +124,7 @@ export default function CrewTeamTab({
   budgetHook, project, tasks, roleRates, rateCard, teamMembers, expenses, currency,
   projectTitles, onSaveProjectTitle,
 }) {
-  const { lines, lineComputations, actualsByLine, addLine, updateLine, upsertActual, deleteActual } = budgetHook || {}
+  const { lines, actualsByLine, addLine, updateLine, upsertActual, deleteActual } = budgetHook || {}
 
   const agencyEnabled = project?.budget_agency_enabled === true
   const agencyPct     = Number(project?.budget_agency_pct ?? 0)
@@ -225,6 +140,8 @@ export default function CrewTeamTab({
   const [openPopover, setOpenPopover] = useState(null)
   // Margin/contingency popover: { memberId, x, y, h }
   const [mcPopover, setMcPopover] = useState(null)
+  // W9: the question window.confirm used to ask, as the kit Dialog.
+  const [confirmResetMc, setConfirmResetMc] = useState(false)
 
   function handleCellClick(e, memberId, colIdx) {
     if (openPopover?.memberId === memberId && openPopover?.colIdx === colIdx) {
@@ -389,8 +306,8 @@ export default function CrewTeamTab({
     setMcPopover({ memberId, x: rect.left, y: rect.top, h: rect.height })
   }
 
+  // What window.confirm's OK did; the question is the Dialog below.
   async function resetAllMarginCont() {
-    if (!window.confirm('Reset all margin & contingency values to the project defaults? This cannot be undone.')) return
     for (const line of (lines || []).filter(l => l.sheet === 'crew')) {
       if (line.margin_pct != null || line.contingency_pct != null) {
         await updateLine?.(line.id, { margin_pct: null, contingency_pct: null })
@@ -399,7 +316,9 @@ export default function CrewTeamTab({
   }
 
   const colHeaders = Array.from({ length: columnCount }, (_, i) => columnLabel(i, columnMode, projectStart))
-  const totalW = BID_W + W_DIV + W_ACT + W_VAR + columnCount * W_COL
+  // The period count: the table's one inline style (rabbitBudget.css sizes
+  // the table from it) and the span of a total row's empty periods.
+  const periods = colHeaders.length
   const memberCount = departmentGroups.reduce((s, g) => s + g.rows.length, 0)
   const hasData = departmentGroups.length > 0
 
@@ -415,278 +334,276 @@ export default function CrewTeamTab({
     ? allRows.find(r => r.id === mcPopover.memberId)
     : null
 
+  // "Nothing here" is the kit EmptyState (R3-19), its words in sentence case.
   if (!hasData) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-4">
-        <Users className="w-10 h-10" style={{ color: '#44403c' }} />
-        <span className="text-label uppercase" style={{ color: '#a8a29e' }}>No crew/team data yet</span>
-        <p className="text-dense text-center max-w-md" style={{ color: '#78716c' }}>
-          Add team members in the Team view and assign roles in the Rate Card.
-          Tasks with bid days will populate the budget automatically.
-        </p>
-      </div>
+      <EmptyState
+        Icon={Users}
+        title="No crew/team data yet"
+        body="Add team members in the Team view and assign roles in the Rate card. Tasks with bid days will populate the budget automatically."
+      />
+    )
+  }
+
+  // ── One member, as a row of the table ──
+  // A render function, not a component declared in here: that would be a
+  // new component type every render, so React would remount every row and a
+  // focused control would lose its focus (surface 2b's lesson).
+  function memberRow(row) {
+    return (
+      <Row key={row.id}>
+        <Td>
+          <span className="rb-crew-name">{row.name}</span>
+          {row.title && <span className="rb-crew-title">{row.title}{row.roleSlug ? ` · ${row.roleSlug}` : ''}</span>}
+          {/* Session 24 — the PROJECT job title, e.g. "Lead
+              Animator". Audrey: "you can have a company/title role
+              AND a separate project role", and the manager types
+              this one in. The line above is the COMPANY title;
+              this is per project, and neither is the permission
+              role. Only rendered where it can actually be saved —
+              an input that silently discards what you type is
+              worse than no input. */}
+          {onSaveProjectTitle && !String(row.id).startsWith('unassigned-') && (
+            <input
+              type="text"
+              defaultValue={projectTitles?.[row.id] || ''}
+              placeholder="+ project role"
+              onBlur={e => {
+                const v = e.target.value.trim()
+                if (v !== (projectTitles?.[row.id] || '')) {
+                  onSaveProjectTitle(row.id, v)?.catch?.(err =>
+                    console.error('project title save failed:', err))
+                }
+              }}
+              onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+              className="rb-crew-role"
+            />
+          )}
+        </Td>
+        <Td>
+          <Badge>{row.employmentType === 'fulltime' ? 'FT' : 'FR'}</Badge>
+        </Td>
+        <Td numeric className="rb-crew-quiet">
+          <span className="rb-crew-dash" data-empty={row.rate > 0 ? undefined : 'true'}>
+            {row.rate > 0 ? <CurrencyDisplay value={row.rate} currency={currency} /> : '—'}
+          </span>
+        </Td>
+        <Td numeric className="rb-crew-quiet">
+          <span className="rb-crew-dash" data-empty={row.bidDays > 0 ? undefined : 'true'}>
+            {row.bidDays > 0 ? row.bidDays.toFixed(1) : '—'}
+          </span>
+        </Td>
+        <Td numeric className="rb-crew-quiet">
+          <span className="rb-crew-dash" data-empty={row.subtotal > 0 ? undefined : 'true'}>
+            {row.subtotal > 0 ? <CurrencyDisplay value={row.subtotal} currency={currency} /> : '—'}
+          </span>
+        </Td>
+        {/* Margin and Contingency open the margin & contingency popover. */}
+        <Td numeric className="rb-crew-mc-cell">
+          <button type="button" onClick={e => handleMcCellClick(e, row.id)} className="ui-input rb-crew-mc" data-size="sm">
+            {row.marginAmt > 0
+              ? <CurrencyDisplay value={row.marginAmt} currency={currency} signed />
+              : <span className="rb-crew-dash" data-empty="true">{'—'}</span>}
+          </button>
+        </Td>
+        <Td numeric className="rb-crew-mc-cell">
+          <button type="button" onClick={e => handleMcCellClick(e, row.id)} className="ui-input rb-crew-mc" data-size="sm">
+            {row.contAmt > 0
+              ? <CurrencyDisplay value={row.contAmt} currency={currency} signed />
+              : <span className="rb-crew-dash" data-empty="true">{'—'}</span>}
+          </button>
+        </Td>
+        <Td numeric className="rb-crew-bid">
+          <span className="rb-crew-dash" data-empty={row.bidTotal > 0 ? undefined : 'true'}>
+            {row.bidTotal > 0 ? <CurrencyDisplay value={row.bidTotal} currency={currency} /> : '—'}
+          </span>
+        </Td>
+        {/* The actual zone: Actual, then the Variance derived from it (R3-05). */}
+        <Td numeric className="rb-crew-zone rb-crew-zone-edge">
+          <span className="rb-crew-dash" data-empty={row.actualTotal > 0 ? undefined : 'true'}>
+            {row.actualTotal > 0 ? <CurrencyDisplay value={row.actualTotal} currency={currency} /> : '—'}
+          </span>
+        </Td>
+        <Td numeric className="rb-crew-zone">
+          <span className="rb-crew-var" data-tone={row.variance > 0 ? 'danger' : row.variance < 0 ? 'success' : 'zero'}>
+            {row.bidTotal > 0 || row.actualTotal > 0
+              ? <CurrencyDisplay value={row.variance} currency={currency} signed />
+              : '—'}
+          </span>
+        </Td>
+        {/* Period cells: the same 28px button in each, opening the same popover (R3-33). */}
+        {colHeaders.map((label, colIdx) => {
+          const cellActual = (row.actuals || []).find(a => a.column_index === colIdx)
+          const hasAttach = !!cellActual?.attachment_name
+          return (
+            <Td key={colIdx} align="center" className="rb-crew-zone rb-crew-period">
+              <button
+                type="button"
+                onClick={e => handleCellClick(e, row.id, colIdx)}
+                className="rb-crew-cell"
+                data-empty={cellActual?.value ? undefined : 'true'}
+              >
+                {cellActual?.value ? <CurrencyDisplay value={cellActual.value} currency={currency} /> : '·'}
+                {hasAttach && <Paperclip className="rb-crew-clip" aria-hidden="true" />}
+              </button>
+            </Td>
+          )
+        })}
+      </Row>
     )
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* ── Summary tiles ── */}
-      <div className="flex gap-3 flex-wrap">
-        <SummaryTile label="Bid Total" value={formatMoney(grandTotals.bidTotal, currency)} />
-        <SummaryTile label="Actual Total" value={grandTotals.actualTotal > 0 ? formatMoney(grandTotals.actualTotal, currency) : '\u2014'} />
-        <SummaryTile label="Variance"
+    <div className="rb-crew-tab">
+      {/* ── The four tiles: the kit Stat, in one row at the gutter (R3-10) ── */}
+      <div className="rb-crew-stats">
+        <Stat className="rb-crew-stat" label="Bid total" value={formatMoney(grandTotals.bidTotal, currency)} />
+        <Stat
+          className="rb-crew-stat"
+          label="Actual total"
+          value={grandTotals.actualTotal > 0 ? formatMoney(grandTotals.actualTotal, currency) : '—'}
+        />
+        <Stat
+          className="rb-crew-stat"
+          label="Variance"
           value={grandTotals.bidTotal > 0 || grandTotals.actualTotal > 0
             ? formatMoney(grandTotals.variance, currency, { sign: 'exceptZero' })
-            : '\u2014'}
-          tone={grandTotals.variance > 0 ? 'danger' : grandTotals.variance < 0 ? 'good' : 'neutral'} />
-        <SummaryTile label="Members" value={memberCount} />
+            : '—'}
+          valueTone={grandTotals.variance > 0 ? 'danger' : grandTotals.variance < 0 ? 'success' : undefined}
+        />
+        <Stat className="rb-crew-stat" label="Members" value={memberCount} />
       </div>
 
-      {/* ── Info bar ── */}
-      <div className="flex items-center gap-3 px-1 flex-wrap">
-        <span className="text-label uppercase" style={{ color: '#78716c' }}>Crew/Team Budget</span>
-        {agencyEnabled && (
-          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fbbf24', border: '1px solid #78350f' }}>
-            Agency: {agencyPct}%
-          </span>
-        )}
-        {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
-            Margin: {defaultMarginPct}%
-          </span>
-        )}
-        {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
-            Contingency: {defaultContPct}%
-          </span>
-        )}
-        <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Reset M/C
-        </button>
-        <span className="text-dense" style={{ color: '#57534e' }}>
+      {/* ── The info bar: the kit Toolbar, the same items in the same order
+          (C1), on the table's left edge (R3-31). The project's rates are kit
+          Badges (they were orange and amber mono chips). ── */}
+      <Toolbar wrap className="rb-crew-toolbar">
+        <span className="rb-crew-eyebrow">Crew/team budget</span>
+        {agencyEnabled && <Badge>Agency: {agencyPct}%</Badge>}
+        {(defaultMarginPct > 0 || defaultContPct > 0) && <Badge>Margin: {defaultMarginPct}%</Badge>}
+        {(defaultMarginPct > 0 || defaultContPct > 0) && <Badge>Contingency: {defaultContPct}%</Badge>}
+        <Button size="sm" Icon={RotateCcw} onClick={() => setConfirmResetMc(true)}>
+          Reset M/C
+        </Button>
+        <span className="rb-crew-hint">
           {COLUMN_MODES.find(m => m.value === columnMode)?.label || columnMode} · {columnCount} cols
         </span>
-      </div>
+      </Toolbar>
 
-      {/* ── Table — no internal scroll, extends full width ── */}
-      <div className="rounded-control" style={{ border: '1px solid #44403c' }}>
-        <div style={{ minWidth: totalW }}>
-
-          {/* HEADER ROW */}
-          <div className="flex" style={{ backgroundColor: '#292524', borderBottom: '2px solid #57534e' }}>
-            <div style={{ width: W_NAME }} className="px-3 py-2"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Member / Role</span></div>
-            <div style={{ width: W_TYPE }} className="px-2 py-2"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Type</span></div>
-            <div style={{ width: W_RATE }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Rate</span></div>
-            <div style={{ width: W_DAYS }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Days</span></div>
-            <div style={{ width: W_SUB }}  className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Subtotal</span></div>
-            <div style={{ width: W_MARGIN }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Margin</span></div>
-            <div style={{ width: W_CONT }}  className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Conting.</span></div>
-            <div style={{ width: W_BID }}  className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Bid Total</span></div>
-            <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#38bdf8' }}>Variance</span></div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#38bdf8' }}>Actual</span></div>
+      {/* ── The table (R3-20): one grid for the header, the departments,
+          their members and subtotals, and the grand total. ── */}
+      <Table
+        className="rb-crew-table"
+        style={{ '--rb-crew-cols': periods }}
+        head={(
+          <Row>
+            <Th>Member / role</Th>
+            <Th width="var(--rb-crew-w-type)">Type</Th>
+            <Th width="var(--rb-crew-w-rate)" numeric>Rate</Th>
+            <Th width="var(--rb-crew-w-days)" numeric>Days</Th>
+            <Th width="var(--rb-crew-w-money)" numeric>Subtotal</Th>
+            <Th width="var(--rb-crew-w-money)" numeric>Margin</Th>
+            <Th width="var(--rb-crew-w-money)" numeric>Conting.</Th>
+            <Th width="var(--rb-crew-w-money)" numeric>Bid total</Th>
+            <Th width="var(--rb-crew-w-money)" numeric className="rb-crew-zone-edge">Actual</Th>
+            <Th width="var(--rb-crew-w-money)" numeric>Variance</Th>
             {colHeaders.map((label, i) => (
-              <div key={i} style={{ width: W_COL, backgroundColor: '#1f1d1a' }} className="px-1 py-2 text-center">
-                <span className="text-label uppercase" style={{ color: '#64748b' }}>{label}</span>
-              </div>
+              <Th key={i} width="var(--rb-crew-w-period)" align="center" className="rb-crew-period-th">{label}</Th>
             ))}
-          </div>
-
-          {/* DEPARTMENT GROUPS */}
-          {departmentGroups.map(group => (
-            <div key={group.department}>
-
-              {/* Dept header */}
-              <div className="flex" style={{ borderBottom: '1px solid #44403c' }}>
-                <div style={{ width: BID_W, backgroundColor: '#292524' }} className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{group.department}</span>
-                  <span className="text-dense font-mono" style={{ color: '#78716c' }}>{group.rows.length}</span>
-                </div>
-                <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }}><div className="py-1.5" /></div>
-              </div>
-
-              {/* Member rows */}
-              {group.rows.map(row => (
-                <div key={row.id} className="flex transition-colors hover:brightness-110" style={{ borderBottom: '1px solid #3a3733' }}>
-                  <div style={{ width: W_NAME, backgroundColor: '#1c1917' }} className="px-3 py-2 min-w-0">
-                    <div className="text-dense truncate" style={{ color: '#d6d3d1' }}>{row.name}</div>
-                    {row.title && <div className="text-dense truncate" style={{ color: '#78716c' }}>{row.title}{row.roleSlug ? ` · ${row.roleSlug}` : ''}</div>}
-                    {/* Session 24 — the PROJECT job title, e.g. "Lead
-                        Animator". Audrey: "you can have a company/title role
-                        AND a separate project role", and the manager types
-                        this one in. The line above is the COMPANY title;
-                        this is per project, and neither is the permission
-                        role. Only rendered where it can actually be saved —
-                        an input that silently discards what you type is
-                        worse than no input. */}
-                    {onSaveProjectTitle && !String(row.id).startsWith('unassigned-') && (
-                      <input
-                        type="text"
-                        defaultValue={projectTitles?.[row.id] || ''}
-                        placeholder="+ project role"
-                        onBlur={e => {
-                          const v = e.target.value.trim()
-                          if (v !== (projectTitles?.[row.id] || '')) {
-                            onSaveProjectTitle(row.id, v)?.catch?.(err =>
-                              console.error('project title save failed:', err))
-                          }
-                        }}
-                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                        className="w-full bg-transparent text-dense truncate mt-0.5"
-                        style={{ color: '#fb923c' }}
-                      />
-                    )}
-                  </div>
-                  <div style={{ width: W_TYPE, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center">
-                    <span className="text-dense px-1 py-0.5 rounded-control" style={{
-                      color: row.employmentType === 'fulltime' ? '#86efac' : '#fde68a',
-                      backgroundColor: row.employmentType === 'fulltime' ? '#14532d33' : '#78350f33',
-                    }}>{row.employmentType === 'fulltime' ? 'FT' : 'FR'}</span>
-                  </div>
-                  <div style={{ width: W_RATE, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.rate > 0 ? '#a8a29e' : '#57534e' }}>{row.rate > 0 ? formatMoney(row.rate, currency) : '\u2014'}</span>
-                  </div>
-                  <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.bidDays > 0 ? '#a8a29e' : '#57534e' }}>{row.bidDays > 0 ? row.bidDays.toFixed(1) : '\u2014'}</span>
-                  </div>
-                  <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{row.subtotal > 0 ? formatMoney(row.subtotal, currency) : '\u2014'}</span>
-                  </div>
-                  <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <button type="button" onClick={e => handleMcCellClick(e, row.id)}
-                      className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
-                      style={{ color: row.marginAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                      {row.marginAmt > 0 ? formatMoney(row.marginAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
-                    </button>
-                  </div>
-                  <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <button type="button" onClick={e => handleMcCellClick(e, row.id)}
-                      className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
-                      style={{ color: row.contAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                      {row.contAmt > 0 ? formatMoney(row.contAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
-                    </button>
-                  </div>
-                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right font-semibold flex items-center justify-end">
-                    <span style={{ color: row.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.bidTotal > 0 ? formatMoney(row.bidTotal, currency) : '\u2014'}</span>
-                  </div>
-                  <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{
-                      color: (row.bidTotal > 0 || row.actualTotal > 0)
-                        ? (row.variance > 0 ? '#fca5a5' : row.variance < 0 ? '#86efac' : '#78716c')
-                        : '#57534e',
-                    }}>
-                      {row.bidTotal > 0 || row.actualTotal > 0
-                        ? formatMoney(row.variance, currency, { sign: 'exceptZero' })
-                        : '\u2014'}
-                    </span>
-                  </div>
-                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.actualTotal > 0 ? formatMoney(row.actualTotal, currency) : '\u2014'}</span>
-                  </div>
-                  {/* Period cells — click opens fixed popover */}
-                  {colHeaders.map((label, colIdx) => {
-                    const cellActual = (row.actuals || []).find(a => a.column_index === colIdx)
-                    const hasAttach = !!cellActual?.attachment_name
-                    return (
-                      <div key={colIdx} style={{ width: W_COL, backgroundColor: '#1a1915' }}
-                        className="px-1 py-2 flex items-center justify-center">
-                        <button type="button"
-                          onClick={e => handleCellClick(e, row.id, colIdx)}
-                          className="relative w-full text-dense rounded-control py-0.5 transition-colors hover:bg-stone-700"
-                          style={{
-                            color: cellActual?.value ? '#d6d3d1' : '#44403c',
-                            border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
-                            backgroundColor: cellActual?.value ? '#292524' : 'transparent',
-                          }}>
-                          {cellActual?.value ? formatMoney(cellActual.value, currency) : '\u00B7'}
-                          {hasAttach && <Paperclip className="absolute top-0 right-0.5 w-2.5 h-2.5" style={{ color: '#fb923c' }} />}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-
-              {/* Dept subtotal */}
-              <div className="flex" style={{ borderBottom: '2px solid #44403c' }}>
-                <div style={{ width: W_NAME + W_TYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-1.5 text-dense font-semibold">
-                  <span style={{ color: '#a8a29e' }}>{group.department} total</span>
-                </div>
-                <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: '#a8a29e' }}>{formatMoney(group.subtotal, currency)}</span>
-                </div>
-                <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: group.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{group.marginTotal > 0 ? formatMoney(group.marginTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
-                </div>
-                <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: group.contTotal > 0 ? '#fb923c' : '#57534e' }}>{group.contTotal > 0 ? formatMoney(group.contTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
-                </div>
-                <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: '#d6d3d1' }}>{formatMoney(group.bidTotal, currency)}</span>
-                </div>
-                <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{
-                    color: (group.actualTotal - group.bidTotal) > 0 ? '#fca5a5'
-                      : (group.actualTotal - group.bidTotal) < 0 ? '#86efac' : '#78716c',
-                  }}>
-                    {group.bidTotal > 0 || group.actualTotal > 0
-                      ? formatMoney(group.actualTotal - group.bidTotal, currency, { sign: 'exceptZero' })
-                      : '\u2014'}
-                  </span>
-                </div>
-                <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: '#38bdf8' }}>{group.actualTotal > 0 ? formatMoney(group.actualTotal, currency) : '\u2014'}</span>
-                </div>
-                <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
-              </div>
-            </div>
-          ))}
-
-          {/* GRAND TOTAL */}
-          <div className="flex" style={{ borderTop: '2px solid #fb923c' }}>
-            <div style={{ width: W_NAME + W_TYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-2.5 text-label font-semibold uppercase">
-              <span style={{ color: '#fb923c' }}>Grand Total</span>
-            </div>
-            <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#a8a29e' }}>{formatMoney(grandTotals.subtotal, currency)}</span>
-            </div>
-            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: grandTotals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.marginTotal > 0 ? formatMoney(grandTotals.marginTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
-            </div>
-            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: grandTotals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.contTotal > 0 ? formatMoney(grandTotals.contTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
-            </div>
-            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{formatMoney(grandTotals.bidTotal, currency)}</span>
-            </div>
-            <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{
-                color: grandTotals.variance > 0 ? '#fca5a5' : grandTotals.variance < 0 ? '#86efac' : '#a8a29e',
-              }}>
-                {grandTotals.bidTotal > 0 || grandTotals.actualTotal > 0
-                  ? formatMoney(grandTotals.variance, currency, { sign: 'exceptZero' })
-                  : '\u2014'}
+          </Row>
+        )}
+        foot={(
+          <Row>
+            <Td colSpan={LABEL_COLUMNS}>Grand total</Td>
+            <Td numeric><CurrencyDisplay value={grandTotals.subtotal} currency={currency} /></Td>
+            <Td numeric>
+              <span className="rb-crew-dash" data-empty={grandTotals.marginTotal > 0 ? undefined : 'true'}>
+                {grandTotals.marginTotal > 0 ? <CurrencyDisplay value={grandTotals.marginTotal} currency={currency} signed /> : '—'}
               </span>
-            </div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{grandTotals.actualTotal > 0 ? formatMoney(grandTotals.actualTotal, currency) : '\u2014'}</span>
-            </div>
-            <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
-          </div>
+            </Td>
+            <Td numeric>
+              <span className="rb-crew-dash" data-empty={grandTotals.contTotal > 0 ? undefined : 'true'}>
+                {grandTotals.contTotal > 0 ? <CurrencyDisplay value={grandTotals.contTotal} currency={currency} signed /> : '—'}
+              </span>
+            </Td>
+            <Td numeric><CurrencyDisplay value={grandTotals.bidTotal} currency={currency} /></Td>
+            <Td numeric className="rb-crew-zone rb-crew-zone-edge">
+              <span className="rb-crew-dash" data-empty={grandTotals.actualTotal > 0 ? undefined : 'true'}>
+                {grandTotals.actualTotal > 0 ? <CurrencyDisplay value={grandTotals.actualTotal} currency={currency} /> : '—'}
+              </span>
+            </Td>
+            <Td numeric className="rb-crew-zone">
+              <span className="rb-crew-var" data-tone={grandTotals.variance > 0 ? 'danger' : grandTotals.variance < 0 ? 'success' : 'zero'}>
+                {grandTotals.bidTotal > 0 || grandTotals.actualTotal > 0
+                  ? <CurrencyDisplay value={grandTotals.variance} currency={currency} signed />
+                  : '—'}
+              </span>
+            </Td>
+            {periods > 0 && <Td colSpan={periods} className="rb-crew-zone" />}
+          </Row>
+        )}
+      >
+        {departmentGroups.map(group => (
+          <Fragment key={group.department}>
+            {/* A department's header: its name and its member count. */}
+            <Row className="rb-crew-group">
+              <Td colSpan={BID_COLUMNS}>
+                <span className="rb-crew-group-head">
+                  <span className="rb-crew-group-label">{group.department}</span>
+                  <span className="rb-crew-group-count">{group.rows.length}</span>
+                </span>
+              </Td>
+              <Td colSpan={ACTUAL_COLUMNS + periods} className="rb-crew-zone rb-crew-zone-edge" />
+            </Row>
 
-        </div>
-      </div>
+            {group.rows.map(row => memberRow(row))}
 
-      {/* ── Fixed popover (rendered outside the table) ── */}
+            {/* A department's subtotal. */}
+            <Row className="rb-crew-subtotal">
+              <Td colSpan={LABEL_COLUMNS}>{group.department} total</Td>
+              <Td numeric className="rb-crew-quiet">
+                <CurrencyDisplay value={group.subtotal} currency={currency} />
+              </Td>
+              <Td numeric>
+                <span className="rb-crew-dash" data-empty={group.marginTotal > 0 ? undefined : 'true'}>
+                  {group.marginTotal > 0 ? <CurrencyDisplay value={group.marginTotal} currency={currency} signed /> : '—'}
+                </span>
+              </Td>
+              <Td numeric>
+                <span className="rb-crew-dash" data-empty={group.contTotal > 0 ? undefined : 'true'}>
+                  {group.contTotal > 0 ? <CurrencyDisplay value={group.contTotal} currency={currency} signed /> : '—'}
+                </span>
+              </Td>
+              <Td numeric><CurrencyDisplay value={group.bidTotal} currency={currency} /></Td>
+              <Td numeric className="rb-crew-zone rb-crew-zone-edge">
+                <span className="rb-crew-dash" data-empty={group.actualTotal > 0 ? undefined : 'true'}>
+                  {group.actualTotal > 0 ? <CurrencyDisplay value={group.actualTotal} currency={currency} /> : '—'}
+                </span>
+              </Td>
+              <Td numeric className="rb-crew-zone">
+                <span
+                  className="rb-crew-var"
+                  data-tone={group.actualTotal - group.bidTotal > 0 ? 'danger' : group.actualTotal - group.bidTotal < 0 ? 'success' : 'zero'}
+                >
+                  {group.bidTotal > 0 || group.actualTotal > 0
+                    ? <CurrencyDisplay value={group.actualTotal - group.bidTotal} currency={currency} signed />
+                    : '—'}
+                </span>
+              </Td>
+              {periods > 0 && <Td colSpan={periods} className="rb-crew-zone" />}
+            </Row>
+          </Fragment>
+        ))}
+      </Table>
+
+      {/* ── A period's actual: the lane's popover, in <body> ── */}
       {openPopover && popoverRow && (
         <ActualPopover
-          pos={openPopover}
+          // One popover per cell: opened on another cell while this one is
+          // open (from the keyboard), it must not keep this cell's draft and
+          // save it into the next (a defect older than the restyle).
+          key={`${openPopover.memberId}:${openPopover.colIdx}`}
+          anchor={openPopover}
           actual={popoverActual}
           colLabel={colHeaders[openPopover.colIdx]}
           memberName={popoverRow.name}
@@ -698,13 +615,15 @@ export default function CrewTeamTab({
         />
       )}
 
-      {/* ── Margin/Contingency popover ── */}
+      {/* ── Margin & contingency: the lane's one editor (R3-32) ── */}
       {mcPopover && mcRow && (
         <MarginContPopover
-          pos={mcPopover}
+          key={mcPopover.memberId}
+          anchor={mcPopover}
+          amountLabel="Bid total"
+          baseAmount={mcRow.bidTotal}
           marginPct={mcRow.marginPct}
           contPct={mcRow.contPct}
-          bidTotal={mcRow.bidTotal}
           defaultMargin={defaultMarginPct}
           defaultCont={defaultContPct}
           currency={currency}
@@ -712,22 +631,25 @@ export default function CrewTeamTab({
           onClose={() => setMcPopover(null)}
         />
       )}
-    </div>
-  )
-}
 
-// ── Summary tile (matches BigTile: expenses colors, crew sizing) ──
-function SummaryTile({ label, value, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
-  }[tone]
-  return (
-    <div className="flex-1 min-w-[120px] flex flex-col rounded-control px-4 py-3"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
+      {/* W9: Reset M/C's window.confirm, word for word, on the kit Dialog in
+          <body> (the Expenses tab's). */}
+      {confirmResetMc && createPortal(
+        <Dialog
+          width="confirm"
+          title="Reset margin & contingency"
+          onClose={() => setConfirmResetMc(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmResetMc(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setConfirmResetMc(false); resetAllMarginCont() }}>Reset</Button>
+            </>
+          )}
+        >
+          Reset all margin & contingency values to the project defaults? This cannot be undone.
+        </Dialog>,
+        document.body,
+      )}
     </div>
   )
 }

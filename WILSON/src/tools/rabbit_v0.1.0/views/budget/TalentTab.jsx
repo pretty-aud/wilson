@@ -5,17 +5,29 @@
 // Talent + background performers. Standalone (not in team system).
 // Per-row agent representation fee (separate from global agency).
 //
-// Each row is a SINGLE element spanning both bid and actual zones
-// so heights always align. Orange divider separates the two zones.
-// No internal scroll — the page-level scroll handles overflow.
-// Popovers render position:fixed so they escape the table frame.
+// Layout (B5 surface 4): ONE kit Table (R3-20), CrewTeamTab's shape. Each
+// line is one <tr> spanning the bid zone and the actual zone, so their
+// heights always align; a line's details open as a full-width row of the
+// same table under it; the grand total is the table's <tfoot>. The money
+// reads in the lane's one order (R3-05): Subtotal, Margin, Contingency, Bid
+// total, then Actual and the Variance derived from it, then the periods.
+// The table scrolls sideways in its own scroller, as wide as its columns
+// (rabbitBudget.css declares them once). The popovers are the lane's one
+// BudgetPopover, portalled into <body>.
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Star, Plus, X, Trash2, RotateCcw, Paperclip, FolderOpen } from 'lucide-react'
-import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
+import { Fragment, useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import { Star, Plus, Trash2, RotateCcw, Paperclip, ChevronRight, ChevronDown } from 'lucide-react'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
 import { useRabbit } from '../../state/RabbitProvider'
-import { formatMoney } from '../../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
+import {
+  Table, Th, Td, Row, Stat, Toolbar, Button, IconButton, Badge, Dialog, EmptyState, Loading,
+  HoverActions, CellSelect,
+} from '../../../../ui'
+import BudgetPopover from './BudgetPopover'
+import MarginContPopover from './MarginContPopover'
+import '../rabbitBudget.css'
 
 // Session 24: the local-server BASE_URL that used to sit here is gone.
 // Invoice attachment now goes through the adapter (InvoiceAttachment),
@@ -23,11 +35,11 @@ import { formatMoney } from '../../components/CurrencyDisplay'
 
 const TALENT_TYPE_OPTIONS = [
   { value: 'actor',            label: 'Actor' },
-  { value: 'voice_actor',     label: 'Voice Actor' },
+  { value: 'voice_actor',     label: 'Voice actor' },
   { value: 'extra',           label: 'Extra' },
   { value: 'background',      label: 'Background' },
-  { value: 'stunt_performer', label: 'Stunt Performer' },
-  { value: 'motion_capture',  label: 'Motion Capture Performer' },
+  { value: 'stunt_performer', label: 'Stunt performer' },
+  { value: 'motion_capture',  label: 'Motion capture performer' },
   { value: 'other',           label: 'Other' },
 ]
 
@@ -42,46 +54,24 @@ function columnLabel(index, mode, projectStart) {
   return `P${index + 1} ${month}/${day}`
 }
 
-// ── Bid zone widths (px) ──────────────────────────────────
-const W_NAME   = 180
-const W_TTYPE  = 100
-const W_RATE   = 80
-const W_DAYS   = 60
-const W_SUB    = 88
-const W_AGPCT  = 60
-const W_BID    = 96
-const W_MARGIN = 80
-const W_CONT   = 80
-const W_DEL    = 36
-const BID_W    = W_NAME + W_TTYPE + W_RATE + W_DAYS + W_SUB + W_AGPCT + W_BID + W_MARGIN + W_CONT + W_DEL
-// ── Actual zone widths ────────────────────────────────────
-const W_DIV   = 3
-const W_ACT   = 88
-const W_VAR   = 80
-const W_COL   = 72
+// The bid zone's columns (Name, Type, Rate, Days, Subtotal, Agent %, Margin,
+// Conting., Bid total, the actions slot), the four the grand total's label
+// spans, and the actual zone's two before its periods.
+const BID_COLUMNS = 10
+const LABEL_COLUMNS = 4
+const ACTUAL_COLUMNS = 2
 
-// ── Fixed-position popover (renders outside any overflow container) ──
-function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, onSave, onDelete, onClose }) {
+// ── A period's actual, on the lane's one popover (R3-32) ────
+// Every field, label and button of the hand-rolled popover — the amount, the
+// invoice number, the invoice file, Save and Clear — on BudgetPopover, which
+// places itself by its own measured box (no written 280 x 320) and closes on
+// a press outside it, as this did, and on Escape (Q17).
+function ActualPopover({ anchor, actual, colLabel, lineName, currency, projectId, onSave, onDelete, onClose }) {
   const [value, setValue]     = useState(actual?.value ?? '')
   const [invoice, setInvoice] = useState(actual?.invoice_number || '')
   const [attachName, setAttachName] = useState(actual?.attachment_name || '')
   const [attachPath, setAttachPath] = useState(actual?.attachment_path || '')
   const getAdapter = useRabbit()?.getAdapter
-  const ref = useRef(null)
-
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [onClose])
-
-  const popW = 280
-  const popH = 320
-  const left = Math.min(pos.x, window.innerWidth - popW - 12)
-  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4
-    : pos.y + pos.h + 4
-
 
   function handleSave() {
     onSave({
@@ -93,26 +83,30 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
   }
 
   return (
-    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2 p-3"
-      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
-        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-label uppercase truncate" style={{ color: '#fb923c' }}>{lineName} / {colLabel}</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
-          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
-        </button>
+    <BudgetPopover anchor={anchor} title={`${lineName} / ${colLabel}`} onClose={onClose}>
+      <div className="rb-talent-field">
+        <span className="ui-field-label">Amount ({currency})</span>
+        <input
+          type="number" step="any"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          aria-label={`Amount (${currency})`}
+          className="ui-input"
+          data-size="sm"
+          autoFocus
+        />
       </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Amount ({currency})</label>
-        <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Invoice #</label>
-        <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)} placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+      <div className="rb-talent-field">
+        <span className="ui-field-label">Invoice #</span>
+        <input
+          type="text"
+          value={invoice}
+          onChange={e => setInvoice(e.target.value)}
+          placeholder="INV-001"
+          aria-label="Invoice #"
+          className="ui-input"
+          data-size="sm"
+        />
       </div>
       <InvoiceAttachment
         getAdapter={getAdapter}
@@ -122,21 +116,26 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
         path={attachPath}
         onChange={({ name, path }) => { setAttachName(name); setAttachPath(path) }}
       />
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={handleSave}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
-          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
+      <div className="rb-talent-pop-actions">
+        <Button size="sm" variant="primary" className="rb-talent-save" onClick={handleSave}>
+          Save
+        </Button>
         {actual?.id && onDelete && (
-          <button type="button" onClick={() => onDelete(actual.id)}
-            className="px-2 py-1.5 text-dense rounded-control"
-            style={{ color: '#ef4444', border: '1px solid #7f1d1d' }}>Clear</button>
+          <Button size="sm" variant="danger" onClick={() => onDelete(actual.id)}>
+            Clear
+          </Button>
         )}
       </div>
-    </div>
+    </BudgetPopover>
   )
 }
 
 // ── Inline editable cell ──────────────────────────────────
+// Its behaviour is the review's "what works": Enter commits, Escape reverts,
+// leaving the field commits. At rest it reads as the cell's text (a 28px
+// borderless button that lifts on hover, B2's cell editors); editing, it is
+// the kit's 28px field. Its alignment is its cell's: a figure's cell is
+// right-aligned, a name's left.
 function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -167,86 +166,18 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-        style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261', textAlign: type === 'number' ? 'right' : 'left' }}
+        className="ui-input rb-talent-cell-input"
+        data-size="sm"
       />
     )
   }
 
   return (
     <button type="button" onClick={start} disabled={disabled}
-      className="w-full text-left px-1 py-0.5 text-dense rounded-control transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
-      style={{ color: value ? '#d6d3d1' : '#57534e', textAlign: type === 'number' ? 'right' : 'left' }}>
-      {type === 'number' ? (value || placeholder || '\u2014') : (value || placeholder || '\u2014')}
+      className="rb-talent-cell-text"
+      data-empty={value ? undefined : 'true'}>
+      {value || placeholder || '—'}
     </button>
-  )
-}
-
-// ── Margin / Contingency popover ───────────────────────��─
-function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, defaultCont, currency, onSave, onClose }) {
-  const [margin, setMargin] = useState(marginPct ?? '')
-  const [cont, setCont]     = useState(contPct ?? '')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [onClose])
-
-  const popW = 280
-  const popH = 280
-  const left = Math.min(pos.x, window.innerWidth - popW - 12)
-  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4
-    : pos.y + pos.h + 4
-
-  const mPct = Number(margin) || 0
-  const cPct = Number(cont) || 0
-  const marginAmt = bidTotal * mPct / 100
-  const contAmt   = bidTotal * cPct / 100
-
-  return (
-    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2.5 p-3"
-      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
-        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-label uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
-          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
-        </button>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Margin %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
-            placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(marginAmt, currency, { sign: 'always' })}</span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Contingency %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
-            placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(contAmt, currency, { sign: 'always' })}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
-          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
-        <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-control"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Default
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -273,6 +204,8 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   const [openPopover, setOpenPopover] = useState(null)
   // Margin/contingency popover: { lineId, x, y, h }
   const [mcPopover, setMcPopover] = useState(null)
+  // W9: the question window.confirm used to ask, as the kit Dialog.
+  const [confirmResetMc, setConfirmResetMc] = useState(false)
   // Expanded detail rows
   const [expandedRows, setExpandedRows] = useState(new Set())
   function toggleExpand(id) {
@@ -336,8 +269,8 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     setMcPopover(null)
   }, [updateLine])
 
+  // What window.confirm's OK did; the question is the Dialog below.
   async function resetAllMarginCont() {
-    if (!window.confirm('Reset all margin & contingency values to the project defaults? This cannot be undone.')) return
     for (const line of allTalent) {
       if (line.margin_pct != null || line.contingency_pct != null) {
         await updateLine?.(line.id, { margin_pct: null, contingency_pct: null })
@@ -355,274 +288,266 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   const mcLine = mcPopover ? allTalent.find(l => l.id === mcPopover.lineId) : null
 
   const colHeaders = Array.from({ length: columnCount }, (_, i) => columnLabel(i, columnMode, projectStart))
-  const totalW = BID_W + W_DIV + W_ACT + W_VAR + columnCount * W_COL
+  // The period count: the table's one inline style (rabbitBudget.css sizes
+  // the table from it) and the span of the grand total's empty periods.
+  const periods = colHeaders.length
 
-  if (loading) {
+  // "Not yet" is the kit Loading, never the empty state (R3-19).
+  if (loading) return <Loading label="Loading talent..." />
+
+  // "Nothing here" is the kit EmptyState, its words in sentence case, with
+  // the one action it always offered.
+  if (!hasLines) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-label uppercase" style={{ color: '#a8a29e' }}>Loading talent...</span>
-      </div>
+      <EmptyState
+        Icon={Star}
+        title="No talent budget lines yet"
+        body="Add talent performers manually. Use the Talent type column to tag each performer. Agent representation fees are set per row."
+      >
+        <Button variant="primary" Icon={Plus} onClick={handleAddTalent}>
+          Add talent
+        </Button>
+      </EmptyState>
     )
   }
 
-  if (!hasLines) {
+  // ── One line, as a row of the table (and its details, when open) ──
+  // A render function, not a component declared in here: that would be a
+  // new component type every render, so React would remount every row and
+  // an inline editor would lose its focus (surface 2b's lesson).
+  function lineRows(line) {
+    const comp = lineComputations[line.id] || {}
+    const lineActuals = actualsByLine?.[line.id] || []
+    const isExpanded = expandedRows.has(line.id)
+    const mPct = line.margin_pct != null ? Number(line.margin_pct) : defaultMarginPct
+    const cPct = line.contingency_pct != null ? Number(line.contingency_pct) : defaultContPct
+    const mAmt = (comp.bidTotal || 0) * mPct / 100
+    const cAmt = (comp.bidTotal || 0) * cPct / 100
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-4">
-        <Star className="w-10 h-10" style={{ color: '#44403c' }} />
-        <span className="text-label uppercase" style={{ color: '#a8a29e' }}>No talent budget lines yet</span>
-        <p className="text-dense text-center max-w-md" style={{ color: '#78716c' }}>
-          Add talent performers manually. Use the Talent Type column to tag each performer. Agent representation fees are set per row.
-        </p>
-        <button type="button" onClick={handleAddTalent}
-          className="flex items-center gap-1.5 px-4 py-2 text-dense rounded-control"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-          <Plus className="w-3.5 h-3.5" /> Add Talent
-        </button>
-      </div>
+      <Fragment key={line.id}>
+        <Row>
+          {/* Name — the chevron opens the line's details */}
+          <Td className="rb-talent-ctl">
+            <span className="rb-talent-name">
+              <IconButton
+                size="sm"
+                Icon={isExpanded ? ChevronDown : ChevronRight}
+                title={isExpanded ? 'Hide details' : 'Show details'}
+                aria-expanded={isExpanded}
+                onClick={() => toggleExpand(line.id)}
+              />
+              <InlineCell value={line.label} placeholder="Name..." onChange={v => updateLine(line.id, { label: v })} />
+            </span>
+          </Td>
+          {/* Talent type: the kit CellSelect */}
+          <Td>
+            <CellSelect
+              value={line.talent_type || 'actor'}
+              onChange={v => updateLine(line.id, { talent_type: v })}
+              options={TALENT_TYPE_OPTIONS}
+              aria-label={line.label ? `Talent type for ${line.label}` : 'Talent type'}
+            />
+          </Td>
+          <Td numeric className="rb-talent-ctl">
+            <InlineCell value={line.rate} type="number" placeholder="0" onChange={v => updateLine(line.id, { rate: v })} />
+          </Td>
+          <Td numeric className="rb-talent-ctl">
+            <InlineCell value={line.days} type="number" placeholder="0" onChange={v => updateLine(line.id, { days: v })} />
+          </Td>
+          <Td numeric className="rb-talent-quiet">
+            <span className="rb-talent-dash" data-empty={comp.subtotal > 0 ? undefined : 'true'}>
+              {comp.subtotal > 0 ? <CurrencyDisplay value={comp.subtotal} currency={currency} /> : '—'}
+            </span>
+          </Td>
+          <Td numeric className="rb-talent-ctl">
+            <InlineCell value={line.talent_agency_fee_pct} type="number" placeholder="0" onChange={v => updateLine(line.id, { talent_agency_fee_pct: v })} />
+          </Td>
+          {/* Margin and Contingency open the margin & contingency popover. */}
+          <Td numeric className="rb-talent-mc-cell">
+            <button type="button" onClick={e => handleMcCellClick(e, line.id)} className="ui-input rb-talent-mc" data-size="sm">
+              {mAmt > 0
+                ? <CurrencyDisplay value={mAmt} currency={currency} signed />
+                : <span className="rb-talent-dash" data-empty="true">{'—'}</span>}
+            </button>
+          </Td>
+          <Td numeric className="rb-talent-mc-cell">
+            <button type="button" onClick={e => handleMcCellClick(e, line.id)} className="ui-input rb-talent-mc" data-size="sm">
+              {cAmt > 0
+                ? <CurrencyDisplay value={cAmt} currency={currency} signed />
+                : <span className="rb-talent-dash" data-empty="true">{'—'}</span>}
+            </button>
+          </Td>
+          <Td numeric className="rb-talent-bid">
+            <span className="rb-talent-dash" data-empty={comp.bidTotal > 0 ? undefined : 'true'}>
+              {comp.bidTotal > 0 ? <CurrencyDisplay value={comp.bidTotal} currency={currency} /> : '—'}
+            </span>
+          </Td>
+          {/* Delete: the kit HoverActions, revealed by hover and by focus (Q17(b)). */}
+          <Td align="right" className="rb-talent-acts">
+            <HoverActions>
+              <IconButton size="sm" Icon={Trash2} danger title="Delete" onClick={() => deleteLine(line.id)} />
+            </HoverActions>
+          </Td>
+          {/* The actual zone: Actual, then the Variance derived from it (R3-05). */}
+          <Td numeric className="rb-talent-zone rb-talent-zone-edge">
+            <span className="rb-talent-dash" data-empty={comp.actualTotal > 0 ? undefined : 'true'}>
+              {comp.actualTotal > 0 ? <CurrencyDisplay value={comp.actualTotal} currency={currency} /> : '—'}
+            </span>
+          </Td>
+          <Td numeric className="rb-talent-zone">
+            <span className="rb-talent-var" data-tone={comp.variance > 0 ? 'danger' : comp.variance < 0 ? 'success' : 'zero'}>
+              {comp.bidTotal > 0 || comp.actualTotal > 0
+                ? <CurrencyDisplay value={comp.variance} currency={currency} signed />
+                : '—'}
+            </span>
+          </Td>
+          {/* Period cells: the same 28px button in each, opening the same popover (R3-33). */}
+          {colHeaders.map((label, colIdx) => {
+            const cellActual = lineActuals.find(a => a.column_index === colIdx)
+            const hasAttach = !!cellActual?.attachment_name
+            return (
+              <Td key={colIdx} align="center" className="rb-talent-zone rb-talent-period">
+                <button
+                  type="button"
+                  onClick={e => handleCellClick(e, line.id, colIdx)}
+                  className="rb-talent-cell"
+                  data-empty={cellActual?.value ? undefined : 'true'}
+                >
+                  {cellActual?.value ? <CurrencyDisplay value={cellActual.value} currency={currency} /> : '·'}
+                  {hasAttach && <Paperclip className="rb-talent-clip" aria-hidden="true" />}
+                </button>
+              </Td>
+            )
+          })}
+        </Row>
+
+        {/* ── The line's details: a full-width row of the table under it ── */}
+        {isExpanded && (
+          <Row>
+            <Td colSpan={BID_COLUMNS + ACTUAL_COLUMNS + periods} className="rb-talent-detail-cell">
+              <div className="rb-talent-details">
+                <TalentDetailField label="Union / Guild #" value={line.union_id} placeholder="SAG-AFTRA #"
+                  onChange={v => updateLine(line.id, { union_id: v })} />
+                <TalentDetailField label="Agency" value={line.agency_name} placeholder="Agency name"
+                  onChange={v => updateLine(line.id, { agency_name: v })} />
+                <TalentDetailField label="Agent" value={line.agent_name} placeholder="Agent name"
+                  onChange={v => updateLine(line.id, { agent_name: v })} />
+                <TalentDetailField label="Phone" value={line.phone} placeholder="Phone"
+                  onChange={v => updateLine(line.id, { phone: v })} />
+                <TalentDetailField label="Email" value={line.email} placeholder="Email"
+                  onChange={v => updateLine(line.id, { email: v })} />
+                <TalentDetailField label="Notes" value={line.description} placeholder="Notes..."
+                  onChange={v => updateLine(line.id, { description: v })} wide />
+              </div>
+            </Td>
+          </Row>
+        )}
+      </Fragment>
     )
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* ── Summary tiles ── */}
-      <div className="flex gap-3 flex-wrap">
-        <SummaryTile label="Bid Total" value={formatMoney(totals.bid, currency)} />
-        <SummaryTile label="Actual Total" value={totals.actual > 0 ? formatMoney(totals.actual, currency) : '\u2014'} />
-        <SummaryTile label="Variance"
+    <div className="rb-talent-tab">
+      {/* ── The four tiles: the kit Stat, in one row at the gutter (R3-10) ── */}
+      <div className="rb-talent-stats">
+        <Stat className="rb-talent-stat" label="Bid total" value={formatMoney(totals.bid, currency)} />
+        <Stat
+          className="rb-talent-stat"
+          label="Actual total"
+          value={totals.actual > 0 ? formatMoney(totals.actual, currency) : '—'}
+        />
+        <Stat
+          className="rb-talent-stat"
+          label="Variance"
           value={totals.bid > 0 || totals.actual > 0
             ? formatMoney(totals.variance, currency, { sign: 'exceptZero' })
-            : '\u2014'}
-          tone={totals.variance > 0 ? 'danger' : totals.variance < 0 ? 'good' : 'neutral'} />
-        <SummaryTile label="Talent" value={allTalent.length} />
+            : '—'}
+          valueTone={totals.variance > 0 ? 'danger' : totals.variance < 0 ? 'success' : undefined}
+        />
+        <Stat className="rb-talent-stat" label="Talent" value={allTalent.length} />
       </div>
 
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 px-1 flex-wrap">
-        <button type="button" onClick={handleAddTalent}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-          <Plus className="w-3.5 h-3.5" /> Add Talent
-        </button>
-        <span className="text-dense" style={{ color: '#57534e' }}>Agent fees are per-row</span>
-        {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
-            Margin: {defaultMarginPct}%
-          </span>
-        )}
-        {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-dense font-mono tabular-nums px-2 py-0.5 rounded-control" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
-            Contingency: {defaultContPct}%
-          </span>
-        )}
-        <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-0.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Reset M/C
-        </button>
-      </div>
+      {/* ── The toolbar: the kit Toolbar, the same items in the same order
+          (C1), on the table's left edge (R3-31). ── */}
+      <Toolbar wrap className="rb-talent-toolbar">
+        <Button size="sm" variant="primary" Icon={Plus} onClick={handleAddTalent}>
+          Add talent
+        </Button>
+        <span className="rb-talent-hint">Agent fees are per-row</span>
+        {(defaultMarginPct > 0 || defaultContPct > 0) && <Badge>Margin: {defaultMarginPct}%</Badge>}
+        {(defaultMarginPct > 0 || defaultContPct > 0) && <Badge>Contingency: {defaultContPct}%</Badge>}
+        <Button size="sm" Icon={RotateCcw} onClick={() => setConfirmResetMc(true)}>
+          Reset M/C
+        </Button>
+      </Toolbar>
 
-      {/* ── Unified table (flat — no department groups) ── */}
-      <div className="rounded-control" style={{ border: '1px solid #44403c' }}>
-        <div style={{ minWidth: totalW }}>
-
-          {/* ═══ HEADER ROW ═══ */}
-          <div className="flex" style={{ backgroundColor: '#292524', borderBottom: '2px solid #57534e' }}>
-            <div style={{ width: W_NAME }} className="px-3 py-2"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Name</span></div>
-            <div style={{ width: W_TTYPE }} className="px-2 py-2"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Type</span></div>
-            <div style={{ width: W_RATE }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Rate</span></div>
-            <div style={{ width: W_DAYS }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Days</span></div>
-            <div style={{ width: W_SUB }}  className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Subtotal</span></div>
-            <div style={{ width: W_AGPCT }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Agent %</span></div>
-            <div style={{ width: W_MARGIN }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Margin</span></div>
-            <div style={{ width: W_CONT }}  className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Conting.</span></div>
-            <div style={{ width: W_BID }}  className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Bid Total</span></div>
-            <div style={{ width: W_DEL }} />
-            <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#38bdf8' }}>Variance</span></div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-label uppercase font-semibold" style={{ color: '#38bdf8' }}>Actual</span></div>
+      {/* ── The table (R3-20): one grid, flat — no department groups ── */}
+      <Table
+        className="rb-talent-table"
+        style={{ '--rb-talent-cols': periods }}
+        head={(
+          <Row>
+            <Th>Name</Th>
+            <Th width="var(--rb-talent-w-type)">Type</Th>
+            <Th width="var(--rb-talent-w-rate)" numeric>Rate</Th>
+            <Th width="var(--rb-talent-w-days)" numeric>Days</Th>
+            <Th width="var(--rb-talent-w-money)" numeric>Subtotal</Th>
+            <Th width="var(--rb-talent-w-pct)" numeric>Agent %</Th>
+            <Th width="var(--rb-talent-w-money)" numeric>Margin</Th>
+            <Th width="var(--rb-talent-w-money)" numeric>Conting.</Th>
+            <Th width="var(--rb-talent-w-money)" numeric>Bid total</Th>
+            <Th width="var(--rb-talent-w-acts)" align="right"><span className="sr-only">Actions</span></Th>
+            <Th width="var(--rb-talent-w-money)" numeric className="rb-talent-zone-edge">Actual</Th>
+            <Th width="var(--rb-talent-w-money)" numeric>Variance</Th>
             {colHeaders.map((label, i) => (
-              <div key={i} style={{ width: W_COL, backgroundColor: '#1f1d1a' }} className="px-1 py-2 text-center">
-                <span className="text-label uppercase" style={{ color: '#64748b' }}>{label}</span>
-              </div>
+              <Th key={i} width="var(--rb-talent-w-period)" align="center" className="rb-talent-period-th">{label}</Th>
             ))}
-          </div>
-
-          {/* ═══ TALENT ROWS (flat list) ═══ */}
-          {allTalent.map(line => {
-            const comp = lineComputations[line.id] || {}
-            const lineActuals = actualsByLine?.[line.id] || []
-            const isExpanded = expandedRows.has(line.id)
-
-            return (
-              <div key={line.id}>
-                <div className="flex transition-colors hover:brightness-110 group/trow" style={{ borderBottom: '1px solid #3a3733' }}>
-                  {/* Name — click to expand detail */}
-                  <div style={{ width: W_NAME, backgroundColor: '#1c1917' }} className="px-3 py-2 flex items-center gap-1">
-                    <button type="button" onClick={() => toggleExpand(line.id)} className="flex-shrink-0 p-0.5 rounded-control hover:bg-stone-700 transition-colors">
-                      {isExpanded
-                        ? <svg className="w-3 h-3" style={{ color: '#fb923c' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 9l-7 7-7-7"/></svg>
-                        : <svg className="w-3 h-3" style={{ color: '#78716c' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5l7 7-7 7"/></svg>}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <InlineCell value={line.label} placeholder="Name..." onChange={v => updateLine(line.id, { label: v })} />
-                    </div>
-                  </div>
-                  {/* Talent Type dropdown */}
-                  <div style={{ width: W_TTYPE, backgroundColor: '#1c1917' }} className="px-1 py-2 flex items-center">
-                    <select value={line.talent_type || 'actor'}
-                      onChange={e => updateLine(line.id, { talent_type: e.target.value })}
-                      className="w-full px-1 py-0.5 text-dense rounded-control cursor-pointer focus:ring-1 focus:ring-orange-500 appearance-none"
-                      style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#d6d3d1' }}>
-                      {TALENT_TYPE_OPTIONS.map(t => (
-                        <option key={t.value} value={t.value}>{t.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ width: W_RATE, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
-                    <InlineCell value={line.rate} type="number" placeholder="0" onChange={v => updateLine(line.id, { rate: v })} />
-                  </div>
-                  <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
-                    <InlineCell value={line.days} type="number" placeholder="0" onChange={v => updateLine(line.id, { days: v })} />
-                  </div>
-                  <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: comp.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{comp.subtotal > 0 ? formatMoney(comp.subtotal, currency) : '\u2014'}</span>
-                  </div>
-                  <div style={{ width: W_AGPCT, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
-                    <InlineCell value={line.talent_agency_fee_pct} type="number" placeholder="0" onChange={v => updateLine(line.id, { talent_agency_fee_pct: v })} />
-                  </div>
-                  {(() => {
-                    const mPct = line.margin_pct != null ? Number(line.margin_pct) : defaultMarginPct
-                    const cPct = line.contingency_pct != null ? Number(line.contingency_pct) : defaultContPct
-                    const mAmt = (comp.bidTotal || 0) * mPct / 100
-                    const cAmt = (comp.bidTotal || 0) * cPct / 100
-                    return (<>
-                      <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                        <button type="button" onClick={e => handleMcCellClick(e, line.id)}
-                          className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
-                          style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                          {mAmt > 0 ? formatMoney(mAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
-                        </button>
-                      </div>
-                      <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                        <button type="button" onClick={e => handleMcCellClick(e, line.id)}
-                          className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
-                          style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                          {cAmt > 0 ? formatMoney(cAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
-                        </button>
-                      </div>
-                    </>)
-                  })()}
-                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right font-semibold flex items-center justify-end">
-                    <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? formatMoney(comp.bidTotal, currency) : '\u2014'}</span>
-                  </div>
-                  <div style={{ width: W_DEL, backgroundColor: '#1c1917' }} className="flex items-center justify-center opacity-0 group-hover/trow:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => deleteLine(line.id)} className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }}>
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {/* Divider */}
-                  <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                  {/* Variance + Actual cells */}
-                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{
-                      color: (comp.bidTotal > 0 || comp.actualTotal > 0)
-                        ? (comp.variance > 0 ? '#fca5a5' : comp.variance < 0 ? '#86efac' : '#78716c')
-                        : '#57534e',
-                    }}>
-                      {comp.bidTotal > 0 || comp.actualTotal > 0
-                        ? formatMoney(comp.variance, currency, { sign: 'exceptZero' })
-                        : '\u2014'}
-                    </span>
-                  </div>
-                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: comp.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.actualTotal > 0 ? formatMoney(comp.actualTotal, currency) : '\u2014'}</span>
-                  </div>
-                  {/* Period cells — click opens fixed popover */}
-                  {colHeaders.map((label, colIdx) => {
-                    const cellActual = lineActuals.find(a => a.column_index === colIdx)
-                    const hasAttach = !!cellActual?.attachment_name
-                    return (
-                      <div key={colIdx} style={{ width: W_COL, backgroundColor: '#1a1915' }}
-                        className="px-1 py-2 flex items-center justify-center">
-                        <button type="button"
-                          onClick={e => handleCellClick(e, line.id, colIdx)}
-                          className="relative w-full text-dense rounded-control py-0.5 transition-colors hover:bg-stone-700"
-                          style={{
-                            color: cellActual?.value ? '#d6d3d1' : '#44403c',
-                            border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
-                            backgroundColor: cellActual?.value ? '#292524' : 'transparent',
-                          }}>
-                          {cellActual?.value ? formatMoney(cellActual.value, currency) : '\u00B7'}
-                          {hasAttach && <Paperclip className="absolute top-0 right-0.5 w-2.5 h-2.5" style={{ color: '#fb923c' }} />}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* ── Expandable talent detail row ── */}
-                {isExpanded && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 px-6 py-2.5" style={{ backgroundColor: '#1a1815', borderBottom: '1px solid #3a3733' }}>
-                    <TalentDetailField label="Union / Guild #" value={line.union_id} placeholder="SAG-AFTRA #"
-                      onChange={v => updateLine(line.id, { union_id: v })} />
-                    <TalentDetailField label="Agency" value={line.agency_name} placeholder="Agency name"
-                      onChange={v => updateLine(line.id, { agency_name: v })} />
-                    <TalentDetailField label="Agent" value={line.agent_name} placeholder="Agent name"
-                      onChange={v => updateLine(line.id, { agent_name: v })} />
-                    <TalentDetailField label="Phone" value={line.phone} placeholder="Phone"
-                      onChange={v => updateLine(line.id, { phone: v })} />
-                    <TalentDetailField label="Email" value={line.email} placeholder="Email"
-                      onChange={v => updateLine(line.id, { email: v })} />
-                    <TalentDetailField label="Notes" value={line.description} placeholder="Notes..."
-                      onChange={v => updateLine(line.id, { description: v })} wide />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {/* ═══ GRAND TOTAL ═══ */}
-          <div className="flex" style={{ borderTop: '2px solid #fb923c' }}>
-            <div style={{ width: W_NAME + W_TTYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-2.5 text-label font-semibold uppercase">
-              <span style={{ color: '#fb923c' }}>Grand Total</span>
-            </div>
-            <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#a8a29e' }}>{formatMoney(totals.subtotal, currency)}</span>
-            </div>
-            <div style={{ width: W_AGPCT, backgroundColor: '#292524' }} />
-            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: totals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.marginTotal > 0 ? formatMoney(totals.marginTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
-            </div>
-            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: totals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.contTotal > 0 ? formatMoney(totals.contTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
-            </div>
-            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{formatMoney(totals.bid, currency)}</span>
-            </div>
-            <div style={{ width: W_DEL, backgroundColor: '#292524' }} />
-            <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{
-                color: totals.variance > 0 ? '#fca5a5' : totals.variance < 0 ? '#86efac' : '#a8a29e',
-              }}>
-                {totals.bid > 0 || totals.actual > 0
-                  ? formatMoney(totals.variance, currency, { sign: 'exceptZero' })
-                  : '\u2014'}
+          </Row>
+        )}
+        foot={(
+          <Row>
+            <Td colSpan={LABEL_COLUMNS}>Grand total</Td>
+            <Td numeric><CurrencyDisplay value={totals.subtotal} currency={currency} /></Td>
+            <Td />
+            <Td numeric>
+              <span className="rb-talent-dash" data-empty={totals.marginTotal > 0 ? undefined : 'true'}>
+                {totals.marginTotal > 0 ? <CurrencyDisplay value={totals.marginTotal} currency={currency} signed /> : '—'}
               </span>
-            </div>
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{totals.actual > 0 ? formatMoney(totals.actual, currency) : '\u2014'}</span>
-            </div>
-            <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
-          </div>
+            </Td>
+            <Td numeric>
+              <span className="rb-talent-dash" data-empty={totals.contTotal > 0 ? undefined : 'true'}>
+                {totals.contTotal > 0 ? <CurrencyDisplay value={totals.contTotal} currency={currency} signed /> : '—'}
+              </span>
+            </Td>
+            <Td numeric><CurrencyDisplay value={totals.bid} currency={currency} /></Td>
+            <Td />
+            <Td numeric className="rb-talent-zone rb-talent-zone-edge">
+              <span className="rb-talent-dash" data-empty={totals.actual > 0 ? undefined : 'true'}>
+                {totals.actual > 0 ? <CurrencyDisplay value={totals.actual} currency={currency} /> : '—'}
+              </span>
+            </Td>
+            <Td numeric className="rb-talent-zone">
+              <span className="rb-talent-var" data-tone={totals.variance > 0 ? 'danger' : totals.variance < 0 ? 'success' : 'zero'}>
+                {totals.bid > 0 || totals.actual > 0
+                  ? <CurrencyDisplay value={totals.variance} currency={currency} signed />
+                  : '—'}
+              </span>
+            </Td>
+            {periods > 0 && <Td colSpan={periods} className="rb-talent-zone" />}
+          </Row>
+        )}
+      >
+        {allTalent.map(line => lineRows(line))}
+      </Table>
 
-        </div>
-      </div>
-
-      {/* ── Fixed popover (rendered outside the table) ── */}
+      {/* ── A period's actual: the lane's popover, in <body> ── */}
       {openPopover && popoverLine && (
         <ActualPopover
-          pos={openPopover}
+          // One popover per cell: opened on another cell while this one is
+          // open (from the keyboard), it must not keep this cell's draft and
+          // save it into the next (a defect older than the restyle).
+          key={`${openPopover.lineId}:${openPopover.colIdx}`}
+          anchor={openPopover}
           actual={popoverActual}
           colLabel={colHeaders[openPopover.colIdx]}
           lineName={popoverLine.label}
@@ -634,13 +559,15 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
         />
       )}
 
-      {/* ── Margin/Contingency popover ── */}
+      {/* ── Margin & contingency: the lane's one editor (R3-32) ── */}
       {mcPopover && mcLine && (
         <MarginContPopover
-          pos={mcPopover}
+          key={mcPopover.lineId}
+          anchor={mcPopover}
+          amountLabel="Bid total"
+          baseAmount={lineComputations[mcLine.id]?.bidTotal || 0}
           marginPct={mcLine.margin_pct != null ? Number(mcLine.margin_pct) : defaultMarginPct}
           contPct={mcLine.contingency_pct != null ? Number(mcLine.contingency_pct) : defaultContPct}
-          bidTotal={lineComputations[mcLine.id]?.bidTotal || 0}
           defaultMargin={defaultMarginPct}
           defaultCont={defaultContPct}
           currency={currency}
@@ -648,11 +575,32 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
           onClose={() => setMcPopover(null)}
         />
       )}
+
+      {/* W9: Reset M/C's window.confirm, word for word, on the kit Dialog in
+          <body> (the Expenses tab's). */}
+      {confirmResetMc && createPortal(
+        <Dialog
+          width="confirm"
+          title="Reset margin & contingency"
+          onClose={() => setConfirmResetMc(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmResetMc(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setConfirmResetMc(false); resetAllMarginCont() }}>Reset</Button>
+            </>
+          )}
+        >
+          Reset all margin & contingency values to the project defaults? This cannot be undone.
+        </Dialog>,
+        document.body,
+      )}
     </div>
   )
 }
 
 // ── Talent detail inline field (expandable row) ──
+// Its Label-step label over the same editor as the cells: Enter commits,
+// Escape reverts, leaving the field commits.
 function TalentDetailField({ label, value, placeholder, onChange, wide }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -669,36 +617,20 @@ function TalentDetailField({ label, value, placeholder, onChange, wide }) {
   }
 
   return (
-    <div className={`flex flex-col gap-0.5 ${wide ? 'flex-1 min-w-[200px]' : ''}`} style={{ width: wide ? undefined : 150 }}>
-      <span className="text-label uppercase" style={{ color: '#78716c' }}>{label}</span>
+    <div className="rb-talent-detail-field" data-wide={wide ? 'true' : undefined}>
+      <span className="ui-field-label">{label}</span>
       {editing ? (
         <input ref={ref} type="text" value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false) }}
-          className="px-1.5 py-0.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#d6d3d1' }} />
+          className="ui-input rb-talent-cell-input"
+          data-size="sm" />
       ) : (
         <button type="button" onClick={start}
-          className="px-1.5 py-0.5 text-dense rounded-control text-left truncate transition-colors hover:bg-stone-800"
-          style={{ color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
-          {value || placeholder || '\u2014'}
+          className="rb-talent-cell-text"
+          data-empty={value ? undefined : 'true'}>
+          {value || placeholder || '—'}
         </button>
       )}
-    </div>
-  )
-}
-
-// ── Summary tile (matches BigTile: expenses colors, crew sizing) ──
-function SummaryTile({ label, value, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
-  }[tone]
-  return (
-    <div className="flex-1 min-w-[120px] flex flex-col rounded-control px-4 py-3"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
     </div>
   )
 }

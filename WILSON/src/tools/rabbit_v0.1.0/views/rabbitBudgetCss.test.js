@@ -32,7 +32,7 @@ const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n
 const SHEET = resolve(here, 'rabbitBudget.css')
 const sheet = read('rabbitBudget.css')
 /** Lane B5's class prefixes (the second word after `rb-`), as the guards' `prefix`. */
-const LANE = 'money|budget|crew|talent|client|pop'
+const LANE = 'money|budget|crew|talent|client|pop|inv'
 const LANE_RE = new RegExp(`^rb-(${LANE})-`)
 /** B5's files on this sheet, relative to this directory, the prefix each
     writes, and the least it can weigh (a thin component is short; a read
@@ -51,15 +51,26 @@ const FILES = {
   // Estimate column's width is the sheet's, read by the kit Th.
   client: { file: './budget/ClientViewTab.jsx', prefix: 'rb-client-', min: 3000 },
   // B5 surface 2b: the lane's one popover (R3-32) and the margin &
-  // contingency editor on it, which Crew and Talent take next.
+  // contingency editor on it, which Crew and Talent take in surface 4.
   pop: { file: './budget/BudgetPopover.jsx', prefix: 'rb-pop-', min: 1000 },
   marginCont: { file: './budget/MarginContPopover.jsx', prefix: 'rb-pop-', min: 1000 },
+  // B5 surface 4: the Crew/team and Talent tabs — one kit Table each, the
+  // actual zone on one ground, the period cells, their popovers on the
+  // lane's one, Reset M/C on the kit Dialog.
+  crew: { file: './budget/CrewTeamTab.jsx', prefix: 'rb-crew-', min: 3000 },
+  talent: { file: './budget/TalentTab.jsx', prefix: 'rb-talent-', min: 3000 },
+  // B5 surface 4's tail: the popovers' invoice field, outside the tool's
+  // folder (components/Budget/) but hosted only by Crew and Talent.
+  inv: { file: '../../../components/Budget/InvoiceAttachment.jsx', prefix: 'rb-inv-', min: 3000 },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
 const STYLES = {
   // The popover's caller-given width and its measured place, in px.
   pop: ["{{ '--rb-pop-w': width, '--rb-pop-x': place.x, '--rb-pop-y': place.y }}"],
+  // The period count, from which the sheet sizes the table (a geometry).
+  crew: ["{{ '--rb-crew-cols': periods }}"],
+  talent: ["{{ '--rb-talent-cols': periods }}"],
 }
 
 /** A source with the named top-level functions taken out. A function starts
