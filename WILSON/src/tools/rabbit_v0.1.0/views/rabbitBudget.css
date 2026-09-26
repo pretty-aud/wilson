@@ -5,9 +5,11 @@
    Owns: components/CurrencyDisplay.jsx (the one money formatter and its
    figure), views/BudgetView.jsx (Summary, the seven breakdown reports,
    Custom, Expenses and the tab strip), views/budget/CrewTeamTab.jsx,
-   TalentTab.jsx and ClientViewTab.jsx. Every class here is `rb-` plus this
-   lane's second word (`money`, `budget`, `crew`, `talent`, `client`): the
-   `rb-` prefix is what B1's scanners (rabbitCssGuards.js) key on; the second
+   TalentTab.jsx and ClientViewTab.jsx, and the lane's one popover with its
+   margin & contingency editor, views/budget/BudgetPopover.jsx and
+   MarginContPopover.jsx. Every class here is `rb-` plus this lane's second
+   word (`money`, `budget`, `crew`, `talent`, `client`, `pop`): the `rb-`
+   prefix is what B1's scanners (rabbitCssGuards.js) key on; the second
    word keeps these clear of B1's rabbitShell.css, B2's `rb-task-`, B3's
    `rb-tl-`, B4's `rb-files-` family and B6's `bn-`.
 
@@ -230,8 +232,10 @@
 
   /* A cell holding a 28px control pads 4 above and 3 below it, so the row
      stays the kit's 36 and the focus ring's 3px still fits inside the cell's
-     clip. (0,4,0): one class over the kit's dense `.ui-td` rule. */
-  .rb-budget-versions .ui-tr > .ui-td.rb-budget-icon-cell { padding-top: 4px; padding-bottom: 3px; }
+     clip. (0,4,0): one class over the kit's dense `.ui-td` rule. The
+     Expenses list's actions cell is one too (surface 2b). */
+  .rb-budget-versions .ui-tr > .ui-td.rb-budget-icon-cell,
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-icon-cell { padding-top: 4px; padding-bottom: 3px; }
   /* The active and locked markers: the glyph where a set-active button's
      would be (7px into its 28), in the one active tone and the success tone.
      The ACTIVE row is also the kit's selected row; LOCKED is its badge. */
@@ -242,13 +246,16 @@
   .rb-budget-version-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rb-budget-version-name > .ui-status { flex-shrink: 0; }
   /* A date is a figure: the mono at tabular figures, in the second ink; a
-     missing one is a dash at the third (it was #78716c, 3.65:1). */
-  .rb-budget-versions .rb-budget-date {
+     missing one is a dash at the third (it was #78716c, 3.65:1). The
+     Expenses list's purchase date is the same figure (surface 2b). */
+  .rb-budget-versions .rb-budget-date,
+  .rb-budget-exp .rb-budget-date {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-2);
   }
-  .rb-budget-versions .rb-budget-date[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-budget-versions .rb-budget-date[data-empty="true"],
+  .rb-budget-exp .rb-budget-date[data-empty="true"] { color: var(--color-ink-3); }
 
   /* The variance against the active bid: a raised block with one hairline;
      its tone is the figure's alone (R19 — it was the box's edge as well). */
@@ -380,5 +387,437 @@
   }
   /* (0,3,0): over the kit's `select.ui-input[data-size="sm"]` (0,2,1). */
   .rb-budget-status-select[data-dot="true"] > .ui-input { padding-left: 22px; }
+
+  /* ═══ Expenses: the tab, its toolbar and the filter strip (surface 2b) ═══
+     The tiles are Summary's (`.rb-budget-stats`, a kit Stat each). Under them
+     the kit Toolbar with the same eleven controls in the same order at the
+     28px height (C1), the filters, then the list. All four start on one left
+     edge, the shell's gutter (R3-31): the toolbar was 4px in from it, the
+     header 12 and the rows 13. */
+  .rb-budget-exp-tab { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* The toolbar sits inside the shell's gutter, so it takes none of its own.
+     (0,2,0): one class over `.ui-toolbar`. It wraps, as it always did, rather
+     than push the search off the row at Electron's 1024px floor (the Tasks
+     toolbar does the same). */
+  .ui-toolbar.rb-budget-exp-toolbar { padding-left: 0; padding-right: 0; }
+  .rb-budget-exp-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
+  /* A group's separator: one 16px hairline, the Tasks toolbar's (they were
+     three 1x20 #44403c rules). */
+  .rb-budget-divider { flex-shrink: 0; width: 1px; height: 16px; background-color: var(--color-rule); }
+  /* Sort and Group: the glyph that names each select, in the third ink, and
+     the select sized to its words rather than the kit's full-width field. */
+  .rb-budget-tool-group { display: inline-flex; align-items: center; gap: 4px; }
+  .rb-budget-tool-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .ui-input.rb-budget-tool { width: auto; }
+  /* The sort direction's "Z→A": the letters with the kit's arrow between
+     them, set as tight as the glyph was (Geist's subset has no U+2192). */
+  .rb-budget-sort-dir { display: inline-flex; align-items: center; gap: 2px; }
+  .rb-budget-sort-dir-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+  /* Filter while filters apply: the signal edge, the kit's one active
+     treatment (it was orange words). (0,5,0), the Tasks toolbar's weight:
+     over every kit rule that paints a button's or a field's edge. */
+  .rb-budget-exp-toolbar .ui-toolbar-slot .ui-btn.rb-budget-tool[data-active="true"] { border-color: var(--color-signal); }
+  /* Search: the glyph inside the field, the clear button at its end. */
+  .rb-budget-search { position: relative; display: inline-flex; align-items: center; width: 200px; }
+  .rb-budget-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  /* (0,3,0): over the kit's small field's padding (0,2,0). */
+  .rb-budget-search > .ui-input.rb-budget-search-input { padding-left: 28px; padding-right: 28px; }
+  .rb-budget-search-clear { position: absolute; right: 0; }
+  /* "3/3", the list against the whole: a figure in the third ink (it was an
+     uppercase Label-step run). */
+  .rb-budget-count {
+    padding: 0 4px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+
+  /* Saved views: restyled in place on the kit's float tokens, as the Tasks
+     toolbar's is (the kit Menu has no item with a trailing action, B2's K2),
+     under its button at its right edge, where it always opened. */
+  .rb-budget-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 30;
+    min-width: 224px;
+    max-width: 320px;
+    padding: 4px 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-budget-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
+  .rb-budget-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--control-sm);
+    padding: 0 4px 0 12px;
+    font-size: var(--text-dense);
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-budget-menu-item:hover { background-color: var(--color-hover); }
+  .rb-budget-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-budget-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
+  .rb-budget-menu-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+
+  /* The filter strip: the Tasks one, in this tab's gutter. A hairline box on
+     the paper (it was a #44403c box), so the kit's raised fields stand out
+     of it as they did. */
+  .rb-budget-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-budget-filter-row { display: flex; align-items: center; gap: 8px; }
+  /* "Where" / "And": the Label step (`.rb-budget-eyebrow`) in a 40px slot. */
+  .rb-budget-filter-where { flex-shrink: 0; width: 40px; }
+  .ui-input.rb-budget-filter-field { width: 128px; }
+  .ui-input.rb-budget-filter-op { width: 160px; }
+  .ui-input.rb-budget-filter-text { width: 144px; }
+  .rb-budget-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* ═══ Expenses: the list (surface 2b, R3-20) ═════════════════════════════
+     The kit Table: a real <table>, one grid for the header and the rows (a
+     flex header over flex rows before). Its widths are declared once, here,
+     on the wrapper the bulk bar shares, each holding its widest value and
+     its own header at the step it draws, measured in the browser, plus the
+     kit's 12px a side:
+       check    the 28px square, the column's whole width (R3-40)      ->  28
+       money    "+$1,234,567" 85.8 in the 13px mono; "ESTIMATED" 66
+                and its 14px sort slot                                  -> 112
+       date     "2026-09-08" 78                                        -> 104
+       related  "1 ASSET" 61.3 + 4 + "1 PHASE" 62.4 side by side; more
+                wraps, as the chips always did                          -> 152
+       files    the clip, 4 and "99" 33.6; "FILES" 33.1                 ->  64
+       acts     two 28px IconButtons 2px apart: one reserved slot, the
+                same width in every row (R3-24)                         ->  84
+     The title takes the rest, never under 200px: below 1192px of table the
+     list scrolls sideways (only at Electron's 1024px floor) rather than
+     starve it. */
+  .rb-budget-exp-table {
+    --rb-budget-exp-col-check: 28px;
+    --rb-budget-exp-col-money: 112px;
+    --rb-budget-exp-col-date: 104px;
+    --rb-budget-exp-col-related: 152px;
+    --rb-budget-exp-col-files: 64px;
+    --rb-budget-exp-col-acts: 84px;
+    position: relative;
+  }
+  .ui-table.rb-budget-exp { min-width: 1192px; }
+
+  /* The bulk-action bar overlays the header right of the checkbox column,
+     where it always did. The kit has no bulk bar: this is the lane's, in the
+     Tasks table's shape — the raised paper, the signal edge, the count at
+     Dense 600 in the ink (it was orange mono). */
+  .rb-budget-bulk {
+    position: absolute;
+    top: 0;
+    left: var(--rb-budget-exp-col-check);
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: var(--table-head);
+    padding: 0 4px 0 12px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-signal);
+    border-radius: var(--radius-control);
+  }
+  .rb-budget-bulk-count {
+    font-size: var(--text-dense);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+
+  /* The checkbox: one 28px square in the header and in every row (R3-40; the
+     review measured about 20px before), filling its column, so it starts on
+     the table's edge — the toolbar's. In a row it shows on hover, on focus
+     and while ticked, as it did; ticked, it takes the signal. (0,4,0): over
+     the kit's `.ui-td` padding and its dense rule. */
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-check-cell,
+  .rb-budget-exp .ui-tr > .ui-th.rb-budget-exp-check-cell { padding: 0; }
+  .rb-budget-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-sm);
+    height: var(--control-sm);
+    padding: 0;
+    vertical-align: middle;
+    color: var(--color-ink-3);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .rb-budget-check > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-budget-check:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-budget-check[data-checked="all"],
+  .rb-budget-check[data-checked="some"] { color: var(--color-signal); opacity: 1; }
+  .ui-th .rb-budget-check,
+  .rb-budget-exp-row:hover .rb-budget-check,
+  .rb-budget-exp-row:focus-within .rb-budget-check { opacity: 1; }
+  /* The cell clips at its edge (`.ui-td` is overflow: hidden) and gives the
+     box no padding, so the kit's ring (2px, 1px out) is drawn inside it. */
+  .rb-budget-check:focus-visible { outline-offset: -2px; }
+
+  /* A row is the kit Row: its one hover (R3-23), and `selected` the one
+     selection (R3-38; it was an orange tint AND a full orange border). The
+     row's quiet inks lift on the hover fill and the selected tint, where the
+     third ink measures 4.34:1 and 4.17:1 (the Tasks rows' rule). */
+  .rb-budget-exp-row:hover .rb-budget-dash[data-empty="true"],
+  .rb-budget-exp-row[data-ticked="true"] .rb-budget-dash[data-empty="true"],
+  .rb-budget-exp-row:hover .rb-budget-exp-title[data-empty="true"],
+  .rb-budget-exp-row[data-ticked="true"] .rb-budget-exp-title[data-empty="true"],
+  .rb-budget-exp-row:hover .rb-budget-exp-desc,
+  .rb-budget-exp-row[data-ticked="true"] .rb-budget-exp-desc,
+  .rb-budget-exp-row:hover > .rb-budget-date[data-empty="true"],
+  .rb-budget-exp-row[data-ticked="true"] > .rb-budget-date[data-empty="true"] { color: var(--color-ink-2); }
+
+  /* The title over its description, a line each, cut with an ellipsis. */
+  .rb-budget-exp-title,
+  .rb-budget-exp-desc { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .rb-budget-exp-title[data-empty="true"] { font-style: italic; color: var(--color-ink-3); }
+  .rb-budget-exp-desc { margin-top: 2px; color: var(--color-ink-3); }
+
+  /* Margin and Contingency open the popover (C1): each is the kit's 28px
+     field at rest, as the Summary's % controls are, sized to its figure and
+     right-aligned under its header (a #33302e box with orange figures
+     before). The cell pads 4 a side, so a signed `+$1,234,567` (104px in its
+     well) fits the 112 column, and 4 above and 3 below, so the row stays 36
+     and the ring fits inside the cell's clip. (0,4,0), as above. */
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-mc-cell { padding: 4px 4px 3px; }
+  .ui-input.rb-budget-exp-mc {
+    display: inline-flex;
+    align-items: center;
+    width: auto;
+    cursor: pointer;
+  }
+
+  /* Related: a kit Badge per kind, wrapping in the cell as the chips did. */
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-related { white-space: normal; }
+  .rb-budget-exp-rels { display: flex; flex-wrap: wrap; gap: 4px; }
+  /* Files: the clip and the count, in the second ink. */
+  .rb-budget-exp-files { display: inline-flex; align-items: center; gap: 4px; color: var(--color-ink-2); }
+  .rb-budget-exp-files-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+
+  /* A group's header: a full-width row of the table on the raised paper, as
+     the Tasks table's groups are (a #292524 band with a 3px orange rule and
+     an orange uppercase name before). Its words start on the title's rail;
+     its totals keep the far end. */
+  .rb-budget-exp-group > .ui-td { background-color: var(--color-paper-raised); }
+  .rb-budget-exp .ui-tr > .ui-td.rb-budget-exp-group-cell {
+    padding-left: calc(var(--rb-budget-exp-col-check) + var(--cell-pad-x));
+  }
+  .rb-budget-exp-group-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .rb-budget-exp-group-label { font-weight: 600; color: var(--color-ink); }
+  .rb-budget-exp-group-count {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-budget-exp-group-totals { margin-left: auto; color: var(--color-ink-2); }
+  .rb-budget-exp-group-act { color: var(--color-ink); }
+
+  /* ═══ Expenses: the create / edit dialog (surface 2b) ═══════════════════
+     The kit Dialog at the form width. The fields keep their order, each the
+     kit's field under its Label-step label (`.rb-budget-field`); the
+     Variance, which cannot be typed in, is its figure alone, not a box. */
+  .rb-budget-exp-form { display: flex; flex-direction: column; gap: 16px; }
+  .rb-budget-exp-costs { display: flex; gap: 16px; }
+  .rb-budget-exp-costs > .rb-budget-field { flex: 1 1 0; }
+  .rb-budget-exp-costs > .rb-budget-field:last-child { flex: 0 0 auto; min-width: 100px; }
+  .rb-budget-exp-variance {
+    display: flex;
+    align-items: center;
+    height: var(--control-md);
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+  }
+  /* The date field is the 220px it was (its column's cap). */
+  .ui-input.rb-budget-exp-date { width: 220px; }
+  /* It never resized; the kit's textarea does. (0,2,0) over (0,1,1). */
+  .ui-input.rb-budget-exp-desc-input { resize: none; }
+  .rb-budget-exp-pickers { display: flex; flex-direction: column; gap: 8px; }
+  .rb-budget-exp-uploads { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .rb-budget-exp-file-list { display: flex; flex-direction: column; gap: 4px; align-self: stretch; }
+  .rb-budget-exp-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-budget-exp-file-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-budget-exp-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+  }
+  /* An upload the server refused: its sentence, in the danger ink. */
+  .rb-budget-exp-error {
+    margin: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-danger);
+  }
+  /* The footer's note keeps the left end, the buttons the right. */
+  .rb-budget-exp-note { margin-right: auto; }
+
+  /* ═══ Expenses: the relation pickers (surface 2b) ════════════════════════
+     Restyled in place. The button is the kit's 28px field (one class over
+     `.ui-input`), its count the kit Badge (it was white on the signal fill,
+     C6), its list on the kit's float tokens. */
+  .rb-budget-rel { position: relative; }
+  .ui-input.rb-budget-rel-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    color: var(--color-ink-2);
+    cursor: pointer;
+  }
+  .rb-budget-rel-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-budget-rel-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-badge.rb-budget-rel-count { margin-left: auto; }
+  .rb-budget-rel-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    max-height: 220px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-budget-rel-search { flex: none; padding: 4px; border-bottom: 1px solid var(--color-rule); }
+  .rb-budget-rel-options { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 0; }
+  .rb-budget-rel-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
+  .rb-budget-rel-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--control-sm);
+    padding: 0 12px;
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-budget-rel-option:hover { background-color: var(--color-hover); }
+  .rb-budget-rel-option[data-checked="true"] { color: var(--color-ink); }
+  /* The native box, in the signal fill as the Team Members table's is. */
+  .rb-budget-rel-check {
+    flex: none;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    margin: 0;
+    accent-color: var(--color-signal-fill);
+    cursor: pointer;
+  }
+  .rb-budget-rel-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ═══ BudgetPopover: the lane's one floating editor (surface 2b, R3-32) ══
+     views/budget/BudgetPopover.jsx and MarginContPopover.jsx. The kit's
+     float tokens, the kit Menu's surface and layer: the raised paper,
+     `--radius-float`, the float shadow and one hairline (five copies drew a
+     2px orange border and a heavier shadow). Portalled into <body>; the
+     component measures its own box and hands its place over as two custom
+     properties, with the caller's width, all in px. */
+  .rb-pop-panel {
+    position: fixed;
+    left: calc(var(--rb-pop-x) * 1px);
+    top: calc(var(--rb-pop-y) * 1px);
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: calc(var(--rb-pop-w) * 1px);
+    max-width: calc(100vw - 24px);
+    padding: 4px 12px 12px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+    color: var(--color-ink);
+  }
+  /* Its name at the Label step, as the kit Menu's header; Close at the end. */
+  .rb-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rb-pop-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rb-pop-body { display: flex; flex-direction: column; gap: 12px; }
+
+  /* MarginContPopover: a field and the amount it adds, twice, then its two
+     buttons. The kit's field is full width; here it shares its row. (0,3,0):
+     over every kit rule that sizes a field, the Team Members search's
+     `.tm-search .ui-input` (0,2,0) among them. */
+  .rb-pop-field { display: flex; flex-direction: column; gap: 4px; }
+  .rb-pop-row { display: flex; align-items: center; gap: 8px; }
+  .rb-pop-row > .ui-input.rb-pop-input { flex: 1 1 auto; width: auto; }
+  .rb-pop-amount {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  .rb-pop-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .ui-btn.rb-pop-save { flex: 1 1 auto; }
+
+  /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
+     Every transition this sheet declares, stopped: its twin here with the
+     same selector and `transition: none` alone. THE LAST BLOCK OF THE LAYER:
+     a section added later goes above it, and puts its twins in here. */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-budget-menu-item { transition: none; }
+    .rb-budget-check { transition: none; }
+    .rb-budget-rel-option { transition: none; }
+  }
 
 }

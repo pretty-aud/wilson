@@ -7,7 +7,8 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, cleanup, within } from '@testing-library/react'
+import { render, cleanup, within, screen, fireEvent, act } from '@testing-library/react'
+import { _resetOverlaysForTests } from '../../../ui/overlay'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -22,7 +23,9 @@ vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({
 vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => ({ entries: [], rateCards: [] }) }))
 
 const { default: CurrencyDisplay, formatMoney, MONEY_LOCALE } = await import('../components/CurrencyDisplay')
-const { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg } = await import('./BudgetView')
+const { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTab, ExpensePopup } = await import('./BudgetView')
+const { default: BudgetPopover, placePopover } = await import('./budget/BudgetPopover')
+const { default: MarginContPopover } = await import('./budget/MarginContPopover')
 
 afterEach(() => { cleanup() })
 
@@ -277,5 +280,393 @@ describe('surface 2a', () => {
     rerender(<CenterMsg>No project loaded</CenterMsg>)
     expect(container.querySelector('.ui-empty .ui-empty-title')?.textContent).toBe('No project loaded')
     expect(container.querySelector('.ui-loading-inline')).toBeNull()
+  })
+})
+
+/* ── surface 2b: the Expenses tab (R3-15 … R3-40, W9) ────────────────────── */
+describe('surface 2b', () => {
+  afterEach(() => {
+    cleanup()
+    _resetOverlaysForTests()
+    try { localStorage.clear() } catch { /* ignore */ }
+  })
+
+  /** Every declaration of a colour, a ground or an edge in an inline style. */
+  const inlineColours = (root) => [...root.querySelectorAll('[style]')]
+    .map((el) => el.getAttribute('style'))
+    .filter((s) => /(^|;)\s*(color|background(-color)?|border(-[a-z]+)*|fill|stroke|opacity)\s*:/i.test(s))
+
+  const EXPENSES = [
+    { id: 'e1', title: 'Camera package hire', description: 'Two-week hire', estimated_cost: 16800, actual_cost: 16800, purchase_date: '2026-09-08', phase_ids: ['ph1'], file_ids: ['f1'], contingency_pct: 10 },
+    { id: 'e2', title: 'Set timber and paint', estimated_cost: 4200, actual_cost: 3860, purchase_date: '2026-09-05', asset_ids: ['a1'], phase_ids: ['ph1'], task_ids: ['t1'], margin_pct: 5 },
+    { id: 'e3', title: '', estimated_cost: 260, actual_cost: 284, purchase_date: '' },
+  ]
+  /** The useExpenses hook, mocked: what the tab reads and the writes it makes. */
+  const hook = (over = {}) => ({
+    expenses: EXPENSES,
+    loading: false,
+    addExpense: vi.fn(async () => {}),
+    updateExpense: vi.fn(async () => {}),
+    deleteExpense: vi.fn(async () => {}),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    canUndo: false,
+    canRedo: true,
+    ...over,
+  })
+  const PROJECT = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }
+  const tab = (h = hook(), project = PROJECT) => (
+    <ExpensesTab ctx={{ getAdapter: () => ({}) }} project={project} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />
+  )
+  const rowsOf = (root) => [...root.querySelectorAll('table.rb-budget-exp tbody tr.rb-budget-exp-row')]
+  const titles = (root) => rowsOf(root).map((r) => r.querySelector('.rb-budget-exp-title').textContent)
+
+  it('the list is the kit Table: the same columns, the lane\'s one money order, every figure a numeric cell (R3-20, R3-05)', () => {
+    const { container } = render(tab())
+    const table = container.querySelector('table.ui-table.rb-budget-exp')
+    expect(table).not.toBeNull()
+    const ths = [...table.querySelectorAll('thead th')]
+    expect(ths.map((th) => th.textContent)).toEqual(['', 'Title', 'Estimated', 'Margin', 'Conting.', 'Actual', 'Variance', 'Date', 'Related', 'Files', 'Actions'])
+    // Figures right-aligned, their headers with them; the words left.
+    expect(ths.filter((th) => th.getAttribute('data-numeric') === 'true').map((th) => th.textContent))
+      .toEqual(['Estimated', 'Margin', 'Conting.', 'Actual', 'Variance', 'Files'])
+    // The tab's default order, newest first; an untitled expense says so.
+    expect(titles(container)).toEqual(['Camera package hire', 'Set timber and paint', 'Untitled'])
+    const rows = rowsOf(container)
+    const numeric = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)
+    expect(numeric(rows[0])).toEqual(['$16,800', '—', '+$1,680', '$16,800', '$0', '1'])
+    expect(numeric(rows[1])).toEqual(['$4,200', '+$210', '—', '$3,860', '-$340', '—'])
+    expect(numeric(rows[2])).toEqual(['$260', '—', '—', '$284', '+$24', '—'])
+    // Money is the one figure (CurrencyDisplay); a variance is signed and its
+    // news is its tone.
+    expect(rows[1].querySelectorAll('td[data-numeric="true"] .rb-money-figure')).toHaveLength(4)
+    expect(rows[0].querySelector('.rb-budget-var').getAttribute('data-tone')).toBeNull()
+    expect(rows[1].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('success')
+    expect(rows[2].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
+    // A header sorts its column, as its click always did; the kit's arrow and
+    // aria-sort say which way.
+    expect(ths[7].getAttribute('aria-sort')).toBe('descending')
+    fireEvent.click(within(ths[2]).getByRole('button'))
+    expect(ths[2].getAttribute('aria-sort')).toBe('ascending')
+    expect(titles(container)).toEqual(['Untitled', 'Set timber and paint', 'Camera package hire'])
+    expect(inlineColours(container)).toEqual([])
+  })
+
+  it('a row: the kit Row\'s one hover and one selection, a 28px checkbox that keeps its focus, Edit and Delete in the kit HoverActions (R3-23, R3-38, R3-40, R3-24)', () => {
+    const { container } = render(tab())
+    const row = rowsOf(container)[0]
+    expect(row.getAttribute('data-interactive')).toBe('true')
+    // Edit and Delete: the kit's reserved slot, hidden at rest as they were,
+    // and reachable by focus, which reveals them (Q17(b)).
+    const slot = row.querySelector('.ui-hover-actions')
+    expect(slot.getAttribute('data-always')).toBeNull()
+    expect(within(slot).getByRole('button', { name: 'Delete' })).toBeTruthy()
+    const edit = within(slot).getByRole('button', { name: 'Edit' })
+    edit.focus()
+    expect(document.activeElement).toBe(edit)
+    expect(row.contains(document.activeElement)).toBe(true)
+    expect(readFileSync(join(here, '../../../index.css'), 'utf8'))
+      .toMatch(/:where\(tr, li, \.ui-hover-host\):focus-within \.ui-hover-actions/)
+    // One slot width, declared once for every row.
+    expect(container.querySelector('thead th:last-child').style.width).toBe('var(--rb-budget-exp-col-acts)')
+    // The checkbox ticks without opening the row, and it is the same element
+    // afterwards: the row is not remounted, so the focus stays on it.
+    const check = within(row).getByRole('button', { name: 'Select "Camera package hire"' })
+    expect(check.className).toBe('rb-budget-check')
+    check.focus()
+    fireEvent.click(check)
+    expect(row.getAttribute('data-selected')).toBe('true')
+    expect(check.getAttribute('aria-pressed')).toBe('true')
+    expect(check.isConnected).toBe(true)
+    expect(document.activeElement).toBe(check)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Selected is said one way, the kit Row's: no inline tint, no border.
+    for (const el of [row, ...row.querySelectorAll('td')]) expect(el.getAttribute('style')).toBeNull()
+  })
+
+  it('W9: the bulk Delete and Reset M/C ask on the kit Dialog in <body>; Cancel changes nothing, the action does what OK did', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    const h = hook()
+    const { container } = render(tab(h))
+    const rows = rowsOf(container)
+    fireEvent.click(within(rows[0]).getByRole('button', { name: /^Select/ }))
+    fireEvent.click(within(rows[2]).getByRole('button', { name: /^Select/ }))
+    const bar = () => container.querySelector('.rb-budget-bulk')
+    expect(bar().textContent).toContain('2 selected')
+
+    // The bulk Delete: the confirm's own words, portalled.
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }))
+    let dialog = screen.getByRole('dialog', { name: 'Delete expenses' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(container.contains(dialog)).toBe(false)
+    expect(dialog.querySelector('.ui-dialog-body').textContent).toBe('Delete 2 expenses?')
+    expect(document.activeElement.textContent).toBe('Cancel')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.deleteExpense).not.toHaveBeenCalled()
+    expect(rowsOf(container)).toHaveLength(3)
+    expect(container.querySelectorAll('tbody tr[data-selected="true"]')).toHaveLength(2)
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }))
+    dialog = screen.getByRole('dialog', { name: 'Delete expenses' })
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' })) })
+    expect(h.deleteExpense.mock.calls.map((c) => c[0]).sort()).toEqual(['e1', 'e3'])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bar()).toBeNull()
+
+    // Reset M/C: the same.
+    fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+    dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(dialog.querySelector('.ui-dialog-body').textContent)
+      .toBe('Reset all margin & contingency values to the project defaults? This cannot be undone.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.updateExpense).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+    dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' })) })
+    // Only the two with values of their own are written, as OK wrote them.
+    expect(h.updateExpense.mock.calls).toEqual([
+      ['e1', { margin_pct: null, contingency_pct: null }],
+      ['e2', { margin_pct: null, contingency_pct: null }],
+    ])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(confirm).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('a row\'s Delete asks as it always did, now on the kit Dialog in <body>; Delete deletes that one', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    fireEvent.click(within(rowsOf(container)[1]).getByRole('button', { name: 'Delete' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete expense' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(dialog.textContent).toContain('This will permanently remove this expense. You can undo with Ctrl+Z.')
+    // The row's own click (edit) did not fire.
+    expect(screen.queryByRole('dialog', { name: 'Edit expense' })).toBeNull()
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' })) })
+    expect(h.deleteExpense).toHaveBeenCalledWith('e2')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('the margin & contingency popover is the lane\'s one: portalled to <body>, closed by an outside mousedown and by Escape, no inline colour (R3-32)', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const contCell = rowsOf(container)[0].querySelectorAll('.rb-budget-exp-mc')[1]
+    const open = () => { fireEvent.click(contCell); return screen.getByRole('dialog', { name: 'Margin & contingency' }) }
+    let pop = open()
+    expect(pop.parentElement).toBe(document.body)
+    expect(container.contains(pop)).toBe(false)
+    expect(pop.className).toBe('rb-pop-panel')
+    // Its one style is its width and its measured place, as custom
+    // properties; nothing in it or the page is an inline colour.
+    expect(pop.getAttribute('style')).toMatch(/^--rb-pop-w: 280; --rb-pop-x: \d+; --rb-pop-y: \d+;$/)
+    expect(inlineColours(document.body)).toEqual([])
+    // A cell opens the popover, not the row's edit dialog.
+    expect(screen.queryByRole('dialog', { name: 'Edit expense' })).toBeNull()
+    // The line's values, and the amount each adds (a plus even at zero).
+    const margin = within(pop).getByRole('spinbutton', { name: 'Margin %' })
+    expect(document.activeElement).toBe(margin)
+    expect(margin.value).toBe('0')
+    expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('10')
+    expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => a.textContent)).toEqual(['+$0', '+$1,680'])
+    // A press inside keeps it; one outside closes it, as the hand-rolled ones did.
+    fireEvent.mouseDown(margin)
+    expect(pop.isConnected).toBe(true)
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('dialog', { name: 'Margin & contingency' })).toBeNull()
+    // Escape closes it too (Q17: none of the five did) and marks the key handled.
+    pop = open()
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { document.activeElement.dispatchEvent(esc) })
+    expect(esc.defaultPrevented).toBe(true)
+    expect(screen.queryByRole('dialog', { name: 'Margin & contingency' })).toBeNull()
+    // Save writes through the hook and closes.
+    pop = open()
+    fireEvent.change(within(pop).getByRole('spinbutton', { name: 'Margin %' }), { target: { value: '12' } })
+    expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => a.textContent)).toEqual(['+$2,016', '+$1,680'])
+    await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Save' })) })
+    expect(h.updateExpense).toHaveBeenCalledWith('e1', { margin_pct: 12, contingency_pct: 10 })
+    expect(screen.queryByRole('dialog', { name: 'Margin & contingency' })).toBeNull()
+  })
+
+  it('BudgetPopover places itself by its own measured box, never a written 280 x 320 (R3-32)', () => {
+    // Below the anchor if it fits; else above; else as low as the window allows.
+    expect(placePopover({ x: 40, y: 100, h: 28 }, 280, 200, 1024, 768)).toEqual({ x: 40, y: 132 })
+    expect(placePopover({ x: 900, y: 700, h: 28 }, 300, 250, 1024, 768)).toEqual({ x: 712, y: 446 })
+    expect(placePopover({ x: 40, y: 300, h: 28 }, 280, 700, 1024, 768)).toEqual({ x: 40, y: 56 })
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(300)
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(250)
+    try {
+      render(<BudgetPopover anchor={{ x: 900, y: 700, h: 28 }} title="Actual" onClose={() => {}} width={300}><p>Body</p></BudgetPopover>)
+      const pop = screen.getByRole('dialog', { name: 'Actual' })
+      expect(pop.style.getPropertyValue('--rb-pop-x')).toBe('712')
+      expect(pop.style.getPropertyValue('--rb-pop-y')).toBe('446')
+    } finally {
+      width.mockRestore()
+      height.mockRestore()
+    }
+  })
+
+  it('MarginContPopover takes general props, ready for Crew and Talent: the base, its name, the defaults', () => {
+    const onSave = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <MarginContPopover anchor={{ x: 10, y: 10, h: 28 }} amountLabel="Bid" baseAmount={1000} marginPct={10} contPct={5}
+        defaultMargin={20} defaultCont={15} currency="USD" onSave={onSave} onClose={onClose} />,
+    )
+    const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+    const amounts = [...pop.querySelectorAll('.rb-pop-amount')]
+    expect(amounts.map((a) => a.textContent)).toEqual(['+$100', '+$50'])
+    expect(amounts[0].getAttribute('title')).toBe('Bid $1,000 × 10%')
+    expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).getAttribute('placeholder')).toBe('20')
+    fireEvent.click(within(pop).getByRole('button', { name: 'Default' }))
+    fireEvent.click(within(pop).getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalledWith({ margin_pct: 20, contingency_pct: 15 })
+    fireEvent.click(within(pop).getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('New expense and a row open ExpensePopup: the kit Dialog named by its title, in <body>, every field in its order (Q17)', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    fireEvent.click(screen.getByRole('button', { name: 'New expense' }))
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    expect(dialog.className).toContain('ui-dialog')
+    expect(dialog.getAttribute('data-width')).toBe('form')
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect([...dialog.querySelectorAll('.ui-field-label')].map((l) => l.textContent)).toEqual([
+      'Title *', 'Estimated cost (USD)', 'Actual cost (USD)', 'Variance', 'Purchase date',
+      'Description / reason', 'Related items', 'Invoices / receipts',
+    ])
+    const title = within(dialog).getByRole('textbox', { name: 'Title' })
+    expect(document.activeElement).toBe(title)
+    const create = within(dialog).getByRole('button', { name: 'Create' })
+    expect(create.disabled).toBe(true)
+    fireEvent.change(title, { target: { value: 'Lens rental' } })
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Estimated cost' }), { target: { value: '500' } })
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Actual cost' }), { target: { value: '650' } })
+    // The variance they make: the one figure, signed, its news its tone.
+    expect(dialog.querySelector('.rb-budget-exp-variance').textContent).toBe('+$150')
+    expect(dialog.querySelector('.rb-budget-exp-variance .rb-budget-var').getAttribute('data-tone')).toBe('danger')
+    await act(async () => { fireEvent.click(create) })
+    expect(h.addExpense).toHaveBeenCalledWith({
+      title: 'Lens rental', description: '', estimated_cost: 500, actual_cost: 650, purchase_date: '',
+      asset_ids: [], phase_ids: [], task_ids: [], file_ids: [],
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    // A row opens it to edit; Escape closes it now (Q17) and saves nothing.
+    fireEvent.click(rowsOf(container)[1].querySelector('.rb-budget-exp-title'))
+    const edit = screen.getByRole('dialog', { name: 'Edit expense' })
+    expect(within(edit).getByRole('textbox', { name: 'Title' }).value).toBe('Set timber and paint')
+    expect(within(edit).getByRole('button', { name: 'Save' })).toBeTruthy()
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.updateExpense).not.toHaveBeenCalled()
+    expect(inlineColours(document.body)).toEqual([])
+  })
+
+  it('the toolbar is the kit Toolbar: the same controls in the same order at 28px; the undo keys and their titles as they were (C1, R3-15)', () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const bar = container.querySelector('.ui-toolbar.rb-budget-exp-toolbar')
+    expect(bar).not.toBeNull()
+    const named = [...bar.querySelectorAll('button, select, input')].map((el) => el.getAttribute('aria-label') || el.textContent.trim())
+    expect(named).toEqual(['New expense', 'Undo (Ctrl+Z)', 'Redo (Ctrl+Shift+Z)', 'Filter', 'Sort', 'Z→A', 'Group', 'Views', 'Reset M/C', 'Search expenses'])
+    expect(screen.getByRole('button', { name: 'New expense' }).getAttribute('data-variant')).toBe('primary')
+    for (const el of bar.querySelectorAll('button')) expect(el.getAttribute('data-size')).toBe('sm')
+    for (const el of bar.querySelectorAll('select, input')) {
+      expect(el.className).toContain('ui-input')
+      expect(el.getAttribute('data-size')).toBe('sm')
+    }
+    expect(screen.getByRole('button', { name: 'Undo (Ctrl+Z)' }).disabled).toBe(true)
+    // The keys still undo and redo; Q10 rules out a bar to show them.
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+    expect(h.redo).toHaveBeenCalledTimes(1)
+    // Filter while filters apply: its count and the kit's active edge.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }))
+    const filter = screen.getByRole('button', { name: 'Filter (1)' })
+    expect(filter.getAttribute('data-active')).toBe('true')
+    expect(filter.getAttribute('aria-expanded')).toBe('true')
+    const strip = container.querySelector('.rb-budget-filters')
+    expect([...within(strip).getByRole('combobox', { name: 'Field' }).options].map((o) => o.textContent)).toContain('Cost status')
+    expect(inlineColours(container)).toEqual([])
+  })
+
+  it('saved views: the menu restyled in place (the kit Menu has no trailing action), its Save on the kit Dialog', () => {
+    const { container } = render(tab())
+    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
+    const menu = container.querySelector('.rb-budget-menu')
+    expect(menu.textContent).toContain('No saved views')
+    fireEvent.click(within(menu).getByRole('button', { name: 'Save current view' }))
+    expect(container.querySelector('.rb-budget-menu')).toBeNull()
+    const dialog = screen.getByRole('dialog', { name: 'Save current view' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    const name = within(dialog).getByRole('textbox', { name: 'View name' })
+    fireEvent.change(name, { target: { value: 'Receipts' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
+    expect(within(container.querySelector('.rb-budget-menu')).getByRole('button', { name: 'Delete the saved view "Receipts"' })).toBeTruthy()
+    // An outside press closes it, as it always did.
+    fireEvent.mouseDown(document.body)
+    expect(container.querySelector('.rb-budget-menu')).toBeNull()
+  })
+
+  it('grouped, a group\'s header is a full-width row of the same table, in sentence case', () => {
+    const { container } = render(tab())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'cost_status' } })
+    const tables = container.querySelectorAll('table')
+    expect(tables).toHaveLength(1)
+    const groups = [...tables[0].querySelectorAll('tbody tr.rb-budget-exp-group')]
+    expect(groups.map((g) => g.querySelector('.rb-budget-exp-group-label').textContent)).toEqual(['Over budget', 'Under budget', 'On budget'])
+    for (const g of groups) {
+      const cells = g.querySelectorAll('td')
+      expect(cells).toHaveLength(1)
+      expect(cells[0].getAttribute('colspan')).toBe(String(tables[0].querySelectorAll('thead th').length))
+    }
+    expect(groups[0].querySelector('.rb-budget-exp-group-totals').textContent).toBe('Est: $260 / Act: $284')
+  })
+
+  it('"Loading expenses..." is the kit Loading, never the empty state; no expenses is the kit EmptyState, in sentence case (R3-19)', () => {
+    const { container, rerender } = render(tab(hook({ loading: true })))
+    expect(container.querySelector('.ui-loading-inline')?.getAttribute('aria-label')).toBe('Loading expenses...')
+    expect(container.querySelector('.ui-empty')).toBeNull()
+    rerender(tab(hook({ expenses: [] })))
+    expect(container.querySelector('.ui-loading-inline')).toBeNull()
+    expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No expenses yet')
+    expect(container.querySelector('.ui-empty .ui-empty-body').textContent).toBe('Click "New expense" to add one.')
+    // The header stays over the empty list, as it did.
+    expect(container.querySelector('table.rb-budget-exp thead')).not.toBeNull()
+    // A search that matches nothing says so.
+    rerender(tab(hook()))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: 'zzz' } })
+    expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No matching expenses')
+  })
+
+  it('ExpensePopup renders on its own, portalled, for any caller', () => {
+    render(<ExpensePopup expense={null} phases={[]} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(within(dialog).getByText('Estimated cost (EUR)')).toBeTruthy()
+  })
+  it('Escape inside an open relation picker keeps the popup and its draft; Escape anywhere else closes it (Q17)', () => {
+    const onClose = vi.fn()
+    const phases = [{ id: 'ph1', name: 'Pre-production' }]
+    render(<ExpensePopup expense={null} phases={phases} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={onClose} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    fireEvent.click(within(dialog).getByRole('button', { name: /Phases/ }))
+    const option = within(dialog).getByRole('checkbox', { name: 'Pre-production' })
+    option.focus()
+    fireEvent.keyDown(option, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    const toggle = within(dialog).getByRole('button', { name: /Phases/ })
+    toggle.focus()
+    fireEvent.keyDown(toggle, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

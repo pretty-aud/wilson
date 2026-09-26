@@ -32,7 +32,7 @@ const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n
 const SHEET = resolve(here, 'rabbitBudget.css')
 const sheet = read('rabbitBudget.css')
 /** Lane B5's class prefixes (the second word after `rb-`), as the guards' `prefix`. */
-const LANE = 'money|budget|crew|talent|client'
+const LANE = 'money|budget|crew|talent|client|pop'
 const LANE_RE = new RegExp(`^rb-(${LANE})-`)
 /** B5's files on this sheet, relative to this directory, the prefix each
     writes, and the least it can weigh (a thin component is short; a read
@@ -42,16 +42,24 @@ const FILES = {
   // R3-14, R3-34). It writes no style: the size and the ink are inherited.
   money: { file: '../components/CurrencyDisplay.jsx', prefix: 'rb-money-', min: 1500 },
   // B5 surface 2a: the Summary, the seven reports, Custom and their shared
-  // helpers. The tab strip and shell (`BudgetView`, the controller's) and the
-  // Expenses tab with its popovers (surface 2b) are still staged.
+  // helpers. B5 surface 2b: the Expenses tab, its filter strip, saved views,
+  // create / edit dialog and relation pickers. The tab strip and shell
+  // (`BudgetView`, the controller's) is still staged.
   budget: {
     file: './BudgetView.jsx', prefix: 'rb-budget-', min: 3000,
-    staged: ['BudgetView', 'expenseCostStatus', 'expenseVariance', 'fmtExpLabel', 'ExpensesTab', 'ExpenseMarginContPopover', 'ExpenseFilterPanel', 'ExpenseSavedViewsDropdown', 'ExpensePopup', 'RelationPicker'],
+    staged: ['BudgetView'],
   },
+  // B5 surface 2b: the lane's one popover (R3-32) and the margin &
+  // contingency editor on it, which Crew and Talent take next.
+  pop: { file: './budget/BudgetPopover.jsx', prefix: 'rb-pop-', min: 1000 },
+  marginCont: { file: './budget/MarginContPopover.jsx', prefix: 'rb-pop-', min: 1000 },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
-const STYLES = {}
+const STYLES = {
+  // The popover's caller-given width and its measured place, in px.
+  pop: ["{{ '--rb-pop-w': width, '--rb-pop-x': place.x, '--rb-pop-y': place.y }}"],
+}
 
 /** A source with the named top-level functions taken out. A function starts
     at a column-0 `function NAME(` or `export default function NAME(` and runs
@@ -127,13 +135,15 @@ describe('a staged function is read out of the guards, and only a staged one', (
     const whole = read(file)
     // Plant on the first line inside the function's body.
     const plant = (name) => whole.replace(new RegExp(`^((?:export default )?function ${name}\\([^\\n]*\\n)`, 'm'), "$1  const planted = '#abcdef'\n")
-    const inStaged = plant('ExpensesTab')
+    // The shell is the one function still staged; ExpensesTab left the list
+    // with surface 2b, so a hex planted there is read now.
     const inShell = plant('BudgetView')
     const inRestyled = plant('SummaryTab')
-    for (const planted of [inStaged, inShell, inRestyled]) expect(planted).not.toBe(whole)
-    expect(stateLeaks(withoutFunctions(inStaged, staged), STYLES.budget || [], [])).toEqual([])
+    const inExpenses = plant('ExpensesTab')
+    for (const planted of [inShell, inRestyled, inExpenses]) expect(planted).not.toBe(whole)
     expect(stateLeaks(withoutFunctions(inShell, staged), STYLES.budget || [], [])).toEqual([])
     expect(stateLeaks(withoutFunctions(inRestyled, staged), STYLES.budget || [], [])).toEqual(['#abcdef'])
+    expect(stateLeaks(withoutFunctions(inExpenses, staged), STYLES.budget || [], [])).toEqual(['#abcdef'])
   })
   it('CONTROL: a function ends at the next column-0 function, export, const or section divider', () => {
     const src = [

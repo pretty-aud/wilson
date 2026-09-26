@@ -21,12 +21,13 @@
 // is missing fall back to 0 day rate.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { v4 as uuidv4 } from 'uuid'
 import {
   DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
   ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
-  Lock, LockOpen, CheckCircle, Loader2, Plus, Pencil, X, Undo2, Redo2,
-  Upload, FileText, Paperclip, Search, Filter, ArrowUpDown,
+  Lock, LockOpen, CheckCircle, Plus, Pencil, X, Undo2, Redo2,
+  Upload, FileText, Paperclip, Search, Filter, ArrowUpDown, ArrowRight,
   BookmarkPlus, ChevronDown, ChevronRight, ShieldCheck, RotateCcw,
   Users, Star, Eye, CheckSquare, Square, MinusSquare,
   Film, Gamepad2, Zap,
@@ -42,10 +43,11 @@ import CurrencyDisplay, { formatMoney, MONEY_LOCALE } from '../components/Curren
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
+import MarginContPopover from './budget/MarginContPopover'
 import { INK_LIGHT } from '../../../ui/tokens.js'
 import {
   Table, Th, Td, Row, Stat, StatusDot, StatusBadge, EmptyState, Loading,
-  SectionTitle, Button, IconButton, Switch, Banner,
+  SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge,
 } from '../../../ui'
 import './rabbitBudget.css'
 
@@ -1595,12 +1597,12 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
 const EXPENSE_FILTER_FIELDS = [
   { value: 'title',         label: 'Title',         type: 'text' },
   { value: 'description',   label: 'Description',   type: 'text' },
-  { value: 'purchase_date', label: 'Date',           type: 'text' },
-  { value: 'cost_status',   label: 'Cost Status',    type: 'select', options: ['over_budget', 'under_budget', 'on_budget', 'no_estimate'] },
-  { value: 'has_files',     label: 'Has Receipts',   type: 'select', options: ['yes', 'no'] },
-  { value: 'asset_id',      label: 'Linked Asset',   type: 'select', dynamic: 'assets' },
-  { value: 'phase_id',      label: 'Linked Phase',   type: 'select', dynamic: 'phases' },
-  { value: 'task_id',       label: 'Linked Task',    type: 'select', dynamic: 'tasks' },
+  { value: 'purchase_date', label: 'Date',          type: 'text' },
+  { value: 'cost_status',   label: 'Cost status',   type: 'select', options: ['over_budget', 'under_budget', 'on_budget', 'no_estimate'] },
+  { value: 'has_files',     label: 'Has receipts',  type: 'select', options: ['yes', 'no'] },
+  { value: 'asset_id',      label: 'Linked asset',  type: 'select', dynamic: 'assets' },
+  { value: 'phase_id',      label: 'Linked phase',  type: 'select', dynamic: 'phases' },
+  { value: 'task_id',       label: 'Linked task',   type: 'select', dynamic: 'tasks' },
 ]
 
 const EXPENSE_FILTER_OPS = {
@@ -1622,26 +1624,31 @@ const EXPENSE_FILTER_OPS = {
 
 const EXPENSE_SORTABLE_FIELDS = [
   { value: 'title',          label: 'Title' },
-  { value: 'estimated_cost', label: 'Estimated Cost' },
-  { value: 'actual_cost',    label: 'Actual Cost' },
+  { value: 'estimated_cost', label: 'Estimated cost' },
+  { value: 'actual_cost',    label: 'Actual cost' },
   { value: 'variance',       label: 'Variance' },
   { value: 'purchase_date',  label: 'Date' },
   { value: 'created_at',     label: 'Created' },
 ]
 
 const EXPENSE_GROUPABLE_FIELDS = [
-  { value: '',                label: 'No grouping' },
-  { value: 'cost_status',    label: 'Cost Status' },
+  { value: '',               label: 'No grouping' },
+  { value: 'cost_status',    label: 'Cost status' },
   { value: 'purchase_month', label: 'Month' },
-  { value: 'has_files',      label: 'Has Receipts' },
+  { value: 'has_files',      label: 'Has receipts' },
 ]
 
 const COST_STATUS_LABELS = {
-  over_budget:  'Over Budget',
-  under_budget: 'Under Budget',
-  on_budget:    'On Budget',
-  no_estimate:  'No Estimate',
+  over_budget:  'Over budget',
+  under_budget: 'Under budget',
+  on_budget:    'On budget',
+  no_estimate:  'No estimate',
 }
+
+/** The expenses table's columns — the checkbox, Title, the five money
+    columns, Date, Related, Files and the row's actions: what a group's
+    header row spans. */
+const EXPENSE_COLUMNS = 11
 
 function expenseCostStatus(exp) {
   const est = Number(exp.estimated_cost) || 0
@@ -1656,12 +1663,29 @@ function expenseVariance(exp) {
   return (Number(exp.actual_cost) || 0) - (Number(exp.estimated_cost) || 0)
 }
 
+// A stored key in words, in sentence case (Q2): `over_budget` -> "Over
+// budget". It capitalised every word.
 function fmtExpLabel(str) {
-  return (str || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const words = (str || '').replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 
 // ─── Expenses tab ──────────────────────────────────────────
+// Surface 2b: the tiles, the toolbar, the filter strip and the list on the
+// kit and rabbitBudget.css, with every control, its order and its behaviour
+// as they were (C1).
+//   · The list is the kit Table (R3-20): the same columns in the same order,
+//     the money in the lane's one order — Estimated, Margin, Contingency,
+//     Actual, Variance (R3-05) — every figure a numeric cell, a group's
+//     header a full-width row of the table.
+//   · A row's hover is the kit Row's (R3-23), its selection the kit Row's
+//     `selected` (R3-38), its checkbox a 28px square (R3-40), its Edit and
+//     Delete the kit HoverActions, revealed by focus as well as hover (R3-24,
+//     Q17(b)).
+//   · The two questions window.confirm asked are the kit Dialog (W9).
+//   · The toolbar, the tiles, the filters and the table share one left edge
+//     (R3-31): the shell's gutter.
 function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, currency }) {
   const {
     expenses, loading: expLoading, addExpense, updateExpense, deleteExpense,
@@ -1679,6 +1703,9 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   // Margin/contingency popover: { expId, x, y, h }
   const [mcPopover, setMcPopover] = useState(null)
+  // W9: the two questions window.confirm used to ask, as kit Dialogs.
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [confirmResetMc, setConfirmResetMc]       = useState(false)
 
   // ── Multi-select ──
   const [expSelected, setExpSelected] = useState(new Set())
@@ -1692,8 +1719,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     else setExpSelected(new Set(ids))
   }
   function expClearSelection() { setExpSelected(new Set()) }
+  // What window.confirm's OK did; the question is the Dialog below.
   function expBulkDelete() {
-    if (!window.confirm(`Delete ${expSelected.size} expense${expSelected.size === 1 ? '' : 's'}?`)) return
     for (const id of expSelected) deleteExpense(id)
     expClearSelection()
   }
@@ -1748,7 +1775,9 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
   }
 
-  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z
+  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z. R3-15 asked for a shortcut
+  // bar; Q10 rules there is none, so the keys and the Undo / Redo titles
+  // that name them stay exactly as they were (recorded).
   useEffect(() => {
     function onKey(e) {
       const t = e.target
@@ -1865,8 +1894,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     return sortedKeys.map(key => ({
       key,
       label: groupBy === 'cost_status'    ? (COST_STATUS_LABELS[key] || key)
-           : groupBy === 'purchase_month' ? (key === '__no_date__' ? 'No Date' : key)
-           : groupBy === 'has_files'      ? (key === 'yes' ? 'Has Receipts' : 'No Receipts')
+           : groupBy === 'purchase_month' ? (key === '__no_date__' ? 'No date' : key)
+           : groupBy === 'has_files'      ? (key === 'yes' ? 'Has receipts' : 'No receipts')
            : key,
       items: map[key] || [],
     }))
@@ -1909,8 +1938,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     setMcPopover(null)
   }
 
+  // What window.confirm's OK did; the question is the Dialog below.
   async function resetAllMarginCont() {
-    if (!window.confirm('Reset all margin & contingency values to the project defaults? This cannot be undone.')) return
     for (const exp of expenses) {
       if (exp.margin_pct != null || exp.contingency_pct != null) {
         await updateExpense(exp.id, { margin_pct: null, contingency_pct: null })
@@ -1918,217 +1947,270 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     }
   }
 
+  // A header click sorts by its column, and a second click turns it round.
+  function sortBy(field) {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
+  }
+
+  // The checkbox, the margin and contingency cells and the actions are not
+  // the row's click (which edits): their cells keep the click to themselves,
+  // as the wrappers they replace did.
+  const keepClick = e => e.stopPropagation()
+
   if (expLoading) return <Loading label="Loading expenses..." />
 
-  // ── Render a single expense row ──
-  function ExpenseRow({ exp }) {
+  const allSelected = processed.length > 0 && processed.every(e => expSelected.has(e.id))
+
+  // ── One expense, as a row of the table ──
+  // A render function, not a component declared in here: that was a new
+  // component type on every render, so React remounted every row each time
+  // anything changed, and a row's checkbox or Edit dropped the keyboard focus
+  // the moment it was used — the focus HoverActions reveals the row by.
+  function expenseRow(exp) {
     const est = Number(exp.estimated_cost) || 0
     const act = Number(exp.actual_cost) || 0
     const v = act - est
     const status = expenseCostStatus(exp)
-    const relCount = (exp.asset_ids?.length || 0) + (exp.phase_ids?.length || 0) + (exp.task_ids?.length || 0)
-    const fileCount = exp.file_ids?.length || 0
-    const statusColor = status === 'over_budget' ? '#fca5a5' : status === 'under_budget' ? '#86efac' : '#a8a29e'
+    const assetCount = exp.asset_ids?.length || 0
+    const phaseCount = exp.phase_ids?.length || 0
+    const taskCount  = exp.task_ids?.length || 0
+    const fileCount  = exp.file_ids?.length || 0
     const isChecked = expSelected.has(exp.id)
-
+    const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
+    const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
+    const mAmt = est * mPct / 100
+    const cAmt = est * cPct / 100
     return (
-      <div
-        className="flex items-center gap-2 px-3 py-2 rounded-control transition-colors hover:bg-stone-800 cursor-pointer group"
-        style={{ backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917', border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}` }}
+      <Row
+        key={exp.id}
+        interactive
+        selected={isChecked}
+        className="rb-budget-exp-row"
+        data-ticked={isChecked ? 'true' : 'false'}
         onClick={() => handleEdit(exp.id)}
       >
-        {/* Checkbox */}
-        <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={() => expToggleOne(exp.id)}
-            className="p-0.5 rounded-control hover:bg-stone-700 transition-colors"
-            style={{ opacity: isChecked ? 1 : undefined }}
+        <Td className="rb-budget-exp-check-cell" onClick={keepClick}>
+          <button
+            type="button"
+            onClick={() => expToggleOne(exp.id)}
+            className="rb-budget-check"
+            data-checked={isChecked ? 'all' : 'none'}
+            aria-pressed={isChecked}
+            aria-label={`Select "${exp.title || 'Untitled'}"`}
           >
-            {isChecked
-              ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              : <Square className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#57534e' }} />}
+            {isChecked ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
           </button>
-        </div>
-        <div style={{ flex: 2 }} className="min-w-0">
-          <div className="text-dense truncate" style={{ color: '#d6d3d1' }}>
-            {exp.title || <span style={{ color: '#78716c', fontStyle: 'italic' }}>Untitled</span>}
-          </div>
-          {exp.description && <div className="text-dense truncate mt-0.5" style={{ color: '#78716c' }}>{exp.description}</div>}
-        </div>
-        <div style={{ flex: 1, color: est ? '#a8a29e' : '#57534e' }} className="text-dense font-mono">
-          <CurrencyDisplay value={est} currency={currency} />
-        </div>
-        {(() => {
-          const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
-          const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
-          const mAmt = est * mPct / 100
-          const cAmt = est * cPct / 100
-          return (<>
-            <div style={{ flex: 0.6 }} className="text-dense font-mono" onClick={e => e.stopPropagation()}>
-              <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
-                className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
-                style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                {mAmt > 0 ? formatMoney(mAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
-              </button>
-            </div>
-            <div style={{ flex: 0.6 }} className="text-dense font-mono" onClick={e => e.stopPropagation()}>
-              <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
-                className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
-                style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                {cAmt > 0 ? formatMoney(cAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
-              </button>
-            </div>
-          </>)
-        })()}
-        <div style={{ flex: 1, color: act ? '#d6d3d1' : '#57534e' }} className="text-dense font-mono">
-          <CurrencyDisplay value={act} currency={currency} />
-        </div>
-        <div style={{ flex: 0.8 }} className="text-dense font-mono">
+        </Td>
+        <Td>
+          <span className="rb-budget-exp-title" data-empty={exp.title ? undefined : 'true'}>
+            {exp.title || 'Untitled'}
+          </span>
+          {exp.description && <span className="rb-budget-exp-desc">{exp.description}</span>}
+        </Td>
+        <Td numeric className="rb-budget-quiet">
+          <span className="rb-budget-dash" data-empty={est ? undefined : 'true'}>
+            <CurrencyDisplay value={est} currency={currency} />
+          </span>
+        </Td>
+        <Td numeric className="rb-budget-exp-mc-cell" onClick={keepClick}>
+          <button type="button" onClick={e => handleMcCellClick(e, exp.id)} className="ui-input rb-budget-exp-mc" data-size="sm">
+            {mAmt > 0
+              ? <CurrencyDisplay value={mAmt} currency={currency} signed />
+              : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+          </button>
+        </Td>
+        <Td numeric className="rb-budget-exp-mc-cell" onClick={keepClick}>
+          <button type="button" onClick={e => handleMcCellClick(e, exp.id)} className="ui-input rb-budget-exp-mc" data-size="sm">
+            {cAmt > 0
+              ? <CurrencyDisplay value={cAmt} currency={currency} signed />
+              : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+          </button>
+        </Td>
+        <Td numeric>
+          <span className="rb-budget-dash" data-empty={act ? undefined : 'true'}>
+            <CurrencyDisplay value={act} currency={currency} />
+          </span>
+        </Td>
+        <Td numeric className="rb-budget-quiet">
           {est > 0 ? (
-            <span style={{ color: statusColor }}>
+            <span className="rb-budget-var" data-tone={status === 'over_budget' ? 'danger' : status === 'under_budget' ? 'success' : undefined}>
               <CurrencyDisplay value={v} currency={currency} signed />
             </span>
-          ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-        </div>
-        <div style={{ flex: 1 }} className="text-dense font-mono">
-          <span style={{ color: exp.purchase_date ? '#a8a29e' : '#57534e' }}>{exp.purchase_date || '\u2014'}</span>
-        </div>
-        <div style={{ flex: 1.2 }} className="flex items-center gap-1 text-dense font-mono tabular-nums flex-wrap">
-          {relCount > 0 ? (
-            <>
-              {(exp.asset_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-control" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.asset_ids.length} asset{exp.asset_ids.length !== 1 ? 's' : ''}</span>}
-              {(exp.phase_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-control" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.phase_ids.length} phase{exp.phase_ids.length !== 1 ? 's' : ''}</span>}
-              {(exp.task_ids?.length || 0) > 0  && <span className="px-1 py-0.5 rounded-control" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.task_ids.length} task{exp.task_ids.length !== 1 ? 's' : ''}</span>}
-            </>
-          ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-        </div>
-        <div style={{ flex: 0.5 }} className="text-dense font-mono tabular-nums">
-          {fileCount > 0
-            ? <span className="flex items-center gap-1" style={{ color: '#a8a29e' }}><Paperclip className="w-3 h-3" /> {fileCount}</span>
-            : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-        </div>
-        <div style={{ flex: 0.5 }} className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={() => handleEdit(exp.id)} className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="Edit"><Pencil className="w-3 h-3" /></button>
-          <button type="button" onClick={() => setDeleteConfirmId(exp.id)} className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete"><Trash2 className="w-3 h-3" /></button>
-        </div>
-      </div>
+          ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+        </Td>
+        <Td className="rb-budget-date" data-empty={exp.purchase_date ? undefined : 'true'}>
+          {exp.purchase_date || '—'}
+        </Td>
+        <Td className="rb-budget-exp-related">
+          {assetCount + phaseCount + taskCount > 0 ? (
+            <span className="rb-budget-exp-rels">
+              {assetCount > 0 && <Badge>{assetCount} asset{assetCount !== 1 ? 's' : ''}</Badge>}
+              {phaseCount > 0 && <Badge>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</Badge>}
+              {taskCount > 0 && <Badge>{taskCount} task{taskCount !== 1 ? 's' : ''}</Badge>}
+            </span>
+          ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+        </Td>
+        <Td numeric>
+          {fileCount > 0 ? (
+            <span className="rb-budget-exp-files">
+              <Paperclip className="rb-budget-exp-files-icon" aria-hidden="true" />
+              {fileCount}
+            </span>
+          ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+        </Td>
+        <Td align="right" className="rb-budget-icon-cell" onClick={keepClick}>
+          <HoverActions>
+            <IconButton size="sm" Icon={Pencil} title="Edit" onClick={() => handleEdit(exp.id)} />
+            <IconButton size="sm" Icon={Trash2} danger title="Delete" onClick={() => setDeleteConfirmId(exp.id)} />
+          </HoverActions>
+        </Td>
+      </Row>
     )
   }
 
-  const COL_HEADER = [
-    { label: 'Title',       flex: 2 },
-    { label: 'Estimated',   flex: 1, field: 'estimated_cost' },
-    { label: 'Margin',      flex: 0.6, color: '#fb923c' },
-    { label: 'Conting.',    flex: 0.6, color: '#fb923c' },
-    { label: 'Actual',      flex: 1, field: 'actual_cost' },
-    { label: 'Variance',    flex: 0.8, field: 'variance' },
-    { label: 'Date',        flex: 1, field: 'purchase_date' },
-    { label: 'Related',     flex: 1.2 },
-    { label: 'Files',       flex: 0.5 },
-    { label: '',             flex: 0.5 },
-  ]
+  // ── A group's header: a full-width row of the table ──
+  function groupRow(g) {
+    return (
+      <Row key={`group-${g.key}`} className="rb-budget-exp-group">
+        <Td colSpan={EXPENSE_COLUMNS} className="rb-budget-exp-group-cell">
+          <span className="rb-budget-exp-group-head">
+            <span className="rb-budget-exp-group-label">{g.label}</span>
+            <span className="rb-budget-exp-group-count">({g.items.length})</span>
+            <span className="rb-budget-exp-group-totals">
+              Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} />
+              {' / '}
+              Act: <span className="rb-budget-exp-group-act"><CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} /></span>
+            </span>
+          </span>
+        </Td>
+      </Row>
+    )
+  }
+
+  const body = groups
+    ? groups.flatMap(g => [groupRow(g), ...g.items.map(exp => expenseRow(exp))])
+    : processed.map(exp => expenseRow(exp))
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Summary tiles */}
-      <div className="flex gap-3 flex-wrap">
-        <BigTile label="Estimated Total" value={formatMoney(totalEstimated, currency)} />
-        <BigTile label="Actual Total" value={totalActual > 0 ? formatMoney(totalActual, currency) : '\u2014'} />
+    <div className="rb-budget-exp-tab">
+      {/* Summary tiles: the kit Stat, through the tab's BigTile (R3-10). */}
+      <div className="rb-budget-stats">
+        <BigTile label="Estimated total" value={formatMoney(totalEstimated, currency)} />
+        <BigTile label="Actual total" value={totalActual > 0 ? formatMoney(totalActual, currency) : '—'} />
         <BigTile
           label="Variance"
           value={totalEstimated > 0 || totalActual > 0
             ? formatMoney(totalVariance, currency, { sign: 'exceptZero' })
-            : '\u2014'}
+            : '—'}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
         <BigTile label="Expenses" value={expenses.length} />
       </div>
 
-      {/* Toolbar — matching RABBIT pattern */}
-      <div className="flex items-center gap-3 px-1 flex-wrap">
-        {/* New expense */}
-        <button type="button" onClick={handleCreate}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-          <Plus className="w-3.5 h-3.5" /> New expense
-        </button>
+      {/* The toolbar: the kit Toolbar, the same eleven controls in the same
+          order at the 28px height (C1; the Hick's hotspot's regrouping and
+          any overflow for Reset M/C are recorded for Audrey, not applied).
+          Search and the count keep the far end. */}
+      <Toolbar
+        wrap
+        className="rb-budget-exp-toolbar"
+        right={(
+          <>
+            <span className="rb-budget-search">
+              <Search className="rb-budget-search-icon" aria-hidden="true" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search expenses…"
+                aria-label="Search expenses"
+                className="ui-input rb-budget-search-input"
+                data-size="sm"
+              />
+              {search && (
+                <IconButton size="sm" Icon={X} title="Clear search" className="rb-budget-search-clear" onClick={() => setSearch('')} />
+              )}
+            </span>
+            <span className="rb-budget-count">{processed.length}/{expenses.length}</span>
+          </>
+        )}
+      >
+        <Button size="sm" variant="primary" Icon={Plus} onClick={handleCreate}>
+          New expense
+        </Button>
 
-        {/* Undo / redo */}
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)"
-            className="p-1.5 rounded-control transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}><Undo2 className="w-3.5 h-3.5" /></button>
-          <button type="button" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)"
-            className="p-1.5 rounded-control transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}><Redo2 className="w-3.5 h-3.5" /></button>
-        </div>
+        <IconButton size="sm" Icon={Undo2} title="Undo (Ctrl+Z)" onClick={undo} disabled={!canUndo} />
+        <IconButton size="sm" Icon={Redo2} title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo} />
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Filter */}
-        <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
-          <Filter className="w-3.5 h-3.5" /> Filter{filters.length > 0 ? ` (${filters.length})` : ''}
-        </button>
+        <Button
+          size="sm"
+          Icon={Filter}
+          className="rb-budget-tool"
+          data-active={filters.length > 0 ? 'true' : 'false'}
+          aria-expanded={showFilterPanel}
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
+        >
+          Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+        </Button>
 
-        {/* Sort */}
-        <div className="flex items-center gap-1.5">
-          <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-          <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+        <span className="rb-budget-tool-group">
+          <ArrowUpDown className="rb-budget-tool-icon" aria-hidden="true" />
+          <select
+            value={sortField}
+            onChange={e => setSortField(e.target.value)}
+            aria-label="Sort"
+            className="ui-input rb-budget-tool"
+            data-size="sm"
+          >
             <option value="">No sort</option>
             {EXPENSE_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
+          {/* Its words and its name are "A→Z" / "Z→A", as they were. The
+              arrow is drawn as the kit's icon: Geist's Latin subset has no
+              U+2192, so the glyph came from Segoe UI (the walk's V1-01). */}
           {sortField && (
-            <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-              {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
-            </button>
+            <Button
+              size="sm"
+              aria-label={sortDir === 'asc' ? 'A→Z' : 'Z→A'}
+              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+            >
+              <span className="rb-budget-sort-dir">
+                {sortDir === 'asc' ? 'A' : 'Z'}
+                <ArrowRight className="rb-budget-sort-dir-icon" aria-hidden="true" />
+                {sortDir === 'asc' ? 'Z' : 'A'}
+              </span>
+            </Button>
           )}
-        </div>
+        </span>
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Group */}
-        <div className="flex items-center gap-1.5">
-          <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-          <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+        <span className="rb-budget-tool-group">
+          <Layers className="rb-budget-tool-icon" aria-hidden="true" />
+          <select
+            value={groupBy}
+            onChange={e => setGroupBy(e.target.value)}
+            aria-label="Group"
+            className="ui-input rb-budget-tool"
+            data-size="sm"
+          >
             {EXPENSE_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
-        </div>
+        </span>
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Saved views */}
         <ExpenseSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSave={() => setShowSaveDialog(true)} />
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Reset margin/contingency */}
-        <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Reset M/C
-        </button>
-
-        {/* Search */}
-        <div className="flex items-center gap-1.5 flex-1 max-w-xs ml-auto">
-          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search expenses..."
-            className="flex-1 px-2.5 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
-          {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}><X className="w-3.5 h-3.5" /></button>
-          )}
-        </div>
-
-        <span className="text-label font-mono uppercase px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
-      </div>
+        <Button size="sm" Icon={RotateCcw} onClick={() => setConfirmResetMc(true)}>
+          Reset M/C
+        </Button>
+      </Toolbar>
 
       {/* Filter panel */}
       {showFilterPanel && (
@@ -2140,110 +2222,150 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         />
       )}
 
-      {/* Column header */}
-      <div className="relative flex gap-2 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
-        {/* ── Bulk-action bar (overlays header) ── */}
+      <div className="rb-budget-exp-table">
+        {/* The bulk-action bar overlays the header, right of the checkbox
+            column, where it always did. The kit has no bulk bar (B2's is
+            its own too): this is the lane's, on the kit's Button. */}
         {expSomeSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-control"
-            style={{ left: 32, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>
-              {expSelected.size} selected
-            </span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={expBulkDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded-control hover:bg-red-900/40 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-label uppercase">Delete</span>
-            </button>
-            <button type="button" onClick={expClearSelection}
-              className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3.5 h-3.5" />
-            </button>
+          <div className="rb-budget-bulk">
+            <span className="rb-budget-bulk-count">{expSelected.size} selected</span>
+            <span className="rb-budget-divider" aria-hidden="true" />
+            <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulkDelete(true)}>
+              Delete
+            </Button>
+            <IconButton size="sm" Icon={X} title="Clear the selection" onClick={expClearSelection} />
           </div>
         )}
-        {/* Select-all checkbox */}
-        <div className="flex items-center flex-shrink-0" style={{ width: 20 }}>
-          <button type="button" onClick={() => expToggleAll(processed.map(e => e.id))} className="p-0.5 rounded-control hover:bg-stone-700 transition-colors">
-            {processed.length > 0 && processed.every(e => expSelected.has(e.id))
-              ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-              : expSomeSelected
-                ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-          </button>
-        </div>
-        {COL_HEADER.map((col, i) => (
-          <div key={i}
-            className={`text-label uppercase ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
-            style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
-            onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
-          >
-            {col.label}
-            {sortField === col.field && <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
-          </div>
-        ))}
+
+        <Table
+          className="rb-budget-exp"
+          head={(
+            <Row>
+              <Th width="var(--rb-budget-exp-col-check)" className="rb-budget-exp-check-cell">
+                <button
+                  type="button"
+                  onClick={() => expToggleAll(processed.map(e => e.id))}
+                  className="rb-budget-check"
+                  data-checked={allSelected ? 'all' : expSomeSelected ? 'some' : 'none'}
+                  aria-label={allSelected ? 'Clear the selection' : 'Select every expense'}
+                  title={allSelected ? 'Clear the selection' : 'Select every expense'}
+                >
+                  {allSelected
+                    ? <CheckSquare aria-hidden="true" />
+                    : expSomeSelected
+                      ? <MinusSquare aria-hidden="true" />
+                      : <Square aria-hidden="true" />}
+                </button>
+              </Th>
+              <Th>Title</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'estimated_cost' ? sortDir : null} onSort={() => sortBy('estimated_cost')}>Estimated</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric>Margin</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric>Conting.</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'actual_cost' ? sortDir : null} onSort={() => sortBy('actual_cost')}>Actual</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'variance' ? sortDir : null} onSort={() => sortBy('variance')}>Variance</Th>
+              <Th width="var(--rb-budget-exp-col-date)" sort={sortField === 'purchase_date' ? sortDir : null} onSort={() => sortBy('purchase_date')}>Date</Th>
+              <Th width="var(--rb-budget-exp-col-related)">Related</Th>
+              <Th width="var(--rb-budget-exp-col-files)" numeric>Files</Th>
+              <Th width="var(--rb-budget-exp-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+            </Row>
+          )}
+        >
+          {body}
+        </Table>
       </div>
 
-      {/* Table body — flat or grouped */}
-      {processed.length === 0 ? (
-        <Empty>{search || filters.length ? 'No matching expenses.' : 'No expenses yet \u2014 click "New expense" to add one.'}</Empty>
-      ) : groups ? (
-        <div className="flex flex-col gap-3">
-          {groups.map(g => (
-            <div key={g.key}>
-              <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-control" style={{ backgroundColor: '#292524', borderLeft: '3px solid #fb923c' }}>
-                <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
-                <span className="text-dense font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
-                <span className="ml-auto text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
-                  Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" />
-                  {' / '}
-                  Act: <span style={{ color: '#d6d3d1' }}><CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} className="inline" /></span>
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                {g.items.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {processed.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
-        </div>
+      {/* Nothing to list: the kit EmptyState in sentence case (R3-19), under
+          the header as the empty line always was. */}
+      {processed.length === 0 && (
+        search || filters.length
+          ? <Empty compact title="No matching expenses" />
+          : <Empty compact title="No expenses yet" body={'Click "New expense" to add one.'} />
       )}
 
-
-      {/* Delete confirmation */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteConfirmId(null)} />
-          <div className="relative rounded-control p-5 flex flex-col gap-3" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 360 }}>
-            <div className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-red-400" /><span className="text-h3 font-semibold" style={{ color: '#fca5a5' }}>Delete Expense</span></div>
-            <p className="text-dense" style={{ color: '#a8a29e' }}>This will permanently remove this expense. You can undo with Ctrl+Z.</p>
-            <div className="flex justify-end gap-2 mt-1">
-              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-3 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={() => handleDelete(deleteConfirmId)} className="px-3 py-1.5 text-dense rounded-control transition-colors" style={{ color: '#fff7ed', backgroundColor: '#dc2626', border: '1px solid #991b1b' }}>Delete</button>
-            </div>
-          </div>
-        </div>
+      {/* A row's Delete: the confirm it always asked, on the kit Dialog. Its
+          backdrop still closes it, as it always did. Every dialog here is
+          portalled into <body> (W9), so no container the shell gives this
+          tab can hold it. */}
+      {deleteConfirmId && createPortal(
+        <Dialog
+          width="confirm"
+          title="Delete expense"
+          dismissOnBackdrop
+          onClose={() => setDeleteConfirmId(null)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setDeleteConfirmId(null)}>Cancel</Button>
+              <Button variant="danger" onClick={() => handleDelete(deleteConfirmId)}>Delete</Button>
+            </>
+          )}
+        >
+          This will permanently remove this expense. You can undo with Ctrl+Z.
+        </Dialog>,
+        document.body,
       )}
 
-      {/* Save view dialog */}
-      {showSaveDialog && (
-        <>
-          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded-control p-5 flex flex-col gap-4"
-            style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-label uppercase font-semibold" style={{ color: '#fb923c' }}>Save current view</span>
-            <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
-              placeholder="View name..." onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
-            <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowSaveDialog(false)} className="px-4 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={saveCurrentView} className="px-4 py-1.5 text-dense rounded-control transition-colors" style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
-            </div>
-          </div>
-        </>
+      {/* W9: the bulk Delete's window.confirm, word for word. */}
+      {confirmBulkDelete && createPortal(
+        <Dialog
+          width="confirm"
+          title="Delete expenses"
+          onClose={() => setConfirmBulkDelete(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setConfirmBulkDelete(false); expBulkDelete() }}>Delete</Button>
+            </>
+          )}
+        >
+          {`Delete ${expSelected.size} expense${expSelected.size === 1 ? '' : 's'}?`}
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* W9: Reset M/C's window.confirm, word for word. */}
+      {confirmResetMc && createPortal(
+        <Dialog
+          width="confirm"
+          title="Reset margin & contingency"
+          onClose={() => setConfirmResetMc(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmResetMc(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setConfirmResetMc(false); resetAllMarginCont() }}>Reset</Button>
+            </>
+          )}
+        >
+          Reset all margin & contingency values to the project defaults? This cannot be undone.
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* Save view: the kit Dialog, as the Tasks toolbar's (B2). */}
+      {showSaveDialog && createPortal(
+        <Dialog
+          width="confirm"
+          title="Save current view"
+          dismissOnBackdrop
+          onClose={() => setShowSaveDialog(false)}
+          footer={(
+            <>
+              <Button onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+              <Button variant="primary" onClick={saveCurrentView}>Save</Button>
+            </>
+          )}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={saveName}
+            onChange={e => setSaveName(e.target.value)}
+            placeholder="View name…"
+            aria-label="View name"
+            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
+            className="ui-input"
+          />
+        </Dialog>,
+        document.body,
       )}
 
       {/* Create / Edit popup */}
@@ -2257,7 +2379,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         />
       )}
 
-      {/* ── Margin/Contingency popover ── */}
+      {/* ── Margin/Contingency popover: the lane's one (R3-32) ── */}
       {mcPopover && (() => {
         const exp = expenses.find(e => e.id === mcPopover.expId)
         if (!exp) return null
@@ -2265,11 +2387,12 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
         const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
         return (
-          <ExpenseMarginContPopover
-            pos={mcPopover}
+          <MarginContPopover
+            anchor={mcPopover}
+            amountLabel="Estimated cost"
+            baseAmount={est}
             marginPct={mPct}
             contPct={cPct}
-            estimatedCost={est}
             defaultMargin={defaultMarginPct}
             defaultCont={defaultContPct}
             currency={currency}
@@ -2283,75 +2406,9 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 }
 
 
-// ─── Expense margin/contingency popover ─────────────────���─
-function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defaultMargin, defaultCont, currency, onSave, onClose }) {
-  const [margin, setMargin] = useState(marginPct ?? '')
-  const [cont, setCont]     = useState(contPct ?? '')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [onClose])
-
-  const popW = 280
-  const popH = 280
-  const left = Math.min(pos.x, window.innerWidth - popW - 12)
-  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4
-    : pos.y + pos.h + 4
-
-  const mPct = Number(margin) || 0
-  const cPct = Number(cont) || 0
-  const marginAmt = estimatedCost * mPct / 100
-  const contAmt   = estimatedCost * cPct / 100
-
-  return (
-    <div ref={ref} className="fixed z-[9999] rounded-control shadow-2xl flex flex-col gap-2.5 p-3"
-      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
-        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-label uppercase" style={{ color: '#fb923c' }}>Margin & Contingency</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded-control transition-colors">
-          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
-        </button>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Margin %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
-            placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(marginAmt, currency, { sign: 'always' })}</span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-label uppercase" style={{ color: '#78716c' }}>Contingency %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
-            placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(contAmt, currency, { sign: 'always' })}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-dense font-semibold rounded-control"
-          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
-        <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-dense rounded-control"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Default
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ─── Expense filter panel ──────────────────────────────────
+// B2's filter strip, in this tab's gutter: a hairline box under the toolbar,
+// the kit's 28px fields and buttons, "Where" / "And" at the Label step.
 function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, onRemove, onClose }) {
   function getOptions(f) {
     const def = EXPENSE_FILTER_FIELDS.find(ff => ff.value === f.field)
@@ -2364,53 +2421,64 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
   function getType(f) { return EXPENSE_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text' }
 
   return (
-    <div className="px-4 py-3 flex flex-col gap-2 rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+    <div className="rb-budget-filters">
       {filters.map((f, i) => {
         const type = getType(f)
         const ops = EXPENSE_FILTER_OPS[type] || EXPENSE_FILTER_OPS.text
         const needsValue = !['is_empty', 'is_not_empty'].includes(f.op)
         return (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-label uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>{i === 0 ? 'Where' : 'And'}</span>
-            <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+          <div key={i} className="rb-budget-filter-row">
+            <span className="rb-budget-eyebrow rb-budget-filter-where">{i === 0 ? 'Where' : 'And'}</span>
+            <select
+              value={f.field}
+              onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
+              aria-label="Field"
+              className="ui-input rb-budget-filter-field"
+              data-size="sm"
+            >
               {EXPENSE_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
-            <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+            <select
+              value={f.op}
+              onChange={e => onUpdate(i, { op: e.target.value })}
+              aria-label="Condition"
+              className="ui-input rb-budget-filter-op"
+              data-size="sm"
+            >
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
-                <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
-                  <option value="">-- select --</option>
+                <select
+                  value={f.value}
+                  onChange={e => onUpdate(i, { value: e.target.value })}
+                  aria-label="Value"
+                  className="ui-input rb-budget-tool"
+                  data-size="sm"
+                >
+                  <option value="">— select —</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
-                <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  placeholder="value..."
-                  className="px-2 py-1.5 text-dense rounded-control focus:ring-2 focus:ring-orange-500 w-36"
-                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
+                <input
+                  type="text"
+                  value={f.value || ''}
+                  onChange={e => onUpdate(i, { value: e.target.value })}
+                  placeholder="value…"
+                  aria-label="Value"
+                  className="ui-input rb-budget-filter-text"
+                  data-size="sm"
+                />
               )
             )}
-            <button type="button" onClick={() => onRemove(i)} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#fca5a5' }}><X className="w-3.5 h-3.5" /></button>
+            <IconButton size="sm" Icon={X} danger title="Remove this filter" onClick={() => onRemove(i)} />
           </div>
         )
       })}
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-800 transition-colors"
-          style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-          <Plus className="w-3.5 h-3.5" /> Add filter
-        </button>
+      <div className="rb-budget-filter-actions">
+        <Button size="sm" Icon={Plus} onClick={onAdd}>Add filter</Button>
         {filters.length > 0 && (
-          <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-800 transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Done</button>
+          <Button size="sm" variant="ghost" onClick={onClose}>Done</Button>
         )}
       </div>
     </div>
@@ -2419,6 +2487,11 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
 
 
 // ─── Expense saved views dropdown ──────────────────────────
+// Restyled in place on the kit's float tokens, as the Tasks toolbar's is
+// (B2). The kit Menu cannot carry it unchanged: a Menu item has no trailing
+// action (load a view AND delete it from one row — B2's kit request K2), it
+// opens at a point rather than under its button, and it would add an
+// Escape and a capture-phase outside press this one never had.
 function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -2430,28 +2503,32 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   }, [open])
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-        <BookmarkPlus className="w-3.5 h-3.5" /> Views
-      </button>
+      <Button size="sm" Icon={BookmarkPlus} aria-expanded={open} onClick={() => setOpen(!open)}>
+        Views
+      </Button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 rounded-control overflow-hidden z-30"
-          style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-          {views.length === 0 && <div className="px-3 py-2.5 text-dense italic" style={{ color: '#78716c' }}>No saved views</div>}
+        <div className="rb-budget-menu">
+          {views.length === 0 && <div className="rb-budget-menu-empty">No saved views</div>}
           {views.map(v => (
-            <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
-              onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-dense truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
-              <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
-                className="p-0.5 hover:bg-stone-600 rounded-control transition-colors" style={{ color: '#fca5a5' }}><X className="w-3 h-3" /></button>
+            <div
+              key={v.id}
+              className="rb-budget-menu-item"
+              onClick={() => { onLoad(v); setOpen(false) }}
+            >
+              <span className="rb-budget-menu-label">{v.name}</span>
+              <IconButton
+                size="sm"
+                Icon={X}
+                danger
+                title={`Delete the saved view "${v.name}"`}
+                onClick={e => { e.stopPropagation(); onDelete(v.id) }}
+              />
             </div>
           ))}
-          <div style={{ borderTop: '1px solid #44403c' }}>
-            <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-dense transition-colors"
-              style={{ color: '#fb923c' }}>
-              <Save className="w-3 h-3" /> Save current view
+          <div className="rb-budget-menu-foot">
+            <button type="button" onClick={() => { onSave(); setOpen(false) }} className="rb-budget-menu-item">
+              <Save className="rb-budget-menu-icon" aria-hidden="true" />
+              <span className="rb-budget-menu-label">Save current view</span>
             </button>
           </div>
         </div>
@@ -2462,6 +2539,12 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 
 
 // ─── Expense create / edit popup ───────────────────────────
+// The kit Dialog at the form width (560: the nearest token, and it holds
+// every field — the two cost fields are 190px each beside the variance).
+// Every field, its order and its save are as they were; the relation
+// pickers are restyled in place. Q17: Escape closes it now, and focus stays
+// inside it; its backdrop still closes it, as it always did. Portalled into
+// <body> (W9).
 function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency, onSave, onClose }) {
   const isEdit = !!expense
   const [title, setTitle]                 = useState(expense?.title || '')
@@ -2543,126 +2626,154 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const act = Number(actualCost) || 0
   const variance = act - est
 
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative flex flex-col rounded-control shadow-2xl" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 620, maxHeight: '85vh' }}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-600 flex-shrink-0" style={{ backgroundColor: '#1c1917' }}>
-          <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-orange-400" />
-            <span className="text-label font-semibold text-orange-400 uppercase">{isEdit ? 'Edit Expense' : 'New Expense'}</span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 rounded-control hover:bg-stone-700 transition-colors"><X className="w-5 h-5" style={{ color: '#a8a29e' }} /></button>
+  return createPortal(
+    <Dialog
+      width="form"
+      title={isEdit ? 'Edit expense' : 'New expense'}
+      dismissOnBackdrop
+      onClose={onClose}
+      footer={(
+        <>
+          <span className="rb-budget-hint rb-budget-exp-note">
+            {isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}
+          </span>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} disabled={!title.trim() || busy}>
+            {busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="rb-budget-exp-form">
+        <Field label="Title *">
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="e.g. Software license, equipment rental"
+            aria-label="Title"
+            className="ui-input"
+            autoFocus
+          />
+        </Field>
+
+        {/* Costs row: Estimated + Actual + the variance they make */}
+        <div className="rb-budget-exp-costs">
+          <Field label={`Estimated cost (${currency})`}>
+            <input
+              type="number" step="0.01" min="0"
+              value={estimatedCost}
+              onChange={e => setEstimatedCost(e.target.value)}
+              placeholder="0.00"
+              aria-label="Estimated cost"
+              className="ui-input"
+            />
+          </Field>
+          <Field label={`Actual cost (${currency})`}>
+            <input
+              type="number" step="0.01" min="0"
+              value={actualCost}
+              onChange={e => setActualCost(e.target.value)}
+              placeholder="0.00"
+              aria-label="Actual cost"
+              className="ui-input"
+            />
+          </Field>
+          <Field label="Variance">
+            <span className="rb-budget-exp-variance">
+              {est > 0 ? (
+                <span className="rb-budget-var" data-tone={variance > 0 ? 'danger' : variance < 0 ? 'success' : undefined}>
+                  <CurrencyDisplay value={variance} currency={currency} signed />
+                </span>
+              ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+            </span>
+          </Field>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Title */}
-          <div className="flex flex-col gap-1">
-            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Title *</label>
-            <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Software License, Equipment Rental" autoFocus
-              className="px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-          </div>
+        <Field label="Purchase date">
+          <input
+            type="date"
+            value={purchaseDate}
+            onChange={e => setPurchaseDate(e.target.value)}
+            aria-label="Purchase date"
+            className="ui-input rb-budget-exp-date"
+          />
+        </Field>
 
-          {/* Costs row: Estimated + Actual + Variance display */}
-          <div className="flex gap-4">
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-label uppercase" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
-              <input type="number" step="0.01" min="0" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-            </div>
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-label uppercase" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
-              <input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-            </div>
-            <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
-              <label className="text-label uppercase" style={{ color: '#fb923c' }}>Variance</label>
-              <div className="px-3 py-2 text-dense font-mono tabular-nums rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                {est > 0 ? (
-                  <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
-                    <CurrencyDisplay value={variance} currency={currency} className="inline" signed />
-                  </span>
-                ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-              </div>
-            </div>
-          </div>
+        <Field label="Description / reason">
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Why was this expense incurred?"
+            rows={3}
+            aria-label="Description / reason"
+            className="ui-input rb-budget-exp-desc-input"
+          />
+        </Field>
 
-          {/* Date */}
-          <div className="flex flex-col gap-1" style={{ maxWidth: 220 }}>
-            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Purchase Date</label>
-            <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
-              className="px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+        <Field label="Related items">
+          <div className="rb-budget-exp-pickers">
+            <RelationPicker label="Assets" icon={<Boxes className="rb-budget-rel-icon" aria-hidden="true" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
+            <RelationPicker label="Phases" icon={<Layers className="rb-budget-rel-icon" aria-hidden="true" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
+            <RelationPicker label="Tasks" icon={<FileText className="rb-budget-rel-icon" aria-hidden="true" />} items={tasks} selectedIds={taskIds} onChange={setTaskIds} nameKey="name" />
           </div>
+        </Field>
 
-          {/* Description */}
-          <div className="flex flex-col gap-1">
-            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Description / Reason</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Why was this expense incurred?" rows={3}
-              className="px-3 py-2 text-dense rounded-control focus:ring-1 focus:ring-orange-500 resize-none"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-          </div>
-
-          {/* Relations */}
-          <div className="flex flex-col gap-2">
-            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Related Items</label>
-            <div className="space-y-2">
-              <RelationPicker label="Assets" icon={<Boxes className="w-3 h-3" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
-              <RelationPicker label="Phases" icon={<Layers className="w-3 h-3" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
-              <RelationPicker label="Tasks"  icon={<FileText className="w-3 h-3" />} items={tasks} selectedIds={taskIds} onChange={setTaskIds} nameKey="name" />
-            </div>
-          </div>
-
-          {/* File upload */}
-          <div className="flex flex-col gap-2">
-            <label className="text-label uppercase" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
+        <Field label="Invoices / receipts">
+          <div className="rb-budget-exp-uploads">
             {allFiles.length > 0 && (
-              <div className="flex flex-col gap-1">
+              <div className="rb-budget-exp-file-list">
                 {allFiles.map(f => (
-                  <div key={f.id} className="flex items-center gap-2 px-2 py-1.5 rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
-                    <span className="text-dense truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
-                    <button type="button" onClick={() => removeFile(f.id)} className="p-0.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#ef4444' }}><X className="w-3 h-3" /></button>
+                  <div key={f.id} className="rb-budget-exp-file">
+                    <Paperclip className="rb-budget-exp-file-icon" aria-hidden="true" />
+                    <span className="rb-budget-exp-file-name">{f.name}</span>
+                    <IconButton size="sm" Icon={X} danger title={`Remove ${f.name}`} onClick={() => removeFile(f.id)} />
                   </div>
                 ))}
               </div>
             )}
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700 self-start"
-              style={{ color: '#a8a29e', border: '1px dashed #44403c' }}>
-              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-              {uploading ? 'Uploading...' : 'Upload files'}
-            </button>
+            <Button
+              size="sm"
+              Icon={Upload}
+              loading={uploading}
+              loadingLabel="Uploading..."
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Upload files
+            </Button>
             {uploadError && (
-              <p className="text-dense leading-relaxed" style={{ color: '#ef4444' }}>{uploadError}</p>
+              <p className="rb-budget-exp-error">{uploadError}</p>
             )}
-            <input ref={fileInputRef} type="file" multiple className="hidden"
-              onChange={e => { setUploadError(null); handleFileUpload(e) }} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={e => { setUploadError(null); handleFileUpload(e) }}
+            />
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-stone-600 flex-shrink-0">
-          <p className="text-dense" style={{ color: '#78716c' }}>{isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={!title.trim() || busy}
-              className="px-4 py-1.5 text-dense rounded-control transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>{busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}</button>
-          </div>
-        </div>
+        </Field>
       </div>
-    </div>
+    </Dialog>,
+    document.body,
   )
 }
 
 
 // ─── Relation picker (multi-select dropdown) ───────────────
+// Restyled in place: its button is the kit's 28px field, its count the kit
+// Badge (it was white on the signal fill, C6), its list on the kit's float
+// tokens. It opens, searches, ticks and closes exactly as before.
+// The expense popup is the kit Dialog now, and its relation pickers' open
+// lists are not on the kit's modal stack: an Escape pressed inside one closed
+// the whole popup, draft and all — before the kit, Escape did nothing there.
+// The kit Dialog skips an Escape already marked handled, so the list marks the
+// ones pressed in its own DOM and does nothing else (C1), as RelationsPanel's
+// in-panel layers do (B4c).
+function markOwnEscape(e) {
+  if (e.key === 'Escape' && e.currentTarget.contains(e.target)) e.preventDefault()
+}
+
 function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -2683,30 +2794,41 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
     else onChange([...selectedIds, id])
   }
   return (
-    <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700 w-full text-left"
-        style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
-        {icon}<span>{label}</span>
-        {selectedIds.length > 0 && <span className="ml-auto px-1.5 py-0.5 rounded-control text-dense" style={{ backgroundColor: '#ea580c', color: '#fff7ed' }}>{selectedIds.length}</span>}
+    <div ref={ref} className="rb-budget-rel">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="ui-input rb-budget-rel-toggle"
+        data-size="sm"
+      >
+        {icon}<span className="rb-budget-rel-label">{label}</span>
+        {selectedIds.length > 0 && <Badge className="rb-budget-rel-count">{selectedIds.length}</Badge>}
       </button>
       {open && (
-        <div className="absolute left-0 right-0 z-50 mt-1 rounded-control shadow-xl flex flex-col" style={{ backgroundColor: '#292524', border: '1px solid #44403c', maxHeight: 220 }}>
+        <div className="rb-budget-rel-menu" onKeyDown={markOwnEscape}>
           {items.length > 5 && (
-            <div className="p-1.5 border-b border-stone-700">
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} autoFocus
-                className="w-full px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+            <div className="rb-budget-rel-search">
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={`Search ${label.toLowerCase()}...`}
+                aria-label={`Search ${label.toLowerCase()}`}
+                className="ui-input"
+                data-size="sm"
+                autoFocus
+              />
             </div>
           )}
-          <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? <div className="px-3 py-2 text-dense" style={{ color: '#78716c' }}>No items</div> : (
+          <div className="rb-budget-rel-options">
+            {filtered.length === 0 ? <div className="rb-budget-rel-empty">No items</div> : (
               filtered.map(it => {
                 const checked = selectedIds.includes(it.id)
                 return (
-                  <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-stone-700 transition-colors">
-                    <input type="checkbox" checked={checked} onChange={() => toggle(it.id)} className="accent-orange-500 w-3.5 h-3.5" />
-                    <span className="text-dense truncate" style={{ color: checked ? '#d6d3d1' : '#a8a29e' }}>{it[nameKey] || 'Unnamed'}</span>
+                  <label key={it.id} className="rb-budget-rel-option" data-checked={checked ? 'true' : 'false'}>
+                    <input type="checkbox" checked={checked} onChange={() => toggle(it.id)} className="rb-budget-rel-check" />
+                    <span className="rb-budget-rel-name">{it[nameKey] || 'Unnamed'}</span>
                   </label>
                 )
               })
@@ -2871,6 +2993,6 @@ function varianceTone(v) {
   return 'neutral'
 }
 
-// Surface 2a's mounted test renders these directly; the default export is
-// unchanged.
-export { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg }
+// Surfaces 2a and 2b's mounted tests render these directly; the default
+// export is unchanged.
+export { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTab, ExpensePopup }
