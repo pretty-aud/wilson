@@ -200,9 +200,11 @@ const REGISTRY = [
   P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details', 'Link scene'], expect: { text: ' linked)' } }),
   P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"], [style*="minmax(140px"]' } }),
   P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available yet' } }),
-  // The drawer's title is set in capitals by CSS, so its innerText is not
-  // "File activity"; any dialog proves it (the Control Panel is not one).
-  P('rabbit-files-audit', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel', 'File activity'], expect: { dialog: true } }),
+  // B4c surface 7: the drawer is the kit Drawer, `role="complementary"` and
+  // not a dialog, so `dialog: true` no longer proves it. Its own <aside>,
+  // named "File activity", exists only while it is open: the Control Panel
+  // under it draws no kit Drawer at all (measured, 2026-09-25).
+  P('rabbit-files-audit', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel', 'File activity'], expect: { selector: 'aside.ui-drawer[aria-label="File activity"]' } }),
   // Levels and Experiences exist only with the project flags on: the
   // fixtures' `?fixtures=game` variant switches them on for Salt Hours
   // (src/dev/fixtures/store.js, applyGameVariant) and leaves every other

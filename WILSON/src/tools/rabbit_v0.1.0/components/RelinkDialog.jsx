@@ -29,17 +29,39 @@
 //   - Postel's Law: any folder is accepted for scanning; the APPLY is
 //     conservative — server-side containment + existence checks, and a 409
 //     (stranding / vanished file) surfaces as a readable error, not a write.
-// ─────────────────────────────────────────────────────────────────────────────
+//
+// UI overhaul B4c, surface 7 (2026-09-25): the kit Dialog (R4-12) on lane
+// B4's sheet, rabbitFiles.css (`rb-relink-`), portalled into <body> as the
+// lane's other dialogs are (the kit Dialog does not portal, B4-KR-2). It
+// keeps its 640px: the two tokens either side, 560 and 720, are 80 away each,
+// and the preview's paths are what the width is for. The kit brings the one
+// backdrop (a press there still closes it), surface, radius and shadow, the
+// title at the H2 step in sentence case (it was capitals), the named Close,
+// Escape and the focus trap (Q17), and `busy` while the apply runs — which
+// holds the Close, Escape and the backdrop, as the hand-rolled one held its
+// Close and its backdrop. The buttons are the kit's: Relink N and Done the
+// primary, the rest secondary. Prose is the dialog's sans at the Body step;
+// only a path is in the mono (R4-32). The error, the base-change disclosure
+// and the success summary are the kit Banner; a proposal's confidence is the
+// kit StatusBadge; the two waits are the kit Spinner; an empty group is the
+// kit EmptyState. Every step, message and control does what it did (C1). It
+// is reachable only in Local Server mode, so rabbitOverlaysRender.test.jsx
+// proves it, not the walk. No window.confirm here.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, FolderSearch, Loader2, Check, AlertTriangle } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { FolderSearch, Check, AlertTriangle } from 'lucide-react'
+import { Dialog, Button, Banner, Spinner, StatusBadge, EmptyState } from '../../../ui'
+import '../views/rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
 import { matchMissingFiles } from './relinkMatcher'
 
+// A proposal's confidence: its words, and the tone of the kit StatusBadge
+// that says them (the words were coloured text).
 const CONFIDENCE_LABEL = {
-  exact:  { text: 'exact match',  color: '#4ade80' },
-  strong: { text: 'name + size',  color: '#4ade80' },
-  name:   { text: 'name only',    color: '#fbbf24' },
+  exact:  { text: 'Exact match', tone: 'success' },
+  strong: { text: 'Name + size', tone: 'success' },
+  name:   { text: 'Name only',   tone: 'warning' },
 }
 
 export default function RelinkDialog({ projectId, onClose, onApplied }) {
@@ -52,7 +74,15 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
   const [walkTruncated, setWalkTruncated] = useState(false)
   const [applied, setApplied] = useState(null)  // { relinked, filesDir }
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  // StrictMode-safe (EditHistoryDrawer's fix): React's dev double mount runs
+  // this cleanup once before the real mount, and a body that did not set the
+  // flag back left it false — so in a dev build the census never landed and
+  // a scan never reached the preview. A production build mounts once and is
+  // unchanged.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // Initial dangling-file census (no folder yet).
   useEffect(() => {
@@ -111,209 +141,180 @@ export default function RelinkDialog({ projectId, onClose, onApplied }) {
 
   const missingCount = scan?.missing?.length ?? 0
 
-  return (
-    <>
-      <div className="fixed inset-0 z-[70]" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={phase === 'applying' ? undefined : onClose} />
-      <div className="fixed left-1/2 top-1/2 z-[70] flex flex-col -translate-x-1/2 -translate-y-1/2 rounded-float overflow-hidden"
-        style={{ width: 640, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 96px)',
-                 backgroundColor: '#1c1917', border: '1px solid #44403c', boxShadow: '0 0 60px rgba(0,0,0,0.6)' }}
-        role="dialog" aria-label="Relink files">
+  return createPortal(
+    <Dialog
+      width={640}
+      // A title that is a node names nothing: the dialog carries its title
+      // as its name.
+      aria-label="Relink missing files"
+      title={(
+        <span className="rb-relink-title">
+          <FolderSearch className="rb-relink-icon" aria-hidden="true" />
+          Relink missing files
+        </span>
+      )}
+      // A press on the backdrop closes it, as a click there did — except
+      // while the apply runs, which `busy` holds.
+      dismissOnBackdrop
+      busy={phase === 'applying'}
+      onClose={onClose}
+      footer={phase === 'done' ? (
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      ) : (
+        <>
+          <Button onClick={onClose} disabled={phase === 'applying'}>
+            Cancel
+          </Button>
+          {/* Folder picking stays available when the census FAILED —
+              the folder scan recomputes `missing` server-side, so a
+              transient census error must not strand the dialog
+              (adversarial review, S14). Disabled only while the census
+              is in flight, or when it proved nothing is missing. */}
+          {(phase === 'idle' || phase === 'preview') && (
+            <Button onClick={pickAndScan} disabled={scan == null ? !error : missingCount === 0}>
+              {phase === 'preview' ? 'Pick a different folder' : 'Choose folder…'}
+            </Button>
+          )}
+          {phase === 'preview' && (
+            <Button variant="primary" onClick={apply} disabled={!match || match.proposals.length === 0}>
+              Relink {match?.proposals.length ?? 0} file{(match?.proposals.length ?? 0) === 1 ? '' : 's'}
+            </Button>
+          )}
+        </>
+      )}
+    >
+      <div className="rb-relink-body">
+        {error && (
+          <Banner tone="danger" Icon={AlertTriangle} className="rb-relink-error">
+            {error}
+          </Banner>
+        )}
 
-        {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
-          style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c', borderLeft: '3px solid #ea580c' }}>
-          <FolderSearch className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-          <div className="flex-1 text-label uppercase font-semibold" style={{ color: '#fb923c' }}>
-            Relink missing files
+        {phase === 'idle' && (
+          <>
+            <p className="rb-relink-prose">
+              {scan == null
+                ? 'Checking which files are missing on disk…'
+                : missingCount === 0
+                  ? 'Every file in this project resolves on disk — nothing needs relinking.'
+                  : `${missingCount} file${missingCount === 1 ? '' : 's'} in this project cannot be found on disk. ` +
+                    'Choose the folder the files now live in; WILSON walks it and matches them by name and size.'}
+            </p>
+            {scan != null && missingCount > 0 && (
+              <div className="rb-relink-missing">
+                {scan.missing.map(f => (
+                  <div key={f.id} className="rb-relink-missing-row" title={f.storage_path}>
+                    {f.name} <span className="rb-relink-missing-path">· {f.storage_path}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {phase === 'scanning' && (
+          <div className="rb-relink-progress">
+            <Spinner size="md" />
+            <span>Walking <span className="rb-relink-path">{folder}</span>…</span>
           </div>
-          <button type="button" onClick={onClose} disabled={phase === 'applying'} title="Close"
-            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        )}
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-          {error && (
-            <div className="text-dense px-3 py-2 rounded-control flex items-start gap-2"
-              style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
-              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-              <span className="min-w-0 break-words">{error}</span>
-            </div>
-          )}
+        {phase === 'preview' && match && (
+          <>
+            <p className="rb-relink-prose">
+              Searched <span className="rb-relink-path">{folder}</span>
+              {walkTruncated && <span className="rb-relink-capped"> (large folder — walk was capped; unmatched files may exist deeper)</span>}
+            </p>
+            {/* Base-change disclosure (adversarial review, S14): applying
+                also repoints where NEW uploads are saved — say so BEFORE
+                the write, not after. */}
+            {scan?.filesDir && folder && match.proposals.length > 0
+              && folder.toLowerCase() !== String(scan.filesDir).toLowerCase() && (
+              <Banner tone="warning">
+                This also makes the picked folder the project's files
+                folder — new uploads will be saved there. You can reset it
+                later under Files &amp; storage.
+              </Banner>
+            )}
 
-          {phase === 'idle' && (
-            <>
-              <p className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
-                {scan == null
-                  ? 'Checking which files are missing on disk…'
-                  : missingCount === 0
-                    ? 'Every file in this project resolves on disk — nothing needs relinking.'
-                    : `${missingCount} file${missingCount === 1 ? '' : 's'} in this project cannot be found on disk. ` +
-                      'Choose the folder the files now live in; WILSON walks it and matches them by name and size.'}
-              </p>
-              {scan != null && missingCount > 0 && (
-                <div className="rounded-control px-3 py-2 max-h-40 overflow-y-auto flex flex-col gap-1"
-                  style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
-                  {scan.missing.map(f => (
-                    <div key={f.id} className="text-dense truncate" style={{ color: '#78716c' }} title={f.storage_path}>
-                      {f.name} <span style={{ color: '#57534e' }}>· {f.storage_path}</span>
+            <PreviewGroup label={`Will relink (${match.proposals.length})`} tone="success" empty="No matches found in that folder.">
+              {match.proposals.map(p => {
+                const conf = CONFIDENCE_LABEL[p.confidence] || { text: p.confidence, tone: 'neutral' }
+                return (
+                  <div key={p.id} className="rb-relink-row">
+                    <div className="rb-relink-row-head">
+                      <span className="rb-relink-name">{p.name}</span>
+                      <StatusBadge tone={conf.tone} label={conf.text} />
                     </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {phase === 'scanning' && (
-            <div className="flex items-center gap-2 text-caption font-mono px-1 py-4" style={{ color: '#a8a29e' }}>
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#fb923c' }} />
-              Walking {folder}…
-            </div>
-          )}
-
-          {phase === 'preview' && match && (
-            <>
-              <p className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
-                Searched <span style={{ color: '#fb923c' }}>{folder}</span>
-                {walkTruncated && <span style={{ color: '#fbbf24' }}> (large folder — walk was capped; unmatched files may exist deeper)</span>}
-              </p>
-              {/* Base-change disclosure (adversarial review, S14): applying
-                  also repoints where NEW uploads are saved — say so BEFORE
-                  the write, not after. */}
-              {scan?.filesDir && folder && match.proposals.length > 0
-                && folder.toLowerCase() !== String(scan.filesDir).toLowerCase() && (
-                <p className="text-dense leading-relaxed px-3 py-2 rounded-control"
-                  style={{ color: '#fbbf24', backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
-                  This also makes the picked folder the project's files
-                  folder — new uploads will be saved there. You can reset it
-                  later under Files &amp; Storage.
-                </p>
-              )}
-
-              <PreviewGroup label={`Will relink (${match.proposals.length})`} color="#4ade80" empty="No matches found in that folder.">
-                {match.proposals.map(p => (
-                  <div key={p.id} className="flex flex-col gap-0.5 py-1.5 px-2 rounded-control" style={{ backgroundColor: '#1c1917' }}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-dense truncate flex-1" style={{ color: '#e7e5e4' }}>{p.name}</span>
-                      <span className="text-label uppercase flex-shrink-0"
-                        style={{ color: (CONFIDENCE_LABEL[p.confidence] || {}).color || '#a8a29e' }}>
-                        {(CONFIDENCE_LABEL[p.confidence] || {}).text || p.confidence}
-                      </span>
-                    </div>
-                    <span className="text-dense font-mono truncate" style={{ color: '#78716c' }} title={p.oldPath}>
-                      <s style={{ opacity: 0.7 }}>{p.oldPath}</s>
-                    </span>
-                    <span className="text-dense font-mono truncate" style={{ color: '#a8a29e' }} title={p.newPath}>
+                    <s className="rb-relink-old" title={p.oldPath}>{p.oldPath}</s>
+                    <span className="rb-relink-new" title={p.newPath}>
                       → {p.newPath}
+                    </span>
+                  </div>
+                )
+              })}
+            </PreviewGroup>
+
+            {match.ambiguous.length > 0 && (
+              <PreviewGroup label={`Ambiguous — left untouched (${match.ambiguous.length})`} tone="warning">
+                {match.ambiguous.map(a => (
+                  <div key={a.id} className="rb-relink-row">
+                    <span className="rb-relink-name">{a.name}</span>
+                    <span className="rb-relink-note">
+                      {a.candidates.length} same-name candidates — rename or remove duplicates, then rescan.
                     </span>
                   </div>
                 ))}
               </PreviewGroup>
+            )}
 
-              {match.ambiguous.length > 0 && (
-                <PreviewGroup label={`Ambiguous — left untouched (${match.ambiguous.length})`} color="#fbbf24">
-                  {match.ambiguous.map(a => (
-                    <div key={a.id} className="py-1.5 px-2 rounded-control" style={{ backgroundColor: '#1c1917' }}>
-                      <div className="text-dense truncate" style={{ color: '#e7e5e4' }}>{a.name}</div>
-                      <div className="text-dense font-mono" style={{ color: '#78716c' }}>
-                        {a.candidates.length} same-name candidates — rename or remove duplicates, then rescan.
-                      </div>
-                    </div>
-                  ))}
-                </PreviewGroup>
-              )}
+            {match.unmatched.length > 0 && (
+              <PreviewGroup label={`Still missing (${match.unmatched.length})`} tone="danger">
+                {match.unmatched.map(u => (
+                  <div key={u.id} className="rb-relink-unmatched" title={u.oldPath}>
+                    {u.name}
+                  </div>
+                ))}
+              </PreviewGroup>
+            )}
+          </>
+        )}
 
-              {match.unmatched.length > 0 && (
-                <PreviewGroup label={`Still missing (${match.unmatched.length})`} color="#f87171">
-                  {match.unmatched.map(u => (
-                    <div key={u.id} className="text-dense truncate py-1 px-2" style={{ color: '#78716c' }} title={u.oldPath}>
-                      {u.name}
-                    </div>
-                  ))}
-                </PreviewGroup>
-              )}
-            </>
-          )}
+        {phase === 'applying' && (
+          <div className="rb-relink-progress">
+            <Spinner size="md" />
+            <span>Relinking {match?.proposals.length} file{match?.proposals.length === 1 ? '' : 's'}…</span>
+          </div>
+        )}
 
-          {phase === 'applying' && (
-            <div className="flex items-center gap-2 text-caption font-mono px-1 py-4" style={{ color: '#a8a29e' }}>
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#fb923c' }} />
-              Relinking {match?.proposals.length} file{match?.proposals.length === 1 ? '' : 's'}…
-            </div>
-          )}
-
-          {phase === 'done' && applied && (
-            <div className="rounded-control px-3 py-3 flex items-start gap-2"
-              style={{ backgroundColor: 'rgba(22,101,52,0.15)', border: '1px solid #166534' }}>
-              <Check className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#4ade80' }} />
-              <div className="text-dense font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
-                <span style={{ color: '#4ade80' }}>Relinked {applied.relinked} file{applied.relinked === 1 ? '' : 's'}.</span>{' '}
-                This project's files now resolve from{' '}
-                <span style={{ color: '#e7e5e4' }}>{applied.filesDir}</span>.
-                Each relink is recorded in the file's activity stream.
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0"
-          style={{ backgroundColor: '#292524', borderTop: '1px solid #44403c' }}>
-          {phase === 'done' ? (
-            <button type="button" onClick={onClose}
-              className="px-3 py-1.5 rounded-float text-dense transition-[filter] hover:brightness-125"
-              style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
-              Done
-            </button>
-          ) : (
-            <>
-              <button type="button" onClick={onClose} disabled={phase === 'applying'}
-                className="px-3 py-1.5 rounded-float text-dense transition-colors hover:bg-stone-700"
-                style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-                Cancel
-              </button>
-              {/* Folder picking stays available when the census FAILED —
-                  the folder scan recomputes `missing` server-side, so a
-                  transient census error must not strand the dialog
-                  (adversarial review, S14). Disabled only while the census
-                  is in flight, or when it proved nothing is missing. */}
-              {(phase === 'idle' || phase === 'preview') && (
-                <button type="button" onClick={pickAndScan}
-                  disabled={scan == null ? !error : missingCount === 0}
-                  className="px-3 py-1.5 rounded-float text-dense transition-colors hover:bg-stone-700 disabled:opacity-40"
-                  style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-                  {phase === 'preview' ? 'Pick a different folder' : 'Choose folder…'}
-                </button>
-              )}
-              {phase === 'preview' && (
-                <button type="button" onClick={apply}
-                  disabled={!match || match.proposals.length === 0}
-                  className="px-3 py-1.5 rounded-float text-dense transition-[filter] hover:brightness-125 disabled:opacity-40"
-                  style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
-                  Relink {match?.proposals.length ?? 0} file{(match?.proposals.length ?? 0) === 1 ? '' : 's'}
-                </button>
-              )}
-            </>
-          )}
-        </div>
+        {phase === 'done' && applied && (
+          <Banner tone="success" Icon={Check}>
+            <span className="rb-relink-done">Relinked {applied.relinked} file{applied.relinked === 1 ? '' : 's'}.</span>{' '}
+            This project's files now resolve from{' '}
+            <span className="rb-relink-path">{applied.filesDir}</span>.
+            Each relink is recorded in the file's activity stream.
+          </Banner>
+        )}
       </div>
-    </>
+    </Dialog>,
+    document.body,
   )
 }
 
-function PreviewGroup({ label, color, empty, children }) {
+// A labelled group with its count and its tone (the tone is the label's
+// ink, read by the sheet from `data-tone`), an empty line of its own, and a
+// bounded scroll.
+function PreviewGroup({ label, tone, empty, children }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : !!children
   return (
-    <div className="rounded-float overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
-      <div className="px-3 py-1.5 text-label uppercase font-semibold"
-        style={{ color, borderBottom: '1px solid #44403c' }}>
+    <div className="rb-relink-group">
+      <div className="rb-relink-group-head" data-tone={tone}>
         {label}
       </div>
-      <div className="p-1.5 flex flex-col gap-1 max-h-56 overflow-y-auto">
-        {hasChildren ? children : (
-          <div className="text-dense px-2 py-1.5" style={{ color: '#78716c' }}>{empty}</div>
-        )}
+      <div className="rb-relink-group-list">
+        {hasChildren ? children : <EmptyState compact title={empty} />}
       </div>
     </div>
   )

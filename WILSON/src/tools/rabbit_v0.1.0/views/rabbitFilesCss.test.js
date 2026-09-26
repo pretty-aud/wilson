@@ -28,7 +28,7 @@ const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n
 const SHEET = resolve(here, 'rabbitFiles.css')
 const sheet = read('rabbitFiles.css')
 /** Lane B4's class prefixes (the second word after `rb-`), as the guards' `prefix`. */
-const LANE = 'files|fm|asset|rel|ent|vid|thumb'
+const LANE = 'files|fm|asset|rel|ent|vid|thumb|warn|audit|relink'
 const LANE_RE = new RegExp(`^rb-(${LANE})-`)
 /** B4's files on this sheet, relative to this directory, and the prefix each writes. */
 const FILES = {
@@ -45,6 +45,13 @@ const FILES = {
   // them. It writes no style: the popup's width is the kit Dialog's `width`,
   // every other geometry the sheet's.
   entity: { file: '../views/EntityListView.jsx', prefix: 'rb-ent-' },
+  // B4c, surface 7: the three overlays left (R4-12) — the status-mismatch
+  // question and the relink dialog on the kit Dialog, the file activity
+  // stream on the kit Drawer. None writes a style: the relink dialog's 640 is
+  // the kit Dialog's `width`, the drawer's 420 the kit's `xl`.
+  warn: { file: '../components/AssetStatusWarningModal.jsx', prefix: 'rb-warn-' },
+  audit: { file: '../components/FileAuditDrawer.jsx', prefix: 'rb-audit-' },
+  relink: { file: '../components/RelinkDialog.jsx', prefix: 'rb-relink-' },
 }
 /** A file part-way onto this sheet: every guard below reads it WITHOUT the
     top-level functions a later step restyles, and it moves into FILES, whole,

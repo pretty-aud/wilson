@@ -9,7 +9,8 @@
    AssetStatusWarningModal.jsx, views/ProjectAssetsView.jsx and
    EntityListView.jsx (LevelsView.jsx and ExperiencesView.jsx render it).
    Every class here is `rb-` plus this lane's second word
-   (`files`, `fm`, `asset`, `rel`, `ent`, `vid`, `thumb`): the `rb-` prefix is
+   (`files`, `fm`, `asset`, `rel`, `ent`, `vid`, `thumb`, `warn`, `audit`,
+   `relink`): the `rb-` prefix is
    what B1's scanners (rabbitCssGuards.js) key on; the second word keeps these
    clear of B1's rabbitShell.css, B2's `rb-task-`, B3's `rb-tl-` and B6's
    `bn-`.
@@ -2149,4 +2150,275 @@
   .ui-input.rb-ent-textarea[data-field="description"] { min-height: 80px; }
   .ui-input.rb-ent-textarea[data-field="notes"] { min-height: 60px; }
   .rb-ent-edit-acts { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* ═══ AssetStatusWarningModal ═════════════════════════════════════════════
+     The status-mismatch question the Assets table's and the gallery's
+     warning open (B4c surface 7, R4-12): the kit Dialog at the confirm width
+     (400; the panel was 448), portalled into <body>. The kit holds the
+     chrome — the one backdrop, the raised paper, the head's hairline (it was
+     a red rule), the H2 title in sentence case, the named Close, the footer
+     and its two Buttons ("Bump to in-progress" the primary: it was white on
+     the signal, 3.35:1). Here: the title's warning glyph in the danger ink,
+     as the "Tasks not yet done" control that opens it draws it; the message
+     in the ink at the Body step, the asset's name at 600 and its status the
+     kit StatusBadge (R4-30: it was a green chip whatever the status was);
+     the pending tasks a well on the paper under one hairline, its header at
+     the Label step in ink-3 (it was orange on a #44403c fill, R4-29), each
+     row a Dense title in the ink beside the kit StatusBadge on the task's
+     own status (the chips were #fb923c on #292524 under #57534e). */
+  .rb-warn-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-warn-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-danger); }
+  .rb-warn-body { display: flex; flex-direction: column; gap: 12px; }
+  .rb-warn-msg { margin: 0; color: var(--color-ink); }
+  .rb-warn-name { font-weight: 600; }
+  .rb-warn-tasks {
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-warn-tasks-head {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  /* The 192px it had, then the list scrolls. Rows are divided by the
+     hairline, not boxed (R4-22). */
+  .rb-warn-list { max-height: 192px; overflow-y: auto; }
+  .rb-warn-task { display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+  .rb-warn-task + .rb-warn-task { border-top: 1px solid var(--color-rule); }
+  .rb-warn-task-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+
+  /* ═══ FileAuditDrawer ═════════════════════════════════════════════════════
+     A file's activity stream, from the Control Panel's file table (B4c
+     surface 7, R4-12): the kit Drawer, right, xl (420, its width), with its
+     backdrop — EditHistoryDrawer's anatomy (rabbitTimeline.css, `rb-hist-`),
+     as the component's own Jakob's Law line promises. The kit holds the
+     chrome: the title bar's offset (TL-24: the panel ran under it), the raised
+     paper and its hairline (it was a 2px signal edge), the head and the
+     foot. Here: the file's name under the head in the mono, ink-2; each event
+     a card on the paper under one hairline (it was #292524 under #44403c); in
+     a card the kit Badge in its tone, the actor ink-2, the time the mono in
+     ink-3, an old path ink-3 (struck through when the file moved on from it:
+     it was 70% opacity) and the new one ink-2; the foot's note ink-3. The
+     walk's three failures here were #78716c on #292524 (3.16:1), #78716c on
+     #1c1917 (3.65:1) and #57534e (2.29:1); ink-3 is 5.04:1 on the paper and
+     4.66:1 on the raised paper. */
+  /* Refresh while the stream loads: the icon turns, on the kit's own `ui-spin`
+     keyframes (EditHistoryDrawer's `.rb-hist-spin`). */
+  .rb-audit-spin[data-spinning="true"] { animation: ui-spin 1s linear infinite; }
+  .rb-audit-body { display: flex; flex-direction: column; gap: 8px; }
+  .rb-audit-file {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-audit-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-audit-entry-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* An event's badge, its word and hairline in one tone — the colour
+     language FILE_EVENT_META names: creation (uploaded, restored) the
+     success ink, a change (moved, relinked) ink-2, destruction (trashed,
+     purged) the danger ink, a read (downloaded) and anything unknown ink-3.
+     It was each event's hex on a 10% tint of it; "change" was orange, which
+     is the signal's alone now (as EditHistoryDrawer's edits are ink-2).
+     (0,2,0) and (0,3,0) over the kit Badge's (0,1,0). */
+  .ui-badge.rb-audit-event { flex-shrink: 0; color: var(--color-ink-3); border-color: var(--color-ink-3); }
+  .ui-badge.rb-audit-event[data-tone="create"] { color: var(--color-success); border-color: var(--color-success); }
+  .ui-badge.rb-audit-event[data-tone="change"] { color: var(--color-ink-2); border-color: var(--color-ink-2); }
+  .ui-badge.rb-audit-event[data-tone="destroy"] { color: var(--color-danger); border-color: var(--color-danger); }
+  .rb-audit-actor {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-audit-when {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-audit-paths {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .rb-audit-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-audit-from { text-decoration: line-through; }
+  .rb-audit-to { color: var(--color-ink-2); }
+  .rb-audit-foot {
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ RelinkDialog ════════════════════════════════════════════════════════
+     Find the files that moved (B4c surface 7, R4-12): the kit Dialog,
+     portalled into <body>, at its own 640 (the tokens either side, 560 and
+     720, are 80 away each). Only Local Server mode can open it, so
+     rabbitOverlaysRender.test.jsx proves it and the walk does not. The kit
+     holds the chrome — the one backdrop, the raised paper (the panel was the
+     paper under a 3px signal edge), the H2 title in sentence case, the named
+     Close, the footer and its Buttons, `busy` while the apply runs — and the
+     error, the base-change disclosure and the success summary are the kit
+     Banner, a confidence the kit StatusBadge, the waits the kit Spinner, an
+     empty group the kit EmptyState. Here: the title's glyph in ink-2 (the
+     lane's dialog titles'); the prose in the dialog's sans at the Body step
+     in ink-2 and a path in it in the mono, the ink (R4-32: prose was set in
+     the mono; only a path is now — the folder searched was orange); the
+     missing files, the three preview groups and their rows on the tokens. */
+  .rb-relink-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-relink-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-relink-body { display: flex; flex-direction: column; gap: 12px; }
+  /* A server's error can be one long path: it wraps anywhere, as it did. */
+  .rb-relink-error { overflow-wrap: anywhere; }
+  .rb-relink-prose { margin: 0; color: var(--color-ink-2); }
+  .rb-relink-path {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  /* The capped walk's caveat, in the warning ink it had (#fbbf24). */
+  .rb-relink-capped { color: var(--color-warning); }
+  /* The files the census could not find, before a folder is chosen: a well
+     on the paper, the 160px it had, each file's name ink-2 and its stored
+     path the mono in ink-3 (they were #78716c and #57534e, 2.29:1). */
+  .rb-relink-missing {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 8px 12px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-relink-missing-row {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-relink-missing-path {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink-3);
+  }
+  /* The walk and the apply: the kit Spinner and what it is doing, Dense in
+     ink-2 (it was the mono at 12px beside an orange Loader2). */
+  .rb-relink-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* A preview group: a well on the paper under one hairline (it was #292524
+     under #44403c at the float radius), its label at the Label step in its
+     tone — will relink the success ink, ambiguous the warning ink, still
+     missing the danger ink (a third red, #f87171, before) — then its rows,
+     divided by the hairline and not boxed (R4-22), in the 224px it had. */
+  .rb-relink-group {
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-relink-group-head {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rb-relink-group-head[data-tone="success"] { color: var(--color-success); }
+  .rb-relink-group-head[data-tone="warning"] { color: var(--color-warning); }
+  .rb-relink-group-head[data-tone="danger"] { color: var(--color-danger); }
+  .rb-relink-group-list { max-height: 224px; overflow-y: auto; }
+  .rb-relink-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 12px; }
+  .rb-relink-row + .rb-relink-row { border-top: 1px solid var(--color-rule); }
+  .rb-relink-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-relink-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  /* A proposal's two paths, the mono they were in: the old one ink-3 and
+     struck through (it was 70% opacity), the new one ink-2. */
+  .rb-relink-old,
+  .rb-relink-new {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--text-dense--line-height);
+  }
+  .rb-relink-old { color: var(--color-ink-3); text-decoration: line-through; }
+  .rb-relink-new { color: var(--color-ink-2); }
+  /* An ambiguous file's note is a sentence, so the sans (it was the mono). */
+  .rb-relink-note { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-3); }
+  .rb-relink-unmatched {
+    padding: 4px 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-relink-unmatched + .rb-relink-unmatched { border-top: 1px solid var(--color-rule); }
+  /* The count that changed leads the success summary at 600 (it was the
+     green; the Banner's tone and glyph carry that now). */
+  .rb-relink-done { font-weight: 600; }
 }
