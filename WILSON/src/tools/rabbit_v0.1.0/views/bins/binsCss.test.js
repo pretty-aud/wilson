@@ -16,8 +16,12 @@
 //
 // Round one's test reviewer ran seventy mutations against the first version
 // of this file and thirty passed. The predicates now live in binsGuards.js,
-// hardened against each of them; the last block runs mutants through the SAME
-// predicates the assertions use (T2 hand-off §5 trap 8).
+// hardened against each of them; "the guards themselves" runs mutants through
+// the SAME predicates the assertions use (T2 hand-off §5 trap 8).
+//
+// B4c surface 8 (2026-09-25): the list view is the kit Table now, and its
+// file, BinFileTable.jsx, is also held to the files lane's stricter checks
+// (the last describe; the scanners are rabbitCssGuards.js', imported).
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -30,6 +34,9 @@ import {
   binsJsx, stripJs, stripCss, stateLeaks, utilityLeaks, rules, paintsSelector, paintedStates,
   liftRule, coveredBy, afterLayer,
 } from './binsGuards'
+// The files lane's stricter scanners (B1's and lane B2's), imported, never
+// retyped: BinFileTable is held to them below (B4c surface 8).
+import { inlineStateTernaries, stateLeaks as laneStateLeaks, jsCode } from '../../rabbitCssGuards.js'
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url))
 const css = readFileSync(here('./bins.css'), 'utf8')
@@ -52,6 +59,10 @@ const jsxClasses = () => {
 // native search and rename fields that borrow the kit's input class.
 // `data-testid` is a test hook.
 const NOT_STATE = new Set(['bin-grid', 'size', 'testid'])
+// `data-align` is the KIT's: its Th and Td write it (from `numeric`) and no
+// Bins file does. The list's header keys its sort slot on it (B4c surface 8);
+// binFileTableRender.test.jsx proves the kit's header carries it.
+const KIT_ATTRS = new Set(['align'])
 const cssAttrs = () => new Set([...code.matchAll(/\[data-([a-z-]+)/g)].map(m => m[1]))
 const jsxAttrs = () => {
   const s = new Set()
@@ -177,7 +188,10 @@ describe('the extracted state', () => {
     const inCss = cssAttrs()
     const inJsx = jsxAttrs()
     expect([...inJsx].filter(a => !inCss.has(a)).sort()).toEqual([])
-    expect([...inCss].filter(a => !inJsx.has(a)).sort()).toEqual([])
+    expect([...inCss].filter(a => !inJsx.has(a) && !KIT_ATTRS.has(a)).sort()).toEqual([])
+    // …and the kit's exemption is live and hides no Bins state: each is read
+    // by the sheet, and none is written by a Bins file (that would be a state).
+    expect([...KIT_ATTRS].filter(a => !inCss.has(a) || inJsx.has(a))).toEqual([])
   })
 })
 
@@ -373,5 +387,79 @@ describe('the guards themselves (mutants run through the SAME predicates)', () =
 
   it('an unlayered rule appended after the block is seen', () => {
     expect(afterLayer(`${code}\n@media (prefers-reduced-motion: reduce) { .bn-trow { transition: none; } }`).trim()).not.toBe('')
+  })
+})
+
+/* ── B4c surface 8: BinFileTable on the files lane's stricter checks ─────── */
+// The list view is the kit Table now, the fourth file table the plan
+// converges, so its file is held to what rabbitFilesCss.test.js holds the
+// files lane's tables to, on the same predicates: B1's inlineStateTernaries;
+// lane B2's stateLeaks (every style a listed geometry, every className a
+// literal, no JSX spread, no element swap that changes a class, no colour
+// prop given an expression, no hex or colour function); and b4-count.mjs's
+// two counts (the B4 hand-off, §7): no template-literal className at all, a
+// literal one included, and no palette utility.
+const TABLE = 'BinFileTable.jsx'
+/** The one style it writes: the shown columns' sum, from TABLE_COLUMNS, as a
+    custom property bins.css reads for the table's min-width (a geometry,
+    never a colour or a state). */
+const TABLE_STYLES = ["{{ '--bn-list-cols': `${minWidth}px` }}"]
+/** A colour prop that is DATA: ColorDot's `color` is the file's label colour
+    BY NAME ('red', 'blue' …), which binUi turns into `--dot-color`; lane B2's
+    check is aimed at an icon's paint. This literal is taken out before the
+    scan, and it must be in the file, so a changed call is scanned. */
+const TABLE_DATA_PROPS = ['<ColorDot color={row.color} size={8} />']
+/** b4-count.mjs's palette row: a Tailwind palette colour in any utility. */
+const PALETTE = /(?<![\w-])(?:[a-z-]+:)*(?:text|bg|border|ring|accent|outline|divide|placeholder|fill|stroke|from|to|via|decoration|caret)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{2,3})?(?:\/\d+)?(?![\w-])/g
+/** Every check, on a source: what each finds. The assertions and the mutants
+    below call this same function (T2 hand-off §5 trap 8). */
+const tableChecks = (src) => {
+  const scanned = TABLE_DATA_PROPS.reduce((s, p) => s.split(p).join('<ColorDot />'), src)
+  const code = jsCode(src)
+  return {
+    ternaries: inlineStateTernaries(src),
+    lane: laneStateLeaks(scanned, TABLE_STYLES, []),
+    templates: code.match(/className=\{`/g) || [],
+    palette: code.match(PALETTE) || [],
+  }
+}
+const tableSource = () => JSX[TABLE].replace(/\r\n/g, '\n')
+
+describe('BinFileTable: the files lane\'s stricter checks (B4c surface 8)', () => {
+  it('the file was read, and every data prop the scan takes out is in it', () => {
+    expect(tableSource().length).toBeGreaterThan(3000)
+    for (const p of TABLE_DATA_PROPS) expect(tableSource()).toContain(p)
+  })
+
+  it('B1\'s inlineStateTernaries finds nothing', () => {
+    expect(tableChecks(tableSource()).ternaries).toEqual([])
+  })
+
+  it('lane B2\'s stateLeaks finds nothing: one style, the listed geometry; every className a literal; no spread, no colour prop, no hex', () => {
+    expect(tableChecks(tableSource()).lane).toEqual([])
+    expect(jsCode(tableSource()).match(/\bstyle=\{/g)).toHaveLength(TABLE_STYLES.length)
+  })
+
+  it('no template-literal className and no palette utility (b4-count\'s `tl` and `pal` at 0)', () => {
+    const { templates, palette } = tableChecks(tableSource())
+    expect([templates, palette]).toEqual([[], []])
+  })
+
+  it('CONTROL: each check fires on a mutant of the real file, and only its own', () => {
+    const src = tableSource()
+    const anchor = '<Row ref={innerRef} className="bn-trow"'
+    expect(src).toContain(anchor)
+    const at = (tail) => src.replace(anchor, `<Row ref={innerRef} ${tail}`)
+    const fires = (mutant) => Object.entries(tableChecks(mutant)).filter(([, hits]) => hits.length).map(([k]) => k).sort()
+    expect(fires(src)).toEqual([])
+    expect(fires(at('className="bn-trow" style={{ color: selected ? C.bright : C.muted }}'))).toEqual(['lane', 'ternaries'])
+    expect(fires(at('className="bn-trow" style={{ minWidth: 40 }}'))).toEqual(['lane'])
+    expect(fires(at('className={`bn-trow ${selected ? "is-on" : ""}`}'))).toEqual(['lane', 'templates', 'ternaries'])
+    expect(fires(at('className={`bn-trow`}'))).toEqual(['templates'])
+    expect(fires(at('className="bn-trow" {...rest}'))).toEqual(['lane'])
+    expect(fires(at('className="bn-trow text-stone-400"'))).toEqual(['palette'])
+    expect(fires(at('className="bn-trow" title="#78716c"'))).toEqual(['lane'])
+    expect(fires(at('className="bn-trow" color={tone}'))).toEqual(['lane'])
+    expect(fires(src.replace('<ColorDot color={row.color} size={8} />', '<ColorDot color={row.colour} size={8} />'))).toEqual(['lane'])
   })
 })

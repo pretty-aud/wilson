@@ -79,7 +79,9 @@ describe('the list view: selected, current, offline, sorted', () => {
       <BinFileTable rows={rows} selection={new Set(['f1'])} currentId="f2" binsById={binsById} showBin={false}
         sort={{ field: 'display_name', dir: 'asc' }} scenesById={new Map()} canWrite />,
     )
-    const [r1, r2, r3] = container.querySelectorAll('[role="row"]')
+    // A real <tr> since B4c (the kit Table): its row role is the element's
+    // own, so the body's rows are read by structure, not by an attribute.
+    const [r1, r2, r3] = container.querySelectorAll('tbody tr')
     const selected = sel('bn-trow', 'selected')
     const current = sel('bn-trow', 'current')
     const offline = sel('bn-trow', 'offline')

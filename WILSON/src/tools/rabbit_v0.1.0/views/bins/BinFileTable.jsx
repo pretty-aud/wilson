@@ -7,10 +7,29 @@
 // the whole selection draggable onto a bin. Names rename in place on a
 // double-click; the marks column cycles the flag on click. Every keyboard
 // path lives in BinsView, which owns the selection.
+//
+// ── B4c surface 8 (2026-09-25): the kit Table ────────────────────────────
+// B6 restyled this in place and left it a CSS grid of 16 columns. It is now
+// the kit's real <table> (Table / Th / Td / Row): the fourth file table the
+// plan converges, after ProjectFilesTable, FileManager and the Assets table.
+// A restyle (C1), so what the grid did it still does:
+//   · every column, label and width is TABLE_COLUMNS', unchanged. A px width
+//     is its header's; the one `minmax(<floor>, …)` track (Name) is the
+//     table's auto column, which takes the rest. Its floor is held by the
+//     table's min-width — the shown columns' sum, handed to bins.css as
+//     `--bn-list-cols` (the one style this file writes) — so a pane narrower
+//     than the columns scrolls sideways, as the grid's `max-content` did;
+//   · the row states sit on the <tr> (`data-selected`, `data-current`,
+//     `data-offline`), where bins.css paints them and lifts or dims every
+//     cell's ink through the `--bn-*` properties. No `aria-selected`: the
+//     kit's Row carries none (a plain table cannot own a selection);
+//   · the grid's geometry — 8px cells, its 8px left gutter, 4px above and
+//     below a two-line row — is bins.css', so each column's x and each
+//     value's room are what they were.
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, ArrowDown } from 'lucide-react'
-import { C, MediaTag, FlagMark, ColorDot, EmptyState } from './binUi'
+import { Table, Row, Th, Td } from '../../../../ui'
+import { MediaTag, FlagMark, ColorDot, EmptyState } from './binUi'
 import BinPoster from './BinPoster'
 import { DND_FILES } from './BinTree'
 import { formatDuration, formatBytes } from '../../bins/binMedia'
@@ -39,64 +58,77 @@ export const TABLE_COLUMNS = [
 
 const FLAG_NEXT = { unflagged: 'select', select: 'reject', reject: 'unflagged' }
 
+// The widths are grid tracks. On the table a px track is its header's width,
+// and `minmax(<floor>px, …)` is the auto column: it takes the rest and never
+// goes under its floor.
+const floorOf = (c) => Number(/^minmax\((\d+)px,/.exec(c.width)?.[1] || 0)
+const headerWidth = (c) => (floorOf(c) ? undefined : c.width)
+/** What the shown columns need side by side: the floor plus every px width. */
+const columnsWidth = (cols) => cols.reduce((sum, c) => sum + (floorOf(c) || parseFloat(c.width)), 0)
+
 export default function BinFileTable({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor,
   binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, onRenameEnd, dragIdsFor, usageCount = null,
 }) {
   const cols = TABLE_COLUMNS.filter(c => showBin || c.id !== 'bin')
-  const template = cols.map(c => c.width).join(' ')
+  const minWidth = columnsWidth(cols)
   const currentRef = useRef(null)
   useEffect(() => { currentRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [currentId])
 
   return (
-    <div className="flex-1 min-h-0 overflow-auto" style={{ backgroundColor: C.bg }}>
-      <div className="sticky top-0 z-10 grid items-center px-2" style={{ gridTemplateColumns: template, backgroundColor: C.deep, borderBottom: `1px solid ${C.line}`, minWidth: 'max-content' }}>
-        {cols.map(c => (
-          <button key={c.id} type="button" disabled={!c.sortable} onClick={() => c.sortable && onSort?.(c.id)}
-            data-sorted={sort?.field === c.id ? 'true' : undefined}
-            className={`bn-th flex items-center gap-1 px-2 py-1.5 ${c.align === 'right' ? 'justify-end' : ''} ${c.sortable ? '' : 'cursor-default'}`}>
-            {c.label}
-            {sort?.field === c.id && (sort.dir === 'desc' ? <ArrowDown className="w-2.5 h-2.5" /> : <ArrowUp className="w-2.5 h-2.5" />)}
-          </button>
-        ))}
-      </div>
-      {rows.map(row => {
-        const selected = selection.has(row.id)
-        const current = currentId === row.id
-        return (
-          <Row key={row.id} row={row} cols={cols} template={template} selected={selected} current={current}
-            innerRef={current ? currentRef : null}
-            thumbUrl={thumbUrlFor?.(row.id)}
-            binName={showBin ? (binsById.get(row.bin_id)?.name || '—') : null}
-            sceneName={row.scene_id ? (scenesById.get(row.scene_id)?.name || '?') : ''}
-            used={usageCount?.get(row.id) || 0}
-            renaming={renamingId === row.id}
-            onRenameEnd={onRenameEnd}
-            canWrite={canWrite}
-            onClick={e => onRowClick?.(row.id, e)}
-            onDoubleClick={() => onRowDoubleClick?.(row.id)}
-            onContextMenu={e => { e.preventDefault(); onContextMenu?.(e, row.id) }}
-            onPatch={patch => onInlinePatch?.(row.id, patch)}
-            onDragStart={e => {
-              const ids = dragIdsFor?.(row.id) || [row.id]
-              e.dataTransfer.setData(DND_FILES, JSON.stringify(ids))
-              e.dataTransfer.effectAllowed = 'copyMove'
-            }}
-          />
-        )
-      })}
+    <div className="bn-list">
+      <Table className="bn-table" style={{ '--bn-list-cols': `${minWidth}px` }}
+        head={(
+          <Row>
+            {cols.map(c => (
+              <Th key={c.id} className="bn-th" width={headerWidth(c)} numeric={c.align === 'right'}
+                sort={sort?.field === c.id ? sort.dir : null}
+                onSort={c.sortable ? () => onSort?.(c.id) : undefined}
+                data-sorted={sort?.field === c.id ? 'true' : undefined}>
+                {c.label}
+              </Th>
+            ))}
+          </Row>
+        )}>
+        {rows.map(row => {
+          const selected = selection.has(row.id)
+          const current = currentId === row.id
+          return (
+            <FileRow key={row.id} row={row} cols={cols} selected={selected} current={current}
+              innerRef={current ? currentRef : null}
+              thumbUrl={thumbUrlFor?.(row.id)}
+              binName={showBin ? (binsById.get(row.bin_id)?.name || '—') : null}
+              sceneName={row.scene_id ? (scenesById.get(row.scene_id)?.name || '?') : ''}
+              used={usageCount?.get(row.id) || 0}
+              renaming={renamingId === row.id}
+              onRenameEnd={onRenameEnd}
+              canWrite={canWrite}
+              onClick={e => onRowClick?.(row.id, e)}
+              onDoubleClick={() => onRowDoubleClick?.(row.id)}
+              onContextMenu={e => { e.preventDefault(); onContextMenu?.(e, row.id) }}
+              onPatch={patch => onInlinePatch?.(row.id, patch)}
+              onDragStart={e => {
+                const ids = dragIdsFor?.(row.id) || [row.id]
+                e.dataTransfer.setData(DND_FILES, JSON.stringify(ids))
+                e.dataTransfer.effectAllowed = 'copyMove'
+              }}
+            />
+          )
+        })}
+      </Table>
       {rows.length === 0 && (
-        <EmptyState compact title="Nothing matches" body="Clear a filter or the search to see more." />
+        <EmptyState compact className="bn-list-empty" title="Nothing matches" body="Clear a filter or the search to see more." />
       )}
     </div>
   )
 }
 
-function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, onRenameEnd, canWrite, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
+function FileRow({ row, cols, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, onRenameEnd, canWrite, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
   const [draft, setDraft] = useState(row.display_name || '')
   const inputRef = useRef(null)
   useEffect(() => { if (renaming) { setDraft(row.display_name || ''); setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0) } }, [renaming, row.display_name])
   const commit = () => { const v = draft.trim(); if (v && v !== row.display_name) onPatch({ display_name: v }); onRenameEnd?.() }
+  // A cell's ink is its <td>'s (ink-2, bins.css); a span says where it is not.
   const cell = (id) => {
     switch (id) {
       case 'display_name':
@@ -113,7 +145,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
               ) : (
                 <div className="bn-trow-name truncate text-dense font-semibold" title={row.display_name}>{row.display_name || row.original_name}</div>
               )}
-              <div className="truncate text-caption" style={{ color: C.dimmer }} title={row.source_path}>{row.original_name}{row.is_sequence && row.frame_count ? ` · ${row.frame_count} frames` : ''}</div>
+              <div className="bn-trow-sub truncate text-caption" title={row.source_path}>{row.original_name}{row.is_sequence && row.frame_count ? ` · ${row.frame_count} frames` : ''}</div>
             </div>
           </div>
         )
@@ -122,39 +154,37 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
         return (
           <button type="button" title="Click to cycle select → reject → unflagged" disabled={!canWrite}
             onClick={e => { e.stopPropagation(); onPatch({ review_flag: FLAG_NEXT[row.review_flag || 'unflagged'] }) }}
-            className="flex items-center gap-1 px-1 rounded-control hover:bg-hover disabled:cursor-default" style={{ minHeight: 'var(--control-sm)' }}>
+            className="bn-trow-marks flex items-center gap-1 px-1 rounded-control hover:bg-hover disabled:cursor-default">
             <FlagMark flag={row.review_flag} circled={row.circled} />
             {row.color && <ColorDot color={row.color} size={8} />}
-            {!row.color && row.review_flag === 'unflagged' && !row.circled && <span className="text-dense" style={{ color: C.dimmer }}>—</span>}
+            {!row.color && row.review_flag === 'unflagged' && !row.circled && <span className="bn-trow-none text-dense">—</span>}
           </button>
         )
-      case 'slate': return <span style={{ color: C.text }}>{row.slate || ''}</span>
-      case 'take_number': return <span style={{ color: C.text }}>{row.take_number ? `T${row.take_number}` : ''}{row.take_modifier ? <span style={{ color: C.accentText }}> {row.take_modifier}</span> : ''}</span>
-      case 'camera': return <span style={{ color: C.text }}>{row.camera || ''}</span>
-      case 'roll': return <span style={{ color: C.text }}>{row.roll || ''}</span>
-      case 'shoot_day': return <span style={{ color: C.text }}>{row.shoot_day || ''}</span>
-      case 'scene': return <span className="truncate block" style={{ color: C.muted }} title={sceneName}>{sceneName}</span>
-      case 'used': return used ? <span className="tabular-nums" style={{ color: C.accentText }} title={`Used in ${used} shot${used === 1 ? '' : 's'}`}>{used} shot{used === 1 ? '' : 's'}</span> : <span style={{ color: C.dimmer }}>—</span>
-      case 'duration_sec': return <span className="tabular-nums" style={{ color: C.muted }}>{formatDuration(row.duration_sec)}</span>
-      case 'dims': return <span className="tabular-nums" style={{ color: C.muted }}>{row.width && row.height ? `${row.width}×${row.height}` : ''}</span>
-      case 'fps': return <span className="tabular-nums" style={{ color: C.muted }}>{row.fps ? (Number(row.fps) % 1 === 0 ? row.fps : Number(row.fps).toFixed(2)) : ''}</span>
-      case 'codec': return <span style={{ color: C.muted }}>{row.codec ? String(row.codec).toUpperCase() : (row.probe_status === 'unavailable' ? <span style={{ color: C.dimmer }} title="No decoder on this machine">n/a</span> : '')}</span>
-      case 'size_bytes': return <span className="tabular-nums" style={{ color: C.muted }}>{formatBytes(row.size_bytes)}</span>
-      case 'bin': return <span className="truncate block" style={{ color: C.muted }}>{binName}</span>
+      case 'slate': return row.slate || ''
+      case 'take_number': return <>{row.take_number ? `T${row.take_number}` : ''}{row.take_modifier ? <span className="bn-trow-accent"> {row.take_modifier}</span> : ''}</>
+      case 'camera': return row.camera || ''
+      case 'roll': return row.roll || ''
+      case 'shoot_day': return row.shoot_day || ''
+      case 'scene': return <span className="truncate block" title={sceneName}>{sceneName}</span>
+      case 'used': return used ? <span className="bn-trow-accent tabular-nums" title={`Used in ${used} shot${used === 1 ? '' : 's'}`}>{used} shot{used === 1 ? '' : 's'}</span> : <span className="bn-trow-none">—</span>
+      case 'duration_sec': return formatDuration(row.duration_sec)
+      case 'dims': return row.width && row.height ? `${row.width}×${row.height}` : ''
+      case 'fps': return row.fps ? (Number(row.fps) % 1 === 0 ? row.fps : Number(row.fps).toFixed(2)) : ''
+      case 'codec': return row.codec ? String(row.codec).toUpperCase() : (row.probe_status === 'unavailable' ? <span className="bn-trow-none" title="No decoder on this machine">n/a</span> : '')
+      case 'size_bytes': return formatBytes(row.size_bytes)
+      case 'bin': return binName
       default: return null
     }
   }
   return (
-    <div ref={innerRef} role="row" aria-selected={selected} draggable={canWrite && !renaming} onDragStart={onDragStart}
+    <Row ref={innerRef} className="bn-trow" draggable={canWrite && !renaming} onDragStart={onDragStart}
       onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}
-      className="bn-trow grid items-center px-2 cursor-default"
       data-selected={selected ? 'true' : undefined}
       data-current={current ? 'true' : undefined}
-      data-offline={row.online === false ? 'true' : undefined}
-      style={{ gridTemplateColumns: template, minWidth: 'max-content' }}>
+      data-offline={row.online === false ? 'true' : undefined}>
       {cols.map(c => (
-        <div key={c.id} className={`px-2 py-1 text-dense min-w-0 ${c.mono === false ? '' : 'font-mono'} ${c.align === 'right' ? 'text-right' : ''}`}>{cell(c.id)}</div>
+        <Td key={c.id} numeric={c.align === 'right'} data-sans={c.mono === false ? 'true' : undefined}>{cell(c.id)}</Td>
       ))}
-    </div>
+    </Row>
   )
 }

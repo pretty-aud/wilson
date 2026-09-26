@@ -205,6 +205,10 @@ const REGISTRY = [
   // named "File activity", exists only while it is open: the Control Panel
   // under it draws no kit Drawer at all (measured, 2026-09-25).
   P('rabbit-files-audit', '/rabbit', { steps: ['@proj', 'Summary', 'Control Panel', 'File activity'], expect: { selector: 'aside.ui-drawer[aria-label="File activity"]' } }),
+  // B4c: the Bins tab opens in its Frame view, so `rabbit-bins` never measured
+  // the list (BinFileTable, the fourth file table). "List view" is the
+  // toolbar's own toggle; its rows exist only after it (the frames are tiles).
+  P('rabbit-bins-list', '/rabbit', { steps: ['@proj', 'Bins', 'List view'], expect: { selector: '.bn-trow' } }),
   // Levels and Experiences exist only with the project flags on: the
   // fixtures' `?fixtures=game` variant switches them on for Salt Hours
   // (src/dev/fixtures/store.js, applyGameVariant) and leaves every other

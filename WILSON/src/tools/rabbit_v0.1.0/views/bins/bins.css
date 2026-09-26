@@ -15,7 +15,7 @@
    2. THE SWAP (d380631). Btn, IconBtn, Chip, Toggle, Field, Menu and the
       inspector's marks became the kit's components, whose states live in
       src/index.css; their transitional rules left this file.
-   3. THE RESTYLE (this state). Every value is a token from `@theme`; no hex
+   3. THE RESTYLE. Every value is a token from `@theme`; no hex
       is written here (C8). And three review findings close:
         B02  every row the cursor can land on has one hover fill, the kit's
              `--color-hover` (a 6% screen of the ink): tree rows, list rows,
@@ -25,6 +25,9 @@
         B13  selection is ONE tint (`--color-signal-tint`, 16%) everywhere a
              thing is selected, active or picked; a drop target is the one
              stronger mix (28%). Six alphas were in use.
+   4. THE KIT TABLE (B4c surface 8, 2026-09-25). The list view is the kit's
+      real <table> (it was a 16-column CSS grid); its section below says
+      what stays Bins' own.
 
    🚨 THE LIFT. ink-3 and the signal pass on the three grounds at rest
    (5.04 / 4.66 / 5.70 and 4.91 / 4.54 / 5.55) and FAIL on the hover and
@@ -105,7 +108,7 @@
   /* The global ring sits 1px OUTSIDE the element; inside an overflow box
      its outer edge is cut. These draw it 2px inside instead. */
   .bn-section-head:focus-visible,
-  .bn-th:focus-visible { outline-offset: -2px; }
+  .bn-th .ui-th-btn:focus-visible { outline-offset: -2px; }
   /* The files pane is a tab stop (the Bins keys act on it) whose children — the
      scrolling grid and list, the sticky header, a positioned body — paint over
      any outline of its own: round 2 measured an inset ring that showed only
@@ -187,30 +190,90 @@
   .bn-tree-row:hover .bn-tree-icon { color: var(--color-ink-2); }
   .bn-tree-row[data-active="true"] .bn-tree-icon { color: var(--color-signal); }
 
-  /* ── The list view ──────────────────────────────────────────────────── */
-  /* The header is the kit's Label step (11px, 600, upper, +0.06em). */
-  .bn-th {
-    min-height: var(--table-head);
-    color: var(--color-ink-3);
-    font-size: var(--text-label);
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    transition: color var(--duration-state) ease-out;
+  /* ── The list view: the kit Table (B4c surface 8) ───────────────────── */
+  /* The kit draws the table: the real <table>, the sticky raised header in
+     the Label step, the hairlines, the numeric cells (right, tabular, the
+     mono). What stays Bins' own is here, and each rule keeps what the grid
+     had:
+       · the row's states on the <tr>, and through them the lift and the dim
+         above (every cell's ink reads the `--bn-*` properties);
+       · the grid's geometry: 8px cells (every width was measured for them;
+         the kit's 12 would take 8px from each value), its 8px left gutter
+         (now the first cell's padding) and 4px above and below the
+         two-line row, which measures 44px;
+       · the mono on data, the sans on names and words (`data-sans`). */
+  .bn-list {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-paper);
   }
-  .bn-th[data-sorted="true"] { color: var(--color-signal); }
-  .bn-th:hover:not(:disabled):not([data-sorted="true"]) { color: var(--color-ink); }
+  /* The shown columns' sum from TABLE_COLUMNS (the Name floor plus every px
+     width), plus the gutter: a pane narrower than that scrolls sideways, as
+     the grid's `max-content` did, and Name never goes under its floor. */
+  .bn-list .ui-table.bn-table { min-width: calc(var(--bn-list-cols) + 8px); }
+  .bn-table .ui-th { padding: 0 8px; }
+  .bn-table .ui-td { padding: 4px 8px; }
+  .bn-table .ui-th:first-child,
+  .bn-table .ui-td:first-child { padding-left: 16px; }
 
+  /* The header. The sorted column is the signal (4.54:1 on the raised
+     paper), a sortable label takes the ink on hover, and the ring is drawn
+     inside (above). And no label is cut, since C1 keeps every width: the
+     kit clips a label to an ellipsis where it outgrows the room beside its
+     sort slot, and three do (MARKS 42px in 34, CAM 27 in 18, DURATION 61 in
+     42, measured), so here a label overruns its padding, as the grid's did.
+     On a right-aligned column the slot goes BEFORE the label: the label
+     keeps its place on its figures' edge, sorted or not, and DURATION stays
+     clear of USED IN (behind the slot it would start 3px from it). */
+  .bn-th[data-sorted="true"] { color: var(--color-signal); }
+  .bn-th .ui-th-btn { transition: color var(--duration-state) ease-out; }
+  .bn-th:not([data-sorted="true"]) .ui-th-btn:hover { color: var(--color-ink); }
+  .bn-th .ui-th-label { min-width: auto; max-width: none; overflow: visible; }
+  .bn-th[data-align="right"] .ui-th-sort { order: -1; }
+
+  /* The row's states, on the <tr> as they were on the grid's row. The kit
+     Row's own selected look, keyed on the same attribute, is a cell fill
+     plus a 2px edge on EVERY selected row; in Bins the selection is the tint
+     and the edge marks the one current row, so the kit's is turned off on
+     this table's cells, (0,5,0) over its (0,4,0). */
   .bn-trow {
-    min-height: var(--row);
+    cursor: default;
     background-color: transparent;
-    border-bottom: 1px solid var(--color-rule);
     transition: background-color var(--duration-state) ease-out;
   }
   .bn-trow:hover { background-color: var(--color-hover); }
   .bn-trow[data-selected="true"] { background-color: var(--color-signal-tint); }
   .bn-trow[data-current="true"] { box-shadow: inset 2px 0 0 var(--color-signal); }
+  .bn-list .bn-table .bn-trow[data-selected="true"] > .ui-td { background-color: transparent; box-shadow: none; }
+
+  /* Every cell's ink reads the row's properties, so the lift and the dim
+     reach it: values ink-2, the name the ink, the quiet words ink-3, a
+     take's modifier and "used in" the signal. */
+  .bn-trow > .ui-td {
+    font-family: var(--font-mono);
+    color: var(--bn-ink-2, var(--color-ink-2));
+  }
+  .bn-trow > .ui-td[data-sans="true"] { font-family: var(--font-sans); }
   .bn-trow-name { color: var(--bn-ink, var(--color-ink)); }
+  .bn-trow-sub,
+  .bn-trow-none { color: var(--bn-ink-3, var(--color-ink-3)); }
+  .bn-trow-accent { color: var(--bn-signal-ink, var(--color-signal)); }
+  /* The marks toggle keeps the small control's height. */
+  .bn-trow-marks { min-height: var(--control-sm); }
+
+  /* "Nothing matches" lies over the empty body, under the sticky header, so
+     the scroller keeps its height and its sideways bar where they were. It
+     takes no pointer: a drop or a scroll goes through it. (0,3,0) over the
+     kit's `.ui-empty` height. */
+  .bn-list .ui-empty.bn-list-empty {
+    position: absolute;
+    inset: var(--table-head) 0 0;
+    height: auto;
+    pointer-events: none;
+  }
 
   /* ── The frame view ─────────────────────────────────────────────────── */
   /* The hover is the same 6% screen, laid OVER the raised fill as an image so
