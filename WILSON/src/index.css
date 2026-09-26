@@ -875,6 +875,11 @@ select option {
   .ui-cell-select > select:hover:not(:disabled) { background-color: var(--color-hover); }
   .ui-cell-select > select:disabled { color: var(--color-ink-3); cursor: not-allowed; }
   .ui-cell-select > select[data-empty="true"] { color: var(--color-ink-3); }
+  /* …and the second ink while it is hovered or focused: the third ink on the
+     hover fill is 4.34:1 over paper (under 4 over the raised paper), where
+     the second passes on both (B4c review round two, measured). */
+  .ui-cell-select > select[data-empty="true"]:hover:not(:disabled),
+  .ui-cell-select > select[data-empty="true"]:focus { color: var(--color-ink-2); }
   .ui-cell-select::after {
     content: "";
     position: absolute;

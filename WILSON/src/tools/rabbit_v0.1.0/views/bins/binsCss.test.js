@@ -597,3 +597,72 @@ describe('the list\'s header: every sortable button its whole cell, every arrow 
     expect(headerFaults(drop('{ padding-right: 0; gap: 0; }', '{ gap: 0; }'))).toEqual(['right-aligned button'])
   })
 })
+
+/* ── Reduced motion (plan §3.4; B4c review round two) ────────────────────── */
+// The list header's colour change is B4c's (surface 8), and it ends instantly
+// under `prefers-reduced-motion: reduce`: its own selector, `transition: none`
+// and nothing else, in one block inside the layer and after its twin — as
+// rabbitFilesCss.test.js pins that sheet. B6's four fades predate the bundle
+// and are recorded, not changed: they are LISTED, so a transition added
+// without its twin still fails here.
+const B6_FADES = ['.bn-tree-row', '.bn-trow', '.bn-tile', '.bn-pick-row']
+/** Every selector the sheet gives a transition, against the reduced-motion
+    blocks: `uncovered` has no twin in one, `late` is declared after its twin
+    (source order would hand the motion back), `loud` is a block rule that does
+    more than stop a transition. */
+function motionCoverage(css) {
+  const c = stripCss(css)
+  const blocks = []
+  const re = /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*\{/g
+  for (let m; (m = re.exec(c));) {
+    let depth = 1, i = re.lastIndex
+    for (; i < c.length && depth > 0; i++) { if (c[i] === '{') depth++; else if (c[i] === '}') depth-- }
+    blocks.push({ start: m.index, end: i, text: c.slice(re.lastIndex, i - 1) })
+  }
+  const inBlock = (i) => blocks.some(b => i >= b.start && i < b.end)
+  const one = (s) => s.split(',').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const moving = []
+  for (const m of c.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (m[1].trim().startsWith('@') || inBlock(m.index)) continue
+    if (!/(?:^|;)\s*transition(?:-[a-z]+)?\s*:\s*(?!none\s*(?:;|$))/.test(m[2])) continue
+    for (const s of one(m[1])) moving.push({ sel: s, at: m.index })
+  }
+  const quiet = new Map()
+  const loud = []
+  for (const b of blocks) {
+    for (const m of b.text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/^\s*transition\s*:\s*none\s*;?\s*$/.test(m[2])) loud.push(m[1].trim())
+      for (const s of one(m[1])) quiet.set(s, b.start)
+    }
+  }
+  return {
+    blocks,
+    moving: moving.map(x => x.sel),
+    uncovered: moving.filter(x => !quiet.has(x.sel)).map(x => x.sel),
+    late: moving.filter(x => quiet.has(x.sel) && x.at > quiet.get(x.sel)).map(x => x.sel),
+    loud,
+  }
+}
+
+describe('reduced motion (plan §3.4): the list header\'s colour change stops in the one block', () => {
+  it('one block, inside the layer; each rule in it only `transition: none`, never a blanket selector; the header button\'s twin there, after it; the rest B6\'s recorded four', () => {
+    const cov = motionCoverage(css)
+    expect(cov.blocks).toHaveLength(1)
+    expect(afterLayer(code).trim()).toBe('')
+    expect(cov.moving).toContain('.bn-th .ui-th-btn')
+    expect(cov.loud).toEqual([])
+    expect(cov.late).toEqual([])
+    expect([...cov.uncovered].sort()).toEqual([...B6_FADES].sort())
+    // C5: never a `*` — the pet's keyframes must keep playing.
+    for (const b of cov.blocks) expect(b.text).not.toMatch(/(^|[\s,])\*(\s|,|\{|$)/)
+  })
+  it('CONTROL: a transition added with no twin, one declared after its twin, and a block rule that does more are each caught', () => {
+    const end = css.lastIndexOf('}')
+    const add = (rule) => `${css.slice(0, end)}  ${rule}\n${css.slice(end)}`
+    expect(motionCoverage(add('.bn-list-empty { transition: opacity 1s; }')).uncovered).toContain('.bn-list-empty')
+    expect(motionCoverage(add('.bn-th .ui-th-btn { transition: color 1s; }')).late).toEqual(['.bn-th .ui-th-btn'])
+    const loud = css.replace('.bn-th .ui-th-btn { transition: none; }', '.bn-th .ui-th-btn { transition: none; color: var(--color-ink); }')
+    expect(loud).not.toBe(css)
+    expect(motionCoverage(loud).loud).toEqual(['.bn-th .ui-th-btn'])
+  })
+})

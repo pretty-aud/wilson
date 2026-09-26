@@ -885,6 +885,7 @@ export default function FileManager({
       {assetFiles.length > 0 && viewMode === 'table' && (
         <Table
           className="rb-fm-table"
+          scrollClassName="rb-fm-scroll"
           head={(
             <Row>
               <Th width="var(--rb-fm-thumb)"><span className="sr-only">Preview</span></Th>
@@ -892,7 +893,9 @@ export default function FileManager({
               <Th width="var(--rb-fm-version)">Version</Th>
               <Th width="var(--rb-fm-size)" numeric>Size</Th>
               <Th width="var(--rb-fm-date)">Date</Th>
-              <Th width="var(--rb-fm-acts)">Actions</Th>
+              {/* Named for a screen reader and blank on screen, as every
+                  other table's actions column (B4c review round two). */}
+              <Th width="var(--rb-fm-acts)"><span className="sr-only">Actions</span></Th>
             </Row>
           )}
         >

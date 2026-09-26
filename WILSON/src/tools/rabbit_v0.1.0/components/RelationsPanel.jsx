@@ -27,7 +27,7 @@
 // (R4-27). Every state is a `data-*` attribute or a real :hover resolved in
 // the sheet.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Boxes, ListChecks, Plus, X, Search,
@@ -285,6 +285,26 @@ export default function RelationsPanel({
 function markOwnEscape(e) {
   if (e.key === 'Escape' && e.currentTarget.contains(e.target)) e.preventDefault()
 }
+
+// …and neither layer is a kit Dialog, so nothing handed focus back when one
+// closed: its Close, Cancel or Create took the focused control away with it,
+// and focus fell to <body> (B4c review round two, measured). Each layer keeps
+// what opened it — "Add new task", "Add asset relation" — captured in RENDER,
+// as the kit Dialog captures it (an effect would read the layer's own
+// autofocus), and on unmount hands focus back to it: only when focus has
+// fallen to <body> (focus the user put elsewhere stays; React's StrictMode
+// rehearsal of an unmount leaves it inside the layer, so it does nothing),
+// and only while the opener is still in the page.
+function useFocusBackOnClose() {
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
+  useEffect(() => () => {
+    const opener = openerRef.current
+    const active = document.activeElement
+    if (opener && opener !== document.body && opener.isConnected && (!active || active === document.body)) opener.focus()
+  }, [])
+}
+
 // ═════════════════════════════════════════════════════════
 // AssetPickerOverlay — mini-picker for adding assets
 // ═════════════════════════════════════════════════════════
@@ -294,6 +314,7 @@ function markOwnEscape(e) {
 // the two read as one component in two shells.
 function AssetPickerOverlay({ assets, onPick, onClose }) {
   const [search, setSearch] = useState('')
+  useFocusBackOnClose()
 
   const filtered = useMemo(() => {
     if (!search.trim()) return assets
@@ -393,6 +414,7 @@ export function NewTaskSidePopup({
   })
   // W9: the "Create task …?" question, which was `window.confirm`.
   const [confirming, setConfirming] = useState(false)
+  useFocusBackOnClose()
 
   function upd(patch) { setDraft(prev => ({ ...prev, ...patch })) }
 

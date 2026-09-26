@@ -219,13 +219,16 @@
   .bn-table .ui-th:first-child,
   .bn-table .ui-td:first-child { padding-left: 16px; }
 
-  /* The header. The sorted column is the signal (4.54:1 on the raised
-     paper), a sortable label takes the ink on hover, and the ring is drawn
+  /* The header. The sorted column is the kit's treatment, as the Files page
+     draws it: its label in the full ink over the others' second, its arrow
+     in the header's own ink (B4c review round two: label and arrow were the
+     signal, which is kept for an edge or an underline; no label moves). A
+     sortable label takes the ink on hover, and the ring is drawn
      inside (above). And no label is cut, since C1 keeps every width: the
      kit clips a label to an ellipsis where it outgrows the room beside its
      sort slot, and three do (MARKS 42px in 34, CAM 27 in 18, DURATION 61 in
      42, measured), so here a label overruns its padding, as the grid's did. */
-  .bn-th[data-sorted="true"] { color: var(--color-signal); }
+  .bn-th[data-sorted="true"] .ui-th-label { color: var(--color-ink); }
   .bn-th .ui-th-btn { transition: color var(--duration-state) ease-out; }
   .bn-th:not([data-sorted="true"]) .ui-th-btn:hover { color: var(--color-ink); }
   .bn-th .ui-th-label { min-width: auto; max-width: none; overflow: visible; }
@@ -370,5 +373,16 @@
   .bn-drop {
     background-color: var(--color-signal-tint);
     border: 1px dashed var(--color-signal);
+  }
+
+  /* ── Reduced motion (plan §3.4) ─────────────────────────────────────
+     The list header's colour change (B4c's) ends instantly, by its own
+     selector — never a blanket rule (C5: the pet's keyframes must play) —
+     LAST in the layer, so it wins its twin above on source order at the same
+     specificity; binsCss.test.js pins it as rabbitFilesCss.test.js pins that
+     sheet's. B6's four row and tile fades above predate the bundle and are
+     recorded for V2, not changed here. */
+  @media (prefers-reduced-motion: reduce) {
+    .bn-th .ui-th-btn { transition: none; }
   }
 }

@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { CellSelect } from './CellSelect'
+import { contrast, over } from './contrast'
+import { PAPER, PAPER_RAISED, INK_2, INK_3, HOVER } from './tokens'
 
 const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
   .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -51,5 +53,17 @@ describe('CellSelect', () => {
     expect(css).toMatch(/\.ui-tr:hover \.ui-cell-select::after,\s*\n\s*\.ui-tr:focus-within \.ui-cell-select::after/)
     // A disabled cell shows no caret at all: nothing to open.
     expect(css).toMatch(/\.ui-cell-select:has\(> select:disabled\)::after \{ display: none; \}/)
+  })
+
+  it('an empty value is the third ink at rest and the second while hovered or focused, where the hover fill takes the third under 4.5:1', () => {
+    expect(rule('.ui-cell-select > select[data-empty="true"]')).toMatch(/color:\s*var\(--color-ink-3\)/)
+    // One rule for both states (B4c review round two, measured 4.34:1 on the
+    // fill over paper): hovered — not when disabled, which keeps its own ink
+    // and has no fill — or focused.
+    expect(css).toMatch(/\.ui-cell-select > select\[data-empty="true"\]:hover:not\(:disabled\),\s*\n\s*\.ui-cell-select > select\[data-empty="true"\]:focus \{ color: var\(--color-ink-2\); \}/)
+    expect(contrast(INK_3, over(HOVER, PAPER))).toBeLessThan(4.5)
+    expect(contrast(INK_3, over(HOVER, PAPER_RAISED))).toBeLessThan(4.5)
+    expect(contrast(INK_2, over(HOVER, PAPER))).toBeGreaterThan(4.5)
+    expect(contrast(INK_2, over(HOVER, PAPER_RAISED))).toBeGreaterThan(4.5)
   })
 })

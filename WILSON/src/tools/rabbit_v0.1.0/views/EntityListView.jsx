@@ -517,6 +517,7 @@ export default function EntityListView({ entity }) {
           message={`This will permanently delete "${confirmDelete.name}".`}
           onConfirm={() => handleDelete(confirmDelete.id)}
           onCancel={() => setConfirmDelete(null)}
+          returnTo={confirmDelete.returnTo}
         />
       )}
     </div>
@@ -837,6 +838,11 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // What opened this popup — the row's "View details" — captured in render,
+  // as the kit Dialog captures it (an effect would read the popup's own
+  // focus). The delete question asked from here is handed it (below).
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
   useEffect(() => { setDescDraft(item?.description || '') }, [item?.description])
   useEffect(() => { setNotesDraft(item?.notes || '') }, [item?.notes])
@@ -897,7 +903,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
             <>
               {/* At the footer's left, where it was; Close at its right. */}
               <Button variant="danger" Icon={Trash2} className="rb-ent-detail-delete"
-                onClick={() => { onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled' }) }}>
+                onClick={() => { onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled', returnTo: openerRef.current }) }}>
                 {`Delete ${entity.noun}`}
               </Button>
               <Button onClick={onClose}>
@@ -1130,9 +1136,24 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 // effect, finding focus outside, lands it on ✕ (B4c review round one). This
 // effect runs after both — a child's effects run before its parent's — so
 // the question opens on Cancel from every path, as it does from a row.
-function ConfirmDialog({ title, message, onConfirm, onCancel }) {
+//
+// 🚨 …and on close, focus goes back to `returnTo` when the popup asked (B4c
+// review round two). The kit Dialog hands it to what had it when the
+// question opened — the popup's own Delete, gone with the popup — so every
+// close from that path dropped focus to <body>. `returnTo` is what opened
+// the popup, the row's "View details": taken while it is in the page and
+// focus has fallen to <body> (StrictMode's rehearsal of an unmount leaves it
+// on Cancel, so that does nothing). A delete takes the row, and its button,
+// with it — as a row's own delete question does.
+function ConfirmDialog({ title, message, onConfirm, onCancel, returnTo = null }) {
   const cancelRef = useRef(null)
-  useEffect(() => { cancelRef.current?.focus() }, [])
+  useEffect(() => {
+    cancelRef.current?.focus()
+    return () => {
+      const active = document.activeElement
+      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
+    }
+  }, [])
   return createPortal(
     <Dialog
       width="confirm"

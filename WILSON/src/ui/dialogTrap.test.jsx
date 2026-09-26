@@ -40,7 +40,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { Dialog } from './Dialog'
-import { FOCUSABLE } from './overlay'
+import { FOCUSABLE, focusableWithin } from './overlay'
 import { Switch } from './Switch'
 import { Button } from './Button'
 
@@ -216,5 +216,141 @@ describe("D1b's case: a Settings confirm and the storage backend behind it", () 
     // and the trap is what holds the Tab key. `inert` would need a portal to
     // <body>, and Q17 ruled the Dialog to Escape, the stack and the busy lock.
     expect(d.closest('.ui-dialog-backdrop')).not.toBeNull()
+  })
+})
+
+// =============================================================================
+// B4c review round two: a scrolling list with nothing in it to focus.
+//
+// Chromium 130 (Electron 33) makes such a list a Tab stop of its own — a
+// "keyboard-focusable scroller" — and the trap did not know it: focus on the
+// list was index -1, so forward Tab wrapped to ✕, and ✕ → list → ✕ looped with
+// the footer out of reach (measured, RelinkDialog's 14 missing files).
+//
+// jsdom has no layout, so the scroller is MODELLED, on the one element:
+// `scrollHeight` over `clientHeight` and `overflow-y: auto` from
+// getComputedStyle (stubbed), and focus on it held by overriding
+// `document.activeElement` — jsdom focuses no <div> without a tabindex, and
+// the active element is all the trap reads. The browser's Tab order is
+// modelled by its measured rule, not by the function under test: every
+// control, plus each modelled scroller that holds no control.
+// =============================================================================
+
+describe('a list that scrolls and holds no control is a Tab stop, as the browser makes it', () => {
+  afterEach(() => { vi.restoreAllMocks(); delete document.activeElement })
+
+  const ROWS = Array.from({ length: 14 }, (_, i) => `A003_C${String(i).padStart(3, '0')}_harbour_take.mov`)
+  function ListDialog({ withButton = false }) {
+    return (
+      <Dialog
+        title="Relink missing files"
+        onClose={() => {}}
+        footer={<><Button>Cancel</Button><Button variant="primary">Choose folder…</Button></>}
+      >
+        <p>These files are missing.</p>
+        <div data-testid="list">
+          {ROWS.map((name) => <div key={name}>{name}</div>)}
+          {withButton && <button type="button">Show all</button>}
+        </div>
+      </Dialog>
+    )
+  }
+
+  /** The list, laid out: `clientHeight` 160 and `scrollHeight` as given, and
+      the computed overflow its rule would give. Only the list is stubbed;
+      every other element keeps jsdom's own style (read before any stub, so a
+      second lay-out does not call the first). */
+  const realStyle = window.getComputedStyle.bind(window)
+  function layOut(list, { scrollHeight = 332, clientHeight = 160, overflowY = 'auto' } = {}) {
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    Object.defineProperty(list, 'clientHeight', { configurable: true, get: () => clientHeight })
+    vi.restoreAllMocks()
+    return vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => (
+      el === list ? { overflowX: 'hidden', overflowY } : realStyle(el, pseudo)))
+  }
+
+  /** The browser's stops: every control, and each scroller in `scrollers`
+      that holds none (the rule measured in Electron 33), in document order. */
+  const browserStops = (scrollers) => {
+    const stops = docOrder()
+    for (const s of scrollers) if (!stops.some((c) => s.contains(c))) stops.push(s)
+    return stops.sort((a, b) => (a.compareDocumentPosition(b) & 4 ? -1 : 1))
+  }
+  /** Focus as the browser gives it: a control takes it; a scroller, which
+      jsdom will not focus, is parked as the active element. */
+  function focusOn(el, scrollers) {
+    delete document.activeElement
+    if (!scrollers.includes(el)) { el.focus(); return }
+    document.activeElement?.blur?.()
+    Object.defineProperty(document, 'activeElement', { configurable: true, get: () => el })
+  }
+  /** One press: the trap sees the keydown; if it did not take the key, the
+      browser's default moves focus one stop along its own order. */
+  function press(scrollers, { shiftKey = false } = {}) {
+    const from = document.activeElement
+    const ev = new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+    ;(from && from !== document.body ? from : document.body).dispatchEvent(ev)
+    if (ev.defaultPrevented) { delete document.activeElement; return }   // the trap moved real focus
+    const order = browserStops(scrollers)
+    const i = order.indexOf(document.activeElement)
+    const n = order.length
+    focusOn(shiftKey ? order[i <= 0 ? n - 1 : i - 1] : order[i === -1 || i === n - 1 ? 0 : i + 1], scrollers)
+  }
+  const name = (el) => (el?.getAttribute('data-testid') || el?.getAttribute('aria-label') || el?.textContent || '').trim()
+
+  it('forward Tab from the list reaches the next control, and Shift+Tab from it reaches ✕ — the loop is gone', () => {
+    render(<ListDialog />)
+    const list = screen.getByTestId('list')
+    layOut(list)
+    const surface = screen.getByRole('dialog')
+    const close = screen.getByRole('button', { name: 'Close' })
+    // The kit lists it where the browser stops on it: after ✕, before the footer.
+    expect(focusableWithin(surface).map(name)).toEqual(['Close', 'list', 'Cancel', 'Choose folder…'])
+    expect(document.activeElement).toBe(close)
+    const stops = []
+    for (let i = 0; i < 5; i++) { press([list]); stops.push(name(document.activeElement)) }
+    // Before: list, Close, list, Close, list.
+    expect(stops).toEqual(['list', 'Cancel', 'Choose folder…', 'Close', 'list'])
+    // Shift+Tab from the list goes back to ✕ (before: it jumped to the last
+    // footer button, the trap reading -1 as "the first stop").
+    press([list], { shiftKey: true })
+    expect(document.activeElement).toBe(close)
+  })
+
+  it('a list that fits stays out: not listed, and Tab goes from ✕ to the footer', () => {
+    render(<ListDialog />)
+    const list = screen.getByTestId('list')
+    const style = layOut(list, { scrollHeight: 160 })
+    expect(focusableWithin(screen.getByRole('dialog')).map(name)).toEqual(['Close', 'Cancel', 'Choose folder…'])
+    // Its style is never read: an element that does not overflow is decided
+    // by two integer comparisons.
+    expect(style.mock.calls.some(([el]) => el === list)).toBe(false)
+    press([])
+    expect(name(document.activeElement)).toBe('Cancel')
+    // …and so does one that overflows where the rule clips (`hidden`).
+    layOut(list, { overflowY: 'hidden' })
+    expect(focusableWithin(screen.getByRole('dialog'))).not.toContain(list)
+  })
+
+  it('a list with a button inside stays out: the button takes the stop', () => {
+    render(<ListDialog withButton />)
+    const list = screen.getByTestId('list')
+    layOut(list)
+    expect(focusableWithin(screen.getByRole('dialog')).map(name)).toEqual(['Close', 'Show all', 'Cancel', 'Choose folder…'])
+    const stops = []
+    for (let i = 0; i < 3; i++) { press([list]); stops.push(name(document.activeElement)) }
+    expect(stops).toEqual(['Show all', 'Cancel', 'Choose folder…'])
+  })
+
+  it('a row at tabindex -1 does not keep the list out, and a list at tabindex -1 is out (measured in Electron 33)', () => {
+    render(<ListDialog />)
+    const list = screen.getByTestId('list')
+    layOut(list)
+    // A row that can take focus but not the Tab key: Chromium still stops on the list.
+    list.firstElementChild.setAttribute('tabindex', '-1')
+    expect(focusableWithin(screen.getByRole('dialog')).map(name)).toEqual(['Close', 'list', 'Cancel', 'Choose folder…'])
+    // The list itself at -1: out, as any element at -1 is.
+    list.setAttribute('tabindex', '-1')
+    expect(focusableWithin(screen.getByRole('dialog'))).not.toContain(list)
   })
 })

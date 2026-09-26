@@ -50,6 +50,12 @@ describe('FileManager — on the kit', () => {
     expect(table.querySelectorAll('tbody tr')).toHaveLength(2)
     expect([...table.querySelectorAll('th')].map((th) => th.textContent)).toEqual(
       ['Preview', 'Name', 'Version', 'Size', 'Date', 'Actions'])
+    // The two unlabelled columns are named for a screen reader only, as every
+    // other table's actions column (B4c review round two: ACTIONS showed).
+    expect([...table.querySelectorAll('th')].filter((th) => th.querySelector('.ui-th-label > .sr-only')).map((th) => th.textContent))
+      .toEqual(['Preview', 'Actions'])
+    // Its scroller carries the name the asset popup frames it by.
+    expect(table.parentElement.matches('.ui-table-scroll.rb-fm-scroll')).toBe(true)
     expect([...table.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)).toEqual(['2.0 KB', '4.8 MB'])
     // A cloud row has no version: an em dash, never "--" (R4-19).
     expect(container.textContent).not.toMatch(/--/)

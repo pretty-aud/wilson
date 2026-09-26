@@ -32,7 +32,7 @@ import {
   spreadAttributes, paletteLeaks, variableAttributes, keyedValues, unmatchedValues, arrayValues, mapFieldValues, propValues,
 } from '../rabbitCssGuards.js'
 import { contrast, over } from '../../../ui/contrast.js'
-import { PAPER_RAISED, INK, INK_2, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
+import { PAPER, PAPER_RAISED, INK, INK_2, INK_3, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
@@ -576,5 +576,59 @@ describe('B4c review round one: the geometry the fixtures and jsdom cannot show,
     expect(contrast(INK_2, PAPER_RAISED)).toBeGreaterThan(7)
     expect(contrast(DANGER, PAPER_RAISED)).toBeGreaterThan(7)
     expect(contrast(INK, over(HOVER, PAPER_RAISED))).toBeGreaterThan(7)
+  })
+})
+
+/* ── 11. B4c review round two: the same kind of pin ──────────────────────── */
+// Measured in the running app before and after (Playwright): an empty "—" at
+// 4.34:1 on the hover fill, a header band that vanished on the popup's raised
+// paper, a tile that hung past its well, a row's ring cut at the scroller's
+// edge. Pinned as the declarations that fix them.
+describe('B4c review round two: the declarations that fix what round two measured', () => {
+  const ringRoom = parseFloat(kitDecl(':focus-visible', 'outline')) + parseFloat(kitDecl(':focus-visible', 'outline-offset'))
+
+  it('an empty description takes the second ink on the hover fill, hovered or focused, as the kit CellSelect\'s empty value does', () => {
+    expect(declsFor('.rb-files-cell-input::placeholder').color).toBe('var(--color-ink-3)')
+    for (const sel of ['.rb-files-cell-input:hover::placeholder', '.rb-files-cell-input:focus::placeholder']) {
+      expect(declsFor(sel).color, sel).toBe('var(--color-ink-2)')
+    }
+    // Both states lay the hover fill: the third ink fails on it, the second passes.
+    expect(declsFor('.rb-files-cell-input:focus')['background-color']).toBe('var(--color-hover)')
+    expect(contrast(INK_3, over(HOVER, PAPER))).toBeLessThan(4.5)
+    expect(contrast(INK_2, over(HOVER, PAPER))).toBeGreaterThan(4.5)
+    // The kit's own, beside it.
+    const kit = rulesOf(indexCss).filter(({ sel }) => selectorsOf(sel).some((s) => /select\[data-empty="true"\]:(hover|focus)/.test(s)))
+    expect(kit.map(({ sel }) => selectorsOf(sel).map(sameSel)).flat().sort())
+      .toEqual(['.ui-cell-select > select[data-empty="true"]:focus', '.ui-cell-select > select[data-empty="true"]:hover:not(:disabled)'])
+    for (const { body } of kit) expect(body).toMatch(/(?:^|;)\s*color:\s*var\(--color-ink-2\)/)
+  })
+
+  it('the asset popup\'s two tables sit on the paper in a hairline frame, so the kit\'s raised header shows as a band; the Tasks table at the 36px row', () => {
+    // Premise: the kit's header is the raised paper — the popup's own ground.
+    expect(kitDecl('.ui-th', 'background-color')).toBe('var(--color-paper-raised)')
+    for (const sel of ['.rb-asset-detail .ui-table-scroll.rb-asset-task-scroll', '.rb-asset-detail-files .ui-table-scroll.rb-fm-scroll']) {
+      expect(declsFor(sel), sel).toMatchObject({
+        'background-color': 'var(--color-paper)', border: '1px solid var(--color-rule)', 'border-radius': 'var(--radius-control)',
+      })
+    }
+    // Written in the files that own the scrollers, and only the popup frames FileManager's.
+    expect(code.assets).toContain('scrollClassName="rb-asset-task-scroll"')
+    expect(code.fileManager).toContain('scrollClassName="rb-fm-scroll"')
+    expect(rulesOf(sheet).filter(({ sel }) => /\.rb-fm-scroll(?![\w-])/.test(sel)).map(({ sel }) => sameSel(sel)))
+      .toEqual(['.rb-asset-detail .ui-table-scroll.rb-asset-task-scroll, .rb-asset-detail-files .ui-table-scroll.rb-fm-scroll'])
+    // 36px, not dense: the status cell's 28px select in 4 + 28 + 3 and the hairline.
+    expect(code.assets).not.toMatch(/<Table\s+dense\s+className="rb-asset-task-table"/)
+    expect(declsFor('.ui-table.rb-asset-task-table .ui-td.rb-asset-task-ctl')).toMatchObject({ 'padding-top': '4px', 'padding-bottom': '3px' })
+  })
+
+  it('the gallery tile fills its well\'s height at its own width, its picture the square it was; the in-panel picker keeps the ring\'s room when Tab scrolls a row to its edge', () => {
+    const well = declsFor('.rb-fm-card-media')
+    const tile = declsFor('.rb-thumb-tile[data-size="large"]')
+    expect(tile.height).toBe(well.height)
+    expect([tile.width, tile.height]).toEqual(['120px', '100px'])
+    expect(declsFor('.rb-thumb-tile[data-size="large"] > .rb-thumb-img')).toMatchObject({ 'flex-shrink': '0', height: 'auto', 'aspect-ratio': '1' })
+    // The play control is the tile's own box, its ring drawn inside it.
+    expect(declsFor('.rb-fm-play')).toMatchObject({ display: 'block', padding: '0', border: '0', 'outline-offset': '-2px' })
+    expect(parseFloat(declsFor('.rb-rel-pick-list')['scroll-padding-block'])).toBeGreaterThanOrEqual(ringRoom)
   })
 })

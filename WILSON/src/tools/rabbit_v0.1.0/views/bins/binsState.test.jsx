@@ -45,6 +45,13 @@ function sel(cls, attr) {
   expect(paintsSelector(css, s), `no rule in bins.css paints ${s}`).toBe(true)
   return s
 }
+/** The same for a state the sheet paints on a DESCENDANT of the element that
+ *  carries it (the sorted header's label, B4c review round two). */
+function selWithin(cls, attr, inner) {
+  const s = `.${cls}[data-${attr}="true"] ${inner}`
+  expect(paintsSelector(css, s), `no rule in bins.css paints ${s}`).toBe(true)
+  return s
+}
 
 const bins = [
   { id: 'b1', name: 'Footage', parent_bin_id: null, color: null, sort_order: 0 },
@@ -88,9 +95,12 @@ describe('the list view: selected, current, offline, sorted', () => {
     expect([r1.matches(selected), r1.matches(current), r1.matches(offline)]).toEqual([true, false, false])
     expect([r2.matches(selected), r2.matches(current), r2.matches(offline)]).toEqual([false, true, false])
     expect([r3.matches(selected), r3.matches(current), r3.matches(offline)]).toEqual([false, false, true])
-    const sorted = sel('bn-th', 'sorted')
+    // The sorted column's label takes the full ink, the kit's treatment as the
+    // Files page draws it (B4c review round two: the whole header was the
+    // signal); the arrow keeps the header's own ink.
+    const sorted = selWithin('bn-th', 'sorted', '.ui-th-label')
     const heads = [...container.querySelectorAll('.bn-th')]
-    expect(heads.filter(h => h.matches(sorted)).map(h => h.textContent.trim())).toEqual(['Name'])
+    expect(heads.filter(h => h.querySelector('.ui-th-label').matches(sorted)).map(h => h.textContent.trim())).toEqual(['Name'])
   })
 })
 

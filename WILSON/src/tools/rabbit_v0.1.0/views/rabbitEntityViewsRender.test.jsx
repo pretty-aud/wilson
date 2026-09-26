@@ -539,6 +539,27 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     expect(ctx[p.remove]).not.toHaveBeenCalled()
   })
 
+  it('its Delete question hands focus back to the row\'s "View details" that opened the popup, every way it closes (B4c review round two: it fell to <body>)', () => {
+    const { ctx } = mount(p.View)
+    const view = within(row(p.names[0])).getByRole('button', { name: 'View details' })
+    const closes = {
+      Cancel: (q) => fireEvent.click(within(q.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' })),
+      Escape: () => fireEvent.keyDown(document.activeElement, { key: 'Escape' }),
+      '✕': (q) => fireEvent.click(within(q.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' })),
+      backdrop: (q) => fireEvent.mouseDown(q.parentElement),
+    }
+    for (const [way, close] of Object.entries(closes)) {
+      view.focus()
+      fireEvent.click(view)
+      fireEvent.click(within(screen.getByRole('dialog', { name: p.names[0] })).getByRole('button', { name: `Delete ${p.noun}` }))
+      const question = screen.getByRole('dialog', { name: `Delete ${p.noun}?` })
+      close(question)
+      expect(screen.queryByRole('dialog'), way).toBeNull()
+      expect(document.activeElement, way).toBe(view)
+    }
+    expect(ctx[p.remove]).not.toHaveBeenCalled()
+  })
+
   it('W2: the name field edits in place — Enter commits by the page\'s own writer; Escape reverts it and the popup stays, and the next Escape closes it', () => {
     const { ctx } = mount(p.View)
     const dialog = openPopup()
@@ -670,6 +691,40 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     expect(screen.queryByPlaceholderText('Task title…')).toBeNull()
     expect(screen.getByRole('dialog', { name: p.names[0] })).toBe(dialog)
     expect(dialog.style.width).toBe('896px')
+  })
+
+  it('the task form hands focus back to "Add new task" when its Cancel, its ✕ or Create closes it, and the in-panel picker to "Add asset relation" when its Close does (B4c review round two: it fell to <body>)', async () => {
+    const { ctx } = mount(p.View)
+    const dialog = openPopup()
+    const addTask = within(dialog).getByRole('button', { name: 'Add new task' })
+    const openForm = () => {
+      addTask.focus()
+      fireEvent.click(addTask)
+      const title = screen.getByPlaceholderText('Task title…')
+      // The form takes focus while it is up, as before.
+      expect(document.activeElement).toBe(title)
+      return title.closest('.rb-rel-task')
+    }
+    fireEvent.click(within(openForm().querySelector('.rb-rel-task-foot')).getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(addTask)
+    fireEvent.click(within(openForm().querySelector('.rb-rel-task-head')).getByRole('button', { name: 'Close' }))
+    expect(document.activeElement).toBe(addTask)
+    // Create: through its question, then the task lands and the form closes.
+    const form = openForm()
+    fireEvent.change(screen.getByPlaceholderText('Task title…'), { target: { value: 'Focus back' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Create task' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Create task' })).getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(screen.queryByPlaceholderText('Task title…')).toBeNull())
+    expect(ctx.addTask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Focus back', [p.link]: p.ids[0] }))
+    expect(document.activeElement).toBe(addTask)
+    // The in-panel picker's Close.
+    const addRelation = within(dialog).getByRole('button', { name: 'Add asset relation' })
+    addRelation.focus()
+    fireEvent.click(addRelation)
+    const picker = screen.getByPlaceholderText('Search assets…').closest('.rb-rel-pick')
+    fireEvent.click(within(picker.querySelector('.rb-rel-pick-head')).getByRole('button', { name: 'Close' }))
+    expect(dialog.querySelector('.rb-rel-pick')).toBeNull()
+    expect(document.activeElement).toBe(addRelation)
   })
 
   it('an Escape pressed inside the task form or the in-panel asset picker is theirs: it does nothing, as before the kit, and the draft stays; outside them the popup\'s own Escape closes it', () => {

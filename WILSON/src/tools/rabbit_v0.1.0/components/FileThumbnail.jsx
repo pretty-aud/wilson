@@ -30,11 +30,12 @@
 //
 // UI overhaul B4c, surface 5 (2026-09-25): on lane B4's sheet,
 // rabbitFiles.css (`rb-thumb-`). The tile is the paper ground in one
-// hairline at the control radius, sized by `data-size` (the 32px and
-// 120px squares it always was — R4-35's 16:9 is recorded, not applied:
-// C1); the glyph is the second ink and the extension the Label step in
-// the third, which reads 5.04:1 on the tile where the old literal read
-// 3.65. No inline style is left: every value is a token in the sheet.
+// hairline at the control radius, sized by `data-size` (the 32px square it
+// always was, and the gallery's 120px one, cut to its 100px well in review
+// round two with its picture unchanged — R4-35's 16:9 is recorded, not
+// applied: C1); the glyph is the second ink and the extension the Label
+// step in the third, which reads 5.04:1 on the tile where the old literal
+// read 3.65. No inline style is left: every value is a token in the sheet.
 
 import { useState } from 'react'
 import {

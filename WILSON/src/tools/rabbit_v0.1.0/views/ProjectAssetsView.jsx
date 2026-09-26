@@ -725,6 +725,11 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
 function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+  // "Save current view" closes this menu as its dialog opens, and the kit
+  // Dialog hands focus back on close to what had it at the open — that menu
+  // item, gone by then — so focus fell to <body> (B4c review round two,
+  // measured). Views takes focus first, and the dialog returns it there.
+  const viewsRef = useRef(null)
 
   useEffect(() => {
     if (!open) return
@@ -735,7 +740,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 
   return (
     <div className="relative" ref={ref}>
-      <Button size="sm" Icon={BookmarkPlus} aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Button ref={viewsRef} size="sm" Icon={BookmarkPlus} aria-expanded={open} onClick={() => setOpen(!open)}>
         Views
       </Button>
       {open && (
@@ -752,7 +757,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
             </div>
           ))}
           <div className="rb-asset-menu-foot">
-            <button type="button" onClick={() => { onSave(); setOpen(false) }}
+            <button type="button" onClick={() => { viewsRef.current?.focus(); onSave(); setOpen(false) }}
               className="rb-asset-menu-item">
               <Save className="rb-asset-menu-icon" aria-hidden="true" />
               <span className="rb-asset-menu-label">Save current view</span>
@@ -2042,8 +2047,10 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           )}
 
           {/* Tasks section: a Label-step heading, as FileManager's "Files (N)"
-              is, over the kit's Table, dense (R4-06) — the two tables in this
-              popup are one language now. */}
+              is, over the kit's Table (R4-06) at its 36px row, as FileManager's
+              below it (Q11: one row app-wide; `dense` is the media tables'),
+              on the paper in a hairline frame, as FileManager's is here — the
+              two tables in this popup are one language now. */}
           <div className="rb-asset-detail-heading text-label uppercase">
             Tasks ({tasks.length})
           </div>
@@ -2052,8 +2059,8 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             <EmptyState compact Icon={ListChecks} title="No tasks on this asset" />
           ) : (
             <Table
-              dense
               className="rb-asset-task-table"
+              scrollClassName="rb-asset-task-scroll"
               head={(
                 <Row>
                   <Th>Title</Th>
@@ -2100,7 +2107,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
 // A task's status words, from the kit's one source (as STATUS_OPTIONS above).
 const TASK_STATUS_OPTIONS = TASK_STATUSES.map(s => ({ value: s, label: statusMeta(s).label }))
 
-// ── A task in the popup's table: the kit's Row in a dense Table (R4-06) ──
+// ── A task in the popup's table: the kit's Row at its 36px (R4-06, Q11) ──
 // Its three editors are the kit's CellSelect. The status is the kit's
 // StatusDot beside the words in the one ink (R4-05), where the words were the
 // status colour; the bid is a numeric cell (R4-17); an empty value is an em

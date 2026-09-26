@@ -218,6 +218,28 @@ describe('ProjectAssetsView — the page on the kit', () => {
     expect(screen.getByRole('button', { name: 'Delete the saved view "Pre only"' })).toBeTruthy()
   })
 
+  it('the save dialog hands focus back to Views, however it closes — its menu item is gone by then (B4c review round two: it fell to <body>)', () => {
+    page()
+    const views = screen.getByRole('button', { name: 'Views' })
+    for (const close of ['Cancel', 'Escape', 'Save']) {
+      views.focus()
+      fireEvent.click(views)
+      const item = screen.getByRole('button', { name: 'Save current view' })
+      item.focus()
+      fireEvent.click(item)
+      const dialog = screen.getByRole('dialog', { name: 'Save current view' })
+      // Its own field has focus while it is up, as before.
+      expect(document.activeElement).toBe(within(dialog).getByRole('textbox', { name: 'View name' }))
+      if (close === 'Escape') fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+      else {
+        if (close === 'Save') fireEvent.change(document.activeElement, { target: { value: 'Kept' } })
+        fireEvent.click(within(dialog).getByRole('button', { name: close }))
+      }
+      expect(screen.queryByRole('dialog'), close).toBeNull()
+      expect(document.activeElement, close).toBe(views)
+    }
+  })
+
   it('grouped by status, each group is one band: a button with the kit StatusDot, its words and its count', () => {
     const { container } = page()
     fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
@@ -483,7 +505,7 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     expect(ctx.updateAsset.mock.calls.filter(([, patch]) => 'description' in patch)).toEqual([])
   })
 
-  it('the tasks table is the kit Table, dense: a StatusDot and the kit CellSelect in each row, the bid a numeric cell', () => {
+  it('the tasks table is the kit Table at its 36px row, framed on the paper: a StatusDot and the kit CellSelect in each row, the bid a numeric cell', () => {
     team.current = { members: [{ id: 'm1', name: 'Ines Ruiz' }, { id: 'm2', name: 'Tomas Berg' }] }
     const { ctx } = page({
       tasks: [
@@ -494,8 +516,14 @@ describe('ProjectAssetsView — the popups on the kit', () => {
       updateTask: vi.fn(),
     })
     const dialog = openDetail('Mara')
-    const table = dialog.querySelector('table.ui-table[data-dense="true"]')
+    const table = dialog.querySelector('table.ui-table.rb-asset-task-table')
     expect(table).not.toBeNull()
+    // Not `dense` (B4c review round two): 36px, as FileManager's table under
+    // it — Q11 keeps 32 for the media tables. Its scroller is the frame
+    // rabbitFiles.css puts on the paper (the header's band on the popup).
+    expect(table.hasAttribute('data-dense')).toBe(false)
+    expect(table.parentElement.matches('.ui-table-scroll.rb-asset-task-scroll')).toBe(true)
+    expect(table.parentElement.closest('.rb-asset-detail')).not.toBeNull()
     expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Title', 'Status', 'Bid', 'Assignee', 'Reviewer'])
     expect(table.querySelectorAll('tbody tr')).toHaveLength(2)
     // R4-17: the bid right-aligned and tabular under a numeric header; none is
@@ -525,7 +553,7 @@ describe('ProjectAssetsView — the popups on the kit', () => {
   it('an asset with no tasks says so with the kit EmptyState', () => {
     page()
     const dialog = openDetail('Festival DCP')
-    expect(dialog.querySelector('table.ui-table[data-dense="true"]')).toBeNull()
+    expect(dialog.querySelector('table.rb-asset-task-table')).toBeNull()
     expect(within(dialog).getByText('No tasks on this asset').closest('.ui-empty')).not.toBeNull()
   })
 

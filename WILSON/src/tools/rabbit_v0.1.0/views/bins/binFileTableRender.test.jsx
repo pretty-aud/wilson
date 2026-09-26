@@ -158,9 +158,13 @@ describe('the header: the kit Th', () => {
     // A label overruns its padding rather than being cut (C1 keeps the widths).
     expect(th('Cam').querySelector('.ui-th-label').matches('.bn-th .ui-th-label')).toBe(true)
     expect(ruleBody('.bn-th .ui-th-label')).toMatch(/overflow:\s*visible/)
-    // The sorted column's ink, and the ring drawn inside the scroller.
-    expect(th('Duration').matches('.bn-th[data-sorted="true"]')).toBe(true)
-    expect(ruleBody('.bn-th[data-sorted="true"]')).toMatch(/color:\s*var\(--color-signal\)/)
+    // The sorted column's label in the full ink, the kit's treatment as the
+    // Files page draws it (B4c review round two: label and arrow were the
+    // signal, which is kept for an edge or an underline) — and no header rule
+    // reaches for the signal. Then the ring drawn inside the scroller.
+    expect(th('Duration').querySelector('.ui-th-label').matches('.bn-th[data-sorted="true"] .ui-th-label')).toBe(true)
+    expect(ruleBody('.bn-th[data-sorted="true"] .ui-th-label')).toMatch(/color:\s*var\(--color-ink\)/)
+    expect(rules(css).filter(r => r.selectors.some(s => /\.bn-th(?![\w-])/.test(s)) && /--color-signal/.test(r.body))).toEqual([])
     expect(rules(css).find(r => r.selectors.includes('.bn-th .ui-th-btn:focus-visible'))?.body).toMatch(/outline-offset:\s*-2px/)
   })
 })

@@ -172,6 +172,11 @@
   .rb-files-cell-input::placeholder { color: var(--color-ink-3); opacity: 1; }
   .rb-files-cell-input:hover,
   .rb-files-cell-input:focus { background-color: var(--color-hover); }
+  /* The empty "—" takes the second ink on that fill, hovered or focused: the
+     third is 4.34:1 there (B4c review round two, measured) — the kit
+     CellSelect's empty value does the same beside it. */
+  .rb-files-cell-input:hover::placeholder,
+  .rb-files-cell-input:focus::placeholder { color: var(--color-ink-2); }
 
   /* The two icon columns: a 28px kit IconButton in a 40px cell. The table is
      `dense` (32px rows, like the Files page's), so a 28px control gets 2px
@@ -304,7 +309,8 @@
      focus ring is drawn INSIDE it: in the table the kit's `.ui-td` clips at
      its padding box, and 2px above and 1px below cut the kit ring (3px
      outside the control) top and bottom (B4c review round one, measured);
-     in the gallery the tile overhangs its 100px well. */
+     in the gallery the card clips at the well's top edge, which the tile
+     fills since round two (it hung 10px past it and the ring lost its top). */
   .rb-fm-play {
     display: block;
     padding: 0;
@@ -1104,10 +1110,24 @@
     --rb-asset-task-person: 128px;
     min-width: calc(var(--rb-asset-task-status) + var(--rb-asset-task-bid) + var(--rb-asset-task-person) * 2 + 96px);
   }
-  /* The status cell holds its 28px select beside the dot: 2 + 28 + 1 keeps
-     the dense 32px row, as the kit does for a CellSelect alone in its cell.
-     (0,4,0) against the kit's dense cell (0,3,0). */
-  .ui-table.rb-asset-task-table .ui-td.rb-asset-task-ctl { padding-top: 2px; padding-bottom: 1px; }
+  /* The status cell holds its 28px select beside the dot: 4 + 28 + 3 keeps
+     the 36px row, as the kit does for a CellSelect alone in its cell. The
+     table is the kit's 36px row, as FileManager's under it (B4c review round
+     two: it was `dense`, 32 over 36 — Q11 keeps 32 for the media tables).
+     (0,4,0) against the kit's `.ui-td` (0,1,0). */
+  .ui-table.rb-asset-task-table .ui-td.rb-asset-task-ctl { padding-top: 4px; padding-bottom: 3px; }
+  /* Both tables here sit on the paper in a hairline frame, as
+     ProjectFilesTable's `.rb-files-frame` does: the kit's header is the
+     raised paper, and on this popup's raised paper its rows were the same
+     ground — the header's band was gone (B4c review round two, measured
+     #232020 over #232020). The header now reads #232020 over rows on
+     #1c1917. Only here: FileManager's other hosts are theirs. */
+  .rb-asset-detail .ui-table-scroll.rb-asset-task-scroll,
+  .rb-asset-detail-files .ui-table-scroll.rb-fm-scroll {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
   .rb-asset-task-bid { color: var(--color-ink-2); }
   .rb-asset-task-bid[data-empty="true"] { color: var(--color-ink-3); }
   .rb-asset-detail-files { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
@@ -1350,8 +1370,11 @@
   /* 4px a side (the old list's `px-1`): a row filled the scroller's width,
      and the scroller clips, so the kit ring (3px outside the row) was cut
      left and right on every row of the in-panel picker (B4c review round
-     one, measured). The kit Dialog picker's list keeps its 12px. */
-  .rb-rel-pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; }
+     one, measured). The kit Dialog picker's list keeps its 12px. And 4px of
+     scroll padding: Tab scrolled the next row flush with the scroller's edge
+     and its ring's bottom (going down) or top (going up) was cut (review
+     round two, measured). */
+  .rb-rel-pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; scroll-padding-block: 4px; }
   .rb-rel-picker .rb-rel-pick-list { padding: 4px 12px; }
   /* A row: the sidebar's 32px row, as a button. A linked row carries the
      kit's selected fill (the signal tint, where the name was orange) and its
@@ -1490,13 +1513,14 @@
 
   /* ═══ FileThumbnail ═══════════════════════════════════════════════════════
      A file's preview tile at FileManager's two sites: the table's 32px
-     square (`data-size="small"`) and the gallery card's 120px one
-     (`large`). The picture when there is one, else the file type's glyph
-     and, at the large size, its extension. R4-35, the part that is purely
-     visual: the tile is the asset previews' own paper ground, one hairline
-     and the control radius. Its geometry is recorded, not applied — one
-     16:9 ratio would change what a user sees of every picture (C1) — so
-     both squares keep the size they had (B4c, 2026-09-25). */
+     square (`data-size="small"`) and the gallery card's tile (`large`), 120
+     wide and its 100px well's height since review round two, its picture
+     still the 120px square's. The picture when there is one, else the file
+     type's glyph and, at the large size, its extension. R4-35, the part
+     that is purely visual: the tile is the asset previews' own paper ground,
+     one hairline and the control radius. Its geometry is recorded, not
+     applied — one 16:9 ratio would change what a user sees of every picture
+     (C1) — so neither picture changes size (B4c, 2026-09-25). */
   .rb-thumb-tile {
     display: flex;
     flex-direction: column;
@@ -1510,8 +1534,17 @@
     border-radius: var(--radius-control);
   }
   .rb-thumb-tile[data-size="small"] { width: 32px; height: 32px; }
-  .rb-thumb-tile[data-size="large"] { width: 120px; height: 120px; }
+  /* The gallery card's tile fills its 100px media well top to bottom (B4c
+     review round two). At 120 it hung 10px past the well at each end: the
+     card cut its top (its hairline and its focus ring with it) and its foot
+     lay over the card's name. Its width is what it was. */
+  .rb-thumb-tile[data-size="large"] { width: 120px; height: 100px; }
   .rb-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* …and its picture is what it was: the same square (118px inside the
+     hairline), centred, so the well shows the same middle of it at the same
+     scale. The tile crops the 10px at each end that the card cut above and
+     the overhang showed below. */
+  .rb-thumb-tile[data-size="large"] > .rb-thumb-img { flex-shrink: 0; height: auto; aspect-ratio: 1; }
   /* The glyph in the second ink: the icon step in the small tile, 40px (no
      step; it was 40) in the large. */
   .rb-thumb-icon { flex-shrink: 0; color: var(--color-ink-2); }
