@@ -83,6 +83,17 @@ export function jsxTags(source) {
   return tags
 }
 
+/** An attribute value the scanner can read: a string literal or a ternary of
+    literals (and null / undefined / false for "absent"). Anything else is
+    dynamic — any value may arrive. (Lifted out of the function below,
+    unchanged, by B4c's review round one: `variableAttributes` lists the
+    setters it rejects, so the two share this one definition.) */
+export const literalSetter = (s) => {
+  const ABSENT = '(?:undefined|null|false)'
+  const LIT = `(?:'[^']*'|"[^"]*")`
+  return /^"[^"]*"$/.test(s)
+    || new RegExp(`^\\{[^{}]*\\?\\s*(?:${LIT}|${ABSENT})\\s*:\\s*(?:${LIT}|${ABSENT}|[^{}]*\\?[^{}]*)\\s*\\}$`).test(s)
+}
 /** For each [data-x="v"] (any quoting) a rule matches: is `data-x` ever set on
     an element of that rule's own class, and can it be `v`? Scoped by class,
     because three unrelated elements share `data-state` here (B1 mutant G1). */
@@ -108,11 +119,8 @@ export function unreachableAttributeValues(css, source) {
     if (sets.length === 0) { bad.push(`${cls ? cls + ' ' : ''}${pair}: never set`); continue }
     // An assignment that is not a string literal or a ternary of literals (and
     // null / undefined / false for "absent") is dynamic: any value may arrive.
-    const ABSENT = '(?:undefined|null|false)'
-    const LIT = `(?:'[^']*'|"[^"]*")`
-    const literalOnly = (s) => /^"[^"]*"$/.test(s)
-      || new RegExp(`^\\{[^{}]*\\?\\s*(?:${LIT}|${ABSENT})\\s*:\\s*(?:${LIT}|${ABSENT}|[^{}]*\\?[^{}]*)\\s*\\}$`).test(s)
-    if (!sets.every(literalOnly)) continue
+    // (Such a pair is `variableAttributes`' to declare, with its values.)
+    if (!sets.every(literalSetter)) continue
     const literals = sets.flatMap((s) => [...s.matchAll(/'([^']*)'|"([^"]*)"/g)].map((m) => m[1] ?? m[2]))
     if (!literals.includes(value)) bad.push(`${cls ? cls + ' ' : ''}${pair}: the JSX only ever sets ${[...new Set(literals)].join(', ')}`)
   }
@@ -316,19 +324,56 @@ export const selectorsOf = (sel) => {
 const stripNot = (s) => s.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, '')
 
 /* ── the elements the JSX writes ─────────────────────────────────────────── */
-/** A kit component's root class. */
-const KIT_ROOT = { Td: 'ui-td', Th: 'ui-th', Row: 'ui-tr', Table: 'ui-table', Button: 'ui-btn', IconButton: 'ui-iconbtn', Input: 'ui-input', Select: 'ui-input' }
-/** Every JSX element in a source: its tag, its opening tag's text, its own
-    classes, and the kit classes it renders with — a literal `ui-*`, or its
-    kit component's root (a lane class alone on a `<Td>` is a `.ui-td` too;
+/** A kit component's root class: the element its `className` lands on.
+    B4c review round one: the first eight only, so a lane class alone on any
+    other kit component met no kit rule here — `.rb-audit-event { color }`
+    tied `.ui-badge`'s colour on the kit Badge and load order decided it.
+    Every kit component lane B4's files write a class on is here now; a
+    component whose root depends on a prop (Loading) is read off the tag. */
+const KIT_ROOT = {
+  Td: 'ui-td', Th: 'ui-th', Row: 'ui-tr', Table: 'ui-table', Button: 'ui-btn', IconButton: 'ui-iconbtn', Input: 'ui-input', Select: 'ui-input',
+  Badge: 'ui-badge', Banner: 'ui-banner', Card: 'ui-card', CellSelect: 'ui-cell-select', Dialog: 'ui-dialog', Drawer: 'ui-drawer',
+  EmptyState: 'ui-empty', Field: 'ui-field', HoverActions: 'ui-hover-actions', Panel: 'ui-panel', Spinner: 'ui-spinner',
+  StatusBadge: 'ui-status', StatusDot: 'ui-status-dot', Tabs: 'ui-tabs', Toolbar: 'ui-toolbar',
+  // Skeleton rows with a `rows` count above 0, else the inline spinner.
+  Loading: (t, own) => {
+    const at = own.search(/\srows=/)
+    return at >= 0 && !/^\srows=\{\s*0\s*\}/.test(t.slice(at)) ? 'ui-skeleton-rows' : 'ui-loading-inline'
+  },
+}
+/** The kit root a JSX tag renders with, if it is a kit component. */
+const kitRootOf = (tag, t, own) => (typeof KIT_ROOT[tag] === 'function' ? KIT_ROOT[tag](t, own) : KIT_ROOT[tag])
+/** An opening tag with the inside of every prop expression blanked, at the
+    same length: its own attribute names and string values stay where they
+    were, and nothing an element NESTED in a prop writes can be read as the
+    tag's own. The kit roots above made this matter: a Dialog's first
+    `className` was its `subtitle={<span className="rb-asset-new-note" …>}`'s,
+    so the Dialog "wore" the span's class and met `.ui-dialog`'s rules. */
+export const ownText = (t) => {
+  let d = 0, out = ''
+  for (const c of t) {
+    if (c === '}') d--
+    out += d > 0 && c !== '\n' ? ' ' : c
+    if (c === '{') d++
+  }
+  return out
+}
+/** Every JSX element in a source: its tag, its opening tag's text (`attrs`,
+    and `own` — the same with nested expressions blanked), its own classes,
+    and the kit classes it renders with — a literal `ui-*`, or its kit
+    component's root (a lane class alone on a `<Td>` is a `.ui-td` too;
     round two: `.rb-task-check-cell { padding }` lost to the dense padding
     because the check only measured selectors that NAMED `.ui-td`). */
 export const elementsOf = (src) => jsxTags(normal(jsCode(src))).map((t) => {
   const tag = t.match(/^<([A-Za-z][\w.]*)/)[1]
-  const m = t.match(/\sclassName=(?:"([^"]*)"|\{`([^`]*)`\})/)
+  const own = ownText(t)
+  // The tag's OWN className: found in the blanked text, read from the real one.
+  const at = own.search(/\sclassName=/)
+  const m = at < 0 ? null : t.slice(at).match(/^\sclassName=(?:"([^"]*)"|\{`([^`]*)`\})/)
   const classes = m ? (m[1] ?? m[2]).replace(/\$\{[^}]*\}/g, ' ').split(/\s+/).filter(Boolean) : []
-  const kit = [...new Set([...classes.filter((c) => c.startsWith('ui-')), ...(KIT_ROOT[tag] ? [KIT_ROOT[tag]] : [])])]
-  return { tag, attrs: t, classes, kit }
+  const root = Object.hasOwn(KIT_ROOT, tag) ? kitRootOf(tag, t, own) : null
+  const kit = [...new Set([...classes.filter((c) => c.startsWith('ui-')), ...(root ? [root] : [])])]
+  return { tag, attrs: t, own, classes, kit }
 })
 let b2Els = null
 /** B2's elements, read once on first use: kitFights' default premise. */
@@ -336,9 +381,10 @@ const b2Elements = () => (b2Els ??= Object.values(B2_FILES)
   .flatMap((f) => elementsOf(readFileSync(join(here, 'views', f), 'utf8').replace(/\r\n/g, '\n'))))
 /** Can this element carry [attr="value"] (or the state)? Read from the props
     that set it, with the kit component's default; a prop given an expression
-    can be anything. */
+    can be anything. Read off the tag's own attributes: a nested element's
+    `variant="primary"` in a Dialog's `footer` is not the Dialog's. */
 export function meets(el, attr, value) {
-  const a = el.attrs
+  const a = el.own ?? el.attrs
   const prop = (name) => new RegExp(`\\s${name}(?=[\\s=/>])`).test(a)
   const lit = (name) => a.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]
   const expr = (name) => new RegExp(`\\s${name}=\\{`).test(a)
@@ -480,7 +526,7 @@ const parentCompound = (s) => (stripNot(s).match(/([^\s>+~]+)\s*>\s*[^>]*$/) || 
     row was unselectable, and the template list's editing row is selected). */
 const neverSelected = (els) => {
   const rows = els.filter((e) => e.kit.includes('ui-tr'))
-  const sel = (e) => /\s(?:data-)?selected(?=[\s=/>])/.test(e.attrs)
+  const sel = (e) => /\s(?:data-)?selected(?=[\s=/>])/.test(e.own ?? e.attrs)
   return new Set(rows.flatMap((e) => e.classes).filter((c) => c.startsWith('rb-') && !rows.some((r) => r.classes.includes(c) && sel(r))))
 }
 /** For each lane rule that styles a kit element, the kit rules for the same
@@ -664,11 +710,9 @@ export function stateLeaks(src, styles = STYLES_ALLOWED, spreads = SPREADS_ALLOW
     if (!passThrough && !literal) leaks.push(`className={${v.slice(0, 60)}}`)
   }
   // A spread attribute passes only what the allowlist names (brace-matched:
-  // `{...(c && { style: { opacity: 0.5 } })}` nests two deep).
-  for (const m of code.matchAll(/\s\{\.\.\./g)) {
-    let d = 0, i = m.index + 1
-    for (; i < code.length; i++) { if (code[i] === '{') d++; else if (code[i] === '}' && --d === 0) break }
-    const inner = code.slice(m.index + 5, i).trim()
+  // `{...(c && { style: { opacity: 0.5 } })}` nests two deep), in any
+  // spacing (B4c review round one: `{ ...rest }` passed the `\s\{\.\.\.` scan).
+  for (const inner of spreadAttributes(code)) {
     if (!spreads.includes(inner)) leaks.push(`{...${inner.slice(0, 50)}}`)
   }
   // An element swap that changes the lane classes.
@@ -684,4 +728,149 @@ export function stateLeaks(src, styles = STYLES_ALLOWED, spreads = SPREADS_ALLOW
   for (const h of code.match(/#[0-9a-fA-F]{3,8}\b/g) || []) leaks.push(h)
   for (const f of code.match(COLOUR_FN) || []) leaks.push(f)
   return leaks
+}
+
+/* ══ lane B4's predicates (B4c review round one, 2026-09-26) ═════════════════
+   A reviewer fed in-memory mutants of the files lane's twelve files through
+   the tests' own predicates, and four kinds passed: a spread written with a
+   space, a palette utility or a literal colour prop, a data-* value set from
+   a variable, and a lane class alone on a kit component KIT_ROOT did not
+   know. The spread is `spreadAttributes`, read by stateLeaks above; the kit
+   roots are KIT_ROOT and `ownText`, above; the other two are here.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** Every spread attribute in a source's JSX opening tags, as the expression
+    it spreads, in any spacing — `{...rest}`, `{ ...rest }`,
+    `{ ...(on ? { style: … } : {}) }` (the old `\s\{\.\.\.` scan wanted no
+    space, and `{ ...rest }` passed in every file). Read at the tag's own
+    depth: a spread inside a prop's value (`style={{ ...x }}`) is that
+    prop's, and the style checks read it. */
+export function spreadAttributes(src) {
+  const out = []
+  for (const t of jsxTags(normal(jsCode(src)))) {
+    const own = ownText(t)
+    // In the blanked text each `{` left open is one of the tag's own: its
+    // `}` is the next one, and the real text between them is the expression.
+    for (let i = own.indexOf('{'); i >= 0; i = own.indexOf('{', i + 1)) {
+      const inner = t.slice(i + 1, own.indexOf('}', i))
+      if (/^\s*\.\.\./.test(inner)) out.push(inner.replace(/^\s*\.\.\./, '').trim())
+    }
+  }
+  return out
+}
+
+/** A Tailwind palette colour in any utility, with any variant prefix and
+    alpha — moved here from binsCss.test.js (it was b4-count.mjs's `pal`,
+    the files lane's counter), so the files lane and the Bins list hold ONE
+    check, and it reads a side (`border-l-stone-700`), a ring offset and a
+    shadow as well. */
+export const PALETTE = new RegExp('(?<![\\w-])(?:[a-z-]+:)*(?:text|bg|border(?:-[xytrblse])?|divide(?:-[xy])?|ring(?:-offset)?|shadow'
+  + '|accent|outline|placeholder|fill|stroke|from|to|via|decoration|caret)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow'
+  + '|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\\d{2,3})?(?:\\/\\d+)?(?![\\w-])', 'g')
+/** A colour prop given as a literal: `color="white"`, `fill='#fff'`,
+    `stroke={'rgb(…)'}` (stateLeaks takes every one given an expression). */
+const COLOUR_PROP = /\s(color|fill|stroke|stopColor|floodColor|lightingColor)=(?:"([^"]*)"|'([^']*)'|\{\s*(?:'([^']*)'|"([^"]*)"|`([^`$]*)`)\s*\})/g
+/** A value that names a colour: a CSS or system colour name, a hex, a colour function. */
+const namesColour = (v) => new RegExp(NAMED_RE.source, 'i').test(v) || /#[0-9a-fA-F]{3,8}\b/.test(v) || new RegExp(COLOUR_FN.source, 'i').test(v)
+/** Every palette utility in a source (in a className or any string: a class
+    list kept in a const is the same leak), and every colour prop given a
+    literal colour. `fill="none"` and `stroke="currentColor"` are not colours. */
+export function paletteLeaks(src) {
+  const code = jsCode(src)
+  return [
+    ...(code.match(PALETTE) || []),
+    ...[...code.matchAll(COLOUR_PROP)].filter((m) => namesColour(m[2] ?? m[3] ?? m[4] ?? m[5] ?? m[6] ?? '')).map((m) => m[0].trim()),
+  ]
+}
+
+/** The data attributes a source's JSX sets from a variable — `data-tone={meta.tone}`,
+    `data-size={size}` — with the lane classes of the element that carries
+    each: every one `unreachableAttributeValues` skips, since it cannot read
+    a variable. Each needs its values declared, read from the component's
+    own constant map (`unmatchedValues`). One entry per class, attribute and
+    expression. */
+export function variableAttributes(src) {
+  const out = new Map()
+  for (const e of elementsOf(src)) {
+    for (const m of e.own.matchAll(/\s(data-[a-z-]+)=\{/g)) {
+      const at = m.index + m[0].length - 1
+      const set = e.attrs.slice(at, e.own.indexOf('}', at) + 1).replace(/\s+/g, ' ')
+      if (literalSetter(set)) continue
+      const classes = e.classes.filter((c) => c.startsWith('rb-'))
+      out.set(`${classes.join(' ')}|${m[1]}|${set}`, { classes, attr: m[1], set })
+    }
+  }
+  return [...out.values()]
+}
+/** Every value a sheet keys `[attr="v"]` on (any quoting) in a compound that
+    names the class `cls` — inside a `:not()` too: a value it waits for is
+    one it must be able to meet. */
+export function keyedValues(css, cls, attr) {
+  const named = new RegExp(`\\.${escapeRe(cls)}(?![\\w-])`)
+  const value = new RegExp(`\\[${escapeRe(attr)}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([\\w-]+))\\s*\\]`, 'g')
+  return [...new Set(rulesOf(css)
+    .flatMap(({ sel }) => sel.split(/[\s,>+~]+/))
+    .filter((c) => named.test(c))
+    .flatMap((c) => [...c.matchAll(value)].map((m) => m[1] ?? m[2] ?? m[3])))]
+}
+/** A variable-valued attribute against its sheet: `domain` is every value
+    the component's own map can put there, `base` the ones its unkeyed rule
+    serves on purpose (a default, a quiet tone). Returns a rule's value that
+    nothing emits (`.rb-relink-group-head[data-tone="succes"]`), a value
+    emitted with no rule and not listed as the base's (the deleted
+    `[data-tone="create"]`), and a base value that is not emitted or has a
+    rule after all (so the list cannot hide either mistake). */
+export function unmatchedValues(css, cls, attr, domain, base = []) {
+  const keyed = keyedValues(css, cls, attr)
+  const can = new Set(domain)
+  return [
+    ...keyed.filter((v) => !can.has(v)).map((v) => `.${cls}[${attr}="${v}"]: nothing sets "${v}"`),
+    ...domain.filter((v) => !keyed.includes(v) && !base.includes(v)).map((v) => `.${cls} ${attr}="${v}": set, and no rule keys on it`),
+    ...base.filter((v) => !can.has(v)).map((v) => `.${cls} ${attr}="${v}": listed as the unkeyed rule's, and nothing sets it`),
+    ...base.filter((v) => keyed.includes(v)).map((v) => `.${cls} ${attr}="${v}": listed as the unkeyed rule's, and a rule keys on it`),
+  ]
+}
+
+/* ── the values a component's own map can emit, read from its source ──────── */
+const LITERALS = /'([^']*)'|"([^"]*)"/g
+/** A const array's string literals: `const THUMB_SIZES = ['sm', 'md', 'lg']`. */
+export function arrayValues(src, name) {
+  const m = jsCode(src).match(new RegExp(`\\bconst\\s+${escapeRe(name)}\\s*=\\s*\\[([^\\]]*)\\]`))
+  return m ? [...m[1].matchAll(LITERALS)].map((x) => x[1] ?? x[2]) : []
+}
+/** One field's values across a constant map — `tone` in
+    `const FILE_EVENT_META = { uploaded: { tone: 'create', … }, … }` — and in
+    the fallback a lookup of it is written with (`FILE_EVENT_META[k] || { tone: 'other' }`).
+    Null when one of them is not a string literal: then nothing can be read. */
+export function mapFieldValues(src, name, field) {
+  const code = jsCode(src)
+  const at = code.search(new RegExp(`\\bconst\\s+${escapeRe(name)}\\s*=\\s*\\{`))
+  if (at < 0) return null
+  let end = code.indexOf('{', at)
+  for (let d = 0; end < code.length; end++) { if (code[end] === '{') d++; else if (code[end] === '}' && --d === 0) break }
+  const blocks = [code.slice(at, end + 1),
+    ...[...code.matchAll(new RegExp(`\\b${escapeRe(name)}\\[[^\\]]*\\]\\s*(?:\\|\\||\\?\\?)\\s*(\\{[^{}]*\\})`, 'g'))].map((m) => m[1])]
+  const fields = blocks.flatMap((b) => [...b.matchAll(new RegExp(`\\b${escapeRe(field)}\\s*:\\s*([^,}\\n]+)`, 'g'))].map((m) => m[1].trim()))
+  if (!fields.length || !fields.every((v) => /^(['"])[^'"]*\1$/.test(v))) return null
+  return [...new Set(fields.map((v) => v.slice(1, -1)))]
+}
+/** The values a prop reaches a component with: every literal its callers in
+    `sources` hand it, and its default in the component's own signature
+    (`function FileThumbnail({ size = 'small' })`). Null when a caller hands
+    it an expression: then nothing can be read. */
+export function propValues(sources, component, prop) {
+  const out = new Set()
+  for (const src of sources) {
+    for (const e of elementsOf(src).filter((x) => x.tag === component)) {
+      const at = e.own.search(new RegExp(`\\s${escapeRe(prop)}=`))
+      if (at < 0) continue
+      const m = e.attrs.slice(at).match(new RegExp(`^\\s${escapeRe(prop)}=(?:"([^"]*)"|\\{\\s*(?:'([^']*)'|"([^"]*)")\\s*\\})`))
+      if (!m) return null
+      out.add(m[1] ?? m[2] ?? m[3])
+    }
+    const sig = jsCode(src).match(new RegExp(`\\bfunction\\s+${escapeRe(component)}\\s*\\(\\s*\\{([^}]*)\\}`))
+    const def = sig?.[1].match(new RegExp(`\\b${escapeRe(prop)}\\s*=\\s*(?:'([^']*)'|"([^"]*)")`))
+    if (def) out.add(def[1] ?? def[2])
+  }
+  return [...out]
 }

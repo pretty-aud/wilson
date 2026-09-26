@@ -195,10 +195,14 @@ const REGISTRY = [
   // And the fixture's video is in the workspace's own bucket, where the
   // preview says playback is not available and draws no <video>: its words
   // are the proof it opened.
+  // The file manager's gallery is proven by its own grid, which FileManager
+  // renders only in gallery mode and only with files to show. (B4c review
+  // round one: the old alternative, an inline `minmax(140px` grid, left with
+  // the restyle — the grid is rabbitFiles.css' now — and could match nothing.)
   P('rabbit-assets-gallery', '/rabbit', { steps: ['@proj', 'Assets', 'Gallery'], expect: { text: ' task' } }),
   P('rabbit-asset-warning', '/rabbit', { steps: ['@proj', 'Assets', 'Tasks not yet done'], expect: { text: 'still in flight' } }),
   P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details', 'Link scene'], expect: { text: ' linked)' } }),
-  P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"], [style*="minmax(140px"]' } }),
+  P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"]' } }),
   P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available yet' } }),
   // B4c surface 7: the drawer is the kit Drawer, `role="complementary"` and
   // not a dialog, so `dialog: true` no longer proves it. Its own <aside>,
@@ -213,11 +217,16 @@ const REGISTRY = [
   // fixtures' `?fixtures=game` variant switches them on for Salt Hours
   // (src/dev/fixtures/store.js, applyGameVariant) and leaves every other
   // screen's dataset byte-identical. `query` is loaded, not routed.
+  // A gallery is proven by its own grid of cards, which EntityListView draws
+  // only when there are entries (else the kit's "No … yet"). (B4c review
+  // round one: the old alternative, `[title$=" cards"]`, matched the
+  // toolbar's card-size buttons, which show in gallery mode over the empty
+  // state too.)
   ...[['levels', 'Levels', 'Harbour Approach'], ['experiences', 'Experiences', 'First Light']].flatMap(([k, tab, first]) => {
     const G = { query: '?fixtures=game' };
     return [
       P(`rabbit-${k}`, '/rabbit', { ...G, steps: ['@proj', tab], expect: { active: tab } }),
-      P(`rabbit-${k}-gallery`, '/rabbit', { ...G, steps: ['@proj', tab, 'Gallery'], expect: { selector: '[data-entity-view="gallery"], [title$=" cards"]' } }),
+      P(`rabbit-${k}-gallery`, '/rabbit', { ...G, steps: ['@proj', tab, 'Gallery'], expect: { selector: '[data-entity-view="gallery"]' } }),
       P(`rabbit-${k.slice(0, -1)}-detail`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details'], expect: { dialog: first } }),
       P(`rabbit-${k.slice(0, -1)}-assets`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add asset relation'], expect: { selector: 'input[placeholder="Search assets…"]' } }),
       P(`rabbit-${k.slice(0, -1)}-task`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add new task'], expect: { selector: 'input[placeholder="Task title…"]' } }),

@@ -8,6 +8,15 @@
 //
 // FILES grows one surface per commit (B4 lands one commit per surface): a
 // file joins here, whole, in the commit that moves it onto this sheet.
+//
+// B4c review round one (2026-09-26) fed in-memory mutants through these
+// checks and four kinds passed in every file; each is caught now, with a
+// CONTROL here: a spread in any spacing (§7), a palette utility or a literal
+// colour prop (§7, one check shared with the Bins list), a data-* value set
+// from a variable (§4b: its values read from the component's own map), and a
+// lane class alone on a kit component the guard did not know (§5). A
+// partly dead selector — two live classes in a chain no element meets, as
+// `.rb-audit-body .rb-relink-row` would be — stays unguarded.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -20,6 +29,7 @@ import {
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, kitFights,
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   jsxTags, cssCode, selectorsOf, lastCompound, specificity, gt,
+  spreadAttributes, paletteLeaks, variableAttributes, keyedValues, unmatchedValues, arrayValues, mapFieldValues, propValues,
 } from '../rabbitCssGuards.js'
 import { contrast, over } from '../../../ui/contrast.js'
 import { PAPER_RAISED, INK, INK_2, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
@@ -133,6 +143,89 @@ describe('the sheet keys on values the JSX can produce', () => {
   })
 })
 
+/* ── 4b. values set from a variable (B4c review round one) ───────────────── */
+// unreachableAttributeValues reads a literal or a ternary of literals and
+// skips a pair any other expression sets: eight setters here, so
+// `.rb-relink-group-head[data-tone="succes"]` and a deleted
+// `.ui-badge.rb-audit-event[data-tone="create"]` both passed the suite. Each
+// is declared below with the values it can take, READ from the component's
+// own map — the sizes' const arrays, the event map's tones and its
+// fallback's, the literals a prop is handed and its default — never typed
+// here; `base` is the values its element's unkeyed rule serves on purpose.
+// `from` pins the premise: the variable is that map's.
+const VARIABLE = [
+  { cls: 'rb-asset-size-glyph', attr: 'data-thumb', set: '{key}', from: ['assets', '{THUMB_SIZES.map(key =>'],
+    domain: () => arrayValues(source.assets, 'THUMB_SIZES') },
+  // State: THUMB_SIZES' keys, or a saved view's (saved from this state). The
+  // wrap's own custom properties are the small size.
+  { cls: 'rb-asset-table-wrap', attr: 'data-thumb', set: '{thumbSize}', from: ['assets', "const [thumbSize, setThumbSize] = useState('sm')"],
+    domain: () => arrayValues(source.assets, 'THUMB_SIZES'), base: ['sm'] },
+  // FileManager is its one caller (a 32px row tile, a 120px card tile).
+  { cls: 'rb-thumb-tile', attr: 'data-size', set: '{size}', from: ['thumb', "function FileThumbnail({ file, size = 'small',"],
+    domain: () => propValues([source.thumb, source.fileManager], 'FileThumbnail', 'size') },
+  { cls: 'rb-ent-size-glyph', attr: 'data-card', set: '{key}', from: ['entity', '{CARD_SIZES.map(key =>'],
+    domain: () => arrayValues(source.entity, 'CARD_SIZES') },
+  { cls: 'rb-ent-gallery', attr: 'data-card', set: '{gallerySize}', from: ['entity', "const [gallerySize, setGallerySize] = useState('md')"],
+    domain: () => arrayValues(source.entity, 'CARD_SIZES'), base: ['md'] },
+  // A read is the quiet ink on purpose, and so is an event the map does not know.
+  { cls: 'rb-audit-event', attr: 'data-tone', set: '{meta.tone}', from: ['audit', 'const meta = FILE_EVENT_META[evt.event] || {'],
+    domain: () => mapFieldValues(source.audit, 'FILE_EVENT_META', 'tone'), base: ['read', 'other'] },
+  { cls: 'rb-relink-group-head', attr: 'data-tone', set: '{tone}', from: ['relink', 'function PreviewGroup({ label, tone, empty, children })'],
+    domain: () => propValues([source.relink], 'PreviewGroup', 'tone') },
+]
+const variableKey = ({ classes, cls, attr, set }) => `${classes ? classes.join(' ') : cls} ${attr}=${set}`
+
+describe('a data-* set from a variable: every value it can take has a rule, and every rule a value it can take', () => {
+  it('every one the files set is declared above, and its premise holds', () => {
+    expect(variableAttributes(jsx).map(variableKey).sort()).toEqual(VARIABLE.map(variableKey).sort())
+    for (const { cls, from: [key, text] } of VARIABLE) expect(code[key], cls).toContain(text)
+  })
+  it('each value is read from the map, and the sheet keys on exactly those (less the ones the unkeyed rule serves)', () => {
+    for (const { cls, attr, domain, base } of VARIABLE) {
+      const values = domain()
+      expect(values, `${cls}: the map could not be read`).not.toBeNull()
+      expect(values.length, cls).toBeGreaterThan(1)
+      expect(unmatchedValues(sheet, cls, attr, values, base), cls).toEqual([])
+    }
+  })
+  it('CONTROL: a rule for a value nothing sets, a deleted rule, a new tone in the map or from a caller, a base value given a rule, and an undeclared variable are each caught', () => {
+    const [audit, relink, gallery] = ['rb-audit-event', 'rb-relink-group-head', 'rb-ent-gallery'].map((c) => VARIABLE.find((v) => v.cls === c))
+    const check = (v, css = sheet, values = v.domain()) => unmatchedValues(css, v.cls, v.attr, values, v.base)
+    // The reviewer's two: a typo'd tone, and a tone's rule deleted.
+    const danger = '.rb-relink-group-head[data-tone="danger"] {'
+    expect(sheet).toContain(danger)
+    expect(check(relink, sheet.replace(danger, `.rb-relink-group-head[data-tone="succes"] { color: var(--color-success); }\n  ${danger}`)))
+      .toEqual(['.rb-relink-group-head[data-tone="succes"]: nothing sets "succes"'])
+    const create = '.ui-badge.rb-audit-event[data-tone="create"] { color: var(--color-success); border-color: var(--color-success); }'
+    expect(sheet).toContain(create)
+    expect(check(audit, sheet.replace(create, ''))).toEqual(['.rb-audit-event data-tone="create": set, and no rule keys on it'])
+    // A tone the map gains, and one a caller hands the group, with no rule.
+    const purged = "purged:     { label: 'Purged',"
+    expect(source.audit).toContain(purged)
+    expect(check(audit, sheet, mapFieldValues(source.audit.replace(purged, `archived: { label: 'Archived', tone: 'archive', Icon: Flame },\n  ${purged}`), 'FILE_EVENT_META', 'tone')))
+      .toEqual(['.rb-audit-event data-tone="archive": set, and no rule keys on it'])
+    const missing = 'unmatched.length})`} tone="danger"'
+    expect(source.relink).toContain(missing)
+    expect(check(relink, sheet, propValues([source.relink.replace(missing, 'unmatched.length})`} tone="info"')], 'PreviewGroup', 'tone')))
+      .toEqual(['.rb-relink-group-head[data-tone="danger"]: nothing sets "danger"', '.rb-relink-group-head data-tone="info": set, and no rule keys on it'])
+    // A map or a caller the reader cannot see through is no domain at all.
+    expect(mapFieldValues(source.audit.replace("tone: 'create',  Icon: Upload", 'tone: TONE,  Icon: Upload'), 'FILE_EVENT_META', 'tone')).toBeNull()
+    expect(propValues([source.thumb, source.fileManager.replace('size="large"', 'size={big ? "large" : "small"}')], 'FileThumbnail', 'size')).toBeNull()
+    // The base list hides nothing: a rule for the default size, or a base value nothing sets.
+    expect(check(gallery, `${sheet}\n.rb-ent-gallery[data-card="md"] { --rb-ent-card: 220px; }`))
+      .toEqual(['.rb-ent-gallery data-card="md": listed as the unkeyed rule\'s, and a rule keys on it'])
+    expect(unmatchedValues(sheet, audit.cls, audit.attr, audit.domain(), [...audit.base, 'quiet']))
+      .toEqual(['.rb-audit-event data-tone="quiet": listed as the unkeyed rule\'s, and nothing sets it'])
+    // A new variable-valued attribute is one the list above does not declare.
+    const card = '<div className="rb-audit-entry">'
+    expect(source.audit).toContain(card)
+    const declared = VARIABLE.map(variableKey)
+    const mutant = Object.values({ ...code, audit: source.audit.replace(card, '<div className="rb-audit-entry" data-tone={evt.tone}>') }).join('\n')
+    expect(variableAttributes(mutant).map(variableKey).filter((k) => !declared.includes(k))).toEqual(['rb-audit-entry data-tone={evt.tone}'])
+    expect(keyedValues(sheet, 'rb-audit-event', 'data-tone').sort()).toEqual(['change', 'create', 'destroy'])
+  })
+})
+
 /* ── 5. fights ─────────────────────────────────────────────────────────────── */
 describe('no rule loses a fight it cannot see', () => {
   it('no utility on an element sets a property its lane rule sets', () => {
@@ -141,6 +234,24 @@ describe('no rule loses a fight it cannot see', () => {
   it('no rule meets the kit where source order would decide it', () => {
     expect(weakAgainstKit(sheet, jsx)).toEqual([])
     expect(kitFights(sheet, indexCss, ELEMENTS, LANE)).toEqual([])
+  })
+  it('CONTROL: a lane class alone on any kit component this lane uses meets the component\'s own rules; a class nested in a prop is not the component\'s', () => {
+    // B4c review round one: the kit roots stopped at eight, so the audit
+    // badge's colour rule one class lighter tied `.ui-badge`'s and passed.
+    const badge = '.ui-badge.rb-audit-event {'
+    expect(sheet).toContain(badge)
+    expect(kitFights(sheet.replace(badge, '.rb-audit-event {'), indexCss, ELEMENTS, LANE)).toEqual(['.rb-audit-event ties or loses to .ui-badge'])
+    // The same on the other roots, one class lighter than the kit's weight.
+    for (const [tag, root, prop] of [['Dialog', 'ui-dialog', 'max-width: 100%'], ['Drawer', 'ui-drawer', 'box-shadow: none'], ['Banner', 'ui-banner', 'padding: 0'],
+      ['Panel', 'ui-panel', 'background-color: var(--color-paper)'], ['EmptyState', 'ui-empty', 'padding: 0'], ['StatusBadge', 'ui-status', 'gap: 0']]) {
+      expect(kitFights(`.rb-files-x { ${prop} }`, indexCss, elementsOf(`<${tag} className="rb-files-x" />`), LANE).join('\n'), tag)
+        .toMatch(new RegExp(`ties or loses to \\.${root}(?![\\w-])`))
+    }
+    // A Dialog's title, subtitle or footer holds elements of its own: their
+    // classes are theirs (the first cut read the subtitle's as the Dialog's).
+    const [dialog, span] = elementsOf('<Dialog title="New" subtitle={<span className="rb-asset-new-note">Draft</span>} className="rb-asset-detail" />')
+    expect([dialog.tag, dialog.classes, dialog.kit, span.tag, span.classes, span.kit])
+      .toEqual(['Dialog', ['rb-asset-detail'], ['ui-dialog'], 'span', ['rb-asset-new-note'], []])
   })
 })
 
@@ -170,10 +281,35 @@ describe('no state is decided in a style or a className', () => {
     it(`${file}: every style is an allowed geometry, every className a literal`, () => {
       expect(stateLeaks(source[key], STYLES[key] || [], [])).toEqual([])
     })
+    it(`${file}: no Tailwind palette utility, and no colour prop given a literal colour`, () => {
+      expect(paletteLeaks(source[key])).toEqual([])
+    })
   }
   it('CONTROL: a hover colour in a style and a state in a className template are caught', () => {
     expect(inlineStateTernaries("<b style={{ color: hovered ? '#fb923c' : '#78716c' }} />").length).toBeGreaterThan(0)
     expect(stateLeaks("<b className={`x ${on ? 'a' : 'b'}`} />", [], []).length).toBeGreaterThan(0)
+  })
+  // B4c review round one fed these through the checks above and every one
+  // passed in every file: a spread written with a space, a spread chosen by
+  // a condition, four palette utilities, a literal colour prop. Each is now
+  // caught in each file, at its first lane class — and what is not a colour
+  // (`fill="none"`, `stroke="currentColor"`) still passes.
+  it('CONTROL: in every file, a spread in any spacing, a palette utility and a literal colour prop are each caught', () => {
+    for (const [key, { file }] of Object.entries(FILES)) {
+      const first = code[key].match(/className="(rb-[a-z0-9-]+)"/)
+      expect(first, file).toBeTruthy()
+      const after = (tail) => code[key].replace(first[0], `${first[0]} ${tail}`)
+      const withClass = (utility) => code[key].replace(first[0], `className="${first[1]} ${utility}"`)
+      const styles = STYLES[key] || []
+      expect(spreadAttributes(code[key]), file).toEqual([])
+      expect(stateLeaks(after('{ ...rest }'), styles, []), file).toEqual(['{...rest}'])
+      expect(stateLeaks(after("{ ...(on ? { style: { color: 'x' } } : {}) }"), styles, []), file).toEqual(["{...(on ? { style: { color: 'x' } } : {})}"])
+      for (const u of ['text-stone-400', 'hover:bg-stone-700', 'text-white', 'bg-white', 'border-l-orange-600/50']) {
+        expect(paletteLeaks(withClass(u)), `${file}: ${u}`).toEqual([u])
+      }
+      for (const p of ['color="white"', "fill='#fff'", 'stroke={"Red"}', 'color="rgb(255 255 255)"']) expect(paletteLeaks(after(p)), `${file}: ${p}`).toEqual([p])
+      for (const p of ['fill="none"', 'stroke="currentColor"', 'color="inherit"']) expect(paletteLeaks(after(p)), `${file}: ${p}`).toEqual([])
+    }
   })
 })
 
@@ -223,6 +359,7 @@ describe('LevelsView and ExperiencesView are config only (B4c, R4-11)', () => {
     it(`${file}: no class, no style, no colour, and one element — <EntityListView entity={…} />`, () => {
       expect(read(file).length).toBeGreaterThan(300)
       expect(wrapperLeaks(read(file))).toEqual([])
+      expect(paletteLeaks(read(file))).toEqual([])
     })
   }
   it('the two configs have the same fields, and the date ring R4-11 carried is not one of them', () => {

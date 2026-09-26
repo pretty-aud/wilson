@@ -24,7 +24,8 @@
 //   5. no rule loses a fight it cannot see: no utility on the same element
 //      sets a property a rule sets — a variant utility (`hover:`, `active:`)
 //      included, which B1's check does not read and the Timeline shipped —
-//      and no rule meets the kit (no element here wears a kit class);
+//      and no rule meets the kit where source order would decide it (four
+//      lane classes sit on kit roots, and kitFights measures each);
 //   6. the extraction holds: B1's scanner finds nothing in either file (the
 //      allowlist is empty), no const picks a colour by a condition (the
 //      spelling SummaryTile shipped, which B1's scanner can miss in a
@@ -276,8 +277,14 @@ describe('no rule loses a fight it cannot see', () => {
   it('…nor a variant utility (hover:, active:, focus:, disabled:), nor a colour, cursor, opacity, border, outline, shadow, transition or animation utility', () => {
     expect(variantConflicts(sheet, jsx)).toEqual([])
   })
-  it('no rule meets the kit: no element here wears a kit class, and neither B1\'s check nor B2\'s stricter one finds a fight', () => {
-    expect(ELEMENTS.filter((e) => e.kit.length && e.classes.some((c) => /^rb-(tl|hist)-/.test(c))).map((e) => e.attrs.slice(0, 60))).toEqual([])
+  it('no rule meets the kit: a lane class sits on four kit roots only, and neither B1\'s check nor B2\'s stricter one finds a fight', () => {
+    // "No element here wears a kit class" held only while the shared guard
+    // knew eight kit roots: since B4c's review round one it knows every one
+    // lane B4 uses, and these four are the Timeline's (the settings Drawer,
+    // its Tabs, the lock bar's Toolbar, the Help Dialog). kitFights measures
+    // each of them now, and finds nothing.
+    expect(ELEMENTS.filter((e) => e.kit.length && e.classes.some((c) => /^rb-(tl|hist)-/.test(c))).map((e) => `${e.tag} ${e.classes.join(' ')}`))
+      .toEqual(['Drawer rb-tl-settings', 'Tabs rb-tl-set-tabs', 'Toolbar rb-tl-lock-bar', 'Dialog rb-tl-help'])
     expect(weakAgainstKit(sheet, jsx)).toEqual([])
     expect(kitFights(sheet, indexCss, ELEMENTS, LANE)).toEqual([])
   })

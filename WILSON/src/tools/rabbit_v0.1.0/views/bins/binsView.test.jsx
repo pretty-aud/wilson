@@ -43,7 +43,11 @@ const makeCtx = (n) => ({
   bulkUpdateBinFiles: vi.fn(async () => {}), updateBinFile: vi.fn(async () => {}), removeBinFiles: vi.fn(async () => {}),
 })
 const mount = async (n) => { state.ctx = makeCtx(n); render(<BinsView />); await act(async () => {}) }
-const selectedCount = () => document.querySelectorAll('[aria-selected="true"][role="gridcell"], [aria-selected="true"][role="row"]').length
+// The frame view's tiles carry aria-selected (a grid); the list view's rows
+// are the kit Table's <tr>, whose selection is `data-selected` — the kit Row
+// carries no aria-selected (B4c surface 8), so the old `[role="row"]` branch
+// could no longer match and a list-view count read 0. Both views count.
+const selectedCount = () => document.querySelectorAll('[aria-selected="true"][role="gridcell"], tbody tr[data-selected="true"]').length
 
 describe('W9 — "remove more than five?": the Bins keys stand down behind it', () => {
   it('S does nothing, and Escape closes only the question and keeps the selection', async () => {
@@ -77,6 +81,22 @@ describe('W9 — "remove more than five?": the Bins keys stand down behind it', 
     await act(async () => { fireEvent.keyDown(document.body, { key: 'Delete' }) })
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(state.ctx.removeBinFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('in the list view too: the count reads the <tr> rows, and Escape behind the question keeps them selected', async () => {
+    await mount(7)
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    // The list is on screen and the frames are not: the count is the rows'.
+    expect(document.querySelectorAll('tbody tr.bn-trow')).toHaveLength(7)
+    expect(document.querySelectorAll('[role="gridcell"]')).toHaveLength(0)
+    expect(selectedCount()).toBe(0)
+    fireEvent.keyDown(document.body, { key: 'a', ctrlKey: true })
+    expect(selectedCount()).toBe(7)
+    fireEvent.keyDown(document.body, { key: 'Delete' })
+    expect(screen.getByRole('dialog', { name: /Remove 7 files/ })).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(selectedCount()).toBe(7)
   })
 })
 

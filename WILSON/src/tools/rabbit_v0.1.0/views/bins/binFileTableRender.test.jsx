@@ -140,12 +140,21 @@ describe('the header: the kit Th', () => {
     const { heads, th } = mount()
     expect(heads.filter(h => h.getAttribute('data-numeric') === 'true').map(h => h.textContent))
       .toEqual(TABLE_COLUMNS.filter(c => c.align === 'right').map(c => c.label))
-    // The kit writes data-align; bins.css puts a right-aligned header's sort
-    // slot before its label (binsCss.test.js exempts the kit's attribute).
-    const slotRule = '.bn-th[data-align="right"] .ui-th-sort'
-    expect(ruleBody(slotRule)).toMatch(/order:\s*-1/)
-    expect(th('Duration').querySelector('.ui-th-sort').matches(slotRule)).toBe(true)
-    expect(th('Slate').querySelector('.ui-th-sort').matches(slotRule)).toBe(false)
+    // Every sortable header's button is its whole cell, the first column's
+    // with its 16px (B4c review round one; binsCss.test.js pins the geometry,
+    // measured in the app): the rules meet the kit's own buttons.
+    const sortable = heads.filter(h => h.querySelector('button'))
+    expect(sortable).toHaveLength(TABLE_COLUMNS.filter(c => c.sortable).length)
+    for (const h of sortable) expect(h.querySelector('button').matches('.bn-table .bn-th .ui-th-btn'), h.textContent).toBe(true)
+    expect(heads.filter(h => h.querySelector('button')?.matches('.bn-table .bn-th:first-child .ui-th-btn')).map(h => h.textContent)).toEqual(['Name'])
+    // The kit writes data-align; on a right-aligned sortable column bins.css
+    // makes the sort slot the cell's right padding, after the label, so its
+    // arrow stays in its own column (it was drawn in USED IN's, before the
+    // label). binsCss.test.js reads the attribute's values from the kit.
+    const slotRule = '.bn-table .bn-th[data-align="right"] .ui-th-btn > .ui-th-sort'
+    expect(ruleBody(slotRule)).toMatch(/(?:^|;)\s*width:\s*8px/)
+    expect(ruleBody('.bn-th[data-align="right"] .ui-th-sort')).toBe('')
+    expect(['Duration', 'Bytes', 'Slate', 'fps'].map(l => th(l).querySelector('.ui-th-sort').matches(slotRule))).toEqual([true, true, false, false])
     // A label overruns its padding rather than being cut (C1 keeps the widths).
     expect(th('Cam').querySelector('.ui-th-label').matches('.bn-th .ui-th-label')).toBe(true)
     expect(ruleBody('.bn-th .ui-th-label')).toMatch(/overflow:\s*visible/)

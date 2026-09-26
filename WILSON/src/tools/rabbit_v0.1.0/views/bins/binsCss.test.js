@@ -21,7 +21,11 @@
 //
 // B4c surface 8 (2026-09-25): the list view is the kit Table now, and its
 // file, BinFileTable.jsx, is also held to the files lane's stricter checks
-// (the last describe; the scanners are rabbitCssGuards.js', imported).
+// (the last describes; the scanners are rabbitCssGuards.js', imported).
+// B4c review round one (2026-09-26): a rule's attribute VALUE must be one
+// that can be written (a name used to be enough), the kit's read from the
+// kit; and the list header's geometry — every sortable button its whole
+// cell, every arrow in its own column — is pinned as the declarations.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -36,7 +40,9 @@ import {
 } from './binsGuards'
 // The files lane's stricter scanners (B1's and lane B2's), imported, never
 // retyped: BinFileTable is held to them below (B4c surface 8).
-import { inlineStateTernaries, stateLeaks as laneStateLeaks, jsCode } from '../../rabbitCssGuards.js'
+import {
+  inlineStateTernaries, stateLeaks as laneStateLeaks, jsCode, paletteLeaks, indexCss, rulesOf, selectorsOf, specificity, gt,
+} from '../../rabbitCssGuards.js'
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url))
 const css = readFileSync(here('./bins.css'), 'utf8')
@@ -59,11 +65,32 @@ const jsxClasses = () => {
 // native search and rename fields that borrow the kit's input class.
 // `data-testid` is a test hook.
 const NOT_STATE = new Set(['bin-grid', 'size', 'testid'])
-// `data-align` is the KIT's: its Th and Td write it (from `numeric`) and no
-// Bins file does. The list's header keys its sort slot on it (B4c surface 8);
-// binFileTableRender.test.jsx proves the kit's header carries it.
-const KIT_ATTRS = new Set(['align'])
+// `data-align` is the KIT's: its Th and Td write it (from `numeric` or
+// `align`) and no Bins file does. The list's header keys a right-aligned
+// column's sort slot on it (B4c surface 8); binFileTableRender.test.jsx
+// proves the kit's header carries it. Its VALUES are read from the kit's own
+// source — `ALIGNS`, the one list Th and Td hold their `a` to — not exempted
+// by name (B4c review round one: the name alone let `[data-align="rigth"]`
+// through, as the Bins names let `[data-selected="false"]` and
+// `[data-sorted="asc"]`).
+const TABLE_JSX = readFileSync(here('../../../../ui/Table.jsx'), 'utf8').replace(/\r\n/g, '\n')
+const KIT_VALUES = { align: [...(/const ALIGNS = \[([^\]]*)\]/.exec(TABLE_JSX)?.[1] || '').matchAll(/'([^']*)'/g)].map(m => m[1]) }
+const KIT_ATTRS = new Set(Object.keys(KIT_VALUES))
 const cssAttrs = () => new Set([...code.matchAll(/\[data-([a-z-]+)/g)].map(m => m[1]))
+/** The values data-<attr> can have on a Bins element: every literal the Bins
+    files assign it — a state is `x ? 'true' : undefined`, and the test below
+    holds every state to that — and, for a kit attribute, the kit's own. */
+const writable = (attr) => {
+  const out = new Set(KIT_VALUES[attr] || [])
+  for (const src of Object.values(JSX_CODE)) {
+    for (const m of src.matchAll(new RegExp(`\\bdata-${attr}=(\\{[^}]*\\}|"[^"]*")`, 'g'))) {
+      for (const l of m[1].matchAll(/'([^']*)'|"([^"]*)"/g)) out.add(l[1] ?? l[2])
+    }
+  }
+  return out
+}
+/** Every `[data-x="v"]` a sheet keys on (a `:not()` argument's included) whose v nothing can write. */
+const unwritable = (css) => [...css.matchAll(/\[data-([a-z-]+)="([^"]*)"\]/g)].filter(([, a, v]) => !writable(a).has(v)).map(([m]) => m)
 const jsxAttrs = () => {
   const s = new Set()
   for (const src of Object.values(JSX_CODE)) for (const m of src.matchAll(/\bdata-([a-z-]+)=/g)) if (!NOT_STATE.has(m[1])) s.add(m[1])
@@ -192,6 +219,22 @@ describe('the extracted state', () => {
     // …and the kit's exemption is live and hides no Bins state: each is read
     // by the sheet, and none is written by a Bins file (that would be a state).
     expect([...KIT_ATTRS].filter(a => !inCss.has(a) || inJsx.has(a))).toEqual([])
+  })
+
+  it('every VALUE a rule keys on can be written: a Bins state\'s \'true\', a kit attribute\'s own values (B4c review round one)', () => {
+    // Read, not vacuous: the kit's three alignments, and both cells write one.
+    expect(KIT_VALUES.align).toEqual(['left', 'center', 'right'])
+    expect(TABLE_JSX.match(/\sdata-align=\{a\}/g)).toHaveLength(2)
+    expect(TABLE_JSX.match(/const a = numeric \? 'right' : align/g)).toHaveLength(2)
+    expect([...code.matchAll(/\[data-[a-z-]+="[^"]*"\]/g)].length).toBeGreaterThan(40)
+    expect(unwritable(code)).toEqual([])
+  })
+
+  it('CONTROL: a rule for a value no Bins file and not the kit can write is caught, a kit value is not', () => {
+    for (const bad of ['.bn-trow[data-selected="false"]', '.bn-th[data-sorted="asc"]', '.bn-th[data-align="rigth"]', '.bn-trow:not([data-offline="false"])']) {
+      expect(unwritable(`${code}\n.bn-list ${bad} { color: var(--color-ink); }`), bad).toEqual([bad.match(/\[[^\]]*\]/)[0]])
+    }
+    expect(unwritable(`${code}\n.bn-list .bn-th[data-align="center"] { color: var(--color-ink); }`)).toEqual([])
   })
 })
 
@@ -395,10 +438,12 @@ describe('the guards themselves (mutants run through the SAME predicates)', () =
 // converges, so its file is held to what rabbitFilesCss.test.js holds the
 // files lane's tables to, on the same predicates: B1's inlineStateTernaries;
 // lane B2's stateLeaks (every style a listed geometry, every className a
-// literal, no JSX spread, no element swap that changes a class, no colour
-// prop given an expression, no hex or colour function); and b4-count.mjs's
-// two counts (the B4 hand-off, §7): no template-literal className at all, a
-// literal one included, and no palette utility.
+// literal, no JSX spread in any spacing, no element swap that changes a
+// class, no colour prop given an expression, no hex or colour function); and
+// b4-count.mjs's two counts (the B4 hand-off, §7): no template-literal
+// className at all, a literal one included, and no palette utility — the
+// files lane's one check since B4c's review round one (rabbitCssGuards.js'
+// paletteLeaks, which also takes a colour prop given a literal colour).
 const TABLE = 'BinFileTable.jsx'
 /** The one style it writes: the shown columns' sum, from TABLE_COLUMNS, as a
     custom property bins.css reads for the table's min-width (a geometry,
@@ -409,8 +454,6 @@ const TABLE_STYLES = ["{{ '--bn-list-cols': `${minWidth}px` }}"]
     check is aimed at an icon's paint. This literal is taken out before the
     scan, and it must be in the file, so a changed call is scanned. */
 const TABLE_DATA_PROPS = ['<ColorDot color={row.color} size={8} />']
-/** b4-count.mjs's palette row: a Tailwind palette colour in any utility. */
-const PALETTE = /(?<![\w-])(?:[a-z-]+:)*(?:text|bg|border|ring|accent|outline|divide|placeholder|fill|stroke|from|to|via|decoration|caret)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{2,3})?(?:\/\d+)?(?![\w-])/g
 /** Every check, on a source: what each finds. The assertions and the mutants
     below call this same function (T2 hand-off §5 trap 8). */
 const tableChecks = (src) => {
@@ -420,7 +463,7 @@ const tableChecks = (src) => {
     ternaries: inlineStateTernaries(src),
     lane: laneStateLeaks(scanned, TABLE_STYLES, []),
     templates: code.match(/className=\{`/g) || [],
-    palette: code.match(PALETTE) || [],
+    palette: paletteLeaks(src),
   }
 }
 const tableSource = () => JSX[TABLE].replace(/\r\n/g, '\n')
@@ -457,9 +500,100 @@ describe('BinFileTable: the files lane\'s stricter checks (B4c surface 8)', () =
     expect(fires(at('className={`bn-trow ${selected ? "is-on" : ""}`}'))).toEqual(['lane', 'templates', 'ternaries'])
     expect(fires(at('className={`bn-trow`}'))).toEqual(['templates'])
     expect(fires(at('className="bn-trow" {...rest}'))).toEqual(['lane'])
+    // B4c review round one: these three passed every check.
+    expect(fires(at('className="bn-trow" { ...rest }'))).toEqual(['lane'])
+    expect(fires(at("className=\"bn-trow\" { ...(selected ? { style: { color: 'x' } } : {}) }"))).toEqual(['lane'])
+    expect(fires(at('className="bn-trow" color="white"'))).toEqual(['palette'])
     expect(fires(at('className="bn-trow text-stone-400"'))).toEqual(['palette'])
+    expect(fires(at('className="bn-trow hover:bg-stone-700 bg-white"'))).toEqual(['palette'])
     expect(fires(at('className="bn-trow" title="#78716c"'))).toEqual(['lane'])
     expect(fires(at('className="bn-trow" color={tone}'))).toEqual(['lane'])
     expect(fires(src.replace('<ColorDot color={row.color} size={8} />', '<ColorDot color={row.colour} size={8} />'))).toEqual(['lane'])
+  })
+})
+
+/* ── B4c review round one: the list's header, a geometry jsdom cannot lay out ── */
+// Measured in the running app (Playwright, 1440x900, before and after): every
+// sortable header's button was 16px narrower than its column (Name 204 of
+// 228, Cam 32 of 48, Marks and Take 48 of 64), so a click within 8px of a
+// column's edge landed on the cell and did not sort — the grid's button
+// spanned its column; and DURATION's arrow, its slot put before the label,
+// was drawn in USED IN's cell (slot 1128.9–1138.9, its own cell from 1140).
+// After: each button's box is its cell's, every label at the same x, and a
+// right-aligned column's arrow fills its own cell's right padding (Duration
+// 1204–1212 in 1140–1212; the glyph's ink measured 8px). jsdom lays nothing
+// out, so the fix is pinned as the declarations that make it, read off the
+// sheet by one predicate the mutants below go through too.
+/** The declarations `css` gives exactly `sel` (one selector of a rule's list counts), a later one winning. */
+const declsOf = (css, sel) => {
+  const out = {}
+  for (const r of rules(css)) {
+    if (!r.selectors.map(s => s.replace(/\s+/g, ' ')).includes(sel)) continue
+    for (const d of r.body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:\s*([^;]+)/g)) out[d[1]] = d[2].trim()
+  }
+  return out
+}
+const pxOf = (v) => (v === '0' ? 0 : Number(/^(-?\d+(?:\.\d+)?)px$/.exec(v || '')?.[1] ?? NaN))
+/** A box shorthand's [top, right, bottom, left], in px. */
+const sidesOf = (v) => { const p = (v || '').split(/\s+/).map(pxOf); return [p[0], p[1] ?? p[0], p[2] ?? p[0], p[3] ?? p[1] ?? p[0]] }
+const HEAD = '.bn-table .ui-th'
+const BTN = '.bn-table .bn-th .ui-th-btn'
+const FIRST_BTN = '.bn-table .bn-th:first-child .ui-th-btn'
+const RIGHT_BTN = '.bn-table .bn-th[data-align="right"] .ui-th-btn'
+const RIGHT_SLOT = '.bn-table .bn-th[data-align="right"] .ui-th-btn > .ui-th-sort'
+/** What keeps a sortable header's button short of its cell, or a
+    right-aligned column's arrow out of its own cell: [] when neither does. */
+const headerFaults = (css) => {
+  const faults = []
+  const cell = sidesOf(declsOf(css, HEAD).padding)
+  const firstLeft = pxOf(declsOf(css, `${HEAD}:first-child`)['padding-left'])
+  // The button takes the cell's padding back: its border box is the cell,
+  // its content box where the label always was.
+  const btn = declsOf(css, BTN)
+  if (sidesOf(btn.margin).join() !== [0, -cell[1], 0, -cell[3]].join()) faults.push('button margin')
+  if (sidesOf(btn.padding).join() !== cell.join()) faults.push('button padding')
+  if (btn.width !== `calc(100% + ${cell[1] + cell[3]}px)`) faults.push('button width')
+  const first = declsOf(css, FIRST_BTN)
+  if (first['margin-left'] !== `-${firstLeft}px` || first['padding-left'] !== `${firstLeft}px` || first.width !== `calc(100% + ${firstLeft + cell[1]}px)`) faults.push('first button')
+  // A right-aligned column: the slot is the cell's right padding, after the
+  // label, the arrow from its left edge with no tracking.
+  const right = declsOf(css, RIGHT_BTN)
+  if (right['padding-right'] !== '0' || right.gap !== '0') faults.push('right-aligned button')
+  const slot = declsOf(css, RIGHT_SLOT)
+  if (pxOf(slot['flex-basis']) !== cell[1] || pxOf(slot.width) !== cell[1]) faults.push('right-aligned slot width')
+  if (slot['text-align'] !== 'left' || slot['letter-spacing'] !== '0') faults.push('right-aligned arrow')
+  if (rules(css).some(r => r.selectors.some(s => /\.ui-th-sort/.test(s)) && /(?:^|;)\s*order\s*:/.test(r.body))) faults.push('slot moved before the label')
+  return faults
+}
+
+describe('the list\'s header: every sortable button its whole cell, every arrow in its own column (B4c review round one)', () => {
+  it('premise: the cell is padded 8px a side (16px left in the first column), and the figures\' edge is the body cell\'s 8px in', () => {
+    expect(sidesOf(declsOf(code, HEAD).padding)).toEqual([0, 8, 0, 8])
+    expect(pxOf(declsOf(code, `${HEAD}:first-child`)['padding-left'])).toBe(16)
+    expect(sidesOf(declsOf(code, '.bn-table .ui-td').padding)[1]).toBe(8)
+    // The kit's button fills only the room inside the padding, and the kit's slot is 10px, centred, after the label.
+    const kit = (sel) => Object.assign({}, ...rulesOf(indexCss).filter(r => selectorsOf(r.sel).includes(sel))
+      .map(r => Object.fromEntries([...r.body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:\s*([^;]+)/g)].map(d => [d[1], d[2].trim()]))))
+    expect(kit('.ui-th-btn')).toMatchObject({ width: '100%', padding: '0', gap: '4px' })
+    expect(kit('.ui-th-sort')).toMatchObject({ flex: '0 0 10px', width: '10px', 'text-align': 'center' })
+  })
+  it('the button\'s box is its cell\'s, and a right-aligned column\'s arrow is its own cell\'s right padding', () => {
+    expect(headerFaults(code)).toEqual([])
+    // Each over the kit rule it overrides.
+    expect(gt(specificity(BTN), specificity('.ui-th-btn'))).toBeGreaterThan(0)
+    expect(gt(specificity(FIRST_BTN), specificity(BTN))).toBeGreaterThan(0)
+    expect(gt(specificity(RIGHT_BTN), specificity(BTN))).toBeGreaterThan(0)
+    expect(gt(specificity(RIGHT_BTN), specificity('.ui-th[data-align="right"] .ui-th-btn'))).toBeGreaterThan(0)
+    expect(gt(specificity(RIGHT_SLOT), specificity('.ui-th-sort'))).toBeGreaterThan(0)
+  })
+  it('CONTROL: the padding left on the cell, a button one width short, the slot back before the label, a 10px slot and a centred arrow are each caught', () => {
+    const drop = (from, to) => { expect(code).toContain(from); return code.replace(from, to) }
+    expect(headerFaults(drop('margin: 0 -8px;', ''))).toEqual(['button margin'])
+    expect(headerFaults(drop('width: calc(100% + 16px);', 'width: 100%;'))).toEqual(['button width'])
+    expect(headerFaults(drop('margin-left: -16px;', 'margin-left: -8px;'))).toEqual(['first button'])
+    expect(headerFaults(code.replace(/\}\s*$/, `  .bn-th[data-align="right"] .ui-th-sort { order: -1; }\n}`))).toEqual(['slot moved before the label'])
+    expect(headerFaults(drop('flex-basis: 8px; width: 8px;', 'flex-basis: 10px; width: 10px;'))).toEqual(['right-aligned slot width'])
+    expect(headerFaults(drop('letter-spacing: 0; text-align: left;', 'letter-spacing: 0;'))).toEqual(['right-aligned arrow'])
+    expect(headerFaults(drop('{ padding-right: 0; gap: 0; }', '{ gap: 0; }'))).toEqual(['right-aligned button'])
   })
 })
