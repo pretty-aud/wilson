@@ -43,12 +43,9 @@ const FILES = {
   money: { file: '../components/CurrencyDisplay.jsx', prefix: 'rb-money-', min: 1500 },
   // B5 surface 2a: the Summary, the seven reports, Custom and their shared
   // helpers. B5 surface 2b: the Expenses tab, its filter strip, saved views,
-  // create / edit dialog and relation pickers. The tab strip and shell
-  // (`BudgetView`, the controller's) is still staged.
-  budget: {
-    file: './BudgetView.jsx', prefix: 'rb-budget-', min: 3000,
-    staged: ['BudgetView'],
-  },
+  // create / edit dialog and relation pickers. B5 surface 3: the tab strip
+  // and the shell — nothing is staged; the whole file is read.
+  budget: { file: './BudgetView.jsx', prefix: 'rb-budget-', min: 3000 },
   // B5 surface 2b: the lane's one popover (R3-32) and the margin &
   // contingency editor on it, which Crew and Talent take next.
   pop: { file: './budget/BudgetPopover.jsx', prefix: 'rb-pop-', min: 1000 },
@@ -131,12 +128,13 @@ describe('a staged function is read out of the guards, and only a staged one', (
     }
   })
   it('CONTROL: a hex planted in a staged function is ignored; one planted in a restyled function is caught', () => {
-    const { file, staged } = FILES.budget
+    // The mechanism, on a list of one: since surface 3 BudgetView.jsx is read
+    // whole, so the control stages its shell itself.
+    const { file } = FILES.budget
+    const staged = ['BudgetView']
     const whole = read(file)
     // Plant on the first line inside the function's body.
     const plant = (name) => whole.replace(new RegExp(`^((?:export default )?function ${name}\\([^\\n]*\\n)`, 'm'), "$1  const planted = '#abcdef'\n")
-    // The shell is the one function still staged; ExpensesTab left the list
-    // with surface 2b, so a hex planted there is read now.
     const inShell = plant('BudgetView')
     const inRestyled = plant('SummaryTab')
     const inExpenses = plant('ExpensesTab')

@@ -179,17 +179,20 @@ const REGISTRY = [
   P('rabbit-tasks-board', '/rabbit', { steps: ['@proj', 'Tasks', 'Board'], expect: { selector: '.rb-task-board' } }),
   P('rabbit-task-phase', '/rabbit', { steps: ['@proj', 'Tasks', 'Phase'], expect: { dialog: true } }),
   P('rabbit-task-save-view', '/rabbit', { steps: ['@proj', 'Tasks', 'Views', 'Save current view'], expect: { dialog: true } }),
-  ...['By Phase', 'By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>
-    P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { styled: t } })),
+  // B5 surface 3 (2026-09-26): Budget's strip is the kit Tabs, so a tab is
+  // proven SELECTED (aria-selected), no longer by being the one styled
+  // differently, and its labels are sentence case. The keys are unchanged.
+  ...['By phase', 'By role', 'By asset', 'By scene', 'By shot', 'Custom', 'Crew/team', 'Talent', 'Expenses', 'Client view'].map((t) =>
+    P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { active: t } })),
   // B5 (2026-09-26): the rest of Budget. By Level and By Experience exist only
   // with the project flags on (`?fixtures=game`, as Levels' own screens). The
   // Crew and Talent period cells open a popover that is not a dialog; its
   // "Invoice #" label is the proof (nothing else on either tab prints it).
   // An empty period cell's only text is its middle dot. The versions table
   // is on Summary, so `rabbit-budget` measures it.
-  ...['By Level', 'By Experience'].map((t) =>
-    P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { query: '?fixtures=game', steps: ['@proj', 'Budget', t], expect: { styled: t } })),
-  P('rabbit-budget-crew-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Crew/Team', '·'], expect: { text: 'Invoice #' } }),
+  ...['By level', 'By experience'].map((t) =>
+    P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { query: '?fixtures=game', steps: ['@proj', 'Budget', t], expect: { active: t } })),
+  P('rabbit-budget-crew-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Crew/team', '·'], expect: { text: 'Invoice #' } }),
   P('rabbit-budget-talent-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Talent', '·'], expect: { text: 'Invoice #' } }),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
   P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details'], expect: { dialog: true } }),

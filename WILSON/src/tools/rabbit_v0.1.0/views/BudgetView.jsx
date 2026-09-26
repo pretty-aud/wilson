@@ -44,29 +44,28 @@ import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
 import MarginContPopover from './budget/MarginContPopover'
-import { INK_LIGHT } from '../../../ui/tokens.js'
 import {
   Table, Th, Td, Row, Stat, StatusDot, StatusBadge, EmptyState, Loading,
-  SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge,
+  SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs,
 } from '../../../ui'
 import './rabbitBudget.css'
 
 const TABS = [
   { id: 'summary',        label: 'Summary',       icon: DollarSign },
-  { id: 'by_phase',       label: 'By Phase',      icon: Layers     },
-  { id: 'by_role',        label: 'By Role',       icon: UserCircle },
-  { id: 'by_asset',       label: 'By Asset',      icon: Boxes      },
-  { id: 'by_scene',       label: 'By Scene',      icon: Film,      requires: 'scenes_enabled' },
-  { id: 'by_shot',        label: 'By Shot',       icon: Film,      requires: 'scenes_enabled' },
-  { id: 'by_level',       label: 'By Level',      icon: Gamepad2,  requires: 'levels_enabled' },
-  { id: 'by_experience',  label: 'By Experience', icon: Zap,       requires: 'experiences_enabled' },
+  { id: 'by_phase',       label: 'By phase',      icon: Layers     },
+  { id: 'by_role',        label: 'By role',       icon: UserCircle },
+  { id: 'by_asset',       label: 'By asset',      icon: Boxes      },
+  { id: 'by_scene',       label: 'By scene',      icon: Film,      requires: 'scenes_enabled' },
+  { id: 'by_shot',        label: 'By shot',       icon: Film,      requires: 'scenes_enabled' },
+  { id: 'by_level',       label: 'By level',      icon: Gamepad2,  requires: 'levels_enabled' },
+  { id: 'by_experience',  label: 'By experience', icon: Zap,       requires: 'experiences_enabled' },
   { id: 'custom',         label: 'Custom',        icon: Sparkles   },
   { id: '__div1__' },
-  { id: 'crew',           label: 'Crew/Team',     icon: Users      },
+  { id: 'crew',           label: 'Crew/team',     icon: Users      },
   { id: 'talent',         label: 'Talent',        icon: Star       },
   { id: 'expenses',       label: 'Expenses',      icon: Receipt    },
   { id: '__div2__' },
-  { id: 'client',         label: 'Client View',   icon: Eye        },
+  { id: 'client',         label: 'Client view',   icon: Eye        },
 ]
 
 const GROUP_BY_OPTIONS = [
@@ -199,63 +198,46 @@ export default function BudgetView() {
   if (loading) return <CenterMsg>Loading project...</CenterMsg>
   if (!project) return <CenterMsg>No project loaded</CenterMsg>
 
+  // The tab strip is the kit Tabs (R3-16, R3-17, R3-18, R3-29): the one
+  // active treatment, a 2px signal underline with no fill (the orange fill
+  // and its dead underline went), sentence case at the Body step. Every tab
+  // stays a tab, in its order; the two group hairlines are the kit's
+  // separators. The icon rides in the label at 14px, as ViewTabs' does.
+  const tabItems = TABS.filter(t => !t.requires || project?.[t.requires]).map(t => {
+    if (t.id.startsWith('__div')) return { separator: true }
+    const Icon = t.icon
+    return { id: t.id, label: <><Icon className="rb-budget-tab-icon" aria-hidden="true" />{t.label}</> }
+  })
+
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
-      {/* Tab strip */}
-      <div
-        className="flex items-center gap-2 px-5 py-2.5"
-        style={{ borderBottom: '1px solid #44403c' }}
-      >
-        {TABS.filter(t => !t.requires || project?.[t.requires]).map(t => {
-          if (t.id.startsWith('__div')) {
-            return <div key={t.id} className="self-stretch flex items-center mx-1"><div style={{ width: 1, height: 16, backgroundColor: '#292524' }} /></div>
-          }
-          const active = tab === t.id
-          const Icon = t.icon
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-control transition-colors"
-              style={{
-                /* V1: the same stopgap as ViewTabs directly above it — `#fff7ed`
-                   on the signal was 3.35:1 (C6). The fill is lane B5's to
-                   remove (§3.2: the active tab takes the underline). */
-                color: active ? INK_LIGHT : '#a8a29e',
-                backgroundColor: active ? '#ea580c' : 'transparent',
-                borderBottom: active ? '2px solid #ea580c' : '2px solid transparent',
-              }}
-            >
-              <Icon className="w-3 h-3" />
-              <span className="text-label uppercase">
-                {t.label}
-              </span>
-            </button>
-          )
-        })}
+    <div className="rb-budget-view">
+      <div className="rb-budget-tabbar">
+        <Tabs
+          items={tabItems}
+          value={tab}
+          onChange={setTab}
+          label="Budget views"
+          panelId="rb-budget-panel"
+          className="rb-budget-tabs"
+        />
       </div>
 
       {/* Session 24: an empty rate card is the difference between "this
           budget is zero" and "this budget cannot be calculated yet". Without
-          this, both render as $0 and the second looks like a bug. */}
+          this, both render as $0 and the second looks like a bug. The copy
+          is the review's best on this surface (R3 "What works"): only its
+          capitals went (Q2), onto the kit Banner. */}
       {hasNoRates && (
-        <div
-          className="flex items-start gap-2 px-5 py-2.5"
-          style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
-        >
-          <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" style={{ color: '#fb923c' }} />
-          <div className="text-dense leading-relaxed" style={{ color: '#d6d3d1' }}>
-            <span style={{ color: '#fb923c' }}>NO RATE CARD YET.</span>{' '}
-            Bids are calculated as a role&rsquo;s rate &times; the days assigned to it, so
-            every total below will stay at zero until this workspace has rate-card
-            roles with rates. Add them in <span style={{ color: '#fff7ed' }}>Resources &rsaquo; Rate Card</span>.
-            Everything else on this page — actuals, expenses, margin and contingency — works now.
-          </div>
-        </div>
+        <Banner tone="warning" Icon={AlertCircle}>
+          <strong className="rb-budget-rates-lead">No rate card yet.</strong>{' '}
+          Bids are calculated as a role&rsquo;s rate &times; the days assigned to it, so
+          every total below will stay at zero until this workspace has rate-card
+          roles with rates. Add them in <span className="rb-budget-rates-place">Resources &rsaquo; Rate card</span>.
+          Everything else on this page — actuals, expenses, margin and contingency — works now.
+        </Banner>
       )}
 
-      <div className="flex-1 overflow-auto p-6">
+      <div id="rb-budget-panel" role="tabpanel" className="rb-budget-panel">
         {tab === 'summary'  && (
           <SummaryTab
             ctx={ctx}

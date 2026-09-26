@@ -810,6 +810,55 @@
   .rb-pop-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .ui-btn.rb-pop-save { flex: 1 1 auto; }
 
+  /* ═══ BudgetView: the shell and the tab strip (surface 3) ════════════════
+     The view on the paper; the strip is the kit Tabs (R3-16, R3-17, R3-18,
+     R3-29): one row of thirteen at most, the icons at 14px in the label, the
+     two group hairlines the kit's separators. It is laid out as ViewTabs is
+     directly above it (rabbitShell.css), so the two strips read as one
+     system: a first label on the 24px gutter (16 + the tab's 8), the
+     decorative icons dropped when the STRIP is narrow (a container query,
+     not the window's width), and anything still too wide scrolls sideways
+     with no scrollbar to add height — the kit's arrow keys bring each tab
+     into view. */
+  .rb-budget-view { display: flex; flex-direction: column; height: 100%; background-color: var(--color-paper); }
+  .rb-budget-tabbar {
+    container: rb-budget-tabs / inline-size;
+    flex-shrink: 0;
+    padding: 0 var(--spacing-gutter) 0 16px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  /* (0,3,0): over the kit's `.ui-toolbar .ui-tabs` (0,2,0), which sets the same. */
+  .rb-budget-tabbar .rb-budget-tabs.ui-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .rb-budget-tabs .ui-tab { padding: 0 8px; }
+  .rb-budget-tabs .ui-tabs-sep { margin: 0 4px; }
+  .rb-budget-tab-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  @container rb-budget-tabs (max-width: 1240px) {
+    .rb-budget-tab-icon { display: none; }
+    .rb-budget-tabs .ui-tab { padding: 0 6px; }
+    .rb-budget-tabbar .rb-budget-tabs.ui-tabs { margin-left: 2px; }  /* 16 + 2 + 6 = the 24px gutter */
+  }
+  /* Thirteen tabs (a project with Levels and Experiences) at Electron's
+     1024px floor were 990px of labels in a 982px strip: one pixel a side
+     off each tab makes 26px of room, so the row fits instead of scrolling
+     its last tab under the edge (measured, 2026-09-26). */
+  @container rb-budget-tabs (max-width: 1000px) {
+    .rb-budget-tabs .ui-tab { padding: 0 5px; }
+    .rb-budget-tabbar .rb-budget-tabs.ui-tabs { margin-left: 3px; }  /* 16 + 3 + 5 = the 24px gutter */
+  }
+  /* The rate-card banner's lead and the place it names: weight, not an
+     orange or a brighter ink, carries them now (the kit Banner's text is
+     the one ink). */
+  .rb-budget-rates-lead { font-weight: 600; }
+  .rb-budget-rates-place { font-weight: 600; }
+  /* The content under the strip: ONE 24px gutter for every tab (R3-31),
+     and the one scroller. */
+  .rb-budget-panel { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--spacing-gutter); }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped: its twin here with the
      same selector and `transition: none` alone. THE LAST BLOCK OF THE LAYER:
