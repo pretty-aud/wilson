@@ -181,6 +181,16 @@ const REGISTRY = [
   P('rabbit-task-save-view', '/rabbit', { steps: ['@proj', 'Tasks', 'Views', 'Save current view'], expect: { dialog: true } }),
   ...['By Phase', 'By Role', 'By Asset', 'By Scene', 'By Shot', 'Custom', 'Crew/Team', 'Talent', 'Expenses', 'Client View'].map((t) =>
     P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { steps: ['@proj', 'Budget', t], expect: { styled: t } })),
+  // B5 (2026-09-26): the rest of Budget. By Level and By Experience exist only
+  // with the project flags on (`?fixtures=game`, as Levels' own screens). The
+  // Crew and Talent period cells open a popover that is not a dialog; its
+  // "Invoice #" label is the proof (nothing else on either tab prints it).
+  // An empty period cell's only text is its middle dot. The versions table
+  // is on Summary, so `rabbit-budget` measures it.
+  ...['By Level', 'By Experience'].map((t) =>
+    P(`rabbit-budget-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`, '/rabbit', { query: '?fixtures=game', steps: ['@proj', 'Budget', t], expect: { styled: t } })),
+  P('rabbit-budget-crew-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Crew/Team', '·'], expect: { text: 'Invoice #' } }),
+  P('rabbit-budget-talent-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Talent', '·'], expect: { text: 'Invoice #' } }),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
   P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details'], expect: { dialog: true } }),
   // B4 (2026-09-25): the rest of the files and assets surface, each proven
@@ -234,6 +244,14 @@ const REGISTRY = [
   }),
   // "Lighthouse, dawn" is on the Scenes table before the dialog opens.
   P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: 'Lighthouse, dawn' } }),
+  // B5: the rest of Scenes. A gallery is proven by its card-size buttons,
+  // which the toolbar draws only in gallery mode. The shot popup is opened
+  // from its own row ("The door" is the first shot) — the first "View
+  // details" on the Shots page could be a scene group's.
+  P('rabbit-scenes-gallery', '/rabbit', { steps: ['@proj', 'Scenes', 'Gallery'], expect: { selector: '[title="md cards"]' } }),
+  P('rabbit-shots', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots'], expect: { styled: 'Shots' } }),
+  P('rabbit-shots-gallery', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots', 'Gallery'], expect: { selector: '[title="md cards"]' } }),
+  P('rabbit-shot-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots', '@in:The door::View details'], expect: { dialog: 'The door' } }),
 
   // Settings' seven tabs (General is the page itself) and its one dialog.
   ...['Profile', 'Models', 'Storage', 'Teams', 'Agent', 'Agent Skills'].map((t) =>
