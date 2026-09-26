@@ -26,6 +26,7 @@ const { default: CurrencyDisplay, formatMoney, MONEY_LOCALE } = await import('..
 const { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTab, ExpensePopup } = await import('./BudgetView')
 const { default: BudgetPopover, placePopover } = await import('./budget/BudgetPopover')
 const { default: MarginContPopover } = await import('./budget/MarginContPopover')
+const clientModule = await import('./budget/ClientViewTab')
 
 afterEach(() => { cleanup() })
 
@@ -668,5 +669,121 @@ describe('surface 2b', () => {
     toggle.focus()
     fireEvent.keyDown(toggle, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+/* ── surface 5: the client estimate (R3-27, R3-39, C9) ───────────────────── */
+describe('the client estimate', () => {
+  const { default: ClientViewTab, estimateDocument } = clientModule
+  const TASKS = [
+    { assigned_role_slug: 'editor', bid_days: 10 },
+    { assigned_role_slug: 'dop', assigned_position: 'Camera', bid_days: 4 },
+  ]
+  const props = {
+    project: { title: 'Salt <b>Hours</b>', project_code: 'SH-01', budget_margin_pct: 10, budget_contingency_pct: 5 },
+    tasks: TASKS,
+    roleRates: { editor: 500, dop: 1000 },
+    budgetHook: { lines: [{ id: 't1', sheet: 'talent' }], lineComputations: { t1: { bidTotal: 2000 } } },
+    expensesHook: { expenses: [{ estimated_cost: 750 }] },
+    currency: 'USD',
+  }
+  // 5000 (editor) + 4000 (Camera) + 2000 (Talent) + 750 (Expenses) = 11750;
+  // contingency 5% = 587.5, production fee 10% = 1175; total 13512.5.
+  const LABELS = ['editor', 'Camera', 'Talent', 'Expenses / travel', 'Contingency', 'Production fee']
+
+  function printed() {
+    let html = ''
+    const win = { document: { write: (s) => { html += s }, close: vi.fn() }, focus: vi.fn(), print: vi.fn(), close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(win)
+    const utils = render(<ClientViewTab {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Print / export' }))
+    open.mockRestore()
+    return { html, win, ...utils }
+  }
+  const styleOf = (html) => html.match(/<style>([\s\S]*?)<\/style>/)[1]
+
+  it('the preview is the kit Table on the paper: numeric figures, the total in its <tfoot>, no inline colour (C9, R3-20)', () => {
+    const { container } = render(<ClientViewTab {...props} />)
+    const table = container.querySelector('table.ui-table')
+    expect(table).toBeTruthy()
+    expect([...table.querySelectorAll('tbody tr')].map((r) => r.cells[0].textContent)).toEqual(LABELS)
+    for (const r of table.querySelectorAll('tbody tr')) expect(r.cells[1].getAttribute('data-numeric')).toBe('true')
+    expect(table.querySelector('tfoot').textContent).toBe('Total$13,513')
+    expect(container.querySelector('.rb-client-sheet')).toBeTruthy()
+    for (const el of container.querySelectorAll('[style]')) expect(el.getAttribute('style')).not.toMatch(/color|background/)
+  })
+  it('says Client view, Estimated budget, Production fee and the signature lines in sentence case (Q2)', () => {
+    const { container } = render(<ClientViewTab {...props} />)
+    const text = container.textContent
+    for (const s of ['Client view', 'Estimated budget', 'Project code', 'Production fee', 'Estimate approved by:', 'Approver signature:', 'Date signed:']) expect(text).toContain(s)
+    expect(text).not.toMatch(/Client View|Estimated Budget|Production Fee|Approver Signature|Date Signed/)
+  })
+  it('prints in the app\'s face at the app\'s scale — never Courier, nothing under 11px (R3-27)', () => {
+    const { html } = printed()
+    const css = styleOf(html)
+    expect(html).not.toMatch(/Courier/i)
+    expect(css).toMatch(/body \{ font-family: Geist, /)
+    const sizes = [...css.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]))
+    expect(sizes.length).toBeGreaterThan(3)
+    for (const s of sizes) expect([11, 12, 13, 14, 16, 20]).toContain(s)
+    expect(css).toMatch(/h1 \{ font-size: 20px;/)
+    expect(css).toMatch(/th \{[^}]*font-size: 11px;[^}]*text-transform: uppercase;/)
+    expect(css).toMatch(/body \{[^}]*font-size: 13px;/)
+  })
+  // jsdom's CSSOM keeps only `font-family` of an @font-face rule, so the
+  // reader is fed a document the way Chromium presents one; the Playwright
+  // capture in the hand-off proves the real window loads both faces.
+  it('appFontFaces carries the app\'s own @font-face rules for Geist — every descriptor, each url() absolute against its sheet — and no other face', () => {
+    const face = (family, src, extra = '') => ({
+      cssText: `@font-face { font-family: "${family}"; src: url("${src}") format("woff2-variations"); font-weight: 400 600;${extra} }`,
+      style: { getPropertyValue: (p) => (p === 'font-family' ? `"${family}"` : '') },
+    })
+    const doc = {
+      baseURI: 'http://localhost:5267/rabbit',
+      styleSheets: [
+        { href: null, cssRules: [face('Geist', '/fonts/geist-latin-wght.woff2', ' unicode-range: U+0-FF;'), { cssText: '.x { color: red }', style: { getPropertyValue: () => '' } }] },
+        // A built stylesheet: a relative url resolves against the SHEET.
+        { href: 'file:///C:/app/dist/assets/index-abc.css', cssRules: [{ cssRules: [face('Geist Mono', '../fonts/geist-mono-latin-wght.woff2')] }] },
+        { href: 'https://cdn.example/x.css', get cssRules() { throw new Error('SecurityError') } },
+        { href: null, cssRules: [face('Pixel', '/fonts/pixel.woff2')] },
+      ],
+    }
+    const faces = clientModule.appFontFaces(doc).split('\n').map((s) => s.trim())
+    expect(faces).toEqual([
+      '@font-face { font-family: "Geist"; src: url(http://localhost:5267/fonts/geist-latin-wght.woff2) format("woff2-variations"); font-weight: 400 600; unicode-range: U+0-FF; }',
+      '@font-face { font-family: "Geist Mono"; src: url(file:///C:/app/dist/fonts/geist-mono-latin-wght.woff2) format("woff2-variations"); font-weight: 400 600; }',
+    ])
+  })
+  it('the print document carries those rules first in its sheet', () => {
+    const faces = '@font-face { font-family: "Geist"; src: url(http://h/fonts/g.woff2); }'
+    const html = estimateDocument({ title: 'T', code: 'C', date: 'd', rows: [], total: 0, currency: 'USD', faces })
+    expect(styleOf(html).trim().startsWith(faces)).toBe(true)
+  })
+  it('prints what the preview shows: the same lines in the same order, the same figures', () => {
+    const { html, container } = printed()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const printedRows = [...doc.querySelectorAll('tbody tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent])
+    const shown = [...container.querySelectorAll('table.ui-table tbody tr, table.ui-table tfoot tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent])
+    expect(printedRows).toEqual(shown)
+  })
+  it('escapes the user\'s own words into the print document', () => {
+    const { html } = printed()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    expect(doc.querySelector('h1').textContent).toBe('Salt <b>Hours</b>')
+    expect(doc.querySelector('h1 b')).toBeNull()
+  })
+  it('prints once the page has laid out and its face has loaded, then closes', async () => {
+    vi.useFakeTimers()
+    try {
+      const { win } = printed()
+      expect(win.print).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(250)
+      expect(win.print).toHaveBeenCalledTimes(1)
+      expect(win.close).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+  it('estimateDocument is pure: the same input, the same document', () => {
+    const input = { title: 'T', code: 'C', date: '1/1/2026', rows: [{ label: 'a', amount: 1 }], total: 1, currency: 'USD', faces: '' }
+    expect(estimateDocument(input)).toBe(estimateDocument(input))
   })
 })

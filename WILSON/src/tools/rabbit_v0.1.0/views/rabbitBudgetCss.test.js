@@ -46,6 +46,10 @@ const FILES = {
   // create / edit dialog and relation pickers. B5 surface 3: the tab strip
   // and the shell — nothing is staged; the whole file is read.
   budget: { file: './BudgetView.jsx', prefix: 'rb-budget-', min: 3000 },
+  // B5 surface 5: the client estimate — the preview on the paper (C9) and
+  // the print document in the app's face (R3-27). It writes no style: the
+  // Estimate column's width is the sheet's, read by the kit Th.
+  client: { file: './budget/ClientViewTab.jsx', prefix: 'rb-client-', min: 3000 },
   // B5 surface 2b: the lane's one popover (R3-32) and the margin &
   // contingency editor on it, which Crew and Talent take next.
   pop: { file: './budget/BudgetPopover.jsx', prefix: 'rb-pop-', min: 1000 },

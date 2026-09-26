@@ -859,6 +859,70 @@
      and the one scroller. */
   .rb-budget-panel { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--spacing-gutter); }
 
+  /* ═══ ClientViewTab (surface 5) ═══════════════════════════════════════════
+     The client estimate's on-screen preview (R3-39, C9). It was a near-white
+     card with 9.5px metadata; it is a document frame on the paper now, so the
+     kit Table's raised head and foot show as bands inside the hairline. The
+     PRINTED estimate stays white paper — ClientViewTab's `estimateDocument`
+     writes it from the same tokens resolved to values (R3-27). */
+  .rb-client-tab { display: flex; flex-direction: column; gap: 16px; }
+  .rb-client-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .rb-client-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-client-glyph { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-2); }
+  /* The tab's eyebrow: the Label step in the second ink (it was orange). */
+  .rb-client-eyebrow {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: var(--text-label--font-weight);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rb-client-lede { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-2); }
+  /* The Estimate column holds `$1,234,567` in the 13px mono and its header. */
+  .rb-client-sheet {
+    --rb-client-amount: 160px;
+    padding: var(--spacing-gutter);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
+  .rb-client-project {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    color: var(--color-ink);
+    margin-bottom: 4px;
+  }
+  .rb-client-sub { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-2); margin-bottom: 16px; }
+  .rb-client-meta { display: flex; gap: 32px; margin-bottom: 20px; }
+  .rb-client-meta-label {
+    display: block;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: var(--text-label--font-weight);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rb-client-meta-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .rb-client-notes { margin-top: 32px; }
+  .rb-client-note-label { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-2); margin-bottom: 4px; }
+  .rb-client-note-box { height: 64px; margin-bottom: 32px; border: 1px solid var(--color-rule); border-radius: var(--radius-control); }
+  .rb-client-sign { display: flex; flex-direction: column; gap: 16px; font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink); }
+  .rb-client-sign-row { display: flex; align-items: flex-end; gap: 8px; }
+  /* A line to sign on, in the third ink: the hairline is 14% ink and would
+     not read as a line to write on. */
+  .rb-client-sign-line { flex: 1 1 auto; height: 18px; border-bottom: 1px solid var(--color-ink-3); }
+  .rb-client-sign-line[data-short="true"] { flex: 0 0 200px; }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped: its twin here with the
      same selector and `transition: none` alone. THE LAST BLOCK OF THE LAYER:

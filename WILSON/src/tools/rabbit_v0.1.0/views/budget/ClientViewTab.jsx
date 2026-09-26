@@ -7,10 +7,117 @@
 // NO subtotals visible to client.
 // NO contingency percentage visible — contingency shown as a flat line item.
 // Includes print/export functionality.
+//
+// UI overhaul B5 (2026-09-26), R3-27 / R3-39 / C9:
+//   · The on-screen preview is a document frame on the paper — the kit Table
+//     (its total in the table's <tfoot>), the Label step over Dense values —
+//     not a near-white card (C9: no white surface on screen).
+//   · The PRINTED estimate, the one document that leaves the building, is
+//     white paper and is set in the app's face at the app's scale. It was a
+//     second stylesheet in Courier New with 9px headers. `estimateDocument`
+//     builds it from the kit's own tokens resolved to literal values (the
+//     print window is about:blank, so no custom property reaches it), carries
+//     the app's own @font-face rules for Geist (`appFontFaces`), and prints
+//     once the face has loaded. It is exported so a test renders it.
+//   · The preview and the print are built from ONE list of rows, so the
+//     preview is what prints: the same lines, the same order, the same
+//     figures (formatMoney, one locale).
 
 import { useMemo, useRef } from 'react'
 import { Eye, Printer } from 'lucide-react'
-import { formatMoney } from '../../components/CurrencyDisplay'
+import { Table, Th, Td, Row } from '../../../../ui/Table'
+import { Button } from '../../../../ui/Button'
+import { FONT_SANS, FONT_MONO, TYPE, LEADING, TRACKING, WEIGHT, INK_LIGHT, RULE_LIGHT } from '../../../../ui/tokens.js'
+import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
+import '../rabbitBudget.css'
+
+/** Text into HTML: a line's label and the project's title are the user's own
+    words, and the print window parses what it is given. */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+/**
+ * The app's own @font-face rules for its two faces, read from the page that
+ * prints, each url() made absolute against the sheet that holds it. The print
+ * window has none of the app's stylesheets, so it gets the same rules — the
+ * same files, weights and unicode ranges — rather than a copy that could
+ * drift from index.css. (The window shares its opener's origin, so the files
+ * load; a sheet the page cannot read is skipped.)
+ */
+export function appFontFaces(doc = document) {
+  const out = []
+  const visit = (rules, base) => {
+    for (const rule of rules) {
+      if (rule.cssRules) { visit(rule.cssRules, base); continue }
+      if (!/^@font-face/i.test(rule.cssText || '')) continue
+      if (!/Geist/.test(rule.style?.getPropertyValue('font-family') || '')) continue
+      out.push(rule.cssText.replace(/url\((['"]?)([^'")]+)\1\)/g, (m, q, url) => `url(${new URL(url, base).href})`))
+    }
+  }
+  for (const sheet of doc.styleSheets) {
+    let rules
+    try { rules = sheet.cssRules } catch { continue }
+    visit(rules, sheet.href || doc.baseURI)
+  }
+  return out.join('\n        ')
+}
+
+/**
+ * The printed client estimate, as one HTML document.
+ *   rows:     [{ label, amount }] — the same list the preview draws
+ *   faces:    the @font-face rules the window loads (appFontFaces())
+ */
+export function estimateDocument({ title, code, date, rows, total, currency, faces = '' }) {
+  // The light ink at the plan's 72% screen, for quiet text on the white page
+  // (6.9:1 over white).
+  const quiet = `color-mix(in srgb, ${INK_LIGHT} 72%, transparent)`
+  const label = `font-size: ${TYPE.label}px; line-height: ${LEADING.label}; font-weight: ${WEIGHT.label}; letter-spacing: ${TRACKING.label}; text-transform: uppercase; color: ${quiet};`
+  const lines = rows
+    .map((r) => `<tr><td>${esc(r.label)}</td><td class="money">${esc(formatMoney(r.amount, currency))}</td></tr>`)
+    .join('')
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title || 'Budget')} - Client estimate</title>
+      <style>
+        ${faces}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: ${FONT_SANS}; font-size: ${TYPE.dense}px; line-height: ${LEADING.dense}; color: ${INK_LIGHT}; padding: 40px; }
+        h1 { font-size: ${TYPE.h1}px; line-height: ${LEADING.h1}; font-weight: ${WEIGHT.h1}; letter-spacing: ${TRACKING.h1}; margin-bottom: 4px; }
+        .sub { color: ${quiet}; margin-bottom: 20px; }
+        .meta { display: flex; gap: 40px; margin-bottom: 24px; }
+        .meta label { display: block; ${label} }
+        .figure { font-family: ${FONT_MONO}; font-variant-numeric: tabular-nums; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        th { text-align: left; padding: 8px 12px; border-bottom: 1px solid ${RULE_LIGHT}; ${label} }
+        td { padding: 8px 12px; border-bottom: 1px solid ${RULE_LIGHT}; }
+        th:last-child, td:last-child { text-align: right; }
+        td.money { font-family: ${FONT_MONO}; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .total td { border-top: 1px solid ${INK_LIGHT}; border-bottom: 0; font-size: ${TYPE.h3}px; line-height: ${LEADING.h3}; font-weight: ${WEIGHT.h3}; padding-top: 12px; }
+        .note { color: ${quiet}; margin-top: 32px; }
+        .signature { margin-top: 48px; }
+        .signature div + div { margin-top: 16px; }
+        .signature .line { border-bottom: 1px solid ${INK_LIGHT}; width: 200px; height: 20px; display: inline-block; margin-left: 8px; }
+      </style></head><body>
+        <h1>${esc(title || 'Project')}</h1>
+        <p class="sub">Estimated budget</p>
+        <div class="meta">
+          <div><label>Project code</label><span class="figure">${esc(code || '--')}</span></div>
+          <div><label>Date</label><span class="figure">${esc(date)}</span></div>
+        </div>
+        <table>
+          <thead><tr><th>Item</th><th>Estimate</th></tr></thead>
+          <tbody>
+            ${lines}
+            <tr class="total"><td>Total</td><td class="money">${esc(formatMoney(total, currency))}</td></tr>
+          </tbody>
+        </table>
+        <p class="note">Note:</p>
+        <div class="signature">
+          <div>Estimate approved by: <span class="line"></span></div>
+          <div>Approver signature: <span class="line"></span></div>
+          <div>Date signed: <span class="line"></span></div>
+        </div>
+      </body></html>`
+}
 
 export default function ClientViewTab({ budget, budgetHook, project, tasks, roleRates, expensesHook, currency }) {
   const printRef = useRef(null)
@@ -68,7 +175,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
     // Add expenses as a single line
     if (expenseTotal > 0) {
-      items.push({ label: 'Expenses / Travel', estimate: expenseTotal })
+      items.push({ label: 'Expenses / travel', estimate: expenseTotal })
     }
 
     // Sort by estimate descending
@@ -83,186 +190,106 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
   const markupAmt      = subtotalBeforeExtras * (markupPct / 100)
   const grandTotal     = subtotalBeforeExtras + contingencyAmt + markupAmt
 
+  // ONE list for the preview and the print: the line items, then contingency
+  // as a flat dollar line and the markup as "Production fee" — NO percentage
+  // shown on either — each only when it is more than zero.
+  const estimateRows = [
+    ...clientLineItems.map(r => ({ label: r.label, amount: r.estimate })),
+    ...(contingencyAmt > 0 ? [{ label: 'Contingency', amount: contingencyAmt }] : []),
+    ...(markupAmt > 0 ? [{ label: 'Production fee', amount: markupAmt }] : []),
+  ]
+  const today = new Date().toLocaleDateString()
+
   function handlePrint() {
     const el = printRef.current
     if (!el) return
     const printWin = window.open('', '_blank', 'width=800,height=1100')
     if (!printWin) return
 
-    const lineRows = clientLineItems
-      .map(r => `<tr><td>${r.label}</td><td>${formatMoney(r.estimate, currency)}</td></tr>`)
-      .join('')
-
-    const contingencyRow = contingencyAmt > 0
-      ? `<tr><td>Contingency</td><td>${formatMoney(contingencyAmt, currency)}</td></tr>`
-      : ''
-    const markupRow = markupAmt > 0
-      ? `<tr><td>Production Fee</td><td>${formatMoney(markupAmt, currency)}</td></tr>`
-      : ''
-
     // Session 25: the title and code below were project.name / project.code.
     // NEITHER has ever been a column. The project title is 'title', and the
     // code the app actually writes is 'project_code'
     // (ProjectSummaryView.jsx:605) — so this printed "Project" and "--" on
     // every cloud project, on the one document that leaves the building.
-    printWin.document.write(`
-      <!DOCTYPE html><html><head><title>${project?.title || 'Budget'} - Client Estimate</title>
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Courier New', monospace; padding: 40px; color: #1c1917; }
-        h1 { font-size: 18px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
-        h2 { font-size: 13px; color: #78716c; margin-bottom: 20px; }
-        .meta { display: flex; gap: 40px; margin-bottom: 24px; font-size: 11px; }
-        .meta-item label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #78716c; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-        th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; padding: 8px 12px; border-bottom: 2px solid #1c1917; }
-        th:last-child { text-align: right; }
-        td { font-size: 11px; padding: 6px 12px; border-bottom: 1px solid #e7e5e4; }
-        td:last-child { text-align: right; }
-        .total-row td { border-top: 2px solid #1c1917; font-weight: bold; font-size: 13px; padding-top: 12px; }
-        .note { font-size: 10px; color: #78716c; margin-top: 32px; }
-        .signature { margin-top: 48px; font-size: 10px; }
-        .signature .line { border-bottom: 1px solid #1c1917; width: 200px; height: 20px; display: inline-block; margin-left: 8px; }
-      </style></head><body>
-        <h1>${project?.title || 'Project'}</h1>
-        <h2>Estimated Budget</h2>
-        <div class="meta">
-          <div class="meta-item"><label>Project Code</label>${project?.project_code || '--'}</div>
-          <div class="meta-item"><label>Date</label>${new Date().toLocaleDateString()}</div>
-        </div>
-        <table>
-          <thead><tr><th>Item</th><th>Estimate</th></tr></thead>
-          <tbody>
-            ${lineRows}
-            ${contingencyRow}
-            ${markupRow}
-            <tr class="total-row"><td>Total</td><td>${formatMoney(grandTotal, currency)}</td></tr>
-          </tbody>
-        </table>
-        <div class="note">Note:</div>
-        <div class="signature" style="margin-top: 48px;">
-          <div>Estimate Approved by: <span class="line"></span></div>
-          <div style="margin-top: 16px;">Approver Signature: <span class="line"></span></div>
-          <div style="margin-top: 16px;">Date Signed: <span class="line"></span></div>
-        </div>
-      </body></html>
-    `)
+    printWin.document.write(estimateDocument({
+      title: project?.title,
+      code: project?.project_code,
+      date: today,
+      rows: estimateRows,
+      total: grandTotal,
+      currency,
+      faces: appFontFaces(),
+    }))
     printWin.document.close()
     printWin.focus()
-    setTimeout(() => { printWin.print(); printWin.close() }, 250)
+    // The face is a web font now: once the page has laid out (the same 250ms
+    // as before) wait for it to load, so the print is never set in a fallback.
+    setTimeout(() => {
+      const ready = printWin.document.fonts?.ready || Promise.resolve()
+      ready.then(() => { printWin.print(); printWin.close() })
+    }, 250)
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="rb-client-tab">
       {/* Header + Print */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Eye className="w-5 h-5" style={{ color: '#fb923c' }} />
-          <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
-            Client View
-          </span>
-          <span className="text-dense" style={{ color: '#78716c' }}>
-            Clean estimate for client presentation
-          </span>
+      <div className="rb-client-head">
+        <div className="rb-client-heading">
+          <Eye className="rb-client-glyph" aria-hidden="true" />
+          <span className="rb-client-eyebrow">Client view</span>
+          <span className="rb-client-lede">Clean estimate for client presentation</span>
         </div>
-        <button type="button" onClick={handlePrint}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <Printer className="w-3.5 h-3.5" /> Print / Export
-        </button>
+        <Button variant="secondary" size="sm" Icon={Printer} onClick={handlePrint}>
+          Print / export
+        </Button>
       </div>
 
-      {/* Preview card */}
-      <div ref={printRef} className="rounded-control p-6" style={{ backgroundColor: '#fafaf9', border: '1px solid #d6d3d1' }}>
-        <h2 className="text-h1 font-semibold mb-1" style={{ color: '#1c1917' }}>
-          {project?.title || 'Project'}
-        </h2>
-        <p className="text-dense mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
+      {/* Preview — the document, on the paper */}
+      <div ref={printRef} className="rb-client-sheet">
+        <h2 className="rb-client-project">{project?.title || 'Project'}</h2>
+        <p className="rb-client-sub">Estimated budget</p>
 
-        <div className="flex gap-8 mb-5 text-dense font-mono">
+        <div className="rb-client-meta">
           <div>
-            <span className="text-label uppercase block" style={{ color: '#78716c' }}>Project Code</span>
-            <span style={{ color: '#1c1917' }}>{project?.project_code || '--'}</span>
+            <span className="rb-client-meta-label">Project code</span>
+            <span className="rb-client-meta-value">{project?.project_code || '--'}</span>
           </div>
           <div>
-            <span className="text-label uppercase block" style={{ color: '#78716c' }}>Date</span>
-            <span style={{ color: '#1c1917' }}>{new Date().toLocaleDateString()}</span>
+            <span className="rb-client-meta-label">Date</span>
+            <span className="rb-client-meta-value">{today}</span>
           </div>
         </div>
 
-        {/* Line items table — NO subtotals, NO contingency % */}
-        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #1c1917' }}>
-              <th className="text-left text-label uppercase py-2 px-3" style={{ color: '#44403c' }}>
-                Item
-              </th>
-              <th className="text-right text-label uppercase py-2 px-3" style={{ color: '#44403c' }}>
-                Estimate
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {clientLineItems.map(row => (
-              <tr key={row.label} style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>{row.label}</td>
-                <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
-                  {formatMoney(row.estimate, currency)}
-                </td>
-              </tr>
-            ))}
-
-            {/* Contingency as a flat dollar line item — NO percentage shown */}
-            {contingencyAmt > 0 && (
-              <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>
-                  Contingency
-                </td>
-                <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
-                  {formatMoney(contingencyAmt, currency)}
-                </td>
-              </tr>
-            )}
-
-            {/* Markup as "Production Fee" — NO percentage shown */}
-            {markupAmt > 0 && (
-              <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>
-                  Production Fee
-                </td>
-                <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
-                  {formatMoney(markupAmt, currency)}
-                </td>
-              </tr>
-            )}
-
-            {/* Grand total */}
-            <tr style={{ borderTop: '2px solid #1c1917' }}>
-              <td className="text-dense font-semibold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
-              <td className="text-dense font-mono tabular-nums font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
-                {formatMoney(grandTotal, currency)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        {/* Line items — NO subtotals, NO contingency % */}
+        <Table
+          head={<Row><Th>Item</Th><Th numeric width="var(--rb-client-amount)">Estimate</Th></Row>}
+          foot={<Row><Td>Total</Td><Td numeric><CurrencyDisplay value={grandTotal} currency={currency} /></Td></Row>}
+        >
+          {estimateRows.map(row => (
+            <Row key={row.label}>
+              <Td>{row.label}</Td>
+              <Td numeric><CurrencyDisplay value={row.amount} currency={currency} /></Td>
+            </Row>
+          ))}
+        </Table>
 
         {/* Note + Signature area */}
-        <div className="mt-8">
-          <p className="text-dense mb-1" style={{ color: '#78716c' }}>Note:</p>
-          <div className="h-16 rounded-control mb-8" style={{ border: '1px solid #e7e5e4' }} />
+        <div className="rb-client-notes">
+          <p className="rb-client-note-label">Note:</p>
+          <div className="rb-client-note-box" />
 
-          <div className="flex flex-col gap-4 text-dense" style={{ color: '#1c1917' }}>
-            <div className="flex items-end gap-2">
-              <span>Estimate Approved by:</span>
-              <div className="flex-1" style={{ borderBottom: '1px solid #1c1917', height: 18 }} />
+          <div className="rb-client-sign">
+            <div className="rb-client-sign-row">
+              <span>Estimate approved by:</span>
+              <span className="rb-client-sign-line" />
             </div>
-            <div className="flex items-end gap-2">
-              <span>Approver Signature:</span>
-              <div className="flex-1" style={{ borderBottom: '1px solid #1c1917', height: 18 }} />
+            <div className="rb-client-sign-row">
+              <span>Approver signature:</span>
+              <span className="rb-client-sign-line" />
             </div>
-            <div className="flex items-end gap-2">
-              <span>Date Signed:</span>
-              <div style={{ borderBottom: '1px solid #1c1917', height: 18, width: 200 }} />
+            <div className="rb-client-sign-row">
+              <span>Date signed:</span>
+              <span className="rb-client-sign-line" data-short="true" />
             </div>
           </div>
         </div>
