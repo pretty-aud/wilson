@@ -7,8 +7,7 @@
 // token, and no state decided in a style or a className.
 //
 // FILES grows one surface per commit (B4 lands one commit per surface): a
-// file joins here in the commit that moves it onto this sheet. A file moved
-// on in steps waits in STAGED, guarded without the functions still to come.
+// file joins here, whole, in the commit that moves it onto this sheet.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -20,8 +19,10 @@ import {
   strayClasses, unscopedSelectors, importedSheet, classesWritten, unreadableAttributes,
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, kitFights,
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
-  jsxTags,
+  jsxTags, cssCode, selectorsOf, lastCompound, specificity, gt,
 } from '../rabbitCssGuards.js'
+import { contrast, over } from '../../../ui/contrast.js'
+import { PAPER_RAISED, INK, INK_2, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
@@ -53,27 +54,16 @@ const FILES = {
   audit: { file: '../components/FileAuditDrawer.jsx', prefix: 'rb-audit-' },
   relink: { file: '../components/RelinkDialog.jsx', prefix: 'rb-relink-' },
 }
-/** A file part-way onto this sheet: every guard below reads it WITHOUT the
-    top-level functions a later step restyles, and it moves into FILES, whole,
-    in that step. Empty since B4c surface 6's step C moved EntityListView
-    into FILES with its detail popup on the kit; the CONTROL below still
-    proves the cut on a source of its own. */
-const STAGED = {}
-/** A source without the named top-level functions: each runs from its
-    `function Name(` line to the next top-level function. */
-const withoutFunctions = (src, names) => src.split(/\n(?=function \w+\()/)
-  .filter((chunk) => !names.some((n) => chunk.startsWith(`function ${n}(`)))
-  .join('\n')
-/** Every surface the guards read: FILES whole, STAGED without its functions. */
-const SURFACES = { ...FILES, ...STAGED }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
 const STYLES = {
   filesTable: ["{{ '--rb-files-max': maxHeight ? `${maxHeight}px` : undefined }}"],
   fileManager: ["{{ '--rb-fm-pct': `${copyProgress.percent}%` }}"],
 }
-const source = Object.fromEntries(Object.entries(SURFACES).map(([k, { file, without }]) =>
-  [k, without ? withoutFunctions(read(file), without) : read(file)]))
+// Every file is read whole. (B4c's STAGED — a file part-way onto the sheet,
+// read without the functions a later step restyled — emptied at surface 6's
+// step C and went with its plumbing in review round one's corrections.)
+const source = Object.fromEntries(Object.entries(FILES).map(([k, { file }]) => [k, read(file)]))
 const code = Object.fromEntries(Object.entries(source).map(([k, s]) => [k, normal(jsCode(s))]))
 const jsx = Object.values(code).join('\n')
 const ELEMENTS = Object.values(source).flatMap(elementsOf)
@@ -82,7 +72,7 @@ const ELEMENTS = Object.values(source).flatMap(elementsOf)
 describe('rabbitFiles.css: one layer, its own classes, every selector scoped', () => {
   it('the sheet and every file were read (every assertion below is an empty list otherwise)', () => {
     expect(rulesOf(sheet).length).toBeGreaterThan(15)
-    for (const [key, { file }] of Object.entries(SURFACES)) expect(source[key].length, file).toBeGreaterThan(3000)
+    for (const [key, { file }] of Object.entries(FILES)) expect(source[key].length, file).toBeGreaterThan(3000)
   })
   it('the @layer statement comes first and every rule sits inside the one components block', () => {
     const { statementFirst, rest } = outsideLayer(sheet)
@@ -106,7 +96,7 @@ describe('rabbitFiles.css: one layer, its own classes, every selector scoped', (
 
 /* ── 2. imports ────────────────────────────────────────────────────────────── */
 describe('every B4 file on this sheet imports it', () => {
-  for (const [key, { file }] of Object.entries(SURFACES)) {
+  for (const [key, { file }] of Object.entries(FILES)) {
     it(`${file} imports rabbitFiles.css by a path that resolves to it`, () => {
       expect(importedSheet(file, source[key], 'rabbitFiles.css')).toBe(SHEET)
     })
@@ -116,7 +106,7 @@ describe('every B4 file on this sheet imports it', () => {
 /* ── 3. classes ────────────────────────────────────────────────────────────── */
 const declared = new Set(selectorClasses(sheet).filter((c) => LANE_RE.test(c)))
 const writtenIn = (key) => new Set(classesWritten(jsCode(source[key]), LANE))
-const written = new Set(Object.keys(SURFACES).flatMap((k) => [...writtenIn(k)]))
+const written = new Set(Object.keys(FILES).flatMap((k) => [...writtenIn(k)]))
 
 describe('every B4 class is both declared and written', () => {
   it('no rule without a className that uses it', () => {
@@ -126,7 +116,7 @@ describe('every B4 class is both declared and written', () => {
     expect([...written].filter((c) => !declared.has(c))).toEqual([])
   })
   it('each file writes only its own prefix', () => {
-    for (const [key, { file, prefix }] of Object.entries(SURFACES)) {
+    for (const [key, { file, prefix }] of Object.entries(FILES)) {
       expect(writtenIn(key).size, file).toBeGreaterThan(0)
       expect([...writtenIn(key)].filter((c) => !c.startsWith(prefix)), file).toEqual([])
     }
@@ -173,35 +163,17 @@ describe('rabbitFiles.css writes no colour that is not a token', () => {
 
 /* ── 7. the state extraction ─────────────────────────────────────────────── */
 describe('no state is decided in a style or a className', () => {
-  for (const [key, { file, without }] of Object.entries(SURFACES)) {
-    it(`${file}${without ? ` (without ${without.join(', ')})` : ''}: B1's scanner finds nothing`, () => {
+  for (const [key, { file }] of Object.entries(FILES)) {
+    it(`${file}: B1's scanner finds nothing`, () => {
       expect(inlineStateTernaries(source[key])).toEqual([])
     })
-    it(`${file}${without ? ` (without ${without.join(', ')})` : ''}: every style is an allowed geometry, every className a literal`, () => {
+    it(`${file}: every style is an allowed geometry, every className a literal`, () => {
       expect(stateLeaks(source[key], STYLES[key] || [], [])).toEqual([])
     })
   }
   it('CONTROL: a hover colour in a style and a state in a className template are caught', () => {
     expect(inlineStateTernaries("<b style={{ color: hovered ? '#fb923c' : '#78716c' }} />").length).toBeGreaterThan(0)
     expect(stateLeaks("<b className={`x ${on ? 'a' : 'b'}`} />", [], []).length).toBeGreaterThan(0)
-  })
-  it('CONTROL: a staged file is read without exactly the functions it names — each still in the file — and nothing else', () => {
-    const fns = (s) => [...s.matchAll(/^function (\w+)\(/gm)].map((m) => m[1])
-    // The cut itself, on a source of its own (STAGED may be empty): the named
-    // function goes, from its line to the next one, and nothing else does.
-    const fake = 'import x from "y"\nfunction A() {\n  return 1\n}\n\nfunction B() {\n  return <b className={`z ${on ? "p" : "q"}`} />\n}\n\nfunction C() {}\n'
-    expect(fns(withoutFunctions(fake, ['B']))).toEqual(['A', 'C'])
-    expect(withoutFunctions(fake, ['B'])).not.toMatch(/className/)
-    expect(withoutFunctions(fake, [])).toBe(fake)
-    for (const [key, { file, without }] of Object.entries(STAGED)) {
-      const whole = read(file)
-      // Each named function is really there (a rename would silently guard it)…
-      for (const n of without) expect(fns(whole), `${file} has ${n}`).toContain(n)
-      // …and only those are left out: every other function is guarded.
-      expect(fns(source[key])).toEqual(fns(whole).filter((n) => !without.includes(n)))
-      // The whole file, as read, still fails the scanners, which is why it is staged.
-      expect(stateLeaks(whole, STYLES[key] || [], []).length).toBeGreaterThan(0)
-    }
   })
 })
 
@@ -268,5 +240,204 @@ describe('LevelsView and ExperiencesView are config only (B4c, R4-11)', () => {
       .toEqual(expect.arrayContaining(['a style', '#fb923c']))
     expect(wrapperLeaks(src.replace("  deleteMethod: 'deleteLevel',", "  deleteMethod: 'deleteLevel',\n  dateFocusRing: 'focus:ring-2',")))
       .toEqual(["'focus:ring-2'"])
+  })
+})
+
+/* ── 9. reduced motion (plan §3.4) ───────────────────────────────────────── */
+/** Selector text with its whitespace normalised, to compare a selector with its twin. */
+const sameSel = (s) => s.replace(/\s+/g, ' ').trim()
+/** The sheet's `prefers-reduced-motion: reduce` blocks: where each opens and
+    closes in the comment-free text, and what it holds. */
+function reducedMotionBlocks(css) {
+  const c = cssCode(css)
+  const out = []
+  const re = /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*\{/g
+  let m
+  while ((m = re.exec(c))) {
+    let depth = 1, i = re.lastIndex
+    for (; i < c.length && depth > 0; i++) { if (c[i] === '{') depth++; else if (c[i] === '}') depth-- }
+    out.push({ start: m.index, end: i, text: c.slice(re.lastIndex, i - 1) })
+  }
+  return out
+}
+/** Every selector the sheet gives a transition, against the reduced-motion
+    blocks: `uncovered` has no twin in one, `late` is declared after its twin
+    (source order would hand it the motion back), `loud` is a rule in a block
+    that does more than stop a transition. */
+function motionCoverage(css) {
+  const c = cssCode(css)
+  const blocks = reducedMotionBlocks(css)
+  const inBlock = (i) => blocks.some((b) => i >= b.start && i < b.end)
+  const moving = []
+  for (const m of c.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim()
+    if (sel.startsWith('@') || inBlock(m.index)) continue
+    if (!/(?:^|;)\s*transition(?:-[a-z]+)?\s*:\s*(?!none\s*(?:;|$))/.test(m[2])) continue
+    for (const one of selectorsOf(sel)) moving.push({ sel: sameSel(one), at: m.index })
+  }
+  const quiet = new Map()
+  const loud = []
+  for (const b of blocks) {
+    for (const r of rulesOf(b.text)) {
+      if (!/^\s*transition\s*:\s*none\s*;?\s*$/.test(r.body)) loud.push(`${sameSel(r.sel)} { ${r.body.trim()} }`)
+      for (const one of selectorsOf(r.sel)) quiet.set(sameSel(one), b.start)
+    }
+  }
+  return {
+    blocks: blocks.length,
+    moving: moving.length,
+    uncovered: moving.filter((x) => !quiet.has(x.sel)).map((x) => x.sel),
+    late: moving.filter((x) => quiet.has(x.sel) && x.at > quiet.get(x.sel)).map((x) => x.sel),
+    loud,
+  }
+}
+
+describe('reduced motion (plan §3.4): every transition this sheet declares is stopped in its one block', () => {
+  it('one block; each rule in it only `transition: none`, never a blanket selector; every selector given a transition has its twin there, none declared after it', () => {
+    const cov = motionCoverage(sheet)
+    expect(cov.blocks).toBe(1)
+    // Read, not vacuous: the sheet declares 25 transitions today.
+    expect(cov.moving).toBeGreaterThan(20)
+    expect(cov.loud).toEqual([])
+    expect(cov.uncovered).toEqual([])
+    expect(cov.late).toEqual([])
+    // C5: never a `*` — the pet's keyframes must keep playing.
+    for (const b of reducedMotionBlocks(sheet)) expect(b.text).not.toMatch(/(^|[\s,])\*(\s|,|\{|$)/)
+  })
+  it('CONTROL: a transition added above the block, one added after it, and a block rule that does more than stop one are each caught', () => {
+    const at = sheet.indexOf('@media (prefers-reduced-motion: reduce)')
+    expect(at).toBeGreaterThan(0)
+    expect(motionCoverage(`${sheet.slice(0, at)}.rb-files-x { transition: opacity 1s; }\n  ${sheet.slice(at)}`).uncovered)
+      .toEqual(['.rb-files-x'])
+    const end = sheet.lastIndexOf('}')
+    expect(motionCoverage(`${sheet.slice(0, end)}  .rb-files-cell-input { transition: color 1s; }\n${sheet.slice(end)}`).late)
+      .toEqual(['.rb-files-cell-input'])
+    const loud = sheet.replace('.rb-ent-prop-text { transition: none; }', '.rb-ent-prop-text { transition: none; opacity: 1; }')
+    expect(loud).not.toBe(sheet)
+    expect(motionCoverage(loud).loud).toHaveLength(1)
+  })
+})
+
+/* ── 10. B4c review round one: geometry jsdom cannot lay out ─────────────── */
+// Each finding here was measured in the running app (Playwright, before and
+// after the fix): a focus ring a clipping box cut, a head 8px too tall, rows
+// a flex column squeezed to 6px, a file name scrolled away, two date fields
+// over each other, a glyph under 3:1. jsdom lays nothing out, so each is
+// pinned as the declaration that fixes it, read off the sheet: an edit that
+// drops one fails here by name.
+/** The declarations the sheet gives exactly `sel` (one selector of a rule's
+    list counts), outside the reduced-motion block, a later one winning. */
+function declsFor(sel, css = sheet) {
+  const out = {}
+  const blocks = reducedMotionBlocks(css)
+  for (const m of cssCode(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (blocks.some((b) => m.index >= b.start && m.index < b.end)) continue
+    if (!selectorsOf(m[1].trim()).map(sameSel).includes(sameSel(sel))) continue
+    for (const d of m[2].matchAll(/(?:^|;)\s*([a-z-]+)\s*:\s*([^;]+)/g)) out[d[1]] = d[2].trim()
+  }
+  return out
+}
+/** A kit rule's value for `prop`, from the first rule in index.css whose
+    selector list holds exactly `sel` and sets it. */
+function kitDecl(sel, prop) {
+  for (const { sel: s, body } of rulesOf(indexCss)) {
+    if (!selectorsOf(s).map(sameSel).includes(sel)) continue
+    const m = body.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`))
+    if (m) return m[1].trim()
+  }
+  return undefined
+}
+/** A white picture under the thumbnail's scrim: the light case the review measured. */
+const WHITE = '#ffffff'
+
+describe('B4c review round one: the geometry the fixtures and jsdom cannot show, pinned as the declarations that fix it', () => {
+  // The kit ring: 2px at a 1px offset — 3px outside a control.
+  const ringWidth = parseFloat(kitDecl(':focus-visible', 'outline'))
+  const ringOffset = parseFloat(kitDecl(':focus-visible', 'outline-offset'))
+
+  it('premise: the kit ring is drawn 3px outside a control, and a -2px offset draws it inside the control\'s own box', () => {
+    expect([ringWidth, ringOffset]).toEqual([2, 1])
+    expect(-2 + ringWidth).toBeLessThanOrEqual(0)
+  })
+
+  it('every ring a clipping cell or label cut is drawn inside its control: ProjectFilesTable\'s icon buttons, FileManager\'s play tile, both pages\' "Select every …", the Assets row\'s "Set thumbnail for …"', () => {
+    for (const sel of [
+      // 2px above and 1px below in the kit's clipping `.ui-td`: 2px cut top and bottom.
+      '.rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn',
+      '.rb-fm-play',
+      // The kit's `.ui-th-label` clips at the button's own box: 3px cut every side.
+      '.rb-asset-check',
+      '.rb-ent-check',
+      // Filling its padding-0 cell: 3px cut every side.
+      '.rb-asset-thumb-set',
+    ]) expect(declsFor(sel)['outline-offset'], sel).toBe('-2px')
+  })
+
+  it('a scroller Tab scrolls a control to the edge of keeps room for the ring — the Control Panel table across, both popups\' property columns down; the in-panel picker\'s rows sit 4px in from theirs', () => {
+    const room = ringWidth + ringOffset
+    expect(parseFloat(declsFor('.rb-files-frame .rb-files-scroll')['scroll-padding-inline'])).toBeGreaterThanOrEqual(room)
+    expect(parseFloat(declsFor('.rb-asset-detail-main')['scroll-padding-block'])).toBeGreaterThanOrEqual(room)
+    expect(parseFloat(declsFor('.rb-ent-detail-main')['scroll-padding-block'])).toBeGreaterThanOrEqual(room)
+    const list = declsFor('.rb-rel-pick-list')
+    expect(list['overflow-y']).toBe('auto')
+    expect(list.padding).toBe('4px')
+    expect(parseFloat(list.padding)).toBeGreaterThanOrEqual(room)
+  })
+
+  it('FileManager\'s head is one 28px row: its tabs at the small control height, over every kit rule that sizes a tab', () => {
+    const sel = '.rb-fm-head .ui-tabs .ui-tab'
+    expect(declsFor(sel).height).toBe('var(--control-sm)')
+    expect(declsFor('.rb-fm-head')['min-height']).toBe('var(--control-sm)')
+    const kitHeights = rulesOf(indexCss)
+      .flatMap(({ sel: s, body }) => (/(?:^|;)\s*height\s*:/.test(body) ? selectorsOf(s) : []))
+      .filter((s) => /\.ui-tab(?![\w-])/.test(lastCompound(s)))
+    expect(kitHeights).toEqual(expect.arrayContaining(['.ui-tab', '.ui-toolbar .ui-tab']))
+    for (const k of kitHeights) expect(gt(specificity(sel), specificity(k)), k).toBeGreaterThan(0)
+  })
+
+  it('RelinkDialog\'s missing files keep their line and the 160px list scrolls: a row never shrinks', () => {
+    expect(declsFor('.rb-relink-missing')).toMatchObject({ display: 'flex', 'flex-direction': 'column', 'max-height': '160px', 'overflow-y': 'auto' })
+    const row = declsFor('.rb-relink-missing-row')
+    // A row clips, so its minimum height is 0: the column squeezed 14 rows
+    // to 6.4px each, and 100 to nothing, instead of scrolling.
+    expect(row.overflow).toBe('hidden')
+    expect(row['flex-shrink']).toBe('0')
+  })
+
+  it('FileAuditDrawer\'s file name stays in view: sticky at the body\'s top on the drawer\'s own ground, a hairline under it, the kit body\'s padding taken back', () => {
+    const band = declsFor('.rb-audit-file')
+    expect(band).toMatchObject({ position: 'sticky', 'border-bottom': '1px solid var(--color-rule)' })
+    expect(band['background-color']).toBe(kitDecl('.ui-drawer', 'background-color'))
+    // The scroller it sticks in is the kit Drawer's body, padded 12px.
+    expect(kitDecl('.ui-drawer-body', 'overflow')).toBe('auto')
+    const pad = kitDecl('.ui-drawer-body', 'padding')
+    expect(pad).toBe('12px')
+    expect(band.margin).toBe(`-${pad} -${pad} 0`)
+    expect(band.padding).toBe(`8px ${pad}`)
+    // Chromium measures a sticky `top` from the scroller's CONTENT edge: the
+    // padding, negative, is the body's top (`top: 0` held it 12px down, over
+    // the first card at rest and under the passing stream once scrolled).
+    expect(band.top).toBe(`-${pad}`)
+  })
+
+  it('the Levels / Experiences popup\'s date fields never outgrow their cell and the 6px they bleed each side (133px in a 94px cell at 1024x700 hid both calendar glyphs)', () => {
+    const date = declsFor('.rb-ent-date')
+    expect(date['margin-inline']).toBe('-6px')
+    expect(date['max-width']).toBe('calc(100% + 12px)')
+  })
+
+  it('the popup thumbnail\'s Change and Remove sit on the raised paper over any picture, at rest and on hover', () => {
+    const sel = '.ui-hover-actions.rb-ent-thumb-acts > .ui-iconbtn.rb-ent-thumb-act'
+    expect(declsFor(sel)['background-color']).toBe('var(--color-paper-raised)')
+    expect(declsFor(`${sel}:hover`)['background-image']).toBe('linear-gradient(var(--color-hover), var(--color-hover))')
+    // Over the kit's hover, which would put its translucent screen back.
+    expect(gt(specificity(sel), specificity('.ui-iconbtn:hover:not(:disabled)'))).toBeGreaterThan(0)
+    // Before: the kit's inks through the scrim over a white picture (2.54, 2.76).
+    expect(contrast(INK_2, over(BACKDROP, WHITE))).toBeLessThan(3)
+    expect(contrast(DANGER, over(BACKDROP, WHITE))).toBeLessThan(3)
+    // After: on the raised paper the picture no longer matters (7.85, 8.52; 12.19 hovered).
+    expect(contrast(INK_2, PAPER_RAISED)).toBeGreaterThan(7)
+    expect(contrast(DANGER, PAPER_RAISED)).toBeGreaterThan(7)
+    expect(contrast(INK, over(HOVER, PAPER_RAISED))).toBeGreaterThan(7)
   })
 })

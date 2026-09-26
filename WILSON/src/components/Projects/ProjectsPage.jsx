@@ -256,6 +256,11 @@ export default function ProjectsPage({ onNavigate }) {
           type:            file.type,
           // The `files` column's name (B4): ProjectFilesTable reads one field.
           size_bytes:      file.size,
+          // 🚨 …and `size`, the saved shape's own name: D.O.G. reads a
+          // project's documents and visual assets from these two arrays by
+          // `doc.size` (DeckOutlineGenerator's project files), so a row
+          // written with `size_bytes` alone reached it as 0 bytes.
+          size:            file.size,
           is_image:        isImg,
           is_core_definer: false,
           document_kind:   isImg ? null : (detectDocumentKind(file.name) || null),

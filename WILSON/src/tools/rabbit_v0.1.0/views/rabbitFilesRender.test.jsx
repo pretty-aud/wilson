@@ -6,13 +6,24 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import ProjectFilesTable, { DOCUMENT_KINDS } from '../components/ProjectFilesTable'
+import ProjectsPage from '../../../components/Projects/ProjectsPage'
 
-import { jsCode } from '../rabbitCssGuards.js'
+import { jsCode, jsxTags } from '../rabbitCssGuards.js'
+
+// The Projects page, mounted for its upload (B4c review round one): its
+// context, permissions and roster, each ONE object for the whole run.
+vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
+vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
+vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => perms }))
+vi.mock('../../../components/TeamMembers/useTeamMembers', () => ({ useTeamMembers: () => team }))
+const rabbit = vi.hoisted(() => ({ current: null }))
+const perms = vi.hoisted(() => ({ role: 'admin', ready: true, can: () => true }))
+const team = vi.hoisted(() => ({ members: [] }))
 
 const here = dirname(fileURLToPath(import.meta.url))
 /** A file's CODE: comments stripped, so prose that names a retired form cannot match. */
@@ -121,17 +132,35 @@ describe('ProjectFilesTable — the four callers', () => {
     'views/intake/IntakePrepare.jsx': 1,
     '../../components/Projects/ProjectDetailPanel.jsx': 1,
   }
+  /** Every `<ProjectFilesTable …>` element in a source, WHOLE: walked to its
+      closing `>` at brace depth 0 (rabbitCssGuards' jsxTags). The first cut,
+      `/<ProjectFilesTable\b[^>]*>/`, stopped at the `>` of the first arrow
+      prop (Summary's `onUpdate={(id, patch) => …}`), so a `variant=` after
+      it was never read (B4c review round one). */
+  const usesIn = (src) => jsxTags(src).filter((t) => /^<ProjectFilesTable(?![\w.])/.test(t))
   it('Intake, Summary (twice) and the Projects page all draw it, and none passes a variant or maps a size', () => {
     let total = 0
     for (const [file, n] of Object.entries(CALLERS)) {
       const src = read(`../${file}`)
-      const uses = src.match(/<ProjectFilesTable\b[^>]*>/gs) || []
+      const uses = usesIn(src)
       expect(uses, file).toHaveLength(n)
       total += uses.length
-      for (const u of uses) expect(u, file).not.toMatch(/variant=/)
+      for (const u of uses) {
+        // The whole element was read: every caller passes a height, and
+        // Summary's comes after its three arrow props.
+        expect(u, file).toMatch(/\smaxHeight=\{\d+\}/)
+        expect(u, file).not.toMatch(/\svariant=/)
+      }
       expect(src, file).not.toMatch(/withDisplaySize/)
     }
     expect(total).toBe(4)
+  })
+  it('CONTROL: a variant after an arrow prop is read (the first cut missed it)', () => {
+    const src = '<ProjectFilesTable files={f} onUpdate={(id, p) => save(id, p)} variant="warm" maxHeight={300} />'
+    expect(src.match(/<ProjectFilesTable\b[^>]*>/gs)[0]).not.toMatch(/\svariant=/)
+    expect(usesIn(src)).toHaveLength(1)
+    expect(usesIn(src)[0]).toMatch(/\svariant=/)
+    expect(usesIn('<ProjectFilesTableX files={f} />')).toEqual([])
   })
   it('the rows that are not `files` rows carry `size_bytes` where they are made', () => {
     expect(read('../views/intake/IntakePrepare.jsx')).toMatch(/size_bytes: f\.size,/)
@@ -139,5 +168,36 @@ describe('ProjectFilesTable — the four callers', () => {
     expect(projects).toMatch(/size_bytes:\s+file\.size,/)
     // The cloud rows are spread, not mapped back to `size`.
     expect(projects).not.toMatch(/size:\s+f\.size_bytes/)
+  })
+})
+
+describe('ProjectsPage — an upload is written in both size spellings', () => {
+  it('a local upload writes `size_bytes` (ProjectFilesTable\'s one field) AND `size` (what D.O.G. reads from the same two arrays)', async () => {
+    // The premise, in D.O.G.'s own source (not edited here): it reads a
+    // project's documents and visual assets by `size`. With `size_bytes`
+    // alone, a file uploaded here reached it as 0 bytes (B4c review round one).
+    const dog = read('../../deck-outline-generator_v0.514/DeckOutlineGenerator.jsx')
+    expect(dog).toMatch(/size: doc\.size \|\| 0/)
+    expect(dog).toMatch(/size: asset\.size \|\| 0/)
+
+    const updateProject = vi.fn(async () => {})
+    rabbit.current = {
+      adapterMode: 'local',
+      projectsIndex: { p1: { id: 'p1', title: 'Salt Hours', documents: [], visualAssets: [] } },
+      updateProject,
+      setActiveProject: vi.fn(),
+    }
+    const { container } = render(<ProjectsPage />)
+    fireEvent.click(screen.getByText('Salt Hours'))
+    const picker = container.querySelector('input[type="file"]')
+    const brief = new File(['hello'], 'brief.txt', { type: 'text/plain' })
+    const board = new File(['12345678'], 'board.png', { type: 'image/png' })
+    fireEvent.change(picker, { target: { files: [brief, board] } })
+    await waitFor(() => expect(updateProject).toHaveBeenCalledTimes(1))
+    const [id, patch] = updateProject.mock.calls[0]
+    expect(id).toBe('p1')
+    // A document to `documents`, a picture to `visualAssets` — each in both spellings.
+    expect(patch.documents.map((f) => [f.name, f.size, f.size_bytes])).toEqual([['brief.txt', 5, 5]])
+    expect(patch.visualAssets.map((f) => [f.name, f.size, f.size_bytes])).toEqual([['board.png', 8, 8]])
   })
 })

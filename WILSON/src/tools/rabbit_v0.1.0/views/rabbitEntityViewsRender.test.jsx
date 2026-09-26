@@ -267,7 +267,8 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     const { container } = mount(p.View)
     const toolbar = container.querySelector('.ui-toolbar')
     for (const el of toolbar.querySelectorAll('.ui-btn, .ui-iconbtn, .ui-input')) expect(el.getAttribute('data-size')).toBe('sm')
-    // C6: the one filled button, dark text on the orange — the kit primary's.
+    // The one filled button: the kit primary — white on the signal fill
+    // (#c2410c, 5.17:1), the kit's own.
     expect(within(toolbar).getByRole('button', { name: `New ${p.noun}` }).getAttribute('data-variant')).toBe('primary')
     const tabs = within(toolbar).getAllByRole('tab')
     expect(tabs.map((t) => t.textContent)).toEqual(['Table', 'Gallery'])
@@ -412,6 +413,27 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
+  it('a press on the backdrop answers the delete question and New as it always did: the row stays, nothing is created — and a press inside either keeps it open', () => {
+    const { ctx } = mount(p.View)
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Delete ${p.noun}` }))
+    const question = screen.getByRole('dialog', { name: `Delete ${p.noun}?` })
+    // CONTROL: a press on the question itself is not a press on its backdrop.
+    fireEvent.mouseDown(question)
+    expect(screen.getByRole('dialog', { name: `Delete ${p.noun}?` })).toBe(question)
+    fireEvent.mouseDown(question.parentElement)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(ctx[p.remove]).not.toHaveBeenCalled()
+    expect(row(p.names[0])).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: `New ${p.noun}` }))
+    const create = screen.getByRole('dialog', { name: `New ${p.noun}` })
+    fireEvent.mouseDown(create)
+    expect(screen.getByRole('dialog', { name: `New ${p.noun}` })).toBe(create)
+    fireEvent.mouseDown(create.parentElement)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(ctx[p.add]).not.toHaveBeenCalled()
+  })
+
   it('New: the kit Fields, the status the kit\'s dot and words, the files picker with a named remove per file; Cancel creates nothing', () => {
     const { ctx } = mount(p.View)
     fireEvent.click(screen.getByRole('button', { name: `New ${p.noun}` }))
@@ -497,6 +519,24 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     fireEvent.click(within(openPopup()).getByRole('button', { name: `Delete ${p.noun}` }))
     expect(screen.queryByRole('dialog', { name: p.names[0] })).toBeNull()
     expect(within(screen.getByRole('dialog', { name: `Delete ${p.noun}?` })).getByText(`This will permanently delete "${p.names[0]}".`)).toBeTruthy()
+  })
+
+  it('its Delete asks with focus on Cancel, as a row\'s Delete does — not on the question\'s ✕, where the popup\'s own close used to send it', () => {
+    const { ctx } = mount(p.View)
+    // Opened from the keyboard's place, so closing the popup hands focus back
+    // to "View details" — in the same commit the question opens.
+    const view = within(row(p.names[0])).getByRole('button', { name: 'View details' })
+    view.focus()
+    fireEvent.click(view)
+    const dialog = screen.getByRole('dialog', { name: p.names[0] })
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: `Delete ${p.noun}` }))
+    const question = screen.getByRole('dialog', { name: `Delete ${p.noun}?` })
+    const cancel = within(question.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' })
+    expect(document.activeElement).toBe(cancel)
+    // …and Cancel answers as it always did: nothing deleted.
+    fireEvent.click(document.activeElement)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(ctx[p.remove]).not.toHaveBeenCalled()
   })
 
   it('W2: the name field edits in place — Enter commits by the page\'s own writer; Escape reverts it and the popup stays, and the next Escape closes it', () => {
@@ -603,6 +643,9 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     expect(within(acts).getByRole('button', { name: 'Change thumbnail' })).toBeTruthy()
     const remove = within(acts).getByRole('button', { name: 'Remove thumbnail' })
     expect(remove.getAttribute('data-danger')).toBe('true')
+    // Both on the raised paper over any picture (the sheet's `.rb-ent-thumb-act`):
+    // through the scrim alone they measured 2.54 and 2.76:1 over a light one.
+    expect(within(acts).getAllByRole('button').map((b) => b.className)).toEqual(['ui-iconbtn rb-ent-thumb-act', 'ui-iconbtn rb-ent-thumb-act'])
     fireEvent.click(remove)
     expect(ctx[p.update]).toHaveBeenCalledWith(p.ids[0], { thumbnail_image: null })
   })

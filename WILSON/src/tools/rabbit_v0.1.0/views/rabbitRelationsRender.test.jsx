@@ -114,9 +114,11 @@ describe('the relations sidebars — one kit Panel, one head language', () => {
     expect(nestingReported(errors)).toBe(false)
   })
 
-  it('the Scenes & Shots head is a row of SIBLINGS — the toggle, then Link scene and Link shot, kit IconButtons at 28px with one glyph each — in the places they were', () => {
+  it('the Scenes & shots head is a row of SIBLINGS — the toggle, then Link scene and Link shot, kit IconButtons at 28px with one glyph each — in the places they were', () => {
     sidebar()
-    const toggle = screen.getByRole('button', { name: 'Scenes & Shots (3)' })
+    // Sentence case (Q2; B4c review round one): the sheet shows it in
+    // capitals, and the name a reader hears is the typed one.
+    const toggle = screen.getByRole('button', { name: 'Scenes & shots (3)' })
     const scene = screen.getByRole('button', { name: 'Link scene' })
     const shot = screen.getByRole('button', { name: 'Link shot' })
     expect([...toggle.parentElement.children]).toEqual([toggle, scene, shot])
@@ -420,7 +422,7 @@ describe('NewTaskSidePopup — on the kit', () => {
     expect(p.onClose).toHaveBeenCalledTimes(2)
   })
 
-  it('W9: Create task asks on the kit Dialog in <body>, in the same words; Cancel and Escape create nothing; Create creates as the browser\'s OK did; window.confirm is never called', () => {
+  it('W9: Create task asks on the kit Dialog in <body>, in the same words, with focus on Create; Cancel and Escape create nothing; a click on Create creates as the browser\'s OK did; window.confirm is never called', () => {
     const confirm = vi.spyOn(window, 'confirm')
     const p = props()
     const { container } = render(<NewTaskSidePopup {...p} />)
@@ -432,7 +434,10 @@ describe('NewTaskSidePopup — on the kit', () => {
     expect(container.contains(dialog)).toBe(false)
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     expect(dialog.querySelector('.ui-dialog-body').textContent).toBe('Create task "Blockout pass"?')
-    // The action has focus, as the browser's OK did: Enter still creates.
+    // The action has focus, as the browser's OK did. What Enter then does is
+    // App.jsx's recorded question, not this dialog's: its window keydown
+    // handler takes Enter on any focused button (it toggles the companion),
+    // so today Enter does NOT create. This asserts the focus, and only that.
     expect(document.activeElement.textContent).toBe('Create')
     expect(document.activeElement.getAttribute('data-variant')).toBe('primary')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))

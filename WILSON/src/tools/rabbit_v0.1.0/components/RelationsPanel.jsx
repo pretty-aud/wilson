@@ -604,7 +604,11 @@ export function NewTaskSidePopup({
           Cancel leaves the draft as it was, Create creates exactly as the
           browser's OK did. 🚨 PORTALLED: the kit Dialog does not portal, and
           this panel is drawn inside other popups' fixed layers. Create takes
-          focus, as the browser's OK did, so Enter still creates. */}
+          focus, as the browser's OK did. Enter on it does NOT create today:
+          App.jsx's window keydown handler takes Enter on any focused button
+          (it toggles the companion) — a recorded question for that handler,
+          not for this dialog (no per-button Enter here: it would fire twice
+          once the handler is fixed). */}
       {confirming && createPortal(
         <Dialog
           width="confirm"
@@ -738,7 +742,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
         {scenesOn && (
           <RelSection
             Icon={Film}
-            title={`Scenes & Shots (${sceneShotCount})`}
+            title={`Scenes & shots (${sceneShotCount})`}
             collapsed={sceneShotCollapsed}
             onToggle={() => toggle('scenes_shots')}
             actions={(

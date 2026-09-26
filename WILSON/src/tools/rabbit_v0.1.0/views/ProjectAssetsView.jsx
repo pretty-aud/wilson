@@ -35,11 +35,10 @@
 
 import { Fragment, useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { v4 as uuidv4 } from 'uuid'
 import {
   Boxes, Plus, Search, Filter, Trash2, AlertTriangle,
   X, FileText, ImagePlus, ImageOff, History,
-  Layers, ArrowUpDown, ChevronDown, ChevronRight,
+  ArrowUpDown, ChevronDown, ChevronRight,
   Save, BookmarkPlus, CheckSquare, Square, MinusSquare,
   Film, Clapperboard, Gamepad2, Sparkles, ListChecks,
 } from 'lucide-react'

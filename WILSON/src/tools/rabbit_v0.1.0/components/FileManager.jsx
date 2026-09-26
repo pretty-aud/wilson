@@ -922,10 +922,14 @@ export default function FileManager({
                       is already tight, and the still frame is the obvious
                       affordance — it is a frame OF the thing it plays. */}
                   {isVideoRow(f) ? (
+                    // Named by what it does: a title alone loses to the
+                    // content, and a poster's alt (the file's name) would
+                    // name it instead (B4c review round one).
                     <button
                       type="button"
                       onClick={() => setPreviewFile(f)}
                       title={`Play ${displayName(f)}`}
+                      aria-label={`Play ${displayName(f)}`}
                       className="rb-fm-play"
                       data-playable="true"
                     >
@@ -1023,12 +1027,15 @@ export default function FileManager({
                 {/* §5d.2, same rule as the table: on a video card the still
                     frame is the play control. On any other card it is inert
                     and named for its file (B4c: a picture tile left it with
-                    no name at all). */}
+                    no name at all). The name is an aria-label, the title's
+                    words: a title loses to the content, so a poster's alt
+                    or the extension label ("PDF") named it instead. */}
                 <button
                   type="button"
                   onClick={isVideoRow(f) ? () => setPreviewFile(f) : undefined}
                   disabled={!isVideoRow(f)}
                   title={isVideoRow(f) ? `Play ${displayName(f)}` : displayName(f)}
+                  aria-label={isVideoRow(f) ? `Play ${displayName(f)}` : displayName(f)}
                   className="rb-fm-play"
                   data-playable={isVideoRow(f) ? 'true' : undefined}
                 >

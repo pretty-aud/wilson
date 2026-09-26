@@ -477,6 +477,10 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     fireEvent.keyDown(desc, { key: 'Escape' })
     expect(screen.getByRole('dialog', { name: 'Mara' })).toBeTruthy()
     expect(within(dialog).queryByRole('textbox', { name: 'Description' })).toBeNull()
+    // REVERTS, not merely closes: the draft is never written — the field
+    // commits on blur, and the Escape takes it away with the draft in it.
+    expect(ctx.updateAsset).not.toHaveBeenCalledWith('a1', { description: 'Changed' })
+    expect(ctx.updateAsset.mock.calls.filter(([, patch]) => 'description' in patch)).toEqual([])
   })
 
   it('the tasks table is the kit Table, dense: a StatusDot and the kit CellSelect in each row, the bid a numeric cell', () => {

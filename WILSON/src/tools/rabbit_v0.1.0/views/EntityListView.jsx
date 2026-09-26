@@ -336,7 +336,8 @@ export default function EntityListView({ entity }) {
               {sorted.length}/{items.length}
             </span>
 
-            {/* The one filled button: dark text on the orange (C6). */}
+            {/* The one filled button: the kit primary, white on the signal
+                fill (#c2410c, 5.17:1) — the kit's own. */}
             <Button size="sm" variant="primary" Icon={Plus} onClick={() => setShowCreatePopup(true)}>
               {`New ${entity.noun}`}
             </Button>
@@ -958,8 +959,8 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                           HoverActions, shown on hover as they were, and on
                           keyboard focus now. */}
                       <HoverActions className="rb-ent-thumb-acts">
-                        <IconButton size="sm" Icon={ImagePlus} title="Change thumbnail" onClick={handleSetThumbnail} />
-                        <IconButton size="sm" Icon={ImageOff} danger title="Remove thumbnail" onClick={handleClearThumbnail} />
+                        <IconButton size="sm" Icon={ImagePlus} className="rb-ent-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        <IconButton size="sm" Icon={ImageOff} danger className="rb-ent-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
                       </HoverActions>
                     </>
                   ) : (
@@ -1121,7 +1122,17 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 // The row's delete, the card's and the detail popup's all ask here, in the
 // same words. Cancel and the backdrop keep the row, as they did; Escape does
 // too now (Q17). 🚨 PORTALLED into <body>, as FileManager's question is.
+//
+// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus`. From the
+// detail popup's Delete the popup closes in the same commit this opens:
+// `autoFocus` puts focus on Cancel during the commit, then the popup's
+// unmount hands focus back to what opened IT, and the kit Dialog's own
+// effect, finding focus outside, lands it on ✕ (B4c review round one). This
+// effect runs after both — a child's effects run before its parent's — so
+// the question opens on Cancel from every path, as it does from a row.
 function ConfirmDialog({ title, message, onConfirm, onCancel }) {
+  const cancelRef = useRef(null)
+  useEffect(() => { cancelRef.current?.focus() }, [])
   return createPortal(
     <Dialog
       width="confirm"
@@ -1130,7 +1141,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
       onClose={onCancel}
       footer={(
         <>
-          <Button autoFocus onClick={onCancel}>Cancel</Button>
+          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
           <Button variant="danger" onClick={onConfirm}>Delete</Button>
         </>
       )}
@@ -1340,7 +1351,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 
 // ─── Bulk select dropdown ───
 // The floating bar's select, in the kit's small well (B2's BulkSelect).
-function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
+function BulkSelect({ label, options, labels, onPick }) {
   return (
     <select
       defaultValue=""
@@ -1350,7 +1361,6 @@ function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
       data-size="sm"
     >
       <option value="" disabled>{label}</option>
-      {allowEmpty && <option value="">None</option>}
       {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
     </select>
   )

@@ -110,6 +110,12 @@
     max-height: var(--rb-files-max);
     scroll-padding-block: var(--table-head) 4px;
   }
+  /* A narrow frame scrolls sideways (the Control Panel's): Tab scrolled the
+     next control until it touched the scroller's edge, and the kit ring drawn
+     outside it (3px) fell past that edge — the icon column's right side was
+     cut (B4c review round one, measured). 4px keeps the whole ring in view:
+     the kit Dialog body's answer (A4-KR-9), across. */
+  .rb-files-frame .rb-files-scroll { scroll-padding-inline: 4px; }
 
   .rb-files-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .rb-files-glyph { width: 14px; height: 14px; flex: none; color: var(--color-ink-3); }
@@ -173,6 +179,13 @@
      (0,4,0)+ against the kit's `.ui-table[data-dense="true"] .ui-td` (0,3,0). */
   .rb-files-frame .rb-files-table .ui-td.rb-files-icon-cell { padding: 2px 6px 1px; }
   .rb-files-frame .rb-files-table .ui-td.rb-files-desc:has(> .rb-files-cell-input) { padding-top: 2px; padding-bottom: 1px; }
+  /* 🚨 Their focus ring is drawn INSIDE the button. The kit's `.ui-td`
+     clips at its padding box (`overflow: hidden`), and the kit ring — 2px at
+     a 1px offset, 3px outside the control — lost 2px top and bottom in the
+     2px / 1px this cell leaves (B4c review round one, measured). The
+     description field beside them draws its ring inside for the same reason
+     (`outline-offset: -2px`, above); the kit's CellSelect does too. */
+  .rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn { outline-offset: -2px; }
 
   /* ═══ FileManager ═════════════════════════════════════════════════════════
      The asset popup's, the task popup's and the scene popup's file section.
@@ -221,6 +234,12 @@
     min-height: var(--control-sm);
     margin-bottom: 8px;
   }
+  /* The kit's Tabs are 36px (`--control-md`) outside a `.ui-toolbar`, and
+     this head is not one: the two tabs took the row to 36 beside the 28px
+     Add files (B4c review round one, measured). The toolbar's own answer,
+     here: (0,3,0), over the kit's `.ui-tab` (0,1,0) and its
+     `.ui-toolbar .ui-tab` (0,2,0). */
+  .rb-fm-head .ui-tabs .ui-tab { height: var(--control-sm); }
   .rb-fm-title-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .rb-fm-title {
     font-size: var(--text-label);
@@ -281,13 +300,18 @@
   .rb-fm-root .rb-fm-table .ui-td.rb-fm-acts-cell { padding-top: 4px; padding-bottom: 3px; }
   .rb-fm-acts { display: flex; align-items: center; gap: 4px; }
 
-  /* The tile is the play control on a video row, inert on any other. */
+  /* The tile is the play control on a video row, inert on any other. Its
+     focus ring is drawn INSIDE it: in the table the kit's `.ui-td` clips at
+     its padding box, and 2px above and 1px below cut the kit ring (3px
+     outside the control) top and bottom (B4c review round one, measured);
+     in the gallery the tile overhangs its 100px well. */
   .rb-fm-play {
     display: block;
     padding: 0;
     border: 0;
     border-radius: var(--radius-control);
     background: none;
+    outline-offset: -2px;
     cursor: default;
   }
   .rb-fm-play[data-playable="true"] { cursor: pointer; }
@@ -621,7 +645,10 @@
   /* The checkbox: always in the head; in a row, on hover, on focus, or while
      ticked (B2's). The column keeps its width at rest (R4-34). A block box,
      centred by its margins: an inline one sat on a line box that took the
-     row to 36.8px (measured). */
+     row to 36.8px (measured). Its focus ring is drawn INSIDE it: in the head
+     it sits in the kit's `.ui-th-label`, which clips (`overflow: hidden`) at
+     the button's own box, so the kit ring (3px outside) was cut on every
+     side (B4c review round one, measured). */
   .rb-asset-check {
     display: flex;
     align-items: center;
@@ -634,6 +661,7 @@
     background-color: transparent;
     border: 0;
     border-radius: var(--radius-control);
+    outline-offset: -2px;
     opacity: 0;
     cursor: pointer;
     transition: opacity var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
@@ -667,7 +695,10 @@
   .rb-asset-thumb-cell .rb-asset-thumb > .ui-iconbtn.rb-asset-thumb-remove:hover { background-color: var(--color-paper-raised); }
   /* No thumbnail: the 36px placeholder, letterboxed, centred in the column
      at every size (R4-04). Its glyph shows while the row is hovered, as it
-     did, and on keyboard focus too. */
+     did, and on keyboard focus too. It fills its cell (padding 0) and the
+     kit's `.ui-td` clips at that edge, so its focus ring is drawn INSIDE it:
+     the kit ring, 3px outside, was cut on every side (B4c review round one,
+     measured). */
   .rb-asset-thumb-set {
     display: flex;
     align-items: center;
@@ -680,6 +711,7 @@
     background-color: transparent;
     border: 0;
     border-radius: var(--radius-control);
+    outline-offset: -2px;
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out;
   }
@@ -961,7 +993,12 @@
   /* The relations column: RelationsPanel's sidebar is the kit Panel at its
      own width (`lg`, 300px) and scrolls itself; this only holds it. */
   .rb-asset-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
-  .rb-asset-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; }
+  /* The properties column is the popup's scroller now, where the kit's body
+     was, so it carries the body's `scroll-padding-block: 4px` (A4-KR-9): Tab
+     scrolled a control to the column's edge and the ring drawn outside it
+     fell past — Add files, Table and Gallery lost 3.4px of it at 1280x700
+     (B4c review round one, measured). */
+  .rb-asset-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; scroll-padding-block: 4px; }
 
   /* The title: the entity icon and the editable name at the H2 step (R4-09),
      in the kit title's own 600 and ink. The icon is the second ink; orange
@@ -1310,7 +1347,11 @@
   }
   /* (0,3,0) over the kit's small well's padding (0,2,0). */
   .rb-rel-pick-field > .ui-input.rb-rel-pick-search-input { padding-left: 28px; }
-  .rb-rel-pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 0; }
+  /* 4px a side (the old list's `px-1`): a row filled the scroller's width,
+     and the scroller clips, so the kit ring (3px outside the row) was cut
+     left and right on every row of the in-panel picker (B4c review round
+     one, measured). The kit Dialog picker's list keeps its 12px. */
+  .rb-rel-pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; }
   .rb-rel-picker .rb-rel-pick-list { padding: 4px 12px; }
   /* A row: the sidebar's 32px row, as a button. A linked row carries the
      kit's selected fill (the signal tint, where the name was orange) and its
@@ -1526,7 +1567,8 @@
     background-color: var(--color-paper-recessed);
   }
   /* Why there is no picture, and the one control that helps when there is
-     one (the kit's primary Button: dark text on the orange, C6). */
+     one (the kit's primary Button: white on the signal fill, #c2410c,
+     5.17:1 — the kit's own). */
   .rb-vid-unavailable {
     display: flex;
     flex-direction: column;
@@ -1748,6 +1790,9 @@
   /* The checkbox: always in the head; in a row, on hover, on focus, or while
      ticked (R4-34, as the Assets page's). The column keeps its width at
      rest. A block box, centred by its margins. */
+  /* Its focus ring is drawn INSIDE it, as the Assets checkbox's is: in the
+     head the kit's `.ui-th-label` clips at the button's own box, and the kit
+     ring (3px outside) was cut on every side (B4c review round one). */
   .rb-ent-check {
     display: flex;
     align-items: center;
@@ -1760,6 +1805,7 @@
     background-color: transparent;
     border: 0;
     border-radius: var(--radius-control);
+    outline-offset: -2px;
     opacity: 0;
     cursor: pointer;
     transition: opacity var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
@@ -1984,8 +2030,10 @@
   /* The relations column holds the kit Panel, which scrolls itself. */
   .rb-ent-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
   /* The properties take what is left: at 94vw with the task form open (a
-     1280px window) they give first, as the old popup did beside the form. */
-  .rb-ent-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; }
+     1280px window) they give first, as the old popup did beside the form.
+     The popup's scroller, so the kit body's `scroll-padding-block: 4px`
+     (A4-KR-9), as the Assets popup's column carries it. */
+  .rb-ent-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; scroll-padding-block: 4px; }
 
   /* The thumbnail beside the name field, as they were. */
   .rb-ent-detail-top { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
@@ -2014,6 +2062,17 @@
     justify-content: center;
     gap: 4px;
     background-color: var(--color-backdrop);
+  }
+  /* 🚨 Each button on the raised paper, so its glyph reads on ANY picture:
+     through the scrim over a light one, the kit's transparent button left
+     Change at 2.54:1 and Remove at 2.76:1 (B4c review round one, measured);
+     on the raised paper they are 7.85 and 8.52. The hover is the kit's 6%
+     screen laid OVER that ground as an image (bins.css's tile), so the ground
+     stays. (0,4,0) over the kit's hover (0,3,0); the Assets card's tools
+     over a picture sit on the paper the same way. */
+  .ui-hover-actions.rb-ent-thumb-acts > .ui-iconbtn.rb-ent-thumb-act { background-color: var(--color-paper-raised); }
+  .ui-hover-actions.rb-ent-thumb-acts > .ui-iconbtn.rb-ent-thumb-act:hover {
+    background-image: linear-gradient(var(--color-hover), var(--color-hover));
   }
   /* No picture: the whole well is the one button it was. At rest the
      entity's glyph, 20px as it was, in the third ink (5.04:1 on the paper;
@@ -2083,11 +2142,17 @@
      an empty one in the third (the second under the hover fill, where the
      third measures 3.98:1). No ring of its own: the kit's one focus
      treatment, drawn inside the field, where R4-11's drift had ring-2 in
-     Levels and ring-1 in Experiences. */
+     Levels and ring-1 in Experiences. Never wider than its cell and the
+     6px it bleeds each side: its own width is 133px, and in the 94px cells
+     of Electron's smallest window (1024x700) with the task form open the
+     first field ran under the second and the second past the column's
+     edge, and neither calendar glyph showed (B4c review round one,
+     measured). */
   .rb-ent-date {
     display: block;
     width: auto;
     min-width: 0;
+    max-width: calc(100% + 12px);
     height: var(--control-sm);
     margin-inline: -6px;
     padding: 0 6px;
@@ -2222,7 +2287,22 @@
      keyframes (EditHistoryDrawer's `.rb-hist-spin`). */
   .rb-audit-spin[data-spinning="true"] { animation: ui-spin 1s linear infinite; }
   .rb-audit-body { display: flex; flex-direction: column; gap: 8px; }
+  /* 🚨 The file's name was in the drawer's fixed head before the kit; it is
+     the body's first line now, so a long stream scrolled it away (B4c review
+     round one). It sticks to the body's top on the drawer's ground, a
+     hairline under it, the band the full width of the body: the kit Drawer
+     pads its body 12px, which the band takes back and gives its text. Its
+     `top` is that padding, negative, as its margin is: Chromium measures a
+     sticky offset from the scroller's CONTENT edge, so `top: 0` held it 12px
+     down — over the first card by 4px at rest, and with the stream passing
+     through the gap above it once scrolled (measured). rabbitShell.css's
+     picker search does the same against the Dialog body's 16px. */
   .rb-audit-file {
+    position: sticky;
+    top: -12px;
+    z-index: 1;
+    margin: -12px -12px 0;
+    padding: 8px 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2230,6 +2310,8 @@
     font-size: calc(var(--text-dense) * var(--mono-size-adjust));
     line-height: var(--text-dense--line-height);
     color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border-bottom: 1px solid var(--color-rule);
   }
   .rb-audit-entry {
     display: flex;
@@ -2331,7 +2413,12 @@
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
   }
+  /* 🚨 `flex-shrink: 0`: a row clips (`overflow: hidden`), so its minimum
+     height is 0 and the 160px column SHRANK the rows to fit instead of
+     scrolling — 6.4px each at 14 missing files, nothing at 100 (B4c review
+     round one, measured; the same before the kit). Each keeps its line. */
   .rb-relink-missing-row {
+    flex-shrink: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2421,4 +2508,40 @@
   /* The count that changed leads the success summary at 600 (it was the
      green; the Banner's tone and glyph carry that now). */
   .rb-relink-done { font-weight: 600; }
+
+  /* ═══ Reduced motion (plan §3.4) ═══════════════════════════════════════════
+     Every transition this sheet declares ends instantly, each by its own
+     selector — never a blanket rule (C5: the pet's keyframes must play).
+     LAST in the layer, so each wins its twin above on source order at the
+     same specificity; rabbitFilesCss.test.js fails when a transition is
+     added above without its line here. The audit drawer's Refresh keeps
+     turning, as the kit's Spinner does: an indeterminate wait has no end
+     state to jump to. */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-files-cell-input,
+    .rb-fm-progress-fill,
+    .rb-asset-menu-item,
+    .rb-asset-check,
+    .rb-asset-thumb-set,
+    .rb-asset-thumb-set > svg,
+    .rb-asset-cell-text,
+    .rb-asset-date,
+    .rb-asset-group-head,
+    .rb-asset-prop-text,
+    .rb-asset-inline,
+    .rb-rel-toggle,
+    .rb-rel-row,
+    .rb-rel-pick-row,
+    .rb-rel-badge,
+    .rb-ent-menu-item,
+    .rb-ent-check,
+    .rb-ent-cell-text,
+    .rb-ent-group-head,
+    .rb-ent-card,
+    .rb-ent-thumb-set,
+    .rb-ent-thumb-hint,
+    .rb-ent-thumb-glyph,
+    .rb-ent-date,
+    .rb-ent-prop-text { transition: none; }
+  }
 }

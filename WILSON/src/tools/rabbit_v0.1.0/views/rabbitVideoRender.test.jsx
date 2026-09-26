@@ -228,26 +228,46 @@ describe('FileThumbnail — on the lane\'s sheet', () => {
     expect(container.querySelectorAll('[style]')).toHaveLength(0)
   })
 
-  it('FileManager\'s gallery: every card control is named — a picture card for its file (the walk\'s two unnamed controls), a video card for what it does', async () => {
-    rabbit.current = {
-      supportsManagedFiles: false,
-      files: [
-        { id: 'g1', name: 'board_01.png', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-20T10:00:00Z', storage_provider: 'supabase', thumbnail_url: 'thumbs/g1.jpg' },
-        { id: 'g2', name: 'board_02.png', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-19T10:00:00Z', storage_provider: 'supabase', thumbnail_url: 'thumbs/g2.jpg' },
-        { id: 'g3', name: 'animatic.mp4', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-18T10:00:00Z', storage_provider: 'supabase' },
-      ],
-      thumbnailUrls: async (keys) => new Map(keys.map((k) => [k, `https://signed.example/${k}`])),
-      fileUrl: async () => null,
-    }
+  // The video carries a poster and the PDF its extension label: the content a
+  // title loses to. Before B4c's review round one the video's tile was named
+  // "animatic.mp4" (the poster's alt) and the PDF's "PDF".
+  const GALLERY = [
+    { id: 'g1', name: 'board_01.png', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-20T10:00:00Z', storage_provider: 'supabase', thumbnail_url: 'thumbs/g1.jpg' },
+    { id: 'g2', name: 'board_02.png', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-19T10:00:00Z', storage_provider: 'supabase', thumbnail_url: 'thumbs/g2.jpg' },
+    { id: 'g3', name: 'animatic.mp4', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-18T10:00:00Z', storage_provider: 'supabase', thumbnail_url: 'thumbs/g3.jpg' },
+    { id: 'g4', name: 'brief.pdf', asset_id: 'a1', size_bytes: 10, uploaded_at: '2026-09-17T10:00:00Z', storage_provider: 'supabase' },
+  ]
+  const signed = async (keys) => new Map(keys.map((k) => [k, `https://signed.example/${k}`]))
+
+  it('FileManager\'s gallery: every card control is named — a picture card for its file (the walk\'s two unnamed controls), a video card for what it does — by its ACCESSIBLE name, with a poster and a label present', async () => {
+    rabbit.current = { supportsManagedFiles: false, files: GALLERY, thumbnailUrls: signed, fileUrl: async () => null }
     const { container } = render(<FileManager assetId="a1" projectId="p1" mode="full" />)
     fireEvent.click(screen.getByRole('tab', { name: 'Gallery' }))
-    await waitFor(() => expect(container.querySelectorAll('.rb-fm-card img')).toHaveLength(2))
+    await waitFor(() => expect(container.querySelectorAll('.rb-fm-card img')).toHaveLength(3))
     const tiles = [...container.querySelectorAll('.rb-fm-card-media > button')]
-    expect(tiles.map((b) => b.title)).toEqual(['board_01.png', 'board_02.png', 'Play animatic.mp4'])
-    // The picture cards are inert (C1: only a video plays), and still named.
-    expect(tiles.map((b) => b.disabled)).toEqual([true, true, false])
+    // What a reader hears, not the title attribute: each tile's name is its
+    // title's words, and the content that used to win is really there.
+    const names = ['board_01.png', 'board_02.png', 'Play animatic.mp4', 'brief.pdf']
+    expect(tiles.map((b) => b.title)).toEqual(names)
+    names.forEach((name, i) => expect(screen.getByRole('button', { name }), name).toBe(tiles[i]))
+    expect(tiles[2].querySelector('img').getAttribute('alt')).toBe('animatic.mp4')
+    expect(tiles[3].textContent).toBe('PDF')
+    expect(screen.queryByRole('button', { name: 'animatic.mp4' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'PDF' })).toBeNull()
+    // The picture and document cards are inert (C1: only a video plays), and still named.
+    expect(tiles.map((b) => b.disabled)).toEqual([true, true, false, true])
     for (const b of container.querySelectorAll('.rb-fm-gallery button')) {
       expect(b.getAttribute('aria-label') || b.title || b.textContent.trim()).toBeTruthy()
     }
+  })
+
+  it('FileManager\'s table: the play tile over a poster is named for what it does ("Play …"), never by the poster\'s alt', async () => {
+    rabbit.current = { supportsManagedFiles: false, files: [GALLERY[2]], thumbnailUrls: signed, fileUrl: async () => null }
+    const { container } = render(<FileManager assetId="a1" projectId="p1" mode="full" />)
+    await waitFor(() => expect(container.querySelector('.rb-fm-table .rb-fm-play img')).not.toBeNull())
+    const tile = container.querySelector('.rb-fm-table .rb-fm-play')
+    expect(tile.querySelector('img').getAttribute('alt')).toBe('animatic.mp4')
+    expect(screen.getByRole('button', { name: 'Play animatic.mp4' })).toBe(tile)
+    expect(screen.queryByRole('button', { name: 'animatic.mp4' })).toBeNull()
   })
 })
