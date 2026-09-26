@@ -8,7 +8,11 @@
 //
 // FILES grows one surface per commit (B5 lands one commit per surface): a
 // file joins here, whole, in the commit that moves it onto this sheet, with a
-// mounted test in rabbitBudgetRender.test.jsx.
+// mounted test in rabbitBudgetRender.test.jsx — or, for a file too big for
+// one surface (BudgetView.jsx, ~2,900 lines, three surfaces), with a `staged`
+// list: the top-level functions whose restyle has not landed yet. The guards
+// read the file with those functions taken out (`withoutFunctions`, below),
+// and each surface shortens the list until it is empty.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -37,11 +41,36 @@ const FILES = {
   // B5 surface 1: the one money formatter and its figure (R3-01, R3-02,
   // R3-14, R3-34). It writes no style: the size and the ink are inherited.
   money: { file: '../components/CurrencyDisplay.jsx', prefix: 'rb-money-', min: 1500 },
+  // B5 surface 2a: the Summary, the seven reports, Custom and their shared
+  // helpers. The tab strip and shell (`BudgetView`, the controller's) and the
+  // Expenses tab with its popovers (surface 2b) are still staged.
+  budget: {
+    file: './BudgetView.jsx', prefix: 'rb-budget-', min: 3000,
+    staged: ['BudgetView', 'expenseCostStatus', 'expenseVariance', 'fmtExpLabel', 'ExpensesTab', 'ExpenseMarginContPopover', 'ExpenseFilterPanel', 'ExpenseSavedViewsDropdown', 'ExpensePopup', 'RelationPicker'],
+  },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
 const STYLES = {}
-const source = Object.fromEntries(Object.entries(FILES).map(([k, { file }]) => [k, read(file)]))
+
+/** A source with the named top-level functions taken out. A function starts
+    at a column-0 `function NAME(` or `export default function NAME(` and runs
+    to the line before the next column-0 `function `, `export `, `const ` or
+    `// ─` line — so a constant or a section divider between two staged
+    functions stays in, and is read. */
+function withoutFunctions(src, names) {
+  const opens = (line) => names.some((n) => line.startsWith(`function ${n}(`) || line.startsWith(`export default function ${n}(`))
+  const boundary = /^(function |export |const |\/\/ ─)/
+  const kept = []
+  let skipping = false
+  for (const line of src.split('\n')) {
+    if (skipping && boundary.test(line)) skipping = false
+    if (!skipping && opens(line)) { skipping = true; continue }
+    if (!skipping) kept.push(line)
+  }
+  return kept.join('\n')
+}
+const source = Object.fromEntries(Object.entries(FILES).map(([k, { file, staged }]) => [k, staged ? withoutFunctions(read(file), staged) : read(file)]))
 const code = Object.fromEntries(Object.entries(source).map(([k, s]) => [k, normal(jsCode(s))]))
 const jsx = Object.values(code).join('\n')
 const ELEMENTS = Object.values(source).flatMap(elementsOf)
@@ -79,6 +108,42 @@ describe('every B5 file on this sheet imports it', () => {
       expect(importedSheet(file, source[key], 'rabbitBudget.css')).toBe(SHEET)
     })
   }
+})
+
+/* ── 2b. staged functions ─────────────────────────────────────────────────── */
+describe('a staged function is read out of the guards, and only a staged one', () => {
+  it('every staged name is a top-level function of its file, and each is taken out', () => {
+    for (const [key, { file, staged = [] }] of Object.entries(FILES)) {
+      const whole = read(file)
+      for (const name of staged) {
+        const head = new RegExp(`^(?:export default )?function ${name}\\(`, 'm')
+        expect(whole, `${file}: ${name}`).toMatch(head)
+        expect(source[key], `${file}: ${name} is still read`).not.toMatch(head)
+      }
+    }
+  })
+  it('CONTROL: a hex planted in a staged function is ignored; one planted in a restyled function is caught', () => {
+    const { file, staged } = FILES.budget
+    const whole = read(file)
+    // Plant on the first line inside the function's body.
+    const plant = (name) => whole.replace(new RegExp(`^((?:export default )?function ${name}\\([^\\n]*\\n)`, 'm'), "$1  const planted = '#abcdef'\n")
+    const inStaged = plant('ExpensesTab')
+    const inShell = plant('BudgetView')
+    const inRestyled = plant('SummaryTab')
+    for (const planted of [inStaged, inShell, inRestyled]) expect(planted).not.toBe(whole)
+    expect(stateLeaks(withoutFunctions(inStaged, staged), STYLES.budget || [], [])).toEqual([])
+    expect(stateLeaks(withoutFunctions(inShell, staged), STYLES.budget || [], [])).toEqual([])
+    expect(stateLeaks(withoutFunctions(inRestyled, staged), STYLES.budget || [], [])).toEqual(['#abcdef'])
+  })
+  it('CONTROL: a function ends at the next column-0 function, export, const or section divider', () => {
+    const src = [
+      'function a() {', '  one', '}', 'const K = 1', 'function b() {', '  two', '}', '// ─── c', 'function c() {', '  three', '}',
+      'export default function D() {', '  four', '}', 'export { c }',
+    ].join('\n')
+    expect(withoutFunctions(src, ['a', 'c'])).toBe(['const K = 1', 'function b() {', '  two', '}', '// ─── c', 'export default function D() {', '  four', '}', 'export { c }'].join('\n'))
+    expect(withoutFunctions(src, ['D'])).not.toMatch(/four/)
+    expect(withoutFunctions(src, ['D'])).toMatch(/export \{ c \}/)
+  })
 })
 
 /* ── 3. classes ────────────────────────────────────────────────────────────── */

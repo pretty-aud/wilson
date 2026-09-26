@@ -381,7 +381,9 @@ const KNOWN = {
     // B4b (2026-09-25): the Assets rows' select and delete controls and both
     // asset popups' close are named (the kit's), so the eight lines for
     // rabbit-assets, rabbit-asset-new and rabbit-asset-detail are deleted.
-    { key: 'rabbit-budget', text: 'no-icon', n: 1 },
+    // B5 surface 2a (2026-09-26): rabbit-budget's one was the Agency fee
+    // toggle, the kit Switch now and named "Agency fee" (anon=0 at 1440x900
+    // and 1280x700), so its line is deleted.
     { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
     { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },
     { key: 'rabbit-scene-detail', text: 'lucide-trash2', n: 3 },

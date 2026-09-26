@@ -38,11 +38,16 @@ import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudg
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
 import { buildRoleRates } from '../../../components/Budget/budgetMath'
-import CurrencyDisplay, { formatMoney } from '../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney, MONEY_LOCALE } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
 import { INK_LIGHT } from '../../../ui/tokens.js'
+import {
+  Table, Th, Td, Row, Stat, StatusDot, StatusBadge, EmptyState, Loading,
+  SectionTitle, Button, IconButton, Switch, Banner,
+} from '../../../ui'
+import './rabbitBudget.css'
 
 const TABS = [
   { id: 'summary',        label: 'Summary',       icon: DollarSign },
@@ -82,7 +87,7 @@ const STATUS_FILTER_OPTIONS = [
   { id: 'blocked', label: 'Blocked' },
   { id: 'on_hold', label: 'On hold' },
   { id: 'pending_review', label: 'Pending review' },
-  { id: 'needs_revisions', label: 'Needs Revisions' },
+  { id: 'needs_revisions', label: 'Needs revisions' },
   { id: 'approved', label: 'Approved' },
   { id: 'final', label: 'Final' },
   { id: 'omitted', label: 'Omitted' },
@@ -401,7 +406,6 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
   const [versionName, setVersionName] = useState('')
   const [versionBusy, setVersionBusy] = useState(false)
   const activeVersion = budgetVersions.find(v => v.is_active)
-  const isFinal = project.budget_finalized === true
 
   async function createBidVersion() {
     if (!versionName.trim() || !adapter?.upsertBudgetVersion) return
@@ -523,56 +527,61 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
   }, [activeVersion, grandTotal])
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* ── Active budget banner ── */}
+    <div className="rb-budget-page">
+      {/* ── Active budget banner: the kit Banner in the success tone. The
+          words are the one ink and the tone is the tint and the icon, so
+          nothing here is green text (R3-13). ── */}
       {isActive && lockedVersion && (
-        <div
-          className="flex items-center gap-3 px-4 py-3 rounded-control"
-          style={{ backgroundColor: '#14532d', border: '1px solid #22c55e' }}
+        <Banner
+          tone="success"
+          Icon={ShieldCheck}
+          action={(
+            <Button
+              size="sm"
+              Icon={RotateCcw}
+              onClick={resetToTidding}
+              title="Reset to bidding — re-enables bid version editing"
+            >
+              Reset to bidding
+            </Button>
+          )}
         >
-          <ShieldCheck className="w-5 h-5 flex-shrink-0" style={{ color: '#4ade80' }} />
-          <div className="flex-1 min-w-0">
-            <span className="text-label font-semibold uppercase block" style={{ color: '#4ade80' }}>
-              Budget active — In production
-            </span>
-            <span className="text-dense font-mono tabular-nums block mt-0.5" style={{ color: '#86efac' }}>
-              Locked bid: <span className="font-semibold">{lockedVersion.name}</span>
-              {' '}· {lockedVersion.snapshot?.lockedAt
-                ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
-                : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
-              {' '}· {formatMoney(lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0, currency)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={resetToTidding}
-            className="flex items-center gap-1.5 text-dense px-2.5 py-1 rounded-control hover:bg-green-900 transition-colors flex-shrink-0"
-            style={{ color: '#86efac', border: '1px solid #22c55e' }}
-            title="Reset to bidding — re-enables bid version editing"
-          >
-            <RotateCcw className="w-3 h-3" />
-            Reset to Bidding
-          </button>
-        </div>
+          <span className="rb-budget-active-title">Budget active — in production</span>
+          <span className="rb-budget-active-meta">
+            Locked bid: <span className="rb-budget-active-name">{lockedVersion.name}</span>
+            {' '}· {lockedVersion.snapshot?.lockedAt
+              ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
+              : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
+            {' '}· <CurrencyDisplay value={lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0} currency={currency} />
+          </span>
+        </Banner>
       )}
 
-      {/* ── Day totals row ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <BigTile
+      {/* ── Day totals row: three kit Stats in one row (R3-10). The hint is
+          the Stat's visible delta line, never a tooltip; the variance's good
+          or bad news is its value's tone. ── */}
+      <div className="rb-budget-stats">
+        <Stat
+          className="rb-budget-stat"
           label="Bid days"
-          value={variance.bid.toFixed(1)}
-          hint={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+          value={formatTenths(variance.bid)}
+          delta={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+          deltaTone="neutral"
         />
-        <BigTile
+        <Stat
+          className="rb-budget-stat"
           label="Logged days"
-          value={variance.logged.toFixed(1)}
-          hint={`${variance.bid > 0 ? Math.round((variance.logged / variance.bid) * 100) : 0}% of bid`}
+          value={formatTenths(variance.logged)}
+          delta={`${variance.bid > 0 ? Math.round((variance.logged / variance.bid) * 100) : 0}% of bid`}
+          deltaTone="neutral"
         />
-        <BigTile
+        <Stat
+          className="rb-budget-stat"
           label="Variance"
-          value={(variance.variance > 0 ? '+' : '') + variance.variance.toFixed(1)}
-          hint={varianceLabel(variance.variance)}
-          tone={varianceTone(variance.variance)}
+          value={formatTenths(variance.variance, { signed: true })}
+          valueTone={varianceTone(variance.variance)}
+          delta={varianceLabel(variance.variance)}
+          deltaTone="neutral"
         />
       </div>
 
@@ -580,16 +589,17 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
       {/* UX: Proximity (controls next to values), Fitts's (wide touch targets), */}
       {/* Miller's (single scannable list), Jakob's (receipt/invoice familiarity) */}
       <Card title="Cost breakdown">
-        <div className="flex flex-col gap-0">
+        {/* One row treatment for the four inputs (R3-09): the label in the
+            second ink, the amount in the ink, right-aligned to one amount
+            column declared once in rabbitBudget.css (R3-35). A plus is the
+            figure's sign, never the label's. */}
+        <div className="rb-budget-wf">
           {/* Base cost — read only */}
-          <div className="flex items-center justify-between py-3 px-4 rounded-control mb-1"
-            style={{ backgroundColor: '#1c1917' }}>
-            <span className="text-label font-semibold uppercase" style={{ color: '#d6d3d1' }}>
-              Base cost
-            </span>
-            <div className="text-h2 font-mono tabular-nums font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+          <div className="rb-budget-wf-row">
+            <span className="rb-budget-wf-label">Base cost</span>
+            <span className="rb-budget-wf-amount">
               <CurrencyDisplay value={baseCost} currency={currency} />
-            </div>
+            </span>
           </div>
 
           {/* Margin — inline editable */}
@@ -612,75 +622,65 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             disabled={isActive}
           />
 
-          {/* Agency fee — toggle + inline editable */}
-          <div className="flex items-center justify-between py-3 px-4 rounded-control mb-1"
-            style={{ backgroundColor: '#1c1917' }}>
-            <div className="flex items-center gap-2.5">
-              <span className="text-dense" style={{ color: '#a8a29e' }}>+ Agency fee</span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!agencyEnabled) {
-                    updateProjectField('budget_agency_enabled', true)
-                    if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', 20)
-                  } else {
-                    updateProjectField('budget_agency_enabled', false)
-                  }
-                }}
-                disabled={isActive}
-                className="relative w-8 h-4 rounded-full transition-colors"
-                style={{ backgroundColor: agencyEnabled ? '#ea580c' : '#44403c', cursor: isFinal ? 'not-allowed' : 'pointer' }}
-              >
-                <span className="absolute top-[2px] left-0 rounded-full w-3 h-3 transition-transform"
-                  style={{ backgroundColor: '#fff7ed', transform: agencyEnabled ? 'translateX(18px)' : 'translateX(2px)' }} />
-              </button>
-              {agencyEnabled && (
-                <InlinePct value={agencyPct}
-                  onChange={v => updateProjectField('budget_agency_pct', v)}
-                  disabled={isActive} />
-              )}
-            </div>
-            <div className="text-dense font-mono tabular-nums text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
+          {/* Agency fee — the kit Switch (it was a hand-rolled one with no
+              name) + inline editable. It toggles exactly as before. */}
+          <div className="rb-budget-wf-row">
+            <span className="rb-budget-wf-label">Agency fee</span>
+            <Switch
+              checked={agencyEnabled}
+              onChange={() => {
+                if (!agencyEnabled) {
+                  updateProjectField('budget_agency_enabled', true)
+                  if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', 20)
+                } else {
+                  updateProjectField('budget_agency_enabled', false)
+                }
+              }}
+              disabled={isActive}
+              aria-label="Agency fee"
+            />
+            {agencyEnabled && (
+              <InlinePct value={agencyPct}
+                onChange={v => updateProjectField('budget_agency_pct', v)}
+                disabled={isActive} />
+            )}
+            <span className="rb-budget-wf-amount" data-off={agencyEnabled ? undefined : 'true'}>
               {agencyEnabled
-                ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} signed />
-                : 'OFF'}
-            </div>
+                ? formatMoney(Math.round(baseCost * (agencyPct / 100)), currency, { sign: 'always' })
+                : 'Off'}
+            </span>
           </div>
 
-          {/* Divider */}
-          <div style={{ borderTop: '2px solid #57534e', margin: '4px 0 6px' }} />
-
-          {/* Grand total */}
-          <div className="flex items-center justify-between py-4 px-4 rounded-control"
-            style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>
-              Grand Total
-            </span>
-            <div className="text-h1 font-mono tabular-nums font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+          {/* Grand total: the page's one display number (R3-08), under the
+              one signal rule. */}
+          <div className="rb-budget-wf-total">
+            <span className="rb-budget-wf-total-label">Grand total</span>
+            <span className="rb-budget-wf-total-amount">
               <CurrencyDisplay
                 value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
                 currency={currency} />
-            </div>
+            </span>
           </div>
         </div>
 
         {/* Footer info row */}
-        <div className="flex items-center justify-between mt-3 px-1">
-          <div className="flex items-center gap-3">
+        <div className="rb-budget-wf-foot">
+          <div className="rb-budget-wf-source">
             {rateCardName && (
-              <span className="text-dense" style={{ color: '#78716c' }}>
-                Rates via <span style={{ color: '#a8a29e' }}>{rateCardName}</span>
+              <span className="rb-budget-hint">
+                Rates via <span className="rb-budget-wf-source-name">{rateCardName}</span>
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-label uppercase" style={{ color: '#78716c' }}>Actuals</span>
+          <div className="rb-budget-actuals">
+            <span className="ui-field-label">Actuals</span>
             <select
               value={project?.budget_actual_column_mode || 'fortnightly'}
               onChange={e => updateProjectField('budget_actual_column_mode', e.target.value)}
               disabled={isActive}
-              className="px-2 py-1 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+              className="ui-input rb-budget-actuals-mode"
+              data-size="sm"
+              aria-label="Actuals"
             >
               {COLUMN_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
@@ -692,36 +692,28 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                 if (Number.isFinite(n) && n > 0 && n <= 100) updateProjectField('budget_actual_column_count', n)
               }}
               disabled={isActive}
-              className="w-12 px-2 py-1 text-dense rounded-control text-center focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+              className="ui-input rb-budget-actuals-count"
+              data-size="sm"
+              aria-label="Actual columns"
             />
-            <span className="text-dense" style={{ color: '#78716c' }}>cols</span>
+            <span className="rb-budget-hint">cols</span>
           </div>
         </div>
 
         {missingRolesCount > 0 && (
-          <div
-            className="mt-3 flex items-start gap-2 p-2 rounded-control"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #78350f' }}
-          >
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#fcd34d' }} />
-            <p className="text-dense leading-relaxed" style={{ color: '#fcd34d' }}>
-              {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
-              not in the rate card — those rows compute at $0.
-              ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
-            </p>
-          </div>
+          <Banner tone="warning" Icon={AlertCircle}>
+            {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
+            not in the rate card — those rows compute at $0.
+            ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
+          </Banner>
         )}
       </Card>
 
       {/* ── Budget versioning ── */}
       <Card title="Budget versions">
         {/* Create new bid */}
-        <div className="flex items-end gap-2 mb-4">
-          <div className="flex-1">
-            <span className="text-label uppercase block mb-1.5" style={{ color: '#fb923c' }}>
-              Save current as bid version
-            </span>
+        <div className="rb-budget-new-version">
+          <Field label="Save current as bid version">
             <input
               type="text"
               value={versionName}
@@ -729,133 +721,114 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
               placeholder="e.g. Bid v1 — initial estimate"
               disabled={isActive || versionBusy}
-              className="w-full px-3 py-2 text-body rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
+              className="ui-input"
+              aria-label="Save current as bid version"
             />
-          </div>
-          <button
-            type="button"
+          </Field>
+          <Button
+            variant="primary"
+            Icon={Save}
+            loading={versionBusy}
             onClick={createBidVersion}
             disabled={!versionName.trim() || isActive || versionBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense font-semibold transition-colors disabled:opacity-40"
-            style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}
           >
-            {versionBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
             Save
-          </button>
+          </Button>
         </div>
 
-        {/* Saved versions list */}
+        {/* Saved versions list: the kit Table (R3-20, R3-28 — one cell
+            padding head and body). Selection is said one way (R3-38): the
+            ACTIVE version is the kit's selected row; LOCKED is a badge in its
+            row, never a green row. */}
         {budgetVersions.length === 0 ? (
-          <Empty>No budget versions saved yet. Create one to track bid snapshots.</Empty>
+          <Empty compact title="No budget versions saved yet" body="Create one to track bid snapshots." />
         ) : (
-          <div className="flex flex-col gap-1">
-            <div
-              className="grid grid-cols-12 gap-2 px-3 py-1.5"
-              style={{ borderBottom: '1px solid #44403c' }}
-            >
-              <span className="col-span-1 text-label uppercase" style={{ color: '#78716c' }}>Active</span>
-              <span className="col-span-4 text-label uppercase" style={{ color: '#78716c' }}>Name</span>
-              <span className="col-span-2 text-label uppercase" style={{ color: '#78716c' }}>Date</span>
-              <span className="col-span-2 text-label uppercase text-right" style={{ color: '#78716c' }}>Total</span>
-              <span className="col-span-1 text-label uppercase text-right" style={{ color: '#78716c' }}>Days</span>
-              <span className="col-span-2 text-label uppercase text-right" style={{ color: '#78716c' }}>Actions</span>
-            </div>
+          <Table
+            className="rb-budget-versions"
+            head={(
+              <Row>
+                <Th width="var(--rb-budget-col-mark)">Active</Th>
+                <Th>Name</Th>
+                <Th width="var(--rb-budget-col-date)">Date</Th>
+                <Th width="var(--rb-budget-col-money)" numeric>Total</Th>
+                <Th width="var(--rb-budget-col-days)" numeric>Days</Th>
+                <Th width="var(--rb-budget-col-acts)" align="right">Actions</Th>
+              </Row>
+            )}
+          >
             {budgetVersions
               .slice()
               .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
               .map(v => (
-                <div
-                  key={v.id}
-                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-control text-dense font-mono items-center"
-                  style={{
-                    backgroundColor: isActive && v.id === lockedVersionId ? '#1a2e1a'
-                      : v.is_active ? '#292524' : '#1c1917',
-                    border: `1px solid ${isActive && v.id === lockedVersionId ? '#22c55e'
-                      : v.is_active ? '#ea580c' : '#44403c'}`,
-                  }}
-                >
-                  <span className="col-span-1">
+                <Row key={v.id} selected={v.is_active}>
+                  <Td className="rb-budget-icon-cell">
                     {isActive && v.id === lockedVersionId ? (
-                      <ShieldCheck className="w-3.5 h-3.5" style={{ color: '#4ade80' }} />
+                      <ShieldCheck className="rb-budget-mark" data-tone="success" aria-hidden="true" />
                     ) : v.is_active ? (
-                      <CheckCircle className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+                      <CheckCircle className="rb-budget-mark" data-tone="signal" aria-hidden="true" />
                     ) : (
-                      <button
-                        type="button"
+                      <IconButton
+                        Icon={CheckCircle}
+                        size="sm"
                         onClick={() => setActiveVersion(v.id)}
                         disabled={versionBusy || isActive}
-                        className="p-0.5 rounded-control hover:bg-stone-800 transition-colors disabled:opacity-30"
-                        style={{ color: '#78716c' }}
                         title={isActive ? 'Reset to bidding to change versions' : 'Set as active'}
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                      </button>
+                      />
                     )}
-                  </span>
-                  <span className="col-span-4 truncate" style={{
-                    color: isActive && v.id === lockedVersionId ? '#86efac'
-                      : v.is_active ? '#fb923c' : '#d6d3d1'
-                  }}>
-                    {v.name}
-                    {isActive && v.id === lockedVersionId && (
-                      <span className="ml-1.5 text-label uppercase px-1 py-0.5 rounded-control"
-                        style={{ backgroundColor: '#166534', color: '#4ade80', border: '1px solid #22c55e' }}>
-                        Locked
-                      </span>
-                    )}
-                  </span>
-                  <span className="col-span-2" style={{ color: '#78716c' }}>
+                  </Td>
+                  <Td>
+                    <span className="rb-budget-version-name">
+                      <span className="rb-budget-version-text">{v.name}</span>
+                      {isActive && v.id === lockedVersionId && (
+                        <StatusBadge tone="success" label="Locked" />
+                      )}
+                    </span>
+                  </Td>
+                  <Td className="rb-budget-date" data-empty={v.created_at ? undefined : 'true'}>
                     {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
-                  </span>
-                  <span className="col-span-2 text-right" style={{ color: '#a8a29e' }}>
+                  </Td>
+                  <Td numeric className="rb-budget-quiet">
                     <CurrencyDisplay
                       value={v.snapshot?.grandTotal ?? v.snapshot?.baseCost ?? 0}
                       currency={currency}
                     />
-                  </span>
-                  <span className="col-span-1 text-right" style={{ color: '#a8a29e' }}>
-                    {(v.snapshot?.totalBidDays ?? 0).toFixed(1)}
-                  </span>
-                  <span className="col-span-2 flex items-center justify-end gap-1">
-                    <button
-                      type="button"
+                  </Td>
+                  <Td numeric className="rb-budget-quiet">
+                    {formatTenths(v.snapshot?.totalBidDays ?? 0)}
+                  </Td>
+                  <Td align="right" className="rb-budget-icon-cell">
+                    <IconButton
+                      Icon={Trash2}
+                      size="sm"
+                      danger
                       onClick={() => deleteVersion(v.id)}
                       disabled={versionBusy || (isActive && v.id === lockedVersionId)}
-                      className="p-1 rounded-control hover:bg-red-900/40 transition-colors disabled:opacity-20"
-                      style={{ color: '#ef4444' }}
                       title={isActive && v.id === lockedVersionId ? 'Cannot delete locked version' : 'Delete version'}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </span>
-                </div>
+                    />
+                  </Td>
+                </Row>
               ))}
-          </div>
+          </Table>
         )}
 
-        {/* Variance against active version */}
+        {/* Variance against active version: the tone is the figure's alone
+            (R19), never the box's edge. */}
         {versionVariance && (
-          <div
-            className="mt-3 p-3 rounded-control"
-            style={{
-              backgroundColor: '#1c1917',
-              border: `1px solid ${Math.abs(versionVariance.diff) < 0.01 ? '#44403c' : versionVariance.diff > 0 ? '#7f1d1d' : '#14532d'}`,
-            }}
-          >
-            <span className="text-label uppercase block mb-2" style={{ color: '#fb923c' }}>
+          <div className="rb-budget-vs">
+            <span className="rb-budget-eyebrow">
               Variance vs active bid ({activeVersion?.name})
             </span>
-            <div className="flex items-baseline gap-4">
-              <span className="text-h1 font-mono tabular-nums font-semibold" style={{
-                color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
-              }}>
+            <div className="rb-budget-vs-figures">
+              <span
+                className="rb-budget-vs-value"
+                data-tone={Math.abs(versionVariance.diff) < 0.01 ? undefined : versionVariance.diff > 0 ? 'danger' : 'success'}
+              >
                 <CurrencyDisplay value={versionVariance.diff} currency={currency} signed />
               </span>
-              <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
-                ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
+              <span className="rb-budget-vs-pct">
+                ({formatTenths(versionVariance.pctChange, { signed: true })}%)
               </span>
-              <span className="text-dense font-mono tabular-nums" style={{ color: '#57534e' }}>
+              <span className="rb-budget-vs-detail">
                 Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
                 {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
               </span>
@@ -865,58 +838,47 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
 
         {/* Set Active button + confirmation dialog */}
         {!isActive && budgetVersions.length > 0 && activeVersion && !showActivateConfirm && (
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setShowActivateConfirm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-control text-dense font-semibold transition-colors hover:brightness-110"
-              style={{ backgroundColor: '#14532d', color: '#4ade80', border: '1px solid #22c55e' }}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Set Budget Active
-            </button>
+          <div className="rb-budget-actions">
+            <Button Icon={ShieldCheck} onClick={() => setShowActivateConfirm(true)}>
+              Set budget active
+            </Button>
           </div>
         )}
 
-        {/* Confirmation dialog */}
+        {/* Confirmation: an inline panel, as it has always been (C1). The
+            caution is its one edge and its icon; every word is an ink. */}
         {showActivateConfirm && (
-          <div className="mt-3 p-4 rounded-control" style={{ backgroundColor: '#1c1917', border: '2px solid #d97706' }}>
-            <div className="flex items-start gap-3 mb-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#fbbf24' }} />
+          <div className="rb-budget-confirm">
+            <div className="rb-budget-confirm-body">
+              <AlertCircle className="rb-budget-confirm-icon" aria-hidden="true" />
               <div>
-                <span className="text-h3 font-semibold block" style={{ color: '#fbbf24' }}>
-                  Confirm: Set budget to active
+                <span className="rb-budget-confirm-title">
+                  Confirm: set budget to active
                 </span>
-                <p className="text-dense mt-1.5 leading-relaxed" style={{ color: '#d6d3d1' }}>
-                  This will lock <span className="font-semibold" style={{ color: '#fbbf24' }}>"{activeVersion?.name}"</span> as
+                <p className="rb-budget-confirm-text">
+                  This will lock <span className="rb-budget-confirm-name">"{activeVersion?.name}"</span> as
                   the approved bid for this project. A snapshot of all task counts, durations, and budget totals
                   will be frozen as the reference point for production.
                 </p>
-                <p className="text-dense mt-2 leading-relaxed" style={{ color: '#a8a29e' }}>
+                <p className="rb-budget-confirm-note">
                   While active, you will not be able to create new bid versions or switch between versions.
                   You can reset this later if needed.
                 </p>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
-              <button
-                type="button"
-                onClick={() => setShowActivateConfirm(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense transition-colors hover:bg-stone-800"
-                style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-              >
+            <div className="rb-budget-confirm-foot">
+              <Button onClick={() => setShowActivateConfirm(false)}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                Icon={Lock}
+                loading={versionBusy}
                 onClick={activateBudget}
                 disabled={versionBusy}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-control text-dense font-semibold transition-colors hover:brightness-110"
-                style={{ backgroundColor: '#d97706', color: '#fff7ed', border: '1px solid #b45309' }}
               >
-                {versionBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                Confirm — Set Active
-              </button>
+                Confirm — set active
+              </Button>
             </div>
           </div>
         )}
@@ -996,11 +958,11 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   const talentData = useMemo(() => {
     const TALENT_TYPE_PLURAL = {
       actor:            'Actors',
-      voice_actor:      'Voice Actors',
+      voice_actor:      'Voice actors',
       extra:            'Extras',
       background:       'Backgrounds',
-      stunt_performer:  'Stunt Performers',
-      motion_capture:   'Motion Capture Performers',
+      stunt_performer:  'Stunt performers',
+      motion_capture:   'Motion capture performers',
       other:            'Others',
     }
     const typeMap = {}
@@ -1046,60 +1008,99 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   if (!hasData) {
     return (
       <Card title="Topsheet rollup">
-        <Empty>No budget data yet. Add team members, talent lines, or expenses to see the rollup here.</Empty>
+        <Empty
+          compact
+          title="No budget data yet"
+          body="Add team members, talent lines, or expenses to see the rollup here."
+        />
       </Card>
     )
   }
 
-  // Column header
-  const colW = { dept: 'flex-1', sub: 90, agency: 80, bid: 100, actual: 100, variance: 100 }
-  function HeaderRow() {
-    return (
-      <div className="flex gap-2 px-2 py-1" style={{ borderBottom: '2px solid #57534e' }}>
-        <span className="flex-1 text-label uppercase" style={{ color: '#fb923c' }}>Category</span>
-        <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
-        {agencyEnabled && <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
-        <span className="text-label uppercase text-right font-semibold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
-        <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
-        <span className="text-label uppercase text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
-      </div>
-    )
-  }
+  // The kit Table (R3-20). The money columns keep their order — Subtotal,
+  // Agency, Bid, Actual, Variance (R3-05) — and share one width, declared once
+  // in rabbitBudget.css. A section's row and the rows indented under it start
+  // their words on one rail: the indent is the section icon plus its gap.
+  const columns = agencyEnabled ? 6 : 5
 
   function DataRow({ label, subtotal, agencyFee, bidTotal, actualTotal, bold, indent }) {
     const v = actualTotal - bidTotal
     return (
-      <div className="flex gap-2 px-2 py-1.5 rounded-control" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
-        <span className={`flex-1 text-dense truncate ${bold ? 'font-semibold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
-        <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.sub }}>{formatMoney(subtotal, currency)}</span>
-        {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? formatMoney(agencyFee, currency) : '\u2014'}</span>}
-        <span className={`text-dense font-mono tabular-nums text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{formatMoney(bidTotal, currency)}</span>
-        <span className="text-dense font-mono tabular-nums text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? formatMoney(actualTotal, currency) : '\u2014'}</span>
-        <span className="text-dense font-mono tabular-nums text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
-          {bidTotal > 0 || actualTotal > 0 ? formatMoney(v, currency, { sign: 'exceptZero' }) : '\u2014'}
-        </span>
-      </div>
+      <Row className="rb-budget-top-row" data-total={bold ? 'true' : undefined}>
+        <Td className="rb-budget-top-cat" data-indent={indent ? 'true' : undefined}>{label}</Td>
+        <Td numeric className="rb-budget-quiet">{formatMoney(subtotal, currency)}</Td>
+        {agencyEnabled && (
+          <Td numeric className="rb-budget-quiet">
+            <span className="rb-budget-dash" data-empty={agencyFee ? undefined : 'true'}>
+              {agencyFee ? formatMoney(agencyFee, currency) : '—'}
+            </span>
+          </Td>
+        )}
+        <Td numeric>{formatMoney(bidTotal, currency)}</Td>
+        <Td numeric>
+          <span className="rb-budget-dash" data-empty={actualTotal ? undefined : 'true'}>
+            {actualTotal ? formatMoney(actualTotal, currency) : '—'}
+          </span>
+        </Td>
+        <Td numeric>
+          <span className="rb-budget-var" data-tone={v > 0 ? 'danger' : v < 0 ? 'success' : 'zero'}>
+            {bidTotal > 0 || actualTotal > 0 ? formatMoney(v, currency, { sign: 'exceptZero' }) : '—'}
+          </span>
+        </Td>
+      </Row>
     )
   }
 
-  function SectionHeader({ label, icon }) {
+  function SectionHeader({ label, Icon }) {
     return (
-      <div className="flex items-center gap-2 px-2 pt-3 pb-1">
-        {icon}
-        <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{label}</span>
-      </div>
+      <Row>
+        <Td colSpan={columns}>
+          <span className="rb-budget-top-group">
+            <Icon className="rb-budget-top-icon" aria-hidden="true" />
+            {label}
+          </span>
+        </Td>
+      </Row>
     )
   }
 
   return (
     <Card title="Topsheet rollup">
-      <div className="flex flex-col gap-0.5">
-        <HeaderRow />
-
+      <Table
+        className="rb-budget-top"
+        head={(
+          <Row>
+            <Th>Category</Th>
+            <Th width="var(--rb-budget-col-money)" numeric>Subtotal</Th>
+            {agencyEnabled && <Th width="var(--rb-budget-col-money)" numeric>Agency</Th>}
+            <Th width="var(--rb-budget-col-money)" numeric>Bid</Th>
+            <Th width="var(--rb-budget-col-money)" numeric>Actual</Th>
+            <Th width="var(--rb-budget-col-money)" numeric>Variance</Th>
+          </Row>
+        )}
+        foot={(
+          <Row>
+            <Td>Grand total</Td>
+            <Td numeric>{formatMoney(grand.subtotal, currency)}</Td>
+            {agencyEnabled && <Td numeric>{formatMoney(grand.agencyFee, currency)}</Td>}
+            <Td numeric>{formatMoney(grand.bidTotal, currency)}</Td>
+            <Td numeric>
+              <span className="rb-budget-dash" data-empty={grand.actualTotal ? undefined : 'true'}>
+                {grand.actualTotal ? formatMoney(grand.actualTotal, currency) : '—'}
+              </span>
+            </Td>
+            <Td numeric>
+              <span className="rb-budget-var" data-tone={grand.variance > 0 ? 'danger' : grand.variance < 0 ? 'success' : 'zero'}>
+                {grand.bidTotal > 0 || grand.actualTotal > 0 ? formatMoney(grand.variance, currency, { sign: 'exceptZero' }) : '—'}
+              </span>
+            </Td>
+          </Row>
+        )}
+      >
         {/* ── Crew / Team ── */}
         {crewData.departments.length > 0 && (
           <>
-            <SectionHeader label="Crew / Team" icon={<Users className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <SectionHeader label="Crew / Team" Icon={Users} />
             {crewData.departments.map(d => (
               <DataRow key={d.department} label={d.department} indent subtotal={d.subtotal} agencyFee={d.agencyFee} bidTotal={d.bidTotal} actualTotal={d.actualTotal} />
             ))}
@@ -1110,7 +1111,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {/* ── Talent ── */}
         {talentData.types.length > 0 && (
           <>
-            <SectionHeader label="Talent" icon={<Star className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <SectionHeader label="Talent" Icon={Star} />
             {talentData.types.map(t => (
               <DataRow key={t.type} label={t.label} indent subtotal={t.subtotal} agencyFee={t.agencyFee} bidTotal={t.bidTotal} actualTotal={t.actualTotal} />
             ))}
@@ -1121,121 +1122,20 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {/* ── Expenses ── */}
         {expenseData.count > 0 && (
           <>
-            <SectionHeader label={`Expenses (${expenseData.count})`} icon={<Receipt className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <SectionHeader label={`Expenses (${expenseData.count})`} Icon={Receipt} />
             <DataRow label="All expenses" indent subtotal={expenseData.estimated} agencyFee={0} bidTotal={expenseData.estimated} actualTotal={expenseData.actual} />
           </>
         )}
-
-        {/* ── Grand total ── */}
-        <div className="mt-2" style={{ borderTop: '2px solid #fb923c' }}>
-          <div className="flex gap-2 px-2 py-2.5 rounded-control mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="flex-1 text-label font-semibold uppercase" style={{ color: '#fb923c' }}>Grand Total</span>
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{formatMoney(grand.subtotal, currency)}</span>
-            {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{formatMoney(grand.agencyFee, currency)}</span>}
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{formatMoney(grand.bidTotal, currency)}</span>
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? formatMoney(grand.actualTotal, currency) : '\u2014'}</span>
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
-              {grand.bidTotal > 0 || grand.actualTotal > 0 ? formatMoney(grand.variance, currency, { sign: 'exceptZero' }) : '\u2014'}
-            </span>
-          </div>
-        </div>
-      </div>
+      </Table>
     </Card>
   )
 }
 
 
-// ─── Margin/contingency % input ─────────────��───────────────
-function PctInput({ label, value, onChange, disabled }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    if (editing && ref.current) { ref.current.focus(); ref.current.select() }
-  }, [editing])
-
-  function start() {
-    if (disabled) return
-    setDraft(String(value || 0))
-    setEditing(true)
-  }
-
-  function commit() {
-    setEditing(false)
-    const num = parseFloat(draft)
-    if (Number.isFinite(num) && num !== value) onChange(num)
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-label uppercase" style={{ color: '#fb923c' }}>
-        {label}
-      </span>
-      <div
-        className="relative"
-        style={{ width: 120, height: 34 }}
-      >
-        {editing ? (
-          <div className="absolute inset-0 flex items-center gap-1">
-            <input
-              ref={ref}
-              type="text"
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); commit() }
-                else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-              }}
-              className="w-full px-2 py-1.5 text-body font-semibold rounded-control focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
-            />
-            <span className="absolute right-2 text-dense font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={start}
-            disabled={disabled}
-            className="absolute inset-0 text-right px-2 py-1.5 text-body font-semibold rounded-control transition-colors disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: '#1c1917',
-              border: '1px solid #44403c',
-              color: disabled ? '#57534e' : '#f4a261',
-            }}
-          >
-            {value}%
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Cost row in the waterfall ──────────��───────────────────
-function CostRow({ label, amount, currency, prefix, bold, large }) {
-  return (
-    <div className="flex items-baseline justify-between">
-      <span
-        className={`text-dense ${bold ? 'font-semibold' : ''}`}
-        style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
-      >
-        {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
-        {label}
-      </span>
-      <span style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}>
-        <CurrencyDisplay
-          value={amount}
-          currency={currency}
-          className={`${bold ? 'font-semibold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
-        />
-      </span>
-    </div>
-  )
-}
-
 // ─── Waterfall row — inline % control next to computed amount ──
+// One of the waterfall's four input rows (R3-09). The amount carries its own
+// sign: a margin is an amount added by definition, so its plus is the
+// figure's (`sign: 'always'`, R3-14), never a prefix on the label.
 function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -1258,42 +1158,42 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
   }
 
   return (
-    <div className="flex items-center justify-between py-3 px-4 rounded-control mb-1"
-      style={{ backgroundColor: '#1c1917' }}>
-      <div className="flex items-center gap-2.5">
-        <span className="text-dense" style={{ color: '#a8a29e' }}>+ {label}</span>
-        {editing ? (
-          <input
-            ref={ref}
-            type="text"
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); commit() }
-              else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-            }}
-            className="w-16 px-2 py-0.5 text-body font-semibold rounded-control text-right focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
-          />
-        ) : (
-          <button
-            type="button" onClick={start} disabled={disabled}
-            className="px-2 py-0.5 text-body font-semibold rounded-control transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
-            style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
-          >
-            {pct}%
-          </button>
-        )}
-      </div>
-      <div className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
-        <CurrencyDisplay value={amount} currency={currency} />
-      </div>
+    <div className="rb-budget-wf-row">
+      <span className="rb-budget-wf-label">{label}</span>
+      {editing ? (
+        <input
+          ref={ref}
+          type="text"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commit() }
+            else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+          }}
+          className="ui-input rb-budget-pct"
+          data-size="sm"
+          aria-label={`${label} percentage`}
+        />
+      ) : (
+        <button
+          type="button" onClick={start} disabled={disabled}
+          className="ui-input rb-budget-pct"
+          data-size="sm"
+        >
+          {pct}%
+        </button>
+      )}
+      <span className="rb-budget-wf-amount">
+        {formatMoney(amount, currency, { sign: 'always' })}
+      </span>
     </div>
   )
 }
 
 // ─── Compact inline % input (for agency row) ──────────────
+// The same % control as WaterfallRow's (it was a size smaller), so the three
+// read as one kind of control.
 function InlinePct({ value, onChange, disabled }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -1327,8 +1227,9 @@ function InlinePct({ value, onChange, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-14 px-1.5 py-0.5 text-dense font-semibold rounded-control text-right focus:ring-1 focus:ring-orange-500"
-        style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
+        className="ui-input rb-budget-pct"
+        data-size="sm"
+        aria-label="Agency fee percentage"
       />
     )
   }
@@ -1336,8 +1237,8 @@ function InlinePct({ value, onChange, disabled }) {
   return (
     <button
       type="button" onClick={start} disabled={disabled}
-      className="px-1.5 py-0.5 text-dense font-semibold rounded-control transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
-      style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
+      className="ui-input rb-budget-pct"
+      data-size="sm"
     >
       {value}%
     </button>
@@ -1365,7 +1266,7 @@ function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [phases, assets, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks yet — nothing to roll up.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks yet" body="Nothing to roll up." />
 
   return (
     <Card title="Phases">
@@ -1391,7 +1292,7 @@ function ByRoleTab({ tasks, budget, roleRates }) {
       .sort((a, b) => b.bid - a.bid)
   }, [tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No roles assigned yet.</Empty>
+  if (rows.length === 0) return <Empty title="No roles assigned yet" />
 
   return (
     <Card title="Roles">
@@ -1417,7 +1318,7 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
       .sort((a, b) => b.bid - a.bid)
   }, [assets, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No assets carry any task hours yet.</Empty>
+  if (rows.length === 0) return <Empty title="No assets carry any task hours yet" />
 
   return (
     <Card title="Assets">
@@ -1445,7 +1346,7 @@ function BySceneTab({ scenes, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [scenes, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks linked to scenes yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to scenes yet" />
 
   return (
     <Card title="Scenes">
@@ -1479,7 +1380,7 @@ function ByShotTab({ shots, scenes, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [shots, scenes, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks linked to shots yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to shots yet" />
 
   return (
     <Card title="Shots">
@@ -1507,7 +1408,7 @@ function ByLevelTab({ levels, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [levels, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks linked to levels yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to levels yet" />
 
   return (
     <Card title="Levels">
@@ -1535,7 +1436,7 @@ function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [experiences, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks linked to experiences yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to experiences yet" />
 
   return (
     <Card title="Experiences">
@@ -1619,14 +1520,15 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
   const totalBid  = rows.reduce((acc, r) => acc + r.bid, 0)
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="rb-budget-page">
       <Card title="Custom view">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field label="Group by">
             <Select
               value={prefs.groupBy}
               onChange={v => setPrefs(p => ({ ...p, groupBy: v }))}
               options={GROUP_BY_OPTIONS.filter(o => !o.requires || project?.[o.requires]).map(o => ({ value: o.id, label: o.label }))}
+              aria-label="Group by"
             />
           </Field>
           <Field label="Phase filter">
@@ -1638,37 +1540,51 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
                 ...phases.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map(p => ({ value: p.id, label: p.name })),
                 { value: '__unphased__', label: 'Unphased' },
               ]}
+              aria-label="Phase filter"
             />
           </Field>
           <Field label="Status filter">
-            <Select
-              value={prefs.statusFilter}
-              onChange={v => setPrefs(p => ({ ...p, statusFilter: v }))}
-              options={STATUS_FILTER_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
-              colorFn={budgetStatusColor}
-            />
+            {/* The status is the kit's dot, from the one STATUS map (R3-11);
+                the select's words are the one ink. A status the map does not
+                know ("bidding") is the kit's neutral dot. */}
+            <span className="rb-budget-status-select" data-dot={prefs.statusFilter === '__all__' ? undefined : 'true'}>
+              {prefs.statusFilter !== '__all__' && (
+                <StatusDot status={prefs.statusFilter} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+              )}
+              <Select
+                value={prefs.statusFilter}
+                onChange={v => setPrefs(p => ({ ...p, statusFilter: v }))}
+                options={STATUS_FILTER_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+                aria-label="Status filter"
+              />
+            </span>
           </Field>
         </div>
       </Card>
 
       <Card title={`Breakdown · ${rows.length} group${rows.length === 1 ? '' : 's'}`}>
         {rows.length === 0 ? (
-          <Empty>No tasks match the current filters.</Empty>
+          <Empty compact title="No tasks match the current filters" />
         ) : (
-          <>
-            <BreakdownTable rows={rows} currency={budget.currency} labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'} countHeader="Tasks" />
-            <div
-              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-control text-dense font-mono tabular-nums items-center"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
-            >
-              <span className="text-label font-sans uppercase" style={{ color: '#fb923c' }}>Total</span>
-              <span style={{ color: '#a8a29e' }}>{filteredTasks.length}</span>
-              <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
-              <span />
-              <span />
-              <span style={{ color: '#d6d3d1' }}><CurrencyDisplay value={totalCost} currency={budget.currency} className="font-semibold" /></span>
-            </div>
-          </>
+          /* The totals are the table's own footer row (R3-04): the same
+             grid, the same cell padding and the same right edges as the
+             columns they total. */
+          <BreakdownTable
+            rows={rows}
+            currency={budget.currency}
+            labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'}
+            countHeader="Tasks"
+            foot={(
+              <Row>
+                <Td>Total</Td>
+                <Td numeric>{filteredTasks.length}</Td>
+                <Td numeric>{formatTenths(totalBid)}</Td>
+                <Td />
+                <Td />
+                <Td numeric><CurrencyDisplay value={totalCost} currency={budget.currency} /></Td>
+              </Row>
+            )}
+          />
         )}
       </Card>
     </div>
@@ -2002,7 +1918,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     }
   }
 
-  if (expLoading) return <Empty>Loading expenses...</Empty>
+  if (expLoading) return <Loading label="Loading expenses..." />
 
   // ── Render a single expense row ──
   function ExpenseRow({ exp }) {
@@ -2804,122 +2720,141 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
 
 
 // ─── Sub-components ───────────────────────────────────────
+
+// A figure to one decimal place (days, a percentage) in the money's one
+// locale, with Intl's sign when `signed` (R3-14: the sign is Intl's, never a
+// '+' glued on). No grouping: `toFixed(1)`, which it replaces, had none.
+function formatTenths(value, { signed = false } = {}) {
+  return new Intl.NumberFormat(MONEY_LOCALE, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    useGrouping: false,
+    signDisplay: signed ? 'exceptZero' : 'auto',
+  }).format(Number(value) || 0)
+}
+
+// A section of a Budget tab: the kit SectionTitle (H2, sentence case, a
+// hairline above) over its content, with no box and no fill (R3-30). The
+// parent's gap is the only rhythm between sections (rabbitBudget.css).
 function Card({ title, children }) {
   return (
-    <div className="rounded-control p-5 mb-4" style={{ border: '1px solid #44403c' }}>
-      {title && (
-        <h3 className="text-h3 font-semibold mb-4 px-1" style={{ color: '#fb923c' }}>
-          {title}
-        </h3>
-      )}
+    <section className="rb-budget-section">
+      {title && <SectionTitle>{title}</SectionTitle>}
       {children}
-    </div>
+    </section>
   )
 }
 
+// Kept for the Expenses tab's four tiles: a thin wrapper over the kit Stat,
+// so every tile on the Budget is the kit's (R3-10). `tone` keeps its words.
 function BigTile({ label, value, hint, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
-  }[tone]
   return (
-    <div className="flex-1 min-w-[120px] flex flex-col rounded-control px-4 py-3"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-label uppercase block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
-      {hint && <span className="text-dense mt-0.5" style={{ color: colors.label }}>{hint}</span>}
-    </div>
+    <Stat
+      className="rb-budget-stat"
+      label={label}
+      value={value}
+      delta={hint}
+      deltaTone="neutral"
+      valueTone={tone === 'good' ? 'success' : tone === 'danger' ? 'danger' : undefined}
+    />
   )
 }
 
-function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
+// The table behind the seven reports and Custom: the kit Table (R3-20). Name
+// left; Tasks, Bid, Logged, Variance and Cost numeric, header included
+// (R3-03), in the lane's one order (R3-05). A totals row is its `foot`
+// (R3-04), so it shares the columns it totals.
+function BreakdownTable({ rows, currency, labelHeader, countHeader, foot }) {
   return (
-    <div className="flex flex-col gap-1 p-3">
-      <HeaderRow cols={[labelHeader, countHeader, 'Bid', 'Logged', 'Variance', 'Cost']} sixCol />
+    <Table
+      className="rb-budget-report"
+      foot={foot}
+      head={(
+        <Row>
+          <Th>{labelHeader}</Th>
+          <Th width="var(--rb-budget-col-count)" numeric>{countHeader}</Th>
+          <Th width="var(--rb-budget-col-days)" numeric>Bid</Th>
+          <Th width="var(--rb-budget-col-days)" numeric>Logged</Th>
+          <Th width="var(--rb-budget-col-var)" numeric>Variance</Th>
+          <Th width="var(--rb-budget-col-money)" numeric>Cost</Th>
+        </Row>
+      )}
+    >
       {rows.map((row, i) => (
-        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-3 py-2 rounded-control text-dense font-mono tabular-nums items-center transition-colors hover:bg-stone-800" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-          <span className="truncate" style={{ color: '#d6d3d1' }}>{row.name}</span>
-          <span style={{ color: '#a8a29e' }}>{row.taskCount}</span>
-          <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
-          <span style={{ color: '#a8a29e' }}>{row.logged.toFixed(1)}</span>
+        <Row key={`${row.name}-${i}`}>
+          <Td>{row.name}</Td>
+          <Td numeric className="rb-budget-quiet">{row.taskCount}</Td>
+          <Td numeric className="rb-budget-quiet">{formatTenths(row.bid)}</Td>
+          <Td numeric className="rb-budget-quiet">{formatTenths(row.logged)}</Td>
           <VarianceCell value={row.variance} />
-          <span style={{ color: '#a8a29e' }}><CurrencyDisplay value={row.cost} currency={currency} /></span>
-        </div>
+          <Td numeric className="rb-budget-quiet">
+            <CurrencyDisplay value={row.cost} currency={currency} />
+          </Td>
+        </Row>
       ))}
-    </div>
+    </Table>
   )
 }
 
-function HeaderRow({ cols, sixCol }) {
-  return (
-    <div className={`grid ${sixCol ? 'grid-cols-6' : 'grid-cols-3'} gap-2 px-3 py-1.5`} style={{ borderBottom: '1px solid #44403c' }}>
-      {cols.map(c => (
-        <span key={c} className="text-label uppercase" style={{ color: '#78716c' }}>{c}</span>
-      ))}
-    </div>
-  )
-}
-
+// A day variance: the good or bad news is the figure's tone, and the arrow
+// says which way.
 function VarianceCell({ value }) {
-  const tone = varianceTone(value)
-  const colors = { good: '#86efac', danger: '#fca5a5', neutral: '#a8a29e' }[tone]
   const Icon = value > 0 ? ArrowUp : value < 0 ? ArrowDown : Minus
   return (
-    <span className="flex items-center gap-1" style={{ color: colors }}>
-      <Icon className="w-3 h-3" />
-      {(value > 0 ? '+' : '') + value.toFixed(1)}
-    </span>
+    <Td numeric>
+      <span className="rb-budget-var" data-tone={value > 0 ? 'danger' : value < 0 ? 'success' : 'zero'}>
+        <Icon className="rb-budget-var-icon" aria-hidden="true" />
+        {formatTenths(value, { signed: true })}
+      </span>
+    </Td>
   )
 }
 
+// A field: its label at the Label step over a Dense control (R3-06). A
+// <div>, not a <label>: the words were never a click target and do not
+// become one (C1); each control carries its own name.
 function Field({ label, children }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-label uppercase" style={{ color: '#fb923c' }}>{label}</span>
+    <div className="rb-budget-field">
+      <span className="ui-field-label">{label}</span>
       {children}
     </div>
   )
 }
 
-function budgetStatusColor(id) {
-  switch (id) {
-    case 'in_progress':     return '#fb923c'
-    case 'pending_review':  return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':        return '#4ade80'
-    case 'final':           return '#22c55e'
-    case 'blocked':         return '#ef4444'
-    case 'on_hold':         return '#fcd34d'
-    case 'omitted':         return '#57534e'
-    case 'bidding':         return '#c084fc'
-    default:                return '#a8a29e'
-  }
-}
-
-function Select({ value, onChange, options, colorFn }) {
+// The native select in the kit's well at the Dense step. The status colours
+// it used to paint on itself and its options are gone (R3-11): a status is
+// the kit's StatusDot beside it.
+function Select({ value, onChange, options, 'aria-label': ariaLabel }) {
   return (
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-      style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: colorFn ? colorFn(value) : '#d6d3d1' }}
+      className="ui-input"
+      data-size="sm"
+      aria-label={ariaLabel}
     >
-      {options.map(o => <option key={o.value} value={o.value} style={colorFn ? { color: colorFn(o.value) } : undefined}>{o.label}</option>)}
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   )
 }
 
-function CenterMsg({ children }) {
+// The whole view's "not yet" and "nothing" (R3-19). A message about loading
+// is the kit Loading, never the empty state — read with the kit's own test
+// for a loading string, so the shell's two calls need no change; anything
+// else is the kit EmptyState.
+function CenterMsg({ children, loading = /\bloading\b/i.test(String(children ?? '')) }) {
   return (
-    <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-      <span className="text-label uppercase" style={{ color: '#a8a29e' }}>{children}</span>
+    <div className="rb-budget-center">
+      {loading ? <Loading label={children} /> : <EmptyState title={children} />}
     </div>
   )
 }
 
-function Empty({ children }) {
-  return <div className="text-dense italic" style={{ color: '#78716c' }}>{children}</div>
+// "Nothing here" (R3-19): the kit EmptyState, `compact` inside a section.
+// A call that passes one string passes the title.
+function Empty({ children, title = children, body, compact = false }) {
+  return <EmptyState compact={compact} title={title} body={body} />
 }
 
 function varianceLabel(v) {
@@ -2928,8 +2863,14 @@ function varianceLabel(v) {
   return 'On target'
 }
 
+// A variance's tone in the kit's words (Stat's `valueTone`): over the bid is
+// the bad news.
 function varianceTone(v) {
   if (v > 0) return 'danger'
-  if (v < 0) return 'good'
+  if (v < 0) return 'success'
   return 'neutral'
 }
+
+// Surface 2a's mounted test renders these directly; the default export is
+// unchanged.
+export { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg }

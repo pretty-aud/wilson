@@ -43,4 +43,342 @@
     white-space: nowrap;
   }
 
+  /* ═══ BudgetView: the page and its sections (surface 2a) ══════════════════
+     The Summary tab, the seven reports, Custom and the helpers they share.
+     A section is the kit SectionTitle over its content — H2, sentence case,
+     a hairline above — with no box and no fill (R3-30, R3-06): the old Card
+     drew five equal boxes and a 10.5px orange title inside each. The gap is
+     the only rhythm (no block keeps a margin): 32px between blocks, 16 inside
+     a section, so a title sits nearer its own content than the block above
+     it. */
+  .rb-budget-page { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
+  .rb-budget-section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  /* The whole view's "not yet" (the kit Loading) and "nothing" (the kit
+     EmptyState), centred on the paper. */
+  .rb-budget-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    background-color: var(--color-paper);
+  }
+
+  /* A field: its Label-step label (the kit's `.ui-field-label`) 4px over a
+     Dense control, the kit Field's proximity. A div, not the kit's <label>:
+     the words were never a click target (C1). */
+  .rb-budget-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+  /* Words that say where a figure comes from ("Rates via", "cols"): Dense in
+     the third ink (they were #78716c, 3.65:1). */
+  .rb-budget-hint { font-size: var(--text-dense); color: var(--color-ink-3); }
+
+  /* A Label-step heading over a block that is not a section. */
+  .rb-budget-eyebrow {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ Summary: the banner and the tiles ══════════════════════════════════ */
+  /* The active budget is the kit Banner (success); its two lines. */
+  .rb-budget-active-title { display: block; font-weight: 600; }
+  .rb-budget-active-meta { display: block; color: var(--color-ink-2); }
+  .rb-budget-active-name { font-weight: 600; color: var(--color-ink); }
+
+  /* The day tiles: one kit Stat each (R3-10), on the raised paper with one
+     hairline as B2's Tasks tiles are, in one row at the 24px gutter. They
+     share the row evenly (the Expenses tab's four as well) and wrap under
+     120px. One class over `.ui-stat`, whose `min-width: 0` this sheet may
+     load before. */
+  .rb-budget-stats { display: flex; flex-wrap: wrap; gap: var(--spacing-gutter); }
+  .ui-stat.rb-budget-stat {
+    flex: 1 1 0;
+    min-width: 120px;
+    padding: 12px 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+
+  /* ═══ Summary: the cost waterfall (R3-08, R3-09, R3-35) ══════════════════
+     Four input rows with ONE treatment — the label at Body in the second
+     ink, the amount at Body in the ink — and a hairline between them; then
+     the grand total under the one signal rule. The amount column is declared
+     once, here: `$1,234,567` is 84px in the mono at 14px, and a signed
+     `+$1,234,567` 92.4 (measured in the browser; the mono is 0.6em a glyph)
+     -> 96. It was 160 written four times in two components. */
+  .rb-budget-wf { --rb-budget-wf-amount: 96px; display: flex; flex-direction: column; }
+  .rb-budget-wf-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 8px var(--cell-pad-x);
+  }
+  .rb-budget-wf-row + .rb-budget-wf-row { border-top: 1px solid var(--color-rule); }
+  .rb-budget-wf-label {
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-2);
+  }
+  /* The figure's own look (tabular mono, one line), because a signed amount
+     here is a formatMoney string rather than CurrencyDisplay's span. */
+  .rb-budget-wf-amount {
+    flex: none;
+    width: var(--rb-budget-wf-amount);
+    margin-left: auto;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: var(--text-body);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  /* The agency fee switched off: the word at the third ink (was #57534e). */
+  .rb-budget-wf-amount[data-off="true"] { color: var(--color-ink-3); }
+
+  /* The grand total, the page's one display number (R3-08): the label at H2,
+     the figure at H1, both 600 in the ink, under one 1px signal rule. The
+     figure ends on the amounts' right edge; at 20px it is 120 wide, so the
+     column is its least width, not its width. */
+  .rb-budget-wf-total {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 12px var(--cell-pad-x);
+    border-top: 1px solid var(--color-signal);
+  }
+  .rb-budget-wf-total-label {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-budget-wf-total-amount {
+    flex: none;
+    min-width: var(--rb-budget-wf-amount);
+    margin-left: auto;
+    text-align: right;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+
+  /* The % controls: the kit's field at 28px, one width for all three (a
+     button at rest, the same box as a text field while editing, so nothing
+     moves), the figure right-aligned. "100%" is 32.7px at 13px. The button
+     takes the pointer, and gives it back when it cannot be used (the base
+     layer's `:disabled` loses to a component-layer cursor). */
+  .ui-input.rb-budget-pct { width: 64px; text-align: right; }
+  button.ui-input.rb-budget-pct { cursor: pointer; }
+  button.ui-input.rb-budget-pct:disabled { cursor: not-allowed; }
+
+  /* Under the waterfall: where the rates come from, and the actuals' columns,
+     on the rows' 12px edge. */
+  .rb-budget-wf-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 var(--cell-pad-x);
+  }
+  .rb-budget-wf-source { min-width: 0; }
+  .rb-budget-wf-source-name { color: var(--color-ink-2); }
+  .rb-budget-actuals { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  /* The kit's field is full width; in this row each takes its own. The count
+     holds "100" beside Chromium's number spinner, which keeps its 15px even
+     while hidden: at 48px the old field showed "20" as "2C". */
+  .ui-input.rb-budget-actuals-mode { width: auto; }
+  .ui-input.rb-budget-actuals-count { width: 64px; text-align: center; }
+
+  /* ═══ Summary: budget versions (R3-28, R3-38) ════════════════════════════ */
+  /* Save a bid version: the field takes the row; the button sits on its
+     bottom edge. */
+  .rb-budget-new-version { display: flex; align-items: flex-end; gap: 8px; }
+  .rb-budget-new-version > .rb-budget-field { flex: 1 1 auto; }
+
+  /* The column widths of the three tables, declared once and read by their
+     header cells (`<Th width="var(--rb-budget-col-money)">`). Each holds
+     its widest value and its own header, measured in the browser in Geist
+     Mono at the step it draws, plus the kit's 12px cell padding a side:
+       money  "+$1,234,567" 92.4 at the grand total's 14px; "SUBTOTAL" 61.1 -> 120
+       var    a 14px arrow + 4 + "+1234.5" 54.6 at 13px; "VARIANCE" 60.3  -> 104
+       days   "1234.5" 46.8; "LOGGED" 48.8                              ->  80
+       count  "9999" 31.2; "TASKS" 37.6                                 ->  72
+       date   "12/31/2026" 78 (en-US; a longer locale ellipsizes)       -> 112
+       mark   a 28px IconButton; "ACTIVE" 42.5                          ->  72
+       acts   a 28px IconButton; "ACTIONS" 52.9                         ->  80
+     A header with no `onSort` reserves no sort slot (index.css). The name
+     column takes the rest. */
+  .rb-budget-report,
+  .rb-budget-versions,
+  .rb-budget-top {
+    --rb-budget-col-money: 120px;
+    --rb-budget-col-var: 104px;
+    --rb-budget-col-days: 80px;
+    --rb-budget-col-count: 72px;
+    --rb-budget-col-date: 112px;
+    --rb-budget-col-mark: 72px;
+    --rb-budget-col-acts: 80px;
+  }
+
+  /* A cell holding a 28px control pads 4 above and 3 below it, so the row
+     stays the kit's 36 and the focus ring's 3px still fits inside the cell's
+     clip. (0,4,0): one class over the kit's dense `.ui-td` rule. */
+  .rb-budget-versions .ui-tr > .ui-td.rb-budget-icon-cell { padding-top: 4px; padding-bottom: 3px; }
+  /* The active and locked markers: the glyph where a set-active button's
+     would be (7px into its 28), in the one active tone and the success tone.
+     The ACTIVE row is also the kit's selected row; LOCKED is its badge. */
+  .rb-budget-mark { display: block; width: var(--icon-sm); height: var(--icon-sm); margin-left: 7px; }
+  .rb-budget-mark[data-tone="signal"] { color: var(--color-signal); }
+  .rb-budget-mark[data-tone="success"] { color: var(--color-success); }
+  .rb-budget-version-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-budget-version-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-budget-version-name > .ui-status { flex-shrink: 0; }
+  /* A date is a figure: the mono at tabular figures, in the second ink; a
+     missing one is a dash at the third (it was #78716c, 3.65:1). */
+  .rb-budget-versions .rb-budget-date {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-budget-versions .rb-budget-date[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* The variance against the active bid: a raised block with one hairline;
+     its tone is the figure's alone (R19 — it was the box's edge as well). */
+  .rb-budget-vs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-budget-vs-figures { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 16px; row-gap: 4px; }
+  .rb-budget-vs-value {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    color: var(--color-ink-2);
+  }
+  .rb-budget-vs-value[data-tone="danger"] { color: var(--color-danger); }
+  .rb-budget-vs-value[data-tone="success"] { color: var(--color-success); }
+  .rb-budget-vs-pct,
+  .rb-budget-vs-detail {
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+  }
+  .rb-budget-vs-pct { color: var(--color-ink-2); }
+  /* The bid and the current total: the third ink on the raised paper
+     (4.66:1; they were #57534e, 2.3:1). */
+  .rb-budget-vs-detail { color: var(--color-ink-3); }
+
+  .rb-budget-actions { display: flex; justify-content: flex-end; }
+
+  /* The activate confirmation: an inline panel, as it has always been (C1),
+     raised, with the caution as its one edge and its icon. Every word is an
+     ink (it was amber text on amber). */
+  .rb-budget-confirm {
+    padding: 16px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-warning);
+    border-radius: var(--radius-control);
+  }
+  .rb-budget-confirm-body { display: flex; align-items: flex-start; gap: 12px; }
+  .rb-budget-confirm-icon {
+    flex: none;
+    width: var(--icon-md);
+    height: var(--icon-md);
+    margin-top: 2px;
+    color: var(--color-warning);
+  }
+  .rb-budget-confirm-title {
+    display: block;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-budget-confirm-text,
+  .rb-budget-confirm-note {
+    margin-top: 8px;
+    max-width: var(--measure-reading);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+  }
+  .rb-budget-confirm-text { color: var(--color-ink); }
+  .rb-budget-confirm-note { color: var(--color-ink-2); }
+  .rb-budget-confirm-name { font-weight: 600; }
+  .rb-budget-confirm-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  /* ═══ The tables' figures ════════════════════════════════════════════════ */
+  /* A secondary figure (counts, days, a subtotal): the second ink. */
+  .rb-budget-quiet { color: var(--color-ink-2); }
+  /* A figure that may be absent: its em dash at the third ink (R3-13; the
+     dashes were #57534e, 2.3:1). */
+  .rb-budget-dash[data-empty="true"] { color: var(--color-ink-3); }
+  /* A variance's news is its figure's tone: over the bid the danger token,
+     under it the success token, level the third ink. The arrow sits inside
+     the figure at the cell icon size. */
+  .rb-budget-var { display: inline-flex; align-items: center; gap: 4px; }
+  .rb-budget-var[data-tone="danger"] { color: var(--color-danger); }
+  .rb-budget-var[data-tone="success"] { color: var(--color-success); }
+  .rb-budget-var[data-tone="zero"] { color: var(--color-ink-3); }
+  .rb-budget-var-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+
+  /* ═══ The Topsheet rollup ════════════════════════════════════════════════ */
+  /* A section's row: its icon and name, Dense 600 in the ink. */
+  .rb-budget-top-group { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--color-ink); }
+  .rb-budget-top-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  /* …and the rows under it start their words on its name's rail: the cell's
+     12px, the icon's 14 and the 8 between, in the second ink. (0,5,0): the
+     kit's dense `.ui-td` rule is (0,3,0). */
+  .rb-budget-top .ui-tr > .ui-td.rb-budget-top-cat[data-indent="true"] {
+    padding-left: calc(var(--cell-pad-x) + var(--icon-sm) + 8px);
+    color: var(--color-ink-2);
+  }
+  /* A section's total: raised and 600, the raise the old #292524 row gave
+     it, on the kit's raised paper. */
+  .rb-budget-top .rb-budget-top-row[data-total="true"] > .ui-td {
+    background-color: var(--color-paper-raised);
+    font-weight: 600;
+  }
+  /* The grand total row (R3-08) is the kit's footer: its words and figures at
+     H3, the step over the rows it totals, under the one 1px signal rule.
+     (0,4,1): over the kit's `.ui-table tfoot > .ui-tr > .ui-td` (0,3,1). */
+  .ui-table.rb-budget-top tfoot > .ui-tr > .ui-td {
+    font-size: var(--text-h3);
+    border-top-color: var(--color-signal);
+  }
+
+  /* ═══ Custom: the status filter (R3-11) ══════════════════════════════════
+     The kit's dot for the chosen status inside the kit's field, the words
+     clear of it. It was the select's text painted in one of ten status
+     colours, a purple and a magenta among them. */
+  .rb-budget-status-select { position: relative; display: block; }
+  .rb-budget-status-select > .ui-status-dot {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    margin-top: -4px;
+    pointer-events: none;
+  }
+  /* (0,3,0): over the kit's `select.ui-input[data-size="sm"]` (0,2,1). */
+  .rb-budget-status-select[data-dot="true"] > .ui-input { padding-left: 22px; }
+
 }
