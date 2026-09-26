@@ -1,0 +1,46 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. Budget — lane B5's sheet
+   UI overhaul B5, 2026-09-26
+
+   Owns: components/CurrencyDisplay.jsx (the one money formatter and its
+   figure), views/BudgetView.jsx (Summary, the seven breakdown reports,
+   Custom, Expenses and the tab strip), views/budget/CrewTeamTab.jsx,
+   TalentTab.jsx and ClientViewTab.jsx. Every class here is `rb-` plus this
+   lane's second word (`money`, `budget`, `crew`, `talent`, `client`): the
+   `rb-` prefix is what B1's scanners (rabbitCssGuards.js) key on; the second
+   word keeps these clear of B1's rabbitShell.css, B2's `rb-task-`, B3's
+   `rb-tl-`, B4's `rb-files-` family and B6's `bn-`.
+
+   Every value is a token. No hex, no colour literal, no size off the scale.
+
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST RULE OF THIS FILE, and it has
+   to be (rabbitShell.css's header; D1 hand-off §5 trap 1): this sheet is
+   imported from a component, so the bundler can emit it before index.css, and
+   a layer's position is fixed where it is FIRST named.
+
+   🚨 SPECIFICITY AGAINST THE KIT. This sheet may load before index.css, so an
+   equal-specificity fight with a kit rule is a coin toss (B1 trap 3). A rule
+   here that overrides a kit rule on the same element is written one class
+   heavier.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ CurrencyDisplay ═════════════════════════════════════════════════════
+     Every amount in the Budget is this one figure (R3-01, R3-02): the mono at
+     tabular figures, so a column of amounts lines up digit under digit
+     whatever face surrounds it, and one line — a figure never wraps between
+     its symbol and its digits. The size and the colour are the caller's:
+     the figure inherits both (R3-34), so a cell decides its ink once. (No
+     `--mono-size-adjust` here: Geist Mono is metric-matched and the token is
+     1.0; a size written on the figure would be one the scale audit cannot
+     read as a step.) */
+  .rb-money-figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+}

@@ -202,6 +202,11 @@ export const CSS_FILES = [
   // and Experiences). Added in the commit that created it; every value in it
   // is a token, so it scores 0 on every row from its first line.
   'src/tools/rabbit_v0.1.0/views/rabbitFiles.css',
+  // B5, 2026-09-26 — R.A.B.B.I.T.'s Budget (CurrencyDisplay first, then
+  // BudgetView, Crew/Team, Talent and the client estimate). Added in the
+  // commit that created it; every value in it is a token, so it scores 0 on
+  // every row from its first line.
+  'src/tools/rabbit_v0.1.0/views/rabbitBudget.css',
 ];
 
 /* A comment is not code. Blanking comments to spaces (rather than deleting

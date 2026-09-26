@@ -10,11 +10,7 @@
 
 import { useMemo, useRef } from 'react'
 import { Eye, Printer } from 'lucide-react'
-
-function fmtCurrency(val, currency = 'USD') {
-  const n = Number(val) || 0
-  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
+import { formatMoney } from '../../components/CurrencyDisplay'
 
 export default function ClientViewTab({ budget, budgetHook, project, tasks, roleRates, expensesHook, currency }) {
   const printRef = useRef(null)
@@ -94,14 +90,14 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
     if (!printWin) return
 
     const lineRows = clientLineItems
-      .map(r => `<tr><td>${r.label}</td><td>${fmtCurrency(r.estimate, currency)}</td></tr>`)
+      .map(r => `<tr><td>${r.label}</td><td>${formatMoney(r.estimate, currency)}</td></tr>`)
       .join('')
 
     const contingencyRow = contingencyAmt > 0
-      ? `<tr><td>Contingency</td><td>${fmtCurrency(contingencyAmt, currency)}</td></tr>`
+      ? `<tr><td>Contingency</td><td>${formatMoney(contingencyAmt, currency)}</td></tr>`
       : ''
     const markupRow = markupAmt > 0
-      ? `<tr><td>Production Fee</td><td>${fmtCurrency(markupAmt, currency)}</td></tr>`
+      ? `<tr><td>Production Fee</td><td>${formatMoney(markupAmt, currency)}</td></tr>`
       : ''
 
     // Session 25: the title and code below were project.name / project.code.
@@ -140,7 +136,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             ${lineRows}
             ${contingencyRow}
             ${markupRow}
-            <tr class="total-row"><td>Total</td><td>${fmtCurrency(grandTotal, currency)}</td></tr>
+            <tr class="total-row"><td>Total</td><td>${formatMoney(grandTotal, currency)}</td></tr>
           </tbody>
         </table>
         <div class="note">Note:</div>
@@ -211,7 +207,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
               <tr key={row.label} style={{ borderBottom: '1px solid #e7e5e4' }}>
                 <td className="text-dense py-2 px-3" style={{ color: '#1c1917' }}>{row.label}</td>
                 <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
-                  {fmtCurrency(row.estimate, currency)}
+                  {formatMoney(row.estimate, currency)}
                 </td>
               </tr>
             ))}
@@ -223,7 +219,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
                   Contingency
                 </td>
                 <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
-                  {fmtCurrency(contingencyAmt, currency)}
+                  {formatMoney(contingencyAmt, currency)}
                 </td>
               </tr>
             )}
@@ -235,7 +231,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
                   Production Fee
                 </td>
                 <td className="text-dense font-mono tabular-nums text-right py-2 px-3" style={{ color: '#1c1917' }}>
-                  {fmtCurrency(markupAmt, currency)}
+                  {formatMoney(markupAmt, currency)}
                 </td>
               </tr>
             )}
@@ -244,7 +240,7 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             <tr style={{ borderTop: '2px solid #1c1917' }}>
               <td className="text-dense font-semibold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
               <td className="text-dense font-mono tabular-nums font-semibold text-right py-3 px-3" style={{ color: '#1c1917' }}>
-                {fmtCurrency(grandTotal, currency)}
+                {formatMoney(grandTotal, currency)}
               </td>
             </tr>
           </tbody>

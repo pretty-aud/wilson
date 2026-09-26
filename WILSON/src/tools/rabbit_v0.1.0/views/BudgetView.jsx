@@ -38,16 +38,11 @@ import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudg
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
 import { buildRoleRates } from '../../../components/Budget/budgetMath'
-import CurrencyDisplay from '../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
 import { INK_LIGHT } from '../../../ui/tokens.js'
-
-function fmtCurrency(val, currency = 'USD') {
-  const n = Number(val) || 0
-  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
 
 const TABS = [
   { id: 'summary',        label: 'Summary',       icon: DollarSign },
@@ -545,7 +540,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               {' '}· {lockedVersion.snapshot?.lockedAt
                 ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
                 : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
-              {' '}· {fmtCurrency(lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0, currency)}
+              {' '}· {formatMoney(lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0, currency)}
             </span>
           </div>
           <button
@@ -593,7 +588,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               Base cost
             </span>
             <div className="text-h2 font-mono tabular-nums font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
-              <CurrencyDisplay value={baseCost} currency={currency} style={{ color: '#d6d3d1' }} />
+              <CurrencyDisplay value={baseCost} currency={currency} />
             </div>
           </div>
 
@@ -646,9 +641,8 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               )}
             </div>
             <div className="text-dense font-mono tabular-nums text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
-              {agencyEnabled ? `+` : ''}{' '}
               {agencyEnabled
-                ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} style={{ color: '#a8a29e' }} />
+                ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} signed />
                 : 'OFF'}
             </div>
           </div>
@@ -665,8 +659,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <div className="text-h1 font-mono tabular-nums font-semibold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
               <CurrencyDisplay
                 value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
-                currency={currency}
-                style={{ color: '#d6d3d1' }} />
+                currency={currency} />
             </div>
           </div>
         </div>
@@ -857,7 +850,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               <span className="text-h1 font-mono tabular-nums font-semibold" style={{
                 color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
               }}>
-                {versionVariance.diff > 0 ? '+' : ''}<CurrencyDisplay value={versionVariance.diff} currency={currency} />
+                <CurrencyDisplay value={versionVariance.diff} currency={currency} signed />
               </span>
               <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
                 ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
@@ -949,10 +942,6 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   const { lines, lineComputations } = budgetHook
   const agencyEnabled = project?.budget_agency_enabled === true
   const agencyPct = Number(project?.budget_agency_pct ?? 0) / 100
-
-  function fmtC(val) {
-    return (Number(val) || 0).toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-  }
 
   // ── Crew/Team: derived from team members + rate card + tasks ──
   const crewData = useMemo(() => {
@@ -1082,12 +1071,12 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
     return (
       <div className="flex gap-2 px-2 py-1.5 rounded-control" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
         <span className={`flex-1 text-dense truncate ${bold ? 'font-semibold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
-        <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
-        {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
-        <span className={`text-dense font-mono tabular-nums text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
-        <span className="text-dense font-mono tabular-nums text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
+        <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.sub }}>{formatMoney(subtotal, currency)}</span>
+        {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? formatMoney(agencyFee, currency) : '\u2014'}</span>}
+        <span className={`text-dense font-mono tabular-nums text-right ${bold ? 'font-semibold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{formatMoney(bidTotal, currency)}</span>
+        <span className="text-dense font-mono tabular-nums text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? formatMoney(actualTotal, currency) : '\u2014'}</span>
         <span className="text-dense font-mono tabular-nums text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
-          {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
+          {bidTotal > 0 || actualTotal > 0 ? formatMoney(v, currency, { sign: 'exceptZero' }) : '\u2014'}
         </span>
       </div>
     )
@@ -1141,12 +1130,12 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         <div className="mt-2" style={{ borderTop: '2px solid #fb923c' }}>
           <div className="flex gap-2 px-2 py-2.5 rounded-control mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
             <span className="flex-1 text-label font-semibold uppercase" style={{ color: '#fb923c' }}>Grand Total</span>
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
-            {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
-            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.sub }}>{formatMoney(grand.subtotal, currency)}</span>
+            {agencyEnabled && <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.agency }}>{formatMoney(grand.agencyFee, currency)}</span>}
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.bid }}>{formatMoney(grand.bidTotal, currency)}</span>
+            <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? formatMoney(grand.actualTotal, currency) : '\u2014'}</span>
             <span className="text-dense font-mono tabular-nums text-right font-semibold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
-              {grand.bidTotal > 0 || grand.actualTotal > 0 ? `${grand.variance > 0 ? '+' : ''}${fmtC(grand.variance)}` : '\u2014'}
+              {grand.bidTotal > 0 || grand.actualTotal > 0 ? formatMoney(grand.variance, currency, { sign: 'exceptZero' }) : '\u2014'}
             </span>
           </div>
         </div>
@@ -1235,12 +1224,13 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
         {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
         {label}
       </span>
-      <CurrencyDisplay
-        value={amount}
-        currency={currency}
-        className={`${bold ? 'font-semibold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
-        style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
-      />
+      <span style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}>
+        <CurrencyDisplay
+          value={amount}
+          currency={currency}
+          className={`${bold ? 'font-semibold' : ''} ${large ? 'text-h1' : 'text-h3'}`}
+        />
+      </span>
     </div>
   )
 }
@@ -1297,7 +1287,7 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
         )}
       </div>
       <div className="text-dense font-mono tabular-nums text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
-        <CurrencyDisplay value={amount} currency={currency} style={{ color: '#a8a29e' }} />
+        <CurrencyDisplay value={amount} currency={currency} />
       </div>
     </div>
   )
@@ -1676,7 +1666,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
               <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
               <span />
               <span />
-              <CurrencyDisplay value={totalCost} currency={budget.currency} className="font-semibold" style={{ color: '#d6d3d1' }} />
+              <span style={{ color: '#d6d3d1' }}><CurrencyDisplay value={totalCost} currency={budget.currency} className="font-semibold" /></span>
             </div>
           </>
         )}
@@ -2048,8 +2038,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           </div>
           {exp.description && <div className="text-dense truncate mt-0.5" style={{ color: '#78716c' }}>{exp.description}</div>}
         </div>
-        <div style={{ flex: 1 }} className="text-dense font-mono">
-          <CurrencyDisplay value={est} currency={currency} style={{ color: est ? '#a8a29e' : '#57534e' }} />
+        <div style={{ flex: 1, color: est ? '#a8a29e' : '#57534e' }} className="text-dense font-mono">
+          <CurrencyDisplay value={est} currency={currency} />
         </div>
         {(() => {
           const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
@@ -2061,25 +2051,25 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
               <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
                 className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                 style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
+                {mAmt > 0 ? formatMoney(mAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
               </button>
             </div>
             <div style={{ flex: 0.6 }} className="text-dense font-mono" onClick={e => e.stopPropagation()}>
               <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
                 className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                 style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
+                {cAmt > 0 ? formatMoney(cAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
               </button>
             </div>
           </>)
         })()}
-        <div style={{ flex: 1 }} className="text-dense font-mono">
-          <CurrencyDisplay value={act} currency={currency} style={{ color: act ? '#d6d3d1' : '#57534e' }} />
+        <div style={{ flex: 1, color: act ? '#d6d3d1' : '#57534e' }} className="text-dense font-mono">
+          <CurrencyDisplay value={act} currency={currency} />
         </div>
         <div style={{ flex: 0.8 }} className="text-dense font-mono">
           {est > 0 ? (
             <span style={{ color: statusColor }}>
-              {v > 0 ? '+' : ''}{<CurrencyDisplay value={v} currency={currency} style={{ color: statusColor }} />}
+              <CurrencyDisplay value={v} currency={currency} signed />
             </span>
           ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
         </div>
@@ -2125,12 +2115,12 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     <div className="flex flex-col gap-3">
       {/* Summary tiles */}
       <div className="flex gap-3 flex-wrap">
-        <BigTile label="Estimated Total" value={fmtCurrency(totalEstimated, currency)} />
-        <BigTile label="Actual Total" value={totalActual > 0 ? fmtCurrency(totalActual, currency) : '\u2014'} />
+        <BigTile label="Estimated Total" value={formatMoney(totalEstimated, currency)} />
+        <BigTile label="Actual Total" value={totalActual > 0 ? formatMoney(totalActual, currency) : '\u2014'} />
         <BigTile
           label="Variance"
           value={totalEstimated > 0 || totalActual > 0
-            ? `${totalVariance > 0 ? '+' : ''}${fmtCurrency(totalVariance, currency)}`
+            ? formatMoney(totalVariance, currency, { sign: 'exceptZero' })
             : '\u2014'}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
@@ -2288,9 +2278,9 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
                 <span className="text-label font-semibold uppercase" style={{ color: '#fb923c' }}>{g.label}</span>
                 <span className="text-dense font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
                 <span className="ml-auto text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
-                  Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#a8a29e' }} />
+                  Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" />
                   {' / '}
-                  Act: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#d6d3d1' }} />
+                  Act: <span style={{ color: '#d6d3d1' }}><CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} className="inline" /></span>
                 </span>
               </div>
               <div className="flex flex-col gap-1">
@@ -2418,7 +2408,7 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
             placeholder={String(defaultMargin)}
             className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(marginAmt, currency, { sign: 'always' })}</span>
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
@@ -2428,7 +2418,7 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
             placeholder={String(defaultCont)}
             className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(contAmt, currency, { sign: 'always' })}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
@@ -2679,7 +2669,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
               <div className="px-3 py-2 text-dense font-mono tabular-nums rounded-control" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 {est > 0 ? (
                   <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
-                    {variance > 0 ? '+' : ''}<CurrencyDisplay value={variance} currency={currency} className="inline" style={{ color: 'inherit' }} />
+                    <CurrencyDisplay value={variance} currency={currency} className="inline" signed />
                   </span>
                 ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
               </div>
@@ -2854,7 +2844,7 @@ function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
           <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
           <span style={{ color: '#a8a29e' }}>{row.logged.toFixed(1)}</span>
           <VarianceCell value={row.variance} />
-          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#a8a29e' }} />
+          <span style={{ color: '#a8a29e' }}><CurrencyDisplay value={row.cost} currency={currency} /></span>
         </div>
       ))}
     </div>

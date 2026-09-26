@@ -15,6 +15,7 @@ import { Star, Plus, X, Trash2, RotateCcw, Paperclip, FolderOpen } from 'lucide-
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
 import { useRabbit } from '../../state/RabbitProvider'
+import { formatMoney } from '../../components/CurrencyDisplay'
 
 // Session 24: the local-server BASE_URL that used to sit here is gone.
 // Invoice attachment now goes through the adapter (InvoiceAttachment),
@@ -29,11 +30,6 @@ const TALENT_TYPE_OPTIONS = [
   { value: 'motion_capture',  label: 'Motion Capture Performer' },
   { value: 'other',           label: 'Other' },
 ]
-
-function fmtCurrency(val, currency = 'USD') {
-  const n = Number(val) || 0
-  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
 
 function columnLabel(index, mode, projectStart) {
   if (mode === 'count') return `#${index + 1}`
@@ -227,7 +223,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
             placeholder={String(defaultMargin)}
             className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(marginAmt, currency, { sign: 'always' })}</span>
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
@@ -237,7 +233,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
             placeholder={String(defaultCont)}
             className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(contAmt, currency, { sign: 'always' })}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
@@ -390,11 +386,11 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     <div className="flex flex-col gap-3">
       {/* ── Summary tiles ── */}
       <div className="flex gap-3 flex-wrap">
-        <SummaryTile label="Bid Total" value={fmtCurrency(totals.bid, currency)} />
-        <SummaryTile label="Actual Total" value={totals.actual > 0 ? fmtCurrency(totals.actual, currency) : '\u2014'} />
+        <SummaryTile label="Bid Total" value={formatMoney(totals.bid, currency)} />
+        <SummaryTile label="Actual Total" value={totals.actual > 0 ? formatMoney(totals.actual, currency) : '\u2014'} />
         <SummaryTile label="Variance"
           value={totals.bid > 0 || totals.actual > 0
-            ? `${totals.variance > 0 ? '+' : ''}${fmtCurrency(totals.variance, currency)}`
+            ? formatMoney(totals.variance, currency, { sign: 'exceptZero' })
             : '\u2014'}
           tone={totals.variance > 0 ? 'danger' : totals.variance < 0 ? 'good' : 'neutral'} />
         <SummaryTile label="Talent" value={allTalent.length} />
@@ -489,7 +485,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                     <InlineCell value={line.days} type="number" placeholder="0" onChange={v => updateLine(line.id, { days: v })} />
                   </div>
                   <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: comp.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{comp.subtotal > 0 ? fmtCurrency(comp.subtotal, currency) : '\u2014'}</span>
+                    <span style={{ color: comp.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{comp.subtotal > 0 ? formatMoney(comp.subtotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_AGPCT, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
                     <InlineCell value={line.talent_agency_fee_pct} type="number" placeholder="0" onChange={v => updateLine(line.id, { talent_agency_fee_pct: v })} />
@@ -504,20 +500,20 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                         <button type="button" onClick={e => handleMcCellClick(e, line.id)}
                           className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                           style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                          {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
+                          {mAmt > 0 ? formatMoney(mAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
                         </button>
                       </div>
                       <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                         <button type="button" onClick={e => handleMcCellClick(e, line.id)}
                           className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                           style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                          {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
+                          {cAmt > 0 ? formatMoney(cAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
                         </button>
                       </div>
                     </>)
                   })()}
                   <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right font-semibold flex items-center justify-end">
-                    <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? fmtCurrency(comp.bidTotal, currency) : '\u2014'}</span>
+                    <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? formatMoney(comp.bidTotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_DEL, backgroundColor: '#1c1917' }} className="flex items-center justify-center opacity-0 group-hover/trow:opacity-100 transition-opacity">
                     <button type="button" onClick={() => deleteLine(line.id)} className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }}>
@@ -534,12 +530,12 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                         : '#57534e',
                     }}>
                       {comp.bidTotal > 0 || comp.actualTotal > 0
-                        ? `${comp.variance > 0 ? '+' : ''}${fmtCurrency(comp.variance, currency)}`
+                        ? formatMoney(comp.variance, currency, { sign: 'exceptZero' })
                         : '\u2014'}
                     </span>
                   </div>
                   <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: comp.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.actualTotal > 0 ? fmtCurrency(comp.actualTotal, currency) : '\u2014'}</span>
+                    <span style={{ color: comp.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.actualTotal > 0 ? formatMoney(comp.actualTotal, currency) : '\u2014'}</span>
                   </div>
                   {/* Period cells — click opens fixed popover */}
                   {colHeaders.map((label, colIdx) => {
@@ -556,7 +552,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                             border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
                             backgroundColor: cellActual?.value ? '#292524' : 'transparent',
                           }}>
-                          {cellActual?.value ? fmtCurrency(cellActual.value, currency) : '\u00B7'}
+                          {cellActual?.value ? formatMoney(cellActual.value, currency) : '\u00B7'}
                           {hasAttach && <Paperclip className="absolute top-0 right-0.5 w-2.5 h-2.5" style={{ color: '#fb923c' }} />}
                         </button>
                       </div>
@@ -591,17 +587,17 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
               <span style={{ color: '#fb923c' }}>Grand Total</span>
             </div>
             <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#a8a29e' }}>{fmtCurrency(totals.subtotal, currency)}</span>
+              <span style={{ color: '#a8a29e' }}>{formatMoney(totals.subtotal, currency)}</span>
             </div>
             <div style={{ width: W_AGPCT, backgroundColor: '#292524' }} />
             <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: totals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.marginTotal > 0 ? `+${fmtCurrency(totals.marginTotal, currency)}` : '\u2014'}</span>
+              <span style={{ color: totals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.marginTotal > 0 ? formatMoney(totals.marginTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
             </div>
             <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: totals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.contTotal > 0 ? `+${fmtCurrency(totals.contTotal, currency)}` : '\u2014'}</span>
+              <span style={{ color: totals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.contTotal > 0 ? formatMoney(totals.contTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
             </div>
             <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{fmtCurrency(totals.bid, currency)}</span>
+              <span style={{ color: '#d6d3d1' }}>{formatMoney(totals.bid, currency)}</span>
             </div>
             <div style={{ width: W_DEL, backgroundColor: '#292524' }} />
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
@@ -610,12 +606,12 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                 color: totals.variance > 0 ? '#fca5a5' : totals.variance < 0 ? '#86efac' : '#a8a29e',
               }}>
                 {totals.bid > 0 || totals.actual > 0
-                  ? `${totals.variance > 0 ? '+' : ''}${fmtCurrency(totals.variance, currency)}`
+                  ? formatMoney(totals.variance, currency, { sign: 'exceptZero' })
                   : '\u2014'}
               </span>
             </div>
             <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{totals.actual > 0 ? fmtCurrency(totals.actual, currency) : '\u2014'}</span>
+              <span style={{ color: '#d6d3d1' }}>{totals.actual > 0 ? formatMoney(totals.actual, currency) : '\u2014'}</span>
             </div>
             <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
           </div>

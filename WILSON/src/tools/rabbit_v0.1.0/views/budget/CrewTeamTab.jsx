@@ -15,15 +15,11 @@ import { Users, X, RotateCcw, Paperclip, FolderOpen } from 'lucide-react'
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
 import { useRabbit } from '../../state/RabbitProvider'
+import { formatMoney } from '../../components/CurrencyDisplay'
 
 // Session 24: the local-server BASE_URL that used to sit here is gone.
 // Invoice attachment now goes through the adapter (InvoiceAttachment),
 // so it works on the web and on Local Server alike.
-
-function fmtCurrency(val, currency = 'USD') {
-  const n = Number(val) || 0
-  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
 
 function columnLabel(index, mode, projectStart) {
   if (mode === 'count') return `#${index + 1}`
@@ -179,7 +175,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
             placeholder={String(defaultMargin)}
             className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(marginAmt, currency, { sign: 'always' })}</span>
         </div>
       </div>
 
@@ -191,7 +187,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
             placeholder={String(defaultCont)}
             className="flex-1 px-2 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
+          <span className="text-dense font-mono" style={{ color: '#fb923c' }}>{formatMoney(contAmt, currency, { sign: 'always' })}</span>
         </div>
       </div>
 
@@ -436,11 +432,11 @@ export default function CrewTeamTab({
     <div className="flex flex-col gap-3">
       {/* ── Summary tiles ── */}
       <div className="flex gap-3 flex-wrap">
-        <SummaryTile label="Bid Total" value={fmtCurrency(grandTotals.bidTotal, currency)} />
-        <SummaryTile label="Actual Total" value={grandTotals.actualTotal > 0 ? fmtCurrency(grandTotals.actualTotal, currency) : '\u2014'} />
+        <SummaryTile label="Bid Total" value={formatMoney(grandTotals.bidTotal, currency)} />
+        <SummaryTile label="Actual Total" value={grandTotals.actualTotal > 0 ? formatMoney(grandTotals.actualTotal, currency) : '\u2014'} />
         <SummaryTile label="Variance"
           value={grandTotals.bidTotal > 0 || grandTotals.actualTotal > 0
-            ? `${grandTotals.variance > 0 ? '+' : ''}${fmtCurrency(grandTotals.variance, currency)}`
+            ? formatMoney(grandTotals.variance, currency, { sign: 'exceptZero' })
             : '\u2014'}
           tone={grandTotals.variance > 0 ? 'danger' : grandTotals.variance < 0 ? 'good' : 'neutral'} />
         <SummaryTile label="Members" value={memberCount} />
@@ -551,30 +547,30 @@ export default function CrewTeamTab({
                     }}>{row.employmentType === 'fulltime' ? 'FT' : 'FR'}</span>
                   </div>
                   <div style={{ width: W_RATE, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.rate > 0 ? '#a8a29e' : '#57534e' }}>{row.rate > 0 ? fmtCurrency(row.rate, currency) : '\u2014'}</span>
+                    <span style={{ color: row.rate > 0 ? '#a8a29e' : '#57534e' }}>{row.rate > 0 ? formatMoney(row.rate, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <span style={{ color: row.bidDays > 0 ? '#a8a29e' : '#57534e' }}>{row.bidDays > 0 ? row.bidDays.toFixed(1) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{row.subtotal > 0 ? fmtCurrency(row.subtotal, currency) : '\u2014'}</span>
+                    <span style={{ color: row.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{row.subtotal > 0 ? formatMoney(row.subtotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <button type="button" onClick={e => handleMcCellClick(e, row.id)}
                       className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                       style={{ color: row.marginAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                      {row.marginAmt > 0 ? `+${fmtCurrency(row.marginAmt, currency)}` : '\u2014'}
+                      {row.marginAmt > 0 ? formatMoney(row.marginAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
                     </button>
                   </div>
                   <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
                     <button type="button" onClick={e => handleMcCellClick(e, row.id)}
                       className="px-1 py-0.5 rounded-control transition-colors hover:bg-stone-700"
                       style={{ color: row.contAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                      {row.contAmt > 0 ? `+${fmtCurrency(row.contAmt, currency)}` : '\u2014'}
+                      {row.contAmt > 0 ? formatMoney(row.contAmt, currency, { sign: 'exceptZero' }) : '\u2014'}
                     </button>
                   </div>
                   <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right font-semibold flex items-center justify-end">
-                    <span style={{ color: row.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.bidTotal > 0 ? fmtCurrency(row.bidTotal, currency) : '\u2014'}</span>
+                    <span style={{ color: row.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.bidTotal > 0 ? formatMoney(row.bidTotal, currency) : '\u2014'}</span>
                   </div>
                   <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
                   <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
@@ -584,12 +580,12 @@ export default function CrewTeamTab({
                         : '#57534e',
                     }}>
                       {row.bidTotal > 0 || row.actualTotal > 0
-                        ? `${row.variance > 0 ? '+' : ''}${fmtCurrency(row.variance, currency)}`
+                        ? formatMoney(row.variance, currency, { sign: 'exceptZero' })
                         : '\u2014'}
                     </span>
                   </div>
                   <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-dense font-mono tabular-nums text-right flex items-center justify-end">
-                    <span style={{ color: row.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.actualTotal > 0 ? fmtCurrency(row.actualTotal, currency) : '\u2014'}</span>
+                    <span style={{ color: row.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{row.actualTotal > 0 ? formatMoney(row.actualTotal, currency) : '\u2014'}</span>
                   </div>
                   {/* Period cells — click opens fixed popover */}
                   {colHeaders.map((label, colIdx) => {
@@ -606,7 +602,7 @@ export default function CrewTeamTab({
                             border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
                             backgroundColor: cellActual?.value ? '#292524' : 'transparent',
                           }}>
-                          {cellActual?.value ? fmtCurrency(cellActual.value, currency) : '\u00B7'}
+                          {cellActual?.value ? formatMoney(cellActual.value, currency) : '\u00B7'}
                           {hasAttach && <Paperclip className="absolute top-0 right-0.5 w-2.5 h-2.5" style={{ color: '#fb923c' }} />}
                         </button>
                       </div>
@@ -621,16 +617,16 @@ export default function CrewTeamTab({
                   <span style={{ color: '#a8a29e' }}>{group.department} total</span>
                 </div>
                 <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: '#a8a29e' }}>{fmtCurrency(group.subtotal, currency)}</span>
+                  <span style={{ color: '#a8a29e' }}>{formatMoney(group.subtotal, currency)}</span>
                 </div>
                 <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: group.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{group.marginTotal > 0 ? `+${fmtCurrency(group.marginTotal, currency)}` : '\u2014'}</span>
+                  <span style={{ color: group.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{group.marginTotal > 0 ? formatMoney(group.marginTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
                 </div>
                 <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: group.contTotal > 0 ? '#fb923c' : '#57534e' }}>{group.contTotal > 0 ? `+${fmtCurrency(group.contTotal, currency)}` : '\u2014'}</span>
+                  <span style={{ color: group.contTotal > 0 ? '#fb923c' : '#57534e' }}>{group.contTotal > 0 ? formatMoney(group.contTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
                 </div>
                 <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: '#d6d3d1' }}>{fmtCurrency(group.bidTotal, currency)}</span>
+                  <span style={{ color: '#d6d3d1' }}>{formatMoney(group.bidTotal, currency)}</span>
                 </div>
                 <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
                 <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
@@ -639,12 +635,12 @@ export default function CrewTeamTab({
                       : (group.actualTotal - group.bidTotal) < 0 ? '#86efac' : '#78716c',
                   }}>
                     {group.bidTotal > 0 || group.actualTotal > 0
-                      ? `${(group.actualTotal - group.bidTotal) > 0 ? '+' : ''}${fmtCurrency(group.actualTotal - group.bidTotal, currency)}`
+                      ? formatMoney(group.actualTotal - group.bidTotal, currency, { sign: 'exceptZero' })
                       : '\u2014'}
                   </span>
                 </div>
                 <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-dense font-mono tabular-nums text-right font-semibold">
-                  <span style={{ color: '#38bdf8' }}>{group.actualTotal > 0 ? fmtCurrency(group.actualTotal, currency) : '\u2014'}</span>
+                  <span style={{ color: '#38bdf8' }}>{group.actualTotal > 0 ? formatMoney(group.actualTotal, currency) : '\u2014'}</span>
                 </div>
                 <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
               </div>
@@ -657,16 +653,16 @@ export default function CrewTeamTab({
               <span style={{ color: '#fb923c' }}>Grand Total</span>
             </div>
             <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#a8a29e' }}>{fmtCurrency(grandTotals.subtotal, currency)}</span>
+              <span style={{ color: '#a8a29e' }}>{formatMoney(grandTotals.subtotal, currency)}</span>
             </div>
             <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: grandTotals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.marginTotal > 0 ? `+${fmtCurrency(grandTotals.marginTotal, currency)}` : '\u2014'}</span>
+              <span style={{ color: grandTotals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.marginTotal > 0 ? formatMoney(grandTotals.marginTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
             </div>
             <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: grandTotals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.contTotal > 0 ? `+${fmtCurrency(grandTotals.contTotal, currency)}` : '\u2014'}</span>
+              <span style={{ color: grandTotals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{grandTotals.contTotal > 0 ? formatMoney(grandTotals.contTotal, currency, { sign: 'exceptZero' }) : '\u2014'}</span>
             </div>
             <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{fmtCurrency(grandTotals.bidTotal, currency)}</span>
+              <span style={{ color: '#d6d3d1' }}>{formatMoney(grandTotals.bidTotal, currency)}</span>
             </div>
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
             <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
@@ -674,12 +670,12 @@ export default function CrewTeamTab({
                 color: grandTotals.variance > 0 ? '#fca5a5' : grandTotals.variance < 0 ? '#86efac' : '#a8a29e',
               }}>
                 {grandTotals.bidTotal > 0 || grandTotals.actualTotal > 0
-                  ? `${grandTotals.variance > 0 ? '+' : ''}${fmtCurrency(grandTotals.variance, currency)}`
+                  ? formatMoney(grandTotals.variance, currency, { sign: 'exceptZero' })
                   : '\u2014'}
               </span>
             </div>
             <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-dense font-mono tabular-nums text-right font-semibold">
-              <span style={{ color: '#d6d3d1' }}>{grandTotals.actualTotal > 0 ? fmtCurrency(grandTotals.actualTotal, currency) : '\u2014'}</span>
+              <span style={{ color: '#d6d3d1' }}>{grandTotals.actualTotal > 0 ? formatMoney(grandTotals.actualTotal, currency) : '\u2014'}</span>
             </div>
             <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
           </div>
