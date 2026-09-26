@@ -361,7 +361,7 @@ const PROJECT_COLUMNS = new Set([
 // Every one of these needs an allowlist entry, not because of the columns it
 // HAS but because of the keys the UI sends that are not columns:
 //   * addLevel / addExperience send `files` — an array of picked files from
-//     the create dialog (LevelsView.jsx:1009). It has no column and belongs
+//     the create dialog (EntityListView.jsx:1159). It has no column and belongs
 //     to the folder/files work in S26.
 //   * RabbitProvider re-sends whole rows on update (`{ ...existing, ...patch }`,
 //     RabbitProvider.jsx:1333), so created_at/updated_at ride along.

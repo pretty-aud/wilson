@@ -123,8 +123,8 @@ describe('shots — the create payload from ScenesView', () => {
 
 describe('levels and experiences — the `files` key that has no column', () => {
   // 🚨 THE REGRESSION THIS FILE IS REALLY FOR.
-  // CreateLevelPopup sends { name, status, description, files } — an array of
-  // picked files (LevelsView.jsx:1004-1009). `files` is not a column and will
+  // CreateEntityPopup sends { name, status, description, files } — an array of
+  // picked files (EntityListView.jsx:1154-1159). `files` is not a column and will
   // not be one until S26 gives these entities folders. Without an allowlist
   // entry that single key PGRST204s the entire insert, and the New Level
   // button does nothing with no error, exactly like S23's New Task.

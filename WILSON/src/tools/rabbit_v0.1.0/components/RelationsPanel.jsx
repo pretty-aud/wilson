@@ -275,6 +275,16 @@ export default function RelationsPanel({
 }
 
 
+// K4's mark for the two IN-PANEL layers (B4c). The asset picker below and
+// NewTaskSidePopup are not on the kit's modal stack: in a kit Dialog host (the
+// Level / Experience popup since B4c) an Escape pressed inside one used to
+// close the whole popup, task draft and all — before the kit, Escape did
+// nothing there. The kit Dialog skips an Escape already marked handled, so
+// each layer marks the ones pressed in its OWN DOM (a portalled kit question
+// opened from it still gets its Escape) and does nothing else (C1).
+function markOwnEscape(e) {
+  if (e.key === 'Escape' && e.currentTarget.contains(e.target)) e.preventDefault()
+}
 // ═════════════════════════════════════════════════════════
 // AssetPickerOverlay — mini-picker for adding assets
 // ═════════════════════════════════════════════════════════
@@ -292,7 +302,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
   }, [assets, search])
 
   return (
-    <div className="rb-rel-pick">
+    <div className="rb-rel-pick" onKeyDown={markOwnEscape}>
       {/* Header */}
       <div className="rb-rel-pick-head">
         <span className="rb-rel-pick-title">Link asset</span>
@@ -401,7 +411,7 @@ export function NewTaskSidePopup({
     : shots
 
   return (
-    <div className="rb-rel-task">
+    <div className="rb-rel-task" onKeyDown={markOwnEscape}>
       {/* Header: the kit Dialog's head, in sentence case */}
       <div className="rb-rel-task-head">
         <span className="rb-rel-task-title">
