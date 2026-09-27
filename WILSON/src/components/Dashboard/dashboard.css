@@ -474,6 +474,12 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
   }
+  /* V2 (2026-09-27): the third ink measured 4.17:1 on the selected note's
+     tint (the V2 probe) and is 4.33:1 on the hover wash over the paper
+     (tokens.test.js); the date lifts to the second ink on both, as the lanes
+     lift their quiet words. (0,3,0) each, over the base's (0,1,0). */
+  .dash-note-row:hover .dash-note-date,
+  .dash-note-row[data-selected="true"] .dash-note-date { color: var(--color-ink-2); }
 
   .dash-subjects {
     display: flex;

@@ -276,9 +276,12 @@
      a panel starts on the same vertical line, which is the alignment half of
      the brief that spacing alone cannot deliver. */
   .at-sec-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  /* V2 (2026-09-27): 104px wrapped Diagnostics' "WILSON VERSION" onto two
+     lines (about 110px at the Label step), the one row on the panel taller
+     than the rest; 120 holds it on one, with room for "LAST SIGN-IN". */
   .at-sec-row {
     display: grid;
-    grid-template-columns: 104px 1fr;
+    grid-template-columns: 120px 1fr;
     gap: 12px;
     align-items: baseline;
     font-size: var(--text-dense);

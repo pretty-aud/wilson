@@ -365,7 +365,8 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     [/\.at-model-row\[data-overridden='true'\]\s*\{\s*background-color:\s*var\(--color-signal-tint\)/, 'overridden model row'],
     // AT-17: label/value pairs are a grid, never `justify-between`
     [/\.at-sec-row\s*\{[^}]*display:\s*grid/, 'AT-17 label/value grid'],
-    [/\.at-sec-row\s*\{[^}]*grid-template-columns:\s*104px 1fr/, 'AT-17 one label track'],
+    // V2: 120, not 104 — at 104 Diagnostics' "WILSON VERSION" wrapped to two lines.
+    [/\.at-sec-row\s*\{[^}]*grid-template-columns:\s*120px 1fr/, 'AT-17 one label track, wide enough for WILSON VERSION'],
     // the states that survived the conversion as data attributes
     [/\.at-invite-name\[data-invalid='true'\]\s*\{\s*border-color:\s*var\(--color-danger\)/, 'invite name invalid edge'],
     [/\.at-invite-row\[data-sent='true'\] \.at-invite-email\s*\{\s*color:\s*var\(--color-ink-3\)/, 'invite row sent'],

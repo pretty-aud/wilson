@@ -425,3 +425,30 @@ describe('the Finder columns are the same object as the table', () => {
     expect(css).toMatch(/\.fx-col-item:hover \{ background-color: var\(--color-hover\); \}/)
   })
 })
+
+// V2, the second visual QA pass (2026-09-27), B4c §4.2 item 1: "the Files
+// page cuts every Created / Modified date at every width, with no title".
+// toLocaleString's "9/10/2026, 7:35:00 PM" needs about 170px of the mono and
+// the column gives it about 106 at 1280. The date is the short one the other
+// file tables print ("Sep 10, 2026", about 94px): whole at 1280 and 1440,
+// still right-aligned as a figure (F-R10), and its time is in the tooltip.
+describe('the Files table: its dates (V2)', () => {
+  it('prints the short date and keeps the date and time in the cell\'s tooltip', async () => {
+    await mountTable()
+    const heads = [...document.querySelectorAll('.ui-table[data-files-table] th')].map((t) => t.textContent.trim())
+    const rows = [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')]
+    const cells = (name) => [...rows.find((tr) => tr.textContent.includes(name)).querySelectorAll('td')]
+    const hero = cells('hero_v3.mov')
+    const created = hero[heads.indexOf('Created')]
+    const modified = hero[heads.indexOf('Modified')]
+    const short = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    expect(created.textContent).toBe(short('2026-09-02T10:00:00Z'))
+    expect(modified.textContent).toBe(short('2026-09-03T10:00:00Z'))
+    expect(created.getAttribute('title')).toBe(new Date('2026-09-02T10:00:00Z').toLocaleString())
+    expect(modified.getAttribute('title')).toBe(new Date('2026-09-03T10:00:00Z').toLocaleString())
+    // Still a figure: right-aligned, tabular (F-R10).
+    expect(created.getAttribute('data-numeric')).toBe('true')
+    // A folder has no date, and so no tooltip.
+    expect(cells('hero-shot')[heads.indexOf('Created')].hasAttribute('title')).toBe(false)
+  })
+})

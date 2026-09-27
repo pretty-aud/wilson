@@ -246,3 +246,23 @@ describe('the task table declares its own grid', () => {
     expect(TASK_COLUMNS.filter((c) => c.numeric).map((c) => c.key)).toEqual(['start', 'end'])
   })
 })
+
+// V2, the second visual QA pass (2026-09-27): the V2 probe measured a note's
+// date at 4.17:1 on the selected note's tint (the third ink); the hover wash
+// takes it to 4.33. It lifts to the second ink on both.
+describe('V2: a note\'s date clears 4.5:1 on the selected tint and the hover wash', () => {
+  it('rests on the third ink, which both grounds take under 4.5, and lifts to the second there', async () => {
+    const { contrast, over } = await import('../../ui/contrast.js')
+    const { PAPER, INK_2, INK_3, SIGNAL_TINT, HOVER } = await import('../../ui/tokens.js')
+    for (const ground of [over(SIGNAL_TINT, PAPER), over(HOVER, PAPER)]) {
+      expect(contrast(INK_3, ground), ground).toBeLessThan(4.5)
+      expect(contrast(INK_2, ground), ground).toBeGreaterThanOrEqual(4.5)
+    }
+    const css = code(dashboardCss)
+    expect(css).toMatch(/\.dash-note-date \{[^}]*color: var\(--color-ink-3\);/)
+    expect(css).toMatch(/\.dash-note-row:hover \.dash-note-date,\s*\.dash-note-row\[data-selected="true"\] \.dash-note-date \{ color: var\(--color-ink-2\); \}/)
+    // CONTROL: the two states are the ones the row really has.
+    expect(css).toMatch(/\.dash-note-row:hover \{ background-color: var\(--color-hover\); \}/)
+    expect(css).toMatch(/\.dash-note-row\[data-selected="true"\] \{\s*background-color: var\(--color-signal-tint\);/)
+  })
+})

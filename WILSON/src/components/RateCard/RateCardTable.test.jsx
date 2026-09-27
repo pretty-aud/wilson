@@ -46,6 +46,10 @@ import RateCardTable from './RateCardTable'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(resolve(here, '../Resources/resources.css'), 'utf8')
+// V2: the rule reader and the contrast arithmetic the lanes' sheet guards use.
+import { allRules, decls, splitTop } from '../../../scripts/ui-css-rules.mjs'
+import { contrast, over } from '../../ui/contrast.js'
+import { THEME, PAPER_RAISED, INK_2, INK_3 } from '../../ui/tokens.js'
 // 🚨 WHAT THE `css` ASSERTIONS IN THIS FILE DO AND DO NOT PROVE.
 // jsdom does not apply stylesheets, so these read the sheet as TEXT. They pin
 // the VALUES lane B has to converge on (hand-off §8) and they catch a value
@@ -433,5 +437,42 @@ describe('read-only', () => {
     }
     // The draft row is an edit affordance too, so it is absent.
     expect(document.querySelector('tr[data-draft]')).toBeNull()
+  })
+})
+
+// V2, the second visual QA pass (2026-09-27): the walk's contrast census,
+// both sizes, on the Rate Card and its Google Sheet dialog — "Add a role…",
+// "—", "$" and "Editable once the row is added" at 3.75:1. A ghost or draft
+// row lays the skeleton wash over the raised paper, and the third ink is not
+// 4.5:1 on that. Its quiet words step up to the second ink there, as
+// O.T.T.E.R. lifts the third ink under its hover wash.
+describe('a ghost or draft row\'s quiet words clear 4.5:1 on its wash (V2)', () => {
+  const QUIET = ['.rc-cell-placeholder', '.rc-comp-derived', '.rc-currency-symbol', '.rc-member-title', '.rc-draft-note']
+  const ROWS = ['.rc-row[data-ghost]', '.rc-row[data-draft]']
+  const norm = (s) => s.replace(/\s+/g, ' ').replace(/"/g, "'").trim()
+  /** A selector with its `:is(…)` lists multiplied out. */
+  const expand = (sel) => {
+    const m = sel.match(/:is\(([^()]*)\)/)
+    if (!m) return [norm(sel)]
+    return splitTop(m[1]).flatMap((x) => expand(sel.replace(m[0], x.trim())))
+  }
+  const ruled = (colour) => new Set(allRules(css).flatMap((r) => {
+    const c = decls(r.body).filter(([p]) => p === 'color').pop()
+    return c && c[1] === colour ? splitTop(r.sel).flatMap(expand) : []
+  }))
+
+  it('each rests on the third ink, which the wash takes under 4.5:1, and the second ink clears it', () => {
+    const third = ruled('var(--color-ink-3)')
+    for (const q of QUIET) expect(third.has(q), `${q} is not on the third ink: the lift answers nothing`).toBe(true)
+    // The wash: the skeleton over the raised paper (#333030 measured).
+    const ground = over(THEME['color-skeleton'], PAPER_RAISED)
+    expect(contrast(INK_3, ground)).toBeLessThan(4.5)
+    expect(contrast(INK_2, ground)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('each is lifted to the second ink in both kinds of row', () => {
+    const lifted = ruled('var(--color-ink-2)')
+    const missing = ROWS.flatMap((row) => QUIET.map((q) => norm(`${row} ${q}`))).filter((s) => !lifted.has(s))
+    expect(missing, `not lifted:\n${missing.join('\n')}`).toEqual([])
   })
 })

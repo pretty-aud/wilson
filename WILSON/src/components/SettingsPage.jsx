@@ -349,7 +349,9 @@ export default function SettingsPage({
     { key: 'rabbit',  label: 'Storage' },
     { key: 'teams',   label: 'Teams', groupEnd: true },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
-    { key: 'skills', label: 'Agent Skills' },
+    // V2 (2026-09-27): sentence case, as its own page heading already reads
+    // (Q2: tabs go to sentence case). It was the one Title Case tab.
+    { key: 'skills', label: 'Agent skills' },
   ]
 
   return (

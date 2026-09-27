@@ -137,6 +137,23 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
 }
 
+// V2 (2026-09-27), B4c §4.2 item 1: the table printed fmtDate's date AND time
+// ("9/10/2026, 7:35:00 PM", about 170px of the mono) in a column that gives
+// it about 106 at 1280, so every date ended in "…" with no way to read it.
+// A cell prints the short date the other file tables print ("Sep 10, 2026",
+// about 94px) and carries fmtDate's whole date and time as its tooltip; the
+// details panel keeps the long form.
+function fmtDay(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+// The cell's tooltip: the whole date and time, or none for a missing date.
+function dateTitle(iso) {
+  const full = fmtDate(iso)
+  return full === '—' ? undefined : full
+}
+
 function safeList(fn, id) {
   if (typeof fn !== 'function') return Promise.resolve([])
   try { return Promise.resolve(fn(id)).then(v => (Array.isArray(v) ? v : [])).catch(() => []) } catch { return Promise.resolve([]) }
@@ -430,8 +447,8 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
                 </Td>
                 <Td>{isFolder ? 'Folder' : m.type}</Td>
                 <Td numeric>{isFolder ? '' : formatBytes(m.sizeBytes)}</Td>
-                <Td numeric>{isFolder ? '' : fmtDate(m.createdAt)}</Td>
-                <Td numeric>{isFolder ? '' : fmtDate(m.modifiedAt)}</Td>
+                <Td numeric title={isFolder ? undefined : dateTitle(m.createdAt)}>{isFolder ? '' : fmtDay(m.createdAt)}</Td>
+                <Td numeric title={isFolder ? undefined : dateTitle(m.modifiedAt)}>{isFolder ? '' : fmtDay(m.modifiedAt)}</Td>
                 <Td numeric>{isFolder ? '' : formatDuration(m.durationSec)}</Td>
                 <Td>
                   {/* Truncated from the LEFT, which is what Finder does: the

@@ -988,6 +988,15 @@
      is not is worse than no marking (the shared Row's own note). */
   .rc-row[data-ghost] > .ui-td,
   .rc-row[data-draft] > .ui-td { background-color: var(--color-skeleton); }
+  /* V2 (2026-09-27): the wash over the raised paper (#333030) takes the third
+     ink to 3.75:1 — the walk's contrast census counted "Add a role…", "—",
+     "$" and "Editable once the row is added" on the Rate Card and under its
+     Google Sheet dialog, at both sizes. A quiet word in one of these rows
+     steps up to the second ink (6.2:1), as O.T.T.E.R. lifts the third ink
+     under its hover wash. (0,3,0) over each base rule's (0,1,0). */
+  :is(.rc-row[data-ghost], .rc-row[data-draft]) :is(.rc-cell-placeholder, .rc-comp-derived, .rc-currency-symbol, .rc-member-title, .rc-draft-note) {
+    color: var(--color-ink-2);
+  }
   .rc-member { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .rc-member-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rc-member-title {
