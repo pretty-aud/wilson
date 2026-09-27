@@ -20,15 +20,24 @@
 // • Von Restorff Effect — status accent bars for instant recognition
 // • Cognitive Load — summary cards reduce need to calculate
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect, Fragment } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Film, Plus, Search, X, LayoutGrid, Filter,
   Layers, ChevronDown, ChevronRight, Trash2, Edit3, Eye,
-  Table as TableIcon, ArrowUpDown, AlertTriangle, Save,
+  Table as TableIcon, ArrowUpDown, Save,
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
-  Clock, Hash, Sun, FolderOpen, ImagePlus, ImageOff,
+  Sun, FolderOpen, ImagePlus, ImageOff,
 } from 'lucide-react'
+// Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
+// on the kit and rabbitScenes.css. The galleries, the filter panel, saved
+// views and the two detail popups are restyled by 6b and 6c.
+import {
+  Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat,
+  StatusDot, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+} from '../../../ui'
+import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
@@ -71,51 +80,56 @@ const TIME_OF_DAY_OPTIONS = [
   'evening', 'later', 'moments_later', 'continuous', 'same_time',
 ]
 
+// Sentence case (Q2): every label below is a word the user reads in a select
+// or a menu. The abbreviations stay capitals — they are codes, not words.
 const FRAMING_OPTIONS = [
-  { abbr: 'EWS',     label: 'Extreme Wide Shot' },
-  { abbr: 'WS',      label: 'Wide Shot' },
-  { abbr: 'FS',      label: 'Full Shot' },
-  { abbr: 'LS',      label: 'Long Shot' },
-  { abbr: 'MLS',     label: 'Medium Long Shot' },
-  { abbr: 'MS',      label: 'Medium Shot' },
-  { abbr: 'MCU',     label: 'Medium Close-Up' },
-  { abbr: 'CU',      label: 'Close-Up' },
-  { abbr: 'ECU',     label: 'Extreme Close-Up' },
-  { abbr: '2S',      label: 'Two-Shot' },
-  { abbr: '3S',      label: 'Three-Shot' },
-  { abbr: 'OTS',     label: 'Over-the-Shoulder' },
-  { abbr: 'POV',     label: 'Point of View' },
-  { abbr: 'INS',     label: 'Insert Shot' },
+  { abbr: 'EWS',     label: 'Extreme wide shot' },
+  { abbr: 'WS',      label: 'Wide shot' },
+  { abbr: 'FS',      label: 'Full shot' },
+  { abbr: 'LS',      label: 'Long shot' },
+  { abbr: 'MLS',     label: 'Medium long shot' },
+  { abbr: 'MS',      label: 'Medium shot' },
+  { abbr: 'MCU',     label: 'Medium close-up' },
+  { abbr: 'CU',      label: 'Close-up' },
+  { abbr: 'ECU',     label: 'Extreme close-up' },
+  { abbr: '2S',      label: 'Two-shot' },
+  { abbr: '3S',      label: 'Three-shot' },
+  { abbr: 'OTS',     label: 'Over-the-shoulder' },
+  { abbr: 'POV',     label: 'Point of view' },
+  { abbr: 'INS',     label: 'Insert shot' },
   { abbr: 'CA',      label: 'Cutaway' },
-  { abbr: 'AER',     label: 'Aerial / Bird\'s Eye' },
+  { abbr: 'AER',     label: 'Aerial / bird\'s eye' },
 ]
 
 const CAMERA_MOVEMENT_OPTIONS = [
   { abbr: 'PAN',        label: 'Pan' },
   { abbr: 'TILT',       label: 'Tilt' },
-  { abbr: 'DUTCH',      label: 'Dutch Tilt' },
+  { abbr: 'DUTCH',      label: 'Dutch tilt' },
   { abbr: 'ROLL',       label: 'Roll' },
-  { abbr: 'DOLLY IN',   label: 'Dolly In' },
-  { abbr: 'DOLLY OUT',  label: 'Dolly Out' },
-  { abbr: 'TRUCK L',    label: 'Truck Left' },
-  { abbr: 'TRUCK R',    label: 'Truck Right' },
-  { abbr: 'PED UP',     label: 'Pedestal Up' },
-  { abbr: 'PED DOWN',   label: 'Pedestal Down' },
-  { abbr: 'CRANE UP',   label: 'Crane Up' },
-  { abbr: 'CRANE DOWN', label: 'Crane Down' },
-  { abbr: 'ZOOM IN',    label: 'Zoom In' },
-  { abbr: 'ZOOM OUT',   label: 'Zoom Out' },
-  { abbr: 'DOLLY ZOOM', label: 'Dolly Zoom / Vertigo' },
+  { abbr: 'DOLLY IN',   label: 'Dolly in' },
+  { abbr: 'DOLLY OUT',  label: 'Dolly out' },
+  { abbr: 'TRUCK L',    label: 'Truck left' },
+  { abbr: 'TRUCK R',    label: 'Truck right' },
+  { abbr: 'PED UP',     label: 'Pedestal up' },
+  { abbr: 'PED DOWN',   label: 'Pedestal down' },
+  { abbr: 'CRANE UP',   label: 'Crane up' },
+  { abbr: 'CRANE DOWN', label: 'Crane down' },
+  { abbr: 'ZOOM IN',    label: 'Zoom in' },
+  { abbr: 'ZOOM OUT',   label: 'Zoom out' },
+  { abbr: 'DOLLY ZOOM', label: 'Dolly zoom / vertigo' },
   { abbr: 'HANDHELD',   label: 'Handheld' },
   { abbr: 'STEADICAM',  label: 'Steadicam' },
   { abbr: 'ARC',        label: 'Arc' },
-  { abbr: 'PUSH IN',    label: 'Push In' },
-  { abbr: 'PULL OUT',   label: 'Pull Out' },
-  { abbr: 'WHIP PAN',   label: 'Whip Pan' },
-  { abbr: 'RACK FOCUS', label: 'Rack Focus' },
+  { abbr: 'PUSH IN',    label: 'Push in' },
+  { abbr: 'PULL OUT',   label: 'Pull out' },
+  { abbr: 'WHIP PAN',   label: 'Whip pan' },
+  { abbr: 'RACK FOCUS', label: 'Rack focus' },
 ]
 
 // ── Thumbnail row heights (16:9 aspect) ──
+// rabbitScenes.css keeps the same three heights for the tables' own boxes
+// (`.rb-scene-table-wrap[data-thumb]`); these numbers are what the Bins
+// components (ShotTakeChips, BinPoster) are handed, as before.
 const BASE_ROW_H = 36
 const THUMB_SIZES = {
   sm: { h: BASE_ROW_H },
@@ -123,35 +137,38 @@ const THUMB_SIZES = {
   lg: { h: BASE_ROW_H * 2 },
 }
 function thumbW(h) { return Math.round(h * 16 / 9) }
+// The toolbar's two size triples, in their order: the thumbnails' (table)
+// and the cards' (gallery). One list, so the sheet can key each glyph.
+const SIZE_KEYS = ['sm', 'md', 'lg']
 
 // ── Sort config ──
 const SORTABLE_FIELDS = [
   { value: 'name',         label: 'Name' },
-  { value: 'scene_number', label: 'Scene Number' },
+  { value: 'scene_number', label: 'Scene number' },
   { value: 'type',         label: 'Type' },
   { value: 'status',       label: 'Status' },
-  { value: 'time_of_day',  label: 'Time of Day' },
+  { value: 'time_of_day',  label: 'Time of day' },
   { value: 'created_at',   label: 'Created' },
 ]
 
 const SHOT_SORTABLE_FIELDS = [
   { value: 'name',             label: 'Name' },
-  { value: 'shot_number',      label: 'Shot Number' },
+  { value: 'shot_number',      label: 'Shot number' },
   { value: 'type',             label: 'Type' },
   { value: 'status',           label: 'Status' },
-  { value: 'time_of_day',      label: 'Time of Day' },
+  { value: 'time_of_day',      label: 'Time of day' },
   { value: 'framing',          label: 'Framing' },
-  { value: 'camera_movement',  label: 'Camera Movement' },
-  { value: 'frame_count',      label: 'Frame Count' },
+  { value: 'camera_movement',  label: 'Camera movement' },
+  { value: 'frame_count',      label: 'Frame count' },
   { value: 'created_at',       label: 'Created' },
 ]
 
 const SHOT_FILTER_FIELDS = [
   { value: 'status',          label: 'Status',          type: 'select', options: SCENE_STATUSES },
   { value: 'type',            label: 'Type',            type: 'select', options: SCENE_TYPES },
-  { value: 'time_of_day',     label: 'Time of Day',     type: 'select', options: TIME_OF_DAY_OPTIONS },
+  { value: 'time_of_day',     label: 'Time of day',     type: 'select', options: TIME_OF_DAY_OPTIONS },
   { value: 'framing',         label: 'Framing',         type: 'select', options: FRAMING_OPTIONS.map(f => f.abbr) },
-  { value: 'camera_movement', label: 'Camera Movement', type: 'select', options: CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) },
+  { value: 'camera_movement', label: 'Camera movement', type: 'select', options: CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) },
   { value: 'name',            label: 'Name',            type: 'text' },
 ]
 
@@ -166,16 +183,16 @@ const SHOT_GROUPABLE_FIELDS = [
   { value: 'scene',          label: 'Scene' },
   { value: 'status',         label: 'Status' },
   { value: 'type',           label: 'Type' },
-  { value: 'time_of_day',    label: 'Time of Day' },
+  { value: 'time_of_day',    label: 'Time of day' },
   { value: 'framing',        label: 'Framing' },
-  { value: 'camera_movement', label: 'Camera Movement' },
+  { value: 'camera_movement', label: 'Camera movement' },
 ]
 
 // ── Filter config ──
 const SCENE_FILTER_FIELDS = [
   { value: 'status',      label: 'Status',      type: 'select', options: SCENE_STATUSES },
   { value: 'type',        label: 'Type',        type: 'select', options: SCENE_TYPES },
-  { value: 'time_of_day', label: 'Time of Day', type: 'select', options: TIME_OF_DAY_OPTIONS },
+  { value: 'time_of_day', label: 'Time of day', type: 'select', options: TIME_OF_DAY_OPTIONS },
   { value: 'name',        label: 'Name',        type: 'text' },
 ]
 
@@ -233,6 +250,21 @@ function fmtNumber(n) {
   if (n == null || isNaN(n)) return '0'
   return n.toLocaleString()
 }
+
+// ── The tables' cell selects (surface 6a) ──
+// The words in sentence case: a status's from the kit's one STATUS map
+// (R3-11), the rest humanised from their value. Framing keeps its long
+// label in the list (its cell shows the code); a movement is its code.
+const STATUS_OPTIONS = SCENE_STATUSES.map(s => ({ value: s, label: statusMeta(s).label }))
+const TYPE_OPTIONS = SCENE_TYPES.map(t => ({ value: t, label: humanizeStatus(t) }))
+const TIME_OPTIONS = TIME_OF_DAY_OPTIONS.map(t => ({ value: t, label: humanizeStatus(t) }))
+const FRAMING_CHOICES = FRAMING_OPTIONS.map(f => ({ value: f.abbr, label: f.label }))
+const MOVE_CHOICES = CAMERA_MOVEMENT_OPTIONS.map(c => ({ value: c.abbr, label: c.abbr }))
+// The ids the toolbar's two tab pairs point at (the kit Tabs' `panelId`):
+// the body the content mode switches, and inside it the region the view
+// mode switches.
+const CONTENT_PANEL_ID = 'rb-scene-content'
+const VIEW_PANEL_ID = 'rb-scene-view'
 
 
 
@@ -586,17 +618,15 @@ export default function ScenesView() {
   }, [filtered, sortField, sortDir])
 
   // ── Groups ──
-  const groupAccent = useCallback((key) => {
-    if (groupBy === 'status') return statusColor(key)
-    return '#fb923c'
-  }, [groupBy])
-
+  // A group's words in sentence case (a status's are the kit's STATUS
+  // labels, which humanizeStatus spells the same). Its colour accent is gone:
+  // a status group carries the kit's StatusDot instead (R3-11).
   const groups = useMemo(() => {
     if (!groupBy) return null
     const map = {}
     for (const s of sorted) {
       const key = s[groupBy] || '__empty__'
-      if (!map[key]) map[key] = { key, label: fmt(key === '__empty__' ? 'none' : key), scenes: [] }
+      if (!map[key]) map[key] = { key, label: key === '__empty__' ? 'None' : humanizeStatus(key), scenes: [] }
       map[key].scenes.push(s)
     }
     return Object.values(map)
@@ -688,9 +718,10 @@ export default function ScenesView() {
       if (b === '__none__') return -1
       return a.localeCompare(b)
     })
+    // Sentence case; a framing or movement code keeps its capitals.
     return keys.map(key => ({
       key,
-      label: key === '__none__' ? 'Unset' : (field === 'framing' ? key : fmt(key)),
+      label: key === '__none__' ? 'Unset' : humanizeStatus(key),
       groupType: 'field',
       shots: buckets[key],
     }))
@@ -711,140 +742,181 @@ export default function ScenesView() {
   // ── Render ──
   if (!project) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label uppercase" style={{ color: '#78716c' }}>
-          No project loaded
-        </span>
+      <div className="rb-scene-center">
+        <EmptyState Icon={Film} title="No project loaded" />
       </div>
     )
   }
 
-  return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+  // One of the toolbar's two size triples (the thumbnails' in the table, the
+  // cards' in the gallery — two triples still, as before; R3-25's single
+  // triple is recorded for Audrey). Three kit IconButtons in one bordered
+  // group; the chosen one is the kit's selected treatment, the signal tint
+  // and edge, never the orange fill (R3-18). Each square keeps its size.
+  const sizeGroup = (label, value, setValue, noun) => (
+    <span className="rb-scene-sizes" role="group" aria-label={label}>
+      {SIZE_KEYS.map(key => (
+        <IconButton key={key} size="sm" className="rb-scene-size" title={`${key} ${noun}`} active={value === key} onClick={() => setValue(key)}>
+          <Square className="rb-scene-size-glyph" data-thumb={key} aria-hidden="true" />
+        </IconButton>
+      ))}
+    </span>
+  )
 
-      {/* ── Summary cards (always visible) ── */}
-      <div className="flex gap-3 px-4 pt-4 pb-2 flex-wrap flex-shrink-0">
-        <BigTile icon={Clock} label="Total Runtime" value={grandTotals.runtime} />
-        <BigTile icon={Hash} label="Total Frames" value={fmtNumber(grandTotals.frames)} />
-        <BigTile icon={Film} label="Scenes" value={grandTotals.scenes} />
-        <BigTile icon={Clapperboard} label="Shots" value={grandTotals.shots} />
+  return (
+    <div className="rb-scene-page">
+
+      {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
+          the Budget's. Stat has no icon slot, so the four icons are gone. ── */}
+      <div className="rb-scene-stats">
+        <BigTile label="Total runtime" value={grandTotals.runtime} />
+        <BigTile label="Total frames" value={fmtNumber(grandTotals.frames)} />
+        <BigTile label="Scenes" value={grandTotals.scenes} />
+        <BigTile label="Shots" value={grandTotals.shots} />
       </div>
 
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
+      {/* ── Toolbar: the kit's, the same sixteen controls in the same order
+          at the 28px height (C1). One row at 1440, as it was; narrower, its
+          left slot wraps inside itself (each control to the next line, as
+          the old row did) and the create buttons keep the first line's end.
+          R3-25's regrouping (one size triple, the FPS readout in the header,
+          a row that never wraps) is recorded for Audrey, not made. ── */}
+      <Toolbar
+        className="rb-scene-toolbar"
+        right={(
+          <>
+            {/* The create button for the content mode on show is the one
+                primary, as its orange fill was; the other is secondary. */}
+            <Button size="sm" variant={contentMode === 'scenes' ? 'primary' : 'secondary'} Icon={Plus} onClick={handleNewScene}>
+              New scene
+            </Button>
 
-        {/* Content mode toggle */}
-        <div className="flex items-center rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
-          {['scenes', 'shots'].map(m => (
-            <button key={m} type="button" onClick={() => setContentMode(m)}
-              className="px-2.5 py-1.5 text-dense transition-colors"
-              style={{
-                color: contentMode === m ? '#fff7ed' : '#78716c',
-                backgroundColor: contentMode === m ? '#ea580c' : 'transparent',
-              }}>
-              {m === 'scenes' ? 'Scenes' : 'Shots'}
-            </button>
-          ))}
-        </div>
+            {/* New shot, with its scene picker */}
+            <span ref={shotPickerRef} className="rb-scene-picker-anchor">
+              <Button
+                size="sm"
+                variant={contentMode === 'shots' ? 'primary' : 'secondary'}
+                Icon={Plus}
+                disabled={scenes.length === 0}
+                aria-expanded={scenes.length > 1 ? shotPickerOpen : undefined}
+                onClick={() => {
+                  if (scenes.length === 1) { handleNewShot(scenes[0].id); return }
+                  if (scenes.length > 1) setShotPickerOpen(o => !o)
+                }}
+              >
+                New shot
+                {scenes.length > 1 && <ChevronDown aria-hidden="true" />}
+              </Button>
+              {shotPickerOpen && scenes.length > 1 && (
+                <div className="rb-scene-picker">
+                  <div className="rb-scene-picker-head">Add shot to scene:</div>
+                  <div className="rb-scene-picker-list">
+                    {scenes
+                      .slice()
+                      .sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0))
+                      .map(sc => (
+                        <button key={sc.id} type="button"
+                          onClick={() => { handleNewShot(sc.id); setShotPickerOpen(false) }}
+                          className="rb-scene-picker-item">
+                          <Film className="rb-scene-picker-icon" aria-hidden="true" />
+                          <span className="rb-scene-picker-label">{sc.name || 'Untitled'}</span>
+                          <span className="rb-scene-picker-count">
+                            {(shotsByScene[sc.id] || []).length} shots
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </span>
+          </>
+        )}
+      >
+        {/* Content mode: the kit Tabs, the one active treatment (R3-18). */}
+        <Tabs
+          label="Content"
+          panelId={CONTENT_PANEL_ID}
+          items={[{ id: 'scenes', label: 'Scenes' }, { id: 'shots', label: 'Shots' }]}
+          value={contentMode}
+          onChange={setContentMode}
+        />
 
-        {/* Filter */}
-        <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
-          <Filter className="w-3 h-3" />
+        {/* Filter: the signal edge while filters apply (it was orange words) */}
+        <Button
+          size="sm"
+          Icon={Filter}
+          className="rb-scene-tool"
+          data-active={filters.length > 0 ? 'true' : 'false'}
+          aria-expanded={showFilterPanel}
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
+        >
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
-        </button>
+        </Button>
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* Sort */}
-        <div className="flex items-center gap-1">
+        {/* Sort, and its direction */}
+        <span className="rb-scene-tool-group">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 150 }}>
+            aria-label="Sort"
+            className="ui-input rb-scene-tool"
+            data-size="sm"
+            data-active={sortField ? 'true' : 'false'}>
             <option value="">Sort…</option>
             {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
-          <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-            className="p-1.5 rounded-control hover:bg-stone-700 transition-colors"
-            style={{ color: sortField ? '#fb923c' : '#57534e' }}>
-            <ArrowUpDown className="w-3.5 h-3.5" />
-          </button>
-        </div>
+          <IconButton
+            size="sm"
+            Icon={ArrowUpDown}
+            title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
+            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+          />
+        </span>
+
+        <span className="rb-scene-divider" aria-hidden="true" />
 
         {/* Group */}
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
         {contentMode === 'scenes' ? (
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-            style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
+            aria-label="Group"
+            className="ui-input rb-scene-tool"
+            data-size="sm"
+            data-active={groupBy ? 'true' : 'false'}>
             {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         ) : (
           <select value={shotGroupBy} onChange={e => setShotGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-dense rounded-control cursor-pointer"
-            style={{ backgroundColor: '#292524', color: shotGroupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
+            aria-label="Group"
+            className="ui-input rb-scene-tool"
+            data-size="sm"
+            data-active={shotGroupBy ? 'true' : 'false'}>
             {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         )}
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* View mode toggle */}
-        <div className="flex items-center rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
-          <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
-            style={{ color: viewMode === 'table' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent' }}>
-            <TableIcon className="w-3 h-3" /> Table
-          </button>
-          <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2 py-1.5 text-dense transition-colors"
-            style={{ color: viewMode === 'gallery' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent' }}>
-            <LayoutGrid className="w-3 h-3" /> Gallery
-          </button>
-        </div>
+        {/* View mode: the kit Tabs; each icon rides in its label. */}
+        <Tabs
+          label="View"
+          panelId={VIEW_PANEL_ID}
+          items={[
+            { id: 'table', label: <><TableIcon className="rb-scene-tab-icon" aria-hidden="true" />Table</> },
+            { id: 'gallery', label: <><LayoutGrid className="rb-scene-tab-icon" aria-hidden="true" />Gallery</> },
+          ]}
+          value={viewMode}
+          onChange={setViewMode}
+        />
 
         {/* Thumbnail size (table mode) */}
-        {viewMode === 'table' && (
-          <div className="flex rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
-            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
-              <button key={key} type="button" onClick={() => setThumbSize(key)}
-                className="flex items-center justify-center w-7 h-7 transition-colors"
-                title={`${key} thumbnails`}
-                style={{
-                  backgroundColor: thumbSize === key ? '#ea580c' : 'transparent',
-                  color: thumbSize === key ? '#fff7ed' : '#78716c',
-                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
-                }}>
-                <Square style={{ width: size, height: size }} />
-              </button>
-            ))}
-          </div>
-        )}
+        {viewMode === 'table' && sizeGroup('Thumbnail size', thumbSize, setThumbSize, 'thumbnails')}
 
-        {/* Gallery size (gallery mode only) */}
-        {viewMode === 'gallery' && (
-          <div className="flex rounded-control overflow-hidden" style={{ border: '1px solid #44403c' }}>
-            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
-              <button key={key} type="button" onClick={() => setGallerySize(key)}
-                className="flex items-center justify-center w-7 h-7 transition-colors"
-                title={`${key} cards`}
-                style={{
-                  backgroundColor: gallerySize === key ? '#ea580c' : 'transparent',
-                  color: gallerySize === key ? '#fff7ed' : '#78716c',
-                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
-                }}>
-                <Square style={{ width: size, height: size }} />
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Card size (gallery mode only) */}
+        {viewMode === 'gallery' && sizeGroup('Card size', gallerySize, setGallerySize, 'cards')}
 
-        {/* FPS badge */}
-        <span className="px-2 py-1 text-label uppercase rounded-control flex-shrink-0"
-          style={{ color: '#fb923c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
-          {fps} fps
-        </span>
+        {/* The FPS readout, where it always was (R3-25 would move it to the
+            header: recorded) — the kit Badge, in the second ink. */}
+        <Badge className="rb-scene-fps">{fps} fps</Badge>
 
         {/* Saved views */}
         <SceneSavedViewsDropdown
@@ -854,86 +926,28 @@ export default function ScenesView() {
           onSaveRequest={() => setShowSaveDialog(true)}
         />
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* Search */}
-        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-control" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
-          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
+        {/* Search: the glyph inside the field, the clear button at its end */}
+        <span className="rb-scene-search">
+          <Search className="rb-scene-search-icon" aria-hidden="true" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
-            className="flex-1 px-2 py-1.5 text-dense bg-transparent"
-            style={{ color: '#d6d3d1' }} />
+            aria-label="Search"
+            className="ui-input rb-scene-search-input"
+            data-size="sm" />
           {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
+            <IconButton size="sm" Icon={X} title="Clear search" className="rb-scene-search-clear" onClick={() => setSearch('')} />
           )}
-        </div>
+        </span>
 
-        {/* Count */}
-        <span className="text-dense font-mono tabular-nums flex-shrink-0" style={{ color: '#57534e' }}>
+        {/* Count: a figure in the third ink (it was #57534e, 2.3:1) */}
+        <span className="rb-scene-count">
           {contentMode === 'scenes'
             ? `${filtered.length}/${scenes.length}`
             : `${totalFilteredShots}/${shots.length}`}
         </span>
-
-        {/* Actions */}
-        <div className="ml-auto flex items-center gap-1.5">
-          <button type="button" onClick={handleNewScene}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-control transition-colors hover:brightness-110"
-            style={{
-              color: contentMode === 'scenes' ? '#fff7ed' : '#78716c',
-              backgroundColor: contentMode === 'scenes' ? '#ea580c' : 'transparent',
-              border: contentMode === 'scenes' ? '1px solid #c2410c' : '1px solid #44403c',
-            }}>
-            <Plus className="w-3 h-3" /> Scene
-          </button>
-
-          {/* Shot button with scene picker */}
-          <div ref={shotPickerRef} className="relative">
-            <button type="button"
-              onClick={() => {
-                if (scenes.length === 1) { handleNewShot(scenes[0].id); return }
-                if (scenes.length > 1) setShotPickerOpen(o => !o)
-              }}
-              disabled={scenes.length === 0}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-dense rounded-control transition-colors hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
-              style={{
-                color: contentMode === 'shots' ? '#fff7ed' : '#78716c',
-                backgroundColor: contentMode === 'shots' ? '#ea580c' : 'transparent',
-                border: contentMode === 'shots' ? '1px solid #c2410c' : '1px solid #44403c',
-              }}>
-              <Plus className="w-3 h-3" /> Shot
-              {scenes.length > 1 && <ChevronDown className="w-3 h-3 ml-0.5" />}
-            </button>
-            {shotPickerOpen && scenes.length > 1 && (
-              <div className="absolute right-0 mt-1 z-40 rounded-control shadow-2xl overflow-hidden"
-                style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 200, maxHeight: 260 }}>
-                <div className="px-3 py-1.5 text-label uppercase" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
-                  Add shot to scene:
-                </div>
-                <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
-                  {scenes
-                    .slice()
-                    .sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0))
-                    .map(sc => (
-                      <button key={sc.id} type="button"
-                        onClick={() => { handleNewShot(sc.id); setShotPickerOpen(false) }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-dense hover:bg-stone-700 transition-colors"
-                        style={{ borderBottom: '1px solid #1c1917', color: '#d6d3d1' }}>
-                        <Film className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-                        <span className="flex-1 truncate">{sc.name || 'Untitled'}</span>
-                        <span className="text-dense font-mono ml-auto flex-shrink-0" style={{ color: '#57534e' }}>
-                          {(shotsByScene[sc.id] || []).length} shots
-                        </span>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      </Toolbar>
 
       {/* ── Filter panel ── */}
       {showFilterPanel && (
@@ -947,38 +961,44 @@ export default function ScenesView() {
         />
       )}
 
-      {/* ── Save view dialog ── */}
+      {/* ── Save view: the same inline row (the saved-views menu and this
+          row are 6b's), on the kit's field and buttons ── */}
       {showSaveDialog && (
-        <div className="px-4 py-2.5 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+        <div className="rb-scene-save">
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500 w-48"
-            style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
+            aria-label="View name"
+            className="ui-input rb-scene-save-input"
+            data-size="sm"
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
-          <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
-          <button type="button" onClick={() => setShowSaveDialog(false)}
-            className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <Button size="sm" variant="primary" onClick={saveCurrentView}>Save</Button>
+          <IconButton size="sm" Icon={X} title="Cancel" onClick={() => setShowSaveDialog(false)} />
         </div>
       )}
 
       {/* Bins could not be loaded for the take chips (milestone 2): said here
           on the page with a retry, not only inside a takes dialog she may
-          never open (review round 2). */}
+          never open (review round 2). The kit Banner, in the warning tone. */}
       {supportsBins && takesNotice && !takesShotId && !pickerShotId && (
-        <div className="flex items-center gap-2 px-4 py-1.5 text-dense flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917', color: '#f59e0b' }}>
-          <span className="flex-1 truncate">{takesNotice}</span>
-          <button type="button" onClick={() => { setTakesNotice(null); ctxRef.current?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`)) }}
-            className="px-2 py-0.5 text-dense rounded-control hover:bg-stone-700" style={{ border: '1px solid #44403c', color: '#d6d3d1' }}>Retry</button>
-          <button type="button" onClick={() => setTakesNotice(null)} className="p-0.5 rounded-control hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
-        </div>
+        <Banner
+          tone="warning"
+          action={(
+            <span className="rb-scene-notice-actions">
+              <Button size="sm" onClick={() => { setTakesNotice(null); ctxRef.current?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`)) }}>
+                Retry
+              </Button>
+              <IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setTakesNotice(null)} />
+            </span>
+          )}
+        >
+          <span className="rb-scene-notice-text">{takesNotice}</span>
+        </Banner>
       )}
 
-      {/* ── Body ── */}
-      <div className="flex-1 overflow-auto">
+      {/* ── Body: the region the content tabs switch, and inside it the one
+          the view tabs switch (each tab bar points at its own panel) ── */}
+      <div className="rb-scene-body" id={CONTENT_PANEL_ID} role="tabpanel" aria-label={contentMode === 'shots' ? 'Shots' : 'Scenes'}>
+       <div className="rb-scene-view" id={VIEW_PANEL_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'}>
         {contentMode === 'shots' ? (
           viewMode === 'table' ? (
             <ShotTable
@@ -1010,21 +1030,23 @@ export default function ScenesView() {
         ) : (
           viewMode === 'table' ? (
             groups ? (
-              groups.map(g => (
+              <div className="rb-scene-groups">
+              {groups.map(g => (
                 <div key={g.key}>
-                  <div className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-stone-800/30 transition-colors"
-                    style={{ borderBottom: '1px solid #292524', borderLeft: `3px solid ${groupAccent(g.key)}`, backgroundColor: '#292524' }}
-                    onClick={() => toggleGroup(g.key)}>
+                  {/* A group's band: one button, the whole band (it was a
+                      clickable div with no keyboard way in), on the raised
+                      paper. A status group carries the kit's StatusDot; the
+                      3px accent and its colour are gone (R3-11). */}
+                  <button type="button" onClick={() => toggleGroup(g.key)}
+                    aria-expanded={!collapsedGroups.has(g.key)}
+                    className="rb-scene-group-toggle rb-scene-band">
                     {collapsedGroups.has(g.key)
-                      ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-                      : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                    <span className="text-label uppercase font-semibold" style={{ color: groupAccent(g.key) }}>
-                      {g.label}
-                    </span>
-                    <span className="text-dense font-mono" style={{ color: '#78716c' }}>
-                      ({g.scenes.length})
-                    </span>
-                  </div>
+                      ? <ChevronRight className="rb-scene-group-chevron" aria-hidden="true" />
+                      : <ChevronDown className="rb-scene-group-chevron" aria-hidden="true" />}
+                    {groupBy === 'status' && <StatusDot status={g.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
+                    <span className="rb-scene-group-label">{g.label}</span>
+                    <span className="rb-scene-group-count">({g.scenes.length})</span>
+                  </button>
                   {!collapsedGroups.has(g.key) && (
                     <SceneTable
                       scenes={g.scenes}
@@ -1045,7 +1067,8 @@ export default function ScenesView() {
                     />
                   )}
                 </div>
-              ))
+              ))}
+              </div>
             ) : (
               <SceneTable
                 scenes={sorted}
@@ -1075,6 +1098,7 @@ export default function ScenesView() {
             />
           )
         )}
+       </div>
       </div>
 
       {/* ── Scene detail popup ── */}
@@ -1123,7 +1147,7 @@ export default function ScenesView() {
             entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
             onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
             onOpenPicker={() => setPickerShotId(shot.id)}>
-            {takesNotice && <div className="mt-2 text-dense" style={{ color: '#f59e0b' }}>{takesNotice}</div>}
+            {takesNotice && <div className="rb-scene-takes-notice">{takesNotice}</div>}
           </ShotTakesDialog>
         )
       })()}
@@ -1160,30 +1184,26 @@ export default function ScenesView() {
 
 
 // ─── BigTile — summary card ───
-function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac', icon: '#15803d' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5', icon: '#7f1d1d' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e', icon: '#57534e' },
-  }[tone]
-  return (
-    <div className="flex-1 min-w-[120px] flex items-center gap-3 rounded-control px-4 py-3"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
-      <div className="flex flex-col min-w-0">
-        <span className="text-label uppercase" style={{ color: colors.label }}>{label}</span>
-        <span className="text-h1 font-mono font-semibold" style={{ color: colors.text }}>{value}</span>
-      </div>
-    </div>
-  )
+// The kit Stat (R3-10), on the Budget's tile look: the Label-step name over
+// the tabular value, on the raised paper with one hairline. No caller ever
+// passed a tone, and Stat has no icon slot, so both are gone.
+function BigTile({ label, value }) {
+  return <Stat className="rb-scene-stat" label={label} value={value} />
 }
 
 
 // ─── Scene table ───
+// The kit Table (R3-20): a real <table>, the same columns in the same order,
+// the header one row of the kit's Th. A scene's shots stay nested under it —
+// one row that spans the table and holds a table of the shots, indented as
+// before, opened and closed by the same toggle. Widths are the sheet's
+// (`.rb-scene-table-wrap`), each column's thumbnail box its size's.
 function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
-  const tw = thumbW(rowH)
   const [expandedScenes, setExpandedScenes] = useState(new Set())
+  // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
+  // was a window.confirm, and each question keeps its words.
+  const [confirmBulk, setConfirmBulk] = useState(null)
 
   // ── Nested-shot multi-select ──
   const [selectedNestedShots, setSelectedNestedShots] = useState(new Set())
@@ -1191,7 +1211,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   function clearNestedSelection() { setSelectedNestedShots(new Set()) }
   function bulkUpdateNestedShots(patch) { for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
   function bulkDeleteNestedShots() {
-    if (!window.confirm(`Delete ${selectedNestedShots.size} shot${selectedNestedShots.size === 1 ? '' : 's'}?`)) return
     for (const id of selectedNestedShots) ctx?.deleteShot?.(id)
     clearNestedSelection()
   }
@@ -1207,7 +1226,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { for (const id of selected) ctx?.updateScene?.(id, patch); clearSelection() }
   function bulkDelete() {
-    if (!window.confirm(`Delete ${selected.size} scene${selected.size === 1 ? '' : 's'} and their shots?`)) return
     for (const id of selected) {
       const childShots = shotsByScene[id] || []
       for (const shot of childShots) ctx?.deleteShot?.(shot.id)
@@ -1224,417 +1242,409 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
     })
   }
 
+  // Nothing to list: the kit EmptyState (R3-19), the same words.
   if (scenes.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-label uppercase" style={{ color: '#57534e' }}>
-          No scenes yet
-        </span>
-      </div>
-    )
+    return <EmptyState Icon={Film} title="No scenes yet" />
   }
 
   return (
-    <div className="flex flex-col gap-1 p-3">
-      {/* Header */}
-      <div className="relative flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="w-7 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
-          {allSelected ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : someSelected ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-        </span>
-        <span className="w-7" />
-        <span style={{ width: tw }} className="text-label uppercase text-center flex-shrink-0" />
-        <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
-        <span className="w-48 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
-        <span className="w-36 text-label uppercase text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-label uppercase text-center" style={{ color: '#78716c' }}>Time of Day</span>
-        <span className="w-20 text-label uppercase text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="flex-1 text-label uppercase" style={{ color: '#78716c' }}>Description</span>
-        <span className="w-28 text-label uppercase text-center" style={{ color: '#78716c' }}>Runtime</span>
-        <span className="w-20 text-label uppercase text-center" style={{ color: '#78716c' }}>Frames</span>
-        <span className="w-14" />
+    <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
+      {/* The bulk-action bar overlays the header right of the checkbox
+          column, where it always did: the raised paper, the signal edge, the
+          count at Dense 600 in the ink (it was orange mono), the kit's
+          fields and buttons. */}
+      {someSelected && (
+        <div className="rb-scene-bulk">
+          <span className="rb-scene-bulk-count">{selected.size} selected</span>
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+          <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk('scenes')}>
+            Delete
+          </Button>
+          <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
+        </div>
+      )}
 
-        {/* Bulk action bar */}
-        {someSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-control"
-            style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-0.5 rounded-control hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-label uppercase">Delete</span>
-            </button>
-            <button type="button" onClick={clearSelection} className="p-0.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Rows */}
-      {scenes.map(sc => {
-        const sceneShots = shotsByScene[sc.id] || []
-        const expanded = expandedScenes.has(sc.id)
-        const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
-        const isChecked = selected.has(sc.id)
-        return (
-          <div key={sc.id}>
-            <div
-              className="flex items-center gap-3 px-3 rounded-control transition-colors hover:bg-stone-800 cursor-pointer group"
-              style={{
-                backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
-                border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}`,
-                minHeight: rowH + 8,
-              }}
-            >
-              {/* Checkbox */}
-              <span className="w-7 flex items-center justify-center cursor-pointer flex-shrink-0"
-                onClick={e => { e.stopPropagation(); toggleOne(sc.id) }}>
-                {isChecked
-                  ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                  : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-              </span>
-
-              {/* Expand toggle */}
-              <button type="button" onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
-                className="w-7 flex items-center justify-center flex-shrink-0 p-1 -m-1 rounded-control hover:bg-stone-700/50 transition-colors"
-                style={{ color: '#78716c' }}>
-                {sceneShots.length > 0 ? (
-                  expanded
-                    ? <ChevronDown className="w-4 h-4" />
-                    : <ChevronRight className="w-4 h-4" />
-                ) : (
-                  <span className="w-4 h-4" />
-                )}
+      <Table
+        className="rb-scene-table rb-scene-table-scenes"
+        head={(
+          <Row>
+            <Th width="var(--rb-scene-col-check)" className="rb-scene-check-cell">
+              <button type="button" onClick={toggleAll}
+                className="rb-scene-check"
+                data-checked={allSelected ? 'all' : someSelected ? 'some' : 'none'}
+                aria-label={allSelected ? 'Clear the selection' : 'Select every scene'}
+                title={allSelected ? 'Clear the selection' : 'Select every scene'}>
+                {allSelected
+                  ? <CheckSquare aria-hidden="true" />
+                  : someSelected
+                    ? <MinusSquare aria-hidden="true" />
+                    : <Square aria-hidden="true" />}
               </button>
+            </Th>
+            <Th width="var(--rb-scene-col-expand)" className="rb-scene-expand-cell"><span className="sr-only">Shots</span></Th>
+            <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
+            <Th width="var(--rb-scene-col-num)" numeric>#</Th>
+            <Th width="var(--rb-scene-col-name)">Name</Th>
+            <Th width="var(--rb-scene-col-status)">Status</Th>
+            <Th width="var(--rb-scene-col-time)">Time of day</Th>
+            <Th width="var(--rb-scene-col-type)">Type</Th>
+            <Th>Description</Th>
+            <Th width="var(--rb-scene-col-runtime)" numeric>Runtime</Th>
+            <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
+            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+          </Row>
+        )}
+      >
 
-              {/* Thumbnail */}
-              <div className="flex items-center justify-center rounded-control overflow-hidden flex-shrink-0 relative group/scthumb cursor-pointer"
-                style={{ width: tw, height: rowH, backgroundColor: '#0c0a09', border: '1px solid #292524' }}
-                onClick={async e => {
-                  e.stopPropagation()
-                  if (!window.electronAPI?.rabbit?.pickImage) return
-                  const imagePath = await window.electronAPI.rabbit.pickImage()
-                  if (!imagePath) return
-                  ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
-                  try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
-                  onThumbChanged?.()
-                }}>
-                {sc.thumbnail_image ? (
-                  <>
-                    <img src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`}
-                      alt="" style={{ width: tw, height: rowH, objectFit: 'cover', display: 'block' }} />
-                    <div className="absolute inset-0 opacity-0 group-hover/scthumb:opacity-100 transition-opacity flex items-center justify-center"
-                      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                      <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Film className="w-4 h-4 group-hover/scthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
-                    <ImagePlus className="w-3.5 h-3.5 absolute opacity-0 group-hover/scthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
-                  </>
-                )}
-              </div>
+        {scenes.map(sc => {
+          const sceneShots = shotsByScene[sc.id] || []
+          const expanded = expandedScenes.has(sc.id)
+          const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
+          const isChecked = selected.has(sc.id)
+          // What each unnamed control on the row is named for.
+          const name = sc.name || 'Untitled'
+          return (
+            <Fragment key={sc.id}>
+              {/* The kit Row: its one selected treatment (R3-38 — it was an
+                  orange tint AND a full orange border), the lane's hover. */}
+              <Row className="rb-scene-row" selected={isChecked} data-ticked={isChecked ? 'true' : 'false'}>
+                {/* Checkbox: one 28px square (R3-40) */}
+                <Td className="rb-scene-check-cell">
+                  <button type="button" onClick={e => { e.stopPropagation(); toggleOne(sc.id) }}
+                    className="rb-scene-check"
+                    data-checked={isChecked ? 'all' : 'none'}
+                    aria-pressed={isChecked}
+                    aria-label={`Select ${name}`}
+                    title={`Select ${name}`}>
+                    {isChecked ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
+                  </button>
+                </Td>
 
-              {/* Scene # */}
-              <span className="w-14 text-dense font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
-                {sc.scene_number ?? '—'}
-              </span>
+                {/* Expand toggle: a scene with no shots shows no chevron, and
+                    still opens onto its Add shot, as before */}
+                <Td className="rb-scene-expand-cell">
+                  <IconButton
+                    size="sm"
+                    Icon={sceneShots.length > 0 ? (expanded ? ChevronDown : ChevronRight) : undefined}
+                    title={expanded ? 'Hide shots' : 'Show shots'}
+                    aria-expanded={expanded}
+                    onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
+                  />
+                </Td>
 
-              {/* Name */}
-              <div className="w-48 min-w-0 flex-shrink-0" onClick={() => onOpenDetail(sc.id)}>
-                <InlineText
-                  value={sc.name || ''}
-                  placeholder="Untitled scene"
-                  color="#fb923c"
-                  onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
-                />
-              </div>
-
-              {/* Status */}
-              <span className="w-36 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <select
-                  value={sc.status || 'not_started'}
-                  onChange={e => ctx?.updateScene?.(sc.id, { status: e.target.value })}
-                  className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{
-                    color: statusColor(sc.status),
-                    backgroundColor: 'rgba(0,0,0,0.3)',
-                    border: `1px solid ${statusColor(sc.status)}30`,
-                  }}
-                >
-                  {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                </select>
-              </span>
-
-              {/* Time of Day */}
-              <span className="w-28 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <select
-                  value={sc.time_of_day || ''}
-                  onChange={e => ctx?.updateScene?.(sc.id, { time_of_day: e.target.value || null })}
-                  className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{ color: sc.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
-                >
-                  <option value="">—</option>
-                  {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                </select>
-              </span>
-
-              {/* Type */}
-              <span className="w-20 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <select
-                  value={sc.type || 'interior'}
-                  onChange={e => ctx?.updateScene?.(sc.id, { type: e.target.value })}
-                  className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
-                >
-                  {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                </select>
-              </span>
-
-              {/* Description */}
-              <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
-                <InlineText
-                  value={sc.description || ''}
-                  placeholder="Add description…"
-                  size="sm"
-                  onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
-                />
-              </div>
-
-              {/* Runtime */}
-              <span className="w-28 text-dense font-mono text-center tabular-nums flex-shrink-0" style={{ color: totals.totalFrames > 0 ? '#d6d3d1' : '#44403c' }}>
-                {totals.runtime}
-              </span>
-
-              {/* Frame count */}
-              <span className="w-20 text-dense font-mono text-center tabular-nums flex-shrink-0" style={{ color: totals.totalFrames > 0 ? '#d6d3d1' : '#44403c' }}>
-                {fmtNumber(totals.totalFrames)}
-              </span>
-
-              {/* Actions */}
-              <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                <button type="button" onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }}
-                  className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                  <Eye className="w-3 h-3" />
-                </button>
-                <button type="button" onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }}
-                  className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete scene">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </span>
-            </div>
-
-            {/* Nested shots */}
-            {expanded && (
-              <div className="ml-7 flex flex-col gap-0.5 mt-0.5 mb-1 relative">
-                {/* Nested-shot bulk action bar */}
-                {(() => {
-                  const sceneShotIds = sceneShots.map(s => s.id)
-                  const selInScene = sceneShotIds.filter(id => selectedNestedShots.has(id))
-                  if (selInScene.length === 0) return null
-                  return (
-                    <div className="sticky top-0 z-20 flex items-center gap-3 px-3 py-1.5 rounded-control mb-0.5"
-                      style={{ backgroundColor: '#292524', border: '1px solid #fb923c' }}>
-                      <span className="text-dense font-mono font-semibold" style={{ color: '#fb923c' }}>
-                        {selInScene.length} selected
-                      </span>
-                      <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
-                      <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
-                      <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
-                      <button type="button" onClick={bulkDeleteNestedShots}
-                        className="ml-auto px-2 py-0.5 text-dense rounded-control hover:bg-red-900/30 transition-colors"
-                        style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-                        <Trash2 className="w-3 h-3 inline-block mr-1" /> Delete
-                      </button>
-                      <button type="button" onClick={clearNestedSelection}
-                        className="p-0.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )
-                })()}
-                {sceneShots.map(shot => {
-                  const isNested = selectedNestedShots.has(shot.id)
-                  const shotTakeEntries = takes?.map?.get(shot.id) || []
-                  const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
-                  const nestedThumbH = Math.max(rowH - 8, 28)
-                  return (
-                  <div key={shot.id}
-                    className="flex items-center gap-3 px-3 py-1.5 rounded-control hover:bg-stone-800/60 transition-colors group/shot"
-                    style={{
-                      backgroundColor: isNested ? 'rgba(234, 88, 12, 0.08)' : '#0c0a09',
-                      border: `1px solid ${isNested ? '#ea580c' : '#292524'}`,
+                {/* Thumbnail */}
+                <Td className="rb-scene-thumb-cell">
+                  <div className="rb-scene-thumb"
+                    onClick={async e => {
+                      e.stopPropagation()
+                      if (!window.electronAPI?.rabbit?.pickImage) return
+                      const imagePath = await window.electronAPI.rabbit.pickImage()
+                      if (!imagePath) return
+                      ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
+                      try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
+                      onThumbChanged?.()
                     }}>
-                    {/* Checkbox */}
-                    <span className="flex items-center justify-center cursor-pointer flex-shrink-0"
-                      onClick={() => toggleNestedShot(shot.id)}>
-                      {isNested
-                        ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-                    </span>
-                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-                    {/* Thumbnail */}
-                    <div className="flex items-center justify-center rounded-control overflow-hidden flex-shrink-0 relative group/shthumb cursor-pointer"
-                      style={{ width: thumbW(Math.max(rowH - 8, 28)), height: Math.max(rowH - 8, 28), backgroundColor: '#0c0a09', border: '1px solid #292524' }}
-                      onClick={async e => {
-                        e.stopPropagation()
-                        if (!window.electronAPI?.rabbit?.pickImage) return
-                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                        if (!imagePath) return
-                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                        onThumbChanged?.()
-                      }}>
-                      {shot.thumbnail_image ? (
-                        <>
-                          <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
-                            alt="" style={{ width: thumbW(Math.max(rowH - 8, 28)), height: Math.max(rowH - 8, 28), objectFit: 'cover', display: 'block' }} />
-                          <div className="absolute inset-0 opacity-0 group-hover/shthumb:opacity-100 transition-opacity flex items-center justify-center"
-                            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                            <ImagePlus className="w-3 h-3" style={{ color: '#d6d3d1' }} />
-                          </div>
-                        </>
-                      ) : takeFallback ? (
-                        <>
-                          {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
-                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} style={{ border: 'none' }} />
-                          <div className="absolute inset-0 opacity-0 group-hover/shthumb:opacity-100 transition-opacity flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} title="From the primary take. Click to set a thumbnail of your own.">
-                            <ImagePlus className="w-3 h-3" style={{ color: '#d6d3d1' }} />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <Clapperboard className="w-3 h-3 group-hover/shthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
-                          <ImagePlus className="w-3 h-3 absolute opacity-0 group-hover/shthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
-                        </>
-                      )}
-                    </div>
-                    {/* Shot # */}
-                    <span className="w-10 text-dense font-mono text-center flex-shrink-0" style={{ color: '#57534e' }}>
-                      {shot.shot_number ?? '—'}
-                    </span>
-                    {/* Name */}
-                    <div className="w-40 min-w-0 flex-shrink-0">
-                      <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
-                    </div>
-                    {/* Takes (milestone 2) */}
-                    {takes?.supports && (
-                      <span className="w-40 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 22)} max={3}
-                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
-                      </span>
+                    {sc.thumbnail_image ? (
+                      <>
+                        <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                        <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                      </>
+                    ) : (
+                      <>
+                        <Film className="rb-scene-thumb-mark" aria-hidden="true" />
+                        <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                      </>
                     )}
-                    {/* Status */}
-                    <span className="w-36 flex justify-center flex-shrink-0">
-                      <select value={shot.status || 'not_started'} onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
-                        {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                      </select>
-                    </span>
-                    {/* Time of Day */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select value={shot.time_of_day || ''} onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
-                    {/* Type */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
-                      <select value={shot.type || 'other'} onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: '#78716c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
-                    {/* Framing */}
-                    <span className="w-20 flex justify-center flex-shrink-0 relative">
-                      <span className="absolute inset-0 flex items-center px-1.5 text-label uppercase pointer-events-none z-[1]"
-                        style={{ color: shot.framing ? '#a8a29e' : '#44403c' }}>
-                        <span className="flex-1 text-center">{shot.framing || '—'}</span>
-                        <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
-                      </span>
-                      <select value={shot.framing || ''} onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
-                        style={{ color: 'transparent', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
-                      </select>
-                    </span>
-                    {/* Camera Movement */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select value={shot.camera_movement || ''} onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr}</option>)}
-                      </select>
-                    </span>
-                    {/* Description */}
-                    <div className="flex-1 min-w-0">
-                      <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
-                    </div>
-                    {/* Duration */}
-                    <span className="w-28 text-dense font-mono text-center tabular-nums flex-shrink-0" style={{ color: (shot.frame_count || 0) > 0 ? '#a8a29e' : '#44403c' }}>
-                      {framesToTimecode(shot.frame_count || 0, fps)}
-                    </span>
-                    {/* Frames */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
-                      <input type="number" min={0} value={shot.frame_count ?? ''}
-                        onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
-                        className="w-16 px-1 py-0.5 text-dense font-mono text-center rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 tabular-nums"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
-                        onFocus={e => { e.target.style.borderColor = '#44403c' }}
-                        onBlur={e => { e.target.style.borderColor = 'transparent' }}
-                        placeholder="0" />
-                    </span>
-                    <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover/shot:opacity-100 transition-opacity flex-shrink-0">
-                      <button type="button" onClick={() => onOpenShotDetail(shot.id)}
-                        className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                        <Eye className="w-3 h-3" />
-                      </button>
-                      <button type="button" onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                        className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
                   </div>
-                  )
-                })}
-                {/* Add shot row */}
-                <button type="button" onClick={() => onNewShot(sc.id)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-dense rounded-control hover:bg-stone-800/40 transition-colors"
-                  style={{ color: '#57534e', border: '1px dashed #292524' }}>
-                  <Plus className="w-3 h-3" /> Add shot
-                </button>
-              </div>
-            )}
-          </div>
-        )
-      })}
+                </Td>
+
+                {/* Scene # */}
+                <Td numeric className="rb-scene-num-cell" data-empty={sc.scene_number == null ? 'true' : undefined}>
+                  {sc.scene_number ?? '—'}
+                </Td>
+
+                {/* Name: the row's anchor, 600 in the ink (it was orange) */}
+                <Td className="rb-scene-name-cell">
+                  <span className="rb-scene-name" onClick={() => onOpenDetail(sc.id)}>
+                    <InlineText
+                      value={sc.name || ''}
+                      placeholder="Untitled scene"
+                      strong
+                      label={`Name for ${name}`}
+                      onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
+                    />
+                  </span>
+                </Td>
+
+                {/* Status: the kit's StatusDot beside a CellSelect, the words
+                    in the ink, the tone from the one STATUS map (R3-11) */}
+                <Td className="rb-scene-status-cell" onClick={e => e.stopPropagation()}>
+                  <span className="rb-scene-status">
+                    <StatusDot status={sc.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                    <CellSelect
+                      className="rb-scene-status-select"
+                      value={sc.status || 'not_started'}
+                      onChange={v => ctx?.updateScene?.(sc.id, { status: v })}
+                      options={STATUS_OPTIONS}
+                      aria-label={`Status for ${name}`}
+                    />
+                  </span>
+                </Td>
+
+                {/* Time of day */}
+                <Td className="rb-scene-time-cell" onClick={e => e.stopPropagation()}>
+                  <CellSelect
+                    value={sc.time_of_day || null}
+                    onChange={v => ctx?.updateScene?.(sc.id, { time_of_day: v })}
+                    placeholder="—"
+                    options={TIME_OPTIONS}
+                    aria-label={`Time of day for ${name}`}
+                  />
+                </Td>
+
+                {/* Type */}
+                <Td className="rb-scene-type-cell" onClick={e => e.stopPropagation()}>
+                  <CellSelect
+                    value={sc.type || 'interior'}
+                    onChange={v => ctx?.updateScene?.(sc.id, { type: v })}
+                    options={TYPE_OPTIONS}
+                    aria-label={`Type for ${name}`}
+                  />
+                </Td>
+
+                {/* Description */}
+                <Td className="rb-scene-desc-cell" onClick={e => e.stopPropagation()}>
+                  <InlineText
+                    value={sc.description || ''}
+                    placeholder="Add description…"
+                    size="sm"
+                    label={`Description for ${name}`}
+                    onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
+                  />
+                </Td>
+
+                {/* Runtime: a zero at the third ink, never #44403c (R3-13) */}
+                <Td numeric className="rb-scene-dur-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                  {totals.runtime}
+                </Td>
+
+                {/* Frame count */}
+                <Td numeric className="rb-scene-count-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                  {fmtNumber(totals.totalFrames)}
+                </Td>
+
+                {/* Actions: the kit HoverActions — on hover AND on focus
+                    (Q17(b)), one reserved slot the same width in every row
+                    of all three tables (R3-24) */}
+                <Td align="right" className="rb-scene-acts-cell">
+                  <HoverActions className="rb-scene-acts">
+                    <IconButton size="sm" Icon={Eye} title="View details"
+                      onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
+                    <IconButton size="sm" Icon={Trash2} danger title="Delete scene"
+                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
+                  </HoverActions>
+                </Td>
+              </Row>
+
+              {/* Nested shots: one row across the table, indented as before,
+                  holding the scene's shots as a table of their own (no
+                  header, as before) on the recessed paper they sat on. */}
+              {expanded && (
+                <Row className="rb-scene-nest-row">
+                  <Td colSpan={12} className="rb-scene-nest-cell">
+                    <div className="rb-scene-nest">
+                      {/* Nested-shot bulk action bar */}
+                      {(() => {
+                        const selInScene = sceneShots.filter(s => selectedNestedShots.has(s.id))
+                        if (selInScene.length === 0) return null
+                        return (
+                          <div className="rb-scene-nest-bulk">
+                            <span className="rb-scene-bulk-count">{selInScene.length} selected</span>
+                            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
+                            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
+                            <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                            <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk('shots')}>
+                              Delete
+                            </Button>
+                            <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearNestedSelection} />
+                          </div>
+                        )
+                      })()}
+                      {sceneShots.length > 0 && (
+                        <Table className="rb-scene-table rb-scene-nest-table" scrollClassName="rb-scene-nest-scroll" data-takes={takes?.supports ? 'true' : 'false'}>
+                          {sceneShots.map(shot => {
+                            const isNested = selectedNestedShots.has(shot.id)
+                            const shotTakeEntries = takes?.map?.get(shot.id) || []
+                            const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                            const nestedThumbH = Math.max(rowH - 8, 28)
+                            const shotName = shot.name || 'Untitled'
+                            return (
+                              <Row key={shot.id} className="rb-scene-row" selected={isNested} data-ticked={isNested ? 'true' : 'false'}>
+                                {/* Checkbox: the 28px square (R3-40; it was the 12px glyph alone) */}
+                                <Td className="rb-scene-check-cell">
+                                  <button type="button" onClick={() => toggleNestedShot(shot.id)}
+                                    className="rb-scene-check"
+                                    data-checked={isNested ? 'all' : 'none'}
+                                    aria-pressed={isNested}
+                                    aria-label={`Select ${shotName}`}
+                                    title={`Select ${shotName}`}>
+                                    {isNested ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
+                                  </button>
+                                </Td>
+                                <Td className="rb-scene-mark-cell">
+                                  <Clapperboard className="rb-scene-mark" aria-hidden="true" />
+                                </Td>
+                                {/* Thumbnail */}
+                                <Td className="rb-scene-thumb-cell">
+                                  <div className="rb-scene-thumb" data-nested="true"
+                                    onClick={async e => {
+                                      e.stopPropagation()
+                                      if (!window.electronAPI?.rabbit?.pickImage) return
+                                      const imagePath = await window.electronAPI.rabbit.pickImage()
+                                      if (!imagePath) return
+                                      ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                                      try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                                      onThumbChanged?.()
+                                    }}>
+                                    {shot.thumbnail_image ? (
+                                      <>
+                                        <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                                        <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                                      </>
+                                    ) : takeFallback ? (
+                                      <>
+                                        {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                                        <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} className="rb-scene-poster" />
+                                        <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
+                                        <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                                      </>
+                                    )}
+                                  </div>
+                                </Td>
+                                {/* Shot # */}
+                                <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined}>
+                                  {shot.shot_number ?? '—'}
+                                </Td>
+                                {/* Name */}
+                                <Td className="rb-scene-name-cell">
+                                  <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm" strong
+                                    label={`Name for ${shotName}`}
+                                    onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
+                                </Td>
+                                {/* Takes (milestone 2) */}
+                                {takes?.supports && (
+                                  <Td className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
+                                    <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 22)} max={3}
+                                      canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                                  </Td>
+                                )}
+                                {/* Status */}
+                                <Td className="rb-scene-status-cell">
+                                  <span className="rb-scene-status">
+                                    <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                                    <CellSelect
+                                      className="rb-scene-status-select"
+                                      value={shot.status || 'not_started'}
+                                      onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
+                                      options={STATUS_OPTIONS}
+                                      aria-label={`Status for ${shotName}`}
+                                    />
+                                  </span>
+                                </Td>
+                                {/* Time of day */}
+                                <Td className="rb-scene-time-cell">
+                                  <CellSelect value={shot.time_of_day || null} onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
+                                    placeholder="—" options={TIME_OPTIONS} aria-label={`Time of day for ${shotName}`} />
+                                </Td>
+                                {/* Type */}
+                                <Td className="rb-scene-type-cell">
+                                  <CellSelect value={shot.type || 'other'} onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
+                                    options={TYPE_OPTIONS} aria-label={`Type for ${shotName}`} />
+                                </Td>
+                                {/* Framing: the code in the cell, the long names in the list */}
+                                <Td className="rb-scene-framing-cell">
+                                  <span className="rb-scene-framing">
+                                    <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
+                                    <CellSelect className="rb-scene-framing-select" value={shot.framing || null} onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
+                                      placeholder="—" options={FRAMING_CHOICES} aria-label={`Framing for ${shotName}`} />
+                                  </span>
+                                </Td>
+                                {/* Camera movement */}
+                                <Td className="rb-scene-move-cell">
+                                  <CellSelect value={shot.camera_movement || null} onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
+                                    placeholder="—" options={MOVE_CHOICES} aria-label={`Camera movement for ${shotName}`} />
+                                </Td>
+                                {/* Description */}
+                                <Td className="rb-scene-desc-cell">
+                                  <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
+                                    label={`Description for ${shotName}`}
+                                    onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
+                                </Td>
+                                {/* Duration */}
+                                <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
+                                  {framesToTimecode(shot.frame_count || 0, fps)}
+                                </Td>
+                                {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26) */}
+                                <Td numeric className="rb-scene-frames-cell">
+                                  <input type="number" min={0} value={shot.frame_count ?? ''}
+                                    onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
+                                    aria-label={`Frames for ${shotName}`}
+                                    className="ui-input rb-scene-frames"
+                                    data-size="sm"
+                                    placeholder="0" />
+                                </Td>
+                                <Td align="right" className="rb-scene-acts-cell">
+                                  <HoverActions className="rb-scene-acts">
+                                    <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
+                                    <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
+                                      onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                                  </HoverActions>
+                                </Td>
+                              </Row>
+                            )
+                          })}
+                        </Table>
+                      )}
+                      {/* Add shot row */}
+                      <button type="button" onClick={() => onNewShot(sc.id)} className="rb-scene-add">
+                        <Plus aria-hidden="true" /> Add shot
+                      </button>
+                    </div>
+                  </Td>
+                </Row>
+              )}
+            </Fragment>
+          )
+        })}
+      </Table>
+
+      {/* W9: the two bulk questions, word for word, on the kit Dialog in
+          <body>. Neither ever closed on a click outside (window.confirm). */}
+      {confirmBulk === 'scenes' && (
+        <ConfirmDialog
+          title="Delete scenes"
+          message={`Delete ${selected.size} scene${selected.size === 1 ? '' : 's'} and their shots?`}
+          dismissOnBackdrop={false}
+          onCancel={() => setConfirmBulk(null)}
+          onConfirm={() => { setConfirmBulk(null); bulkDelete() }}
+        />
+      )}
+      {confirmBulk === 'shots' && (
+        <ConfirmDialog
+          title="Delete shots"
+          message={`Delete ${selectedNestedShots.size} shot${selectedNestedShots.size === 1 ? '' : 's'}?`}
+          dismissOnBackdrop={false}
+          onCancel={() => setConfirmBulk(null)}
+          onConfirm={() => { setConfirmBulk(null); bulkDeleteNestedShots() }}
+        />
+      )}
     </div>
   )
 }
@@ -1725,10 +1735,15 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
 
 
 // ─── Shot table (shots grouped by scene) ───
+// The kit Table (R3-20), the same columns in the same order; a group's
+// header is a row of the table (the Tasks and Expenses tables' bands), its
+// Add shot the row after its shots.
 function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  // W9: the bulk delete asks on the kit Dialog (it was window.confirm).
+  const [confirmBulk, setConfirmBulk] = useState(false)
 
   // ── Multi-select ──
   const [selected, setSelected] = useState(new Set())
@@ -1741,7 +1756,6 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { for (const id of selected) ctx?.updateShot?.(id, patch); clearSelection() }
   function bulkDelete() {
-    if (!window.confirm(`Delete ${selected.size} shot${selected.size === 1 ? '' : 's'}?`)) return
     for (const id of selected) ctx?.deleteShot?.(id)
     clearSelection()
   }
@@ -1754,296 +1768,269 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
     })
   }
 
+  // Nothing to list: the kit EmptyState (R3-19), the same words — the
+  // instruction is its body now.
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-dense" style={{ color: '#57534e' }}>
-          No shots yet — create a scene first, then add shots
-        </span>
-      </div>
-    )
+    return <EmptyState Icon={Clapperboard} title="No shots yet" body="Create a scene first, then add shots." />
   }
 
+  // What a group's band and an Add shot row span: every column.
+  const span = takes?.supports ? 16 : 15
+
   return (
-    <div className="flex flex-col gap-1 p-3">
-      {/* Column header */}
-      <div className="relative flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="w-7 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
-          {allSelected ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : someSelected ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-        </span>
-        <span style={{ width: tw }} className="flex-shrink-0" />
-        <span className="w-14 text-label font-mono uppercase text-center" style={{ color: '#78716c' }}>#</span>
-        <span className="w-48 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
-        {takes?.supports && <span className="w-44 text-label uppercase flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
-        <span className="w-36 text-label uppercase text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-label uppercase text-center" style={{ color: '#78716c' }}>Time of Day</span>
-        <span className="w-20 text-label uppercase text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="w-20 text-label uppercase text-center" style={{ color: '#78716c' }}>Framing</span>
-        <span className="w-28 text-label uppercase text-center" style={{ color: '#78716c' }}>Cam Move</span>
-        <span className="flex-1 text-label uppercase" style={{ color: '#78716c' }}>Description</span>
-        <span className="w-28 text-label uppercase text-center" style={{ color: '#78716c' }}>Duration</span>
-        <span className="w-20 text-label uppercase text-center" style={{ color: '#78716c' }}>Frames</span>
-        <span className="w-24 text-label uppercase text-center" style={{ color: '#78716c' }}>Start</span>
-        <span className="w-24 text-label uppercase text-center" style={{ color: '#78716c' }}>End</span>
-        <span className="w-14" />
+    <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
+      {/* Bulk action bar: over the header, right of the checkbox column */}
+      {someSelected && (
+        <div className="rb-scene-bulk">
+          <span className="rb-scene-bulk-count">{selected.size} selected</span>
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+          <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+          <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk(true)}>
+            Delete
+          </Button>
+          <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
+        </div>
+      )}
 
-        {/* Bulk action bar */}
-        {someSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-control"
-            style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-dense font-mono tabular-nums font-semibold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-0.5 rounded-control hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-label uppercase">Delete</span>
-            </button>
-            <button type="button" onClick={clearSelection} className="p-0.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
-          </div>
+      <Table
+        className="rb-scene-table rb-scene-table-shots"
+        data-takes={takes?.supports ? 'true' : 'false'}
+        head={(
+          <Row>
+            <Th width="var(--rb-scene-col-check)" className="rb-scene-check-cell">
+              <button type="button" onClick={toggleAll}
+                className="rb-scene-check"
+                data-checked={allSelected ? 'all' : someSelected ? 'some' : 'none'}
+                aria-label={allSelected ? 'Clear the selection' : 'Select every shot'}
+                title={allSelected ? 'Clear the selection' : 'Select every shot'}>
+                {allSelected
+                  ? <CheckSquare aria-hidden="true" />
+                  : someSelected
+                    ? <MinusSquare aria-hidden="true" />
+                    : <Square aria-hidden="true" />}
+              </button>
+            </Th>
+            <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
+            <Th width="var(--rb-scene-col-num)" numeric>#</Th>
+            <Th width="var(--rb-scene-col-name)">Shot name</Th>
+            {takes?.supports && <Th width="var(--rb-scene-col-takes)" title="Bin files assigned to the shot; the starred one is the primary take">Takes</Th>}
+            <Th width="var(--rb-scene-col-status)">Status</Th>
+            <Th width="var(--rb-scene-col-time)">Time of day</Th>
+            <Th width="var(--rb-scene-col-type)">Type</Th>
+            <Th width="var(--rb-scene-col-framing)">Framing</Th>
+            <Th width="var(--rb-scene-col-move)">Cam move</Th>
+            <Th>Description</Th>
+            <Th width="var(--rb-scene-col-runtime)" numeric>Duration</Th>
+            <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
+            <Th width="var(--rb-scene-col-date)">Start</Th>
+            <Th width="var(--rb-scene-col-date)">End</Th>
+            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+          </Row>
         )}
-      </div>
+      >
 
-      {shotGroups.map(g => {
-        const isGrouped = g.groupType !== 'none'
-        const collapsed = isGrouped && collapsedGroups.has(g.key)
-        const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
-        return (
-          <div key={g.key}>
-            {/* Group header (skip for ungrouped) */}
-            {g.groupType === 'scene' && (
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-control cursor-pointer hover:bg-stone-800/30 transition-colors"
-                style={{ backgroundColor: '#292524', borderLeft: `3px solid ${g.scene ? statusColor(g.scene.status) : '#57534e'}` }}
-                onClick={() => toggleGroup(g.key)}
-              >
-                {collapsed
-                  ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
-                  : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
-                <Film className="w-3 h-3" style={{ color: '#fb923c' }} />
-                <span className="text-dense font-semibold truncate" style={{ color: '#fb923c' }}>
-                  {g.label}
-                </span>
-                <span className="text-dense font-mono" style={{ color: '#78716c' }}>
-                  ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
-                </span>
-                {groupFrames > 0 && (
-                  <span className="text-dense font-mono tabular-nums ml-auto mr-2" style={{ color: '#57534e' }}>
-                    {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
-                  </span>
-                )}
-                {g.scene && (
-                  <button type="button"
-                    onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }}
-                    className="p-1 rounded-control hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }} title="Scene details">
-                    <Eye className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            )}
-            {g.groupType === 'field' && (
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-control cursor-pointer hover:bg-stone-800/30 transition-colors"
-                style={{ backgroundColor: '#292524', borderLeft: '3px solid #78716c' }}
-                onClick={() => toggleGroup(g.key)}
-              >
-                {collapsed
-                  ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
-                  : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
-                <Layers className="w-3 h-3" style={{ color: '#a8a29e' }} />
-                <span className="text-dense font-semibold truncate" style={{ color: '#a8a29e' }}>
-                  {g.label}
-                </span>
-                <span className="text-dense font-mono" style={{ color: '#78716c' }}>
-                  ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
-                </span>
-                {groupFrames > 0 && (
-                  <span className="text-dense font-mono tabular-nums ml-auto mr-2" style={{ color: '#57534e' }}>
-                    {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Shot rows */}
-            {!collapsed && (
-              <div className="flex flex-col gap-0.5 mt-0.5">
-                {g.shots.map(shot => {
-                  const isChecked = selected.has(shot.id)
-                  const shotTakeEntries = takes?.map?.get(shot.id) || []
-                  const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
-                  return (
-                  <div key={shot.id}
-                    className="flex items-center gap-3 px-3 rounded-control hover:bg-stone-800 transition-colors group"
-                    style={{
-                      backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
-                      border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}`,
-                      minHeight: rowH + 8,
-                    }}>
-                    {/* Checkbox */}
-                    <span className="w-7 flex items-center justify-center cursor-pointer flex-shrink-0"
-                      onClick={() => toggleOne(shot.id)}>
-                      {isChecked
-                        ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
+        {shotGroups.map(g => {
+          const isGrouped = g.groupType !== 'none'
+          const collapsed = isGrouped && collapsedGroups.has(g.key)
+          const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
+          return (
+            <Fragment key={g.key}>
+              {/* A group's band (none for ungrouped): one row across the
+                  table on the raised paper. Its toggle is a button now (it
+                  was a clickable div), and Scene details sits BESIDE it, not
+                  inside it. A scene's status is the kit's StatusDot (the 3px
+                  accent in its colour is gone, R3-11); names in the ink. */}
+              {isGrouped && (
+                <Row className="rb-scene-group-row">
+                  <Td colSpan={span} className="rb-scene-group-cell">
+                    <span className="rb-scene-group-head">
+                      <button type="button" onClick={() => toggleGroup(g.key)}
+                        aria-expanded={!collapsed}
+                        className="rb-scene-group-toggle">
+                        {collapsed
+                          ? <ChevronRight className="rb-scene-group-chevron" aria-hidden="true" />
+                          : <ChevronDown className="rb-scene-group-chevron" aria-hidden="true" />}
+                        {g.scene && <StatusDot status={g.scene.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} />}
+                        {g.groupType === 'scene'
+                          ? <Film className="rb-scene-group-icon" aria-hidden="true" />
+                          : <Layers className="rb-scene-group-icon" aria-hidden="true" />}
+                        <span className="rb-scene-group-label">{g.label}</span>
+                        <span className="rb-scene-group-count">
+                          ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
+                        </span>
+                        {groupFrames > 0 && (
+                          <span className="rb-scene-group-frames">
+                            {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
+                          </span>
+                        )}
+                      </button>
+                      {g.scene && (
+                        <IconButton size="sm" Icon={Eye} title="Scene details"
+                          onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
+                      )}
                     </span>
+                  </Td>
+                </Row>
+              )}
+
+              {/* Shot rows */}
+              {!collapsed && g.shots.map(shot => {
+                const isChecked = selected.has(shot.id)
+                const shotTakeEntries = takes?.map?.get(shot.id) || []
+                const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                const shotName = shot.name || 'Untitled'
+                return (
+                  <Row key={shot.id} className="rb-scene-row" selected={isChecked} data-ticked={isChecked ? 'true' : 'false'}>
+                    {/* Checkbox: one 28px square (R3-40) */}
+                    <Td className="rb-scene-check-cell">
+                      <button type="button" onClick={() => toggleOne(shot.id)}
+                        className="rb-scene-check"
+                        data-checked={isChecked ? 'all' : 'none'}
+                        aria-pressed={isChecked}
+                        aria-label={`Select ${shotName}`}
+                        title={`Select ${shotName}`}>
+                        {isChecked ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
+                      </button>
+                    </Td>
 
                     {/* Thumbnail */}
-                    <div className="flex items-center justify-center rounded-control overflow-hidden flex-shrink-0 relative group/stthumb cursor-pointer"
-                      style={{ width: tw, height: rowH, backgroundColor: '#0c0a09', border: '1px solid #292524' }}
-                      onClick={async e => {
-                        e.stopPropagation()
-                        if (!window.electronAPI?.rabbit?.pickImage) return
-                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                        if (!imagePath) return
-                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                        onThumbChanged?.()
-                      }}>
-                      {shot.thumbnail_image ? (
-                        <>
-                          <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
-                            alt="" style={{ width: tw, height: rowH, objectFit: 'cover', display: 'block' }} />
-                          <div className="absolute inset-0 opacity-0 group-hover/stthumb:opacity-100 transition-opacity flex items-center justify-center"
-                            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                            <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
-                          </div>
-                        </>
-                      ) : takeFallback ? (
-                        <>
-                          {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
-                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} style={{ border: 'none' }} />
-                          <div className="absolute inset-0 opacity-0 group-hover/stthumb:opacity-100 transition-opacity flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} title="From the primary take. Click to set a thumbnail of your own.">
-                            <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <Clapperboard className="w-4 h-4 group-hover/stthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
-                          <ImagePlus className="w-3.5 h-3.5 absolute opacity-0 group-hover/stthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
-                        </>
-                      )}
-                    </div>
+                    <Td className="rb-scene-thumb-cell">
+                      <div className="rb-scene-thumb"
+                        onClick={async e => {
+                          e.stopPropagation()
+                          if (!window.electronAPI?.rabbit?.pickImage) return
+                          const imagePath = await window.electronAPI.rabbit.pickImage()
+                          if (!imagePath) return
+                          ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                          try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                          onThumbChanged?.()
+                        }}>
+                        {shot.thumbnail_image ? (
+                          <>
+                            <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                            <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                          </>
+                        ) : takeFallback ? (
+                          <>
+                            {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                            <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} className="rb-scene-poster" />
+                            <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>
+                          </>
+                        ) : (
+                          <>
+                            <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
+                            <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                          </>
+                        )}
+                      </div>
+                    </Td>
 
                     {/* Shot # */}
-                    <span className="w-14 text-dense font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
+                    <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined}>
                       {shot.shot_number ?? '—'}
-                    </span>
+                    </Td>
 
-                    {/* Name */}
-                    <div className="w-48 min-w-0 flex-shrink-0">
+                    {/* Name: the row's anchor, 600 in the ink */}
+                    <Td className="rb-scene-name-cell">
                       <InlineText
                         value={shot.name || ''}
                         placeholder="Untitled shot"
+                        strong
+                        label={`Name for ${shotName}`}
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
                       />
-                    </div>
+                    </Td>
 
                     {/* Takes (milestone 2) */}
                     {takes?.supports && (
-                      <span className="w-44 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
+                      <Td className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
                         <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 26)} max={3}
                           canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
-                      </span>
+                      </Td>
                     )}
 
-                    {/* Status */}
-                    <span className="w-36 flex justify-center flex-shrink-0">
-                      <select
-                        value={shot.status || 'not_started'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{
-                          color: statusColor(shot.status),
-                          backgroundColor: 'rgba(0,0,0,0.3)',
-                          border: `1px solid ${statusColor(shot.status)}30`,
-                        }}>
-                        {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                      </select>
-                    </span>
+                    {/* Status: the kit's StatusDot beside a CellSelect (R3-11) */}
+                    <Td className="rb-scene-status-cell">
+                      <span className="rb-scene-status">
+                        <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                        <CellSelect
+                          className="rb-scene-status-select"
+                          value={shot.status || 'not_started'}
+                          onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
+                          options={STATUS_OPTIONS}
+                          aria-label={`Status for ${shotName}`}
+                        />
+                      </span>
+                    </Td>
 
-                    {/* Time of Day */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select
-                        value={shot.time_of_day || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
+                    {/* Time of day */}
+                    <Td className="rb-scene-time-cell">
+                      <CellSelect
+                        value={shot.time_of_day || null}
+                        onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
+                        placeholder="—"
+                        options={TIME_OPTIONS}
+                        aria-label={`Time of day for ${shotName}`}
+                      />
+                    </Td>
 
                     {/* Type */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
-                      <select
+                    <Td className="rb-scene-type-cell">
+                      <CellSelect
                         value={shot.type || 'other'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
+                        onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
+                        options={TYPE_OPTIONS}
+                        aria-label={`Type for ${shotName}`}
+                      />
+                    </Td>
 
-                    {/* Framing */}
-                    <span className="w-20 flex justify-center flex-shrink-0 relative">
-                      <span className="absolute inset-0 flex items-center px-1.5 text-label uppercase pointer-events-none z-[1]"
-                        style={{ color: shot.framing ? '#a8a29e' : '#44403c' }}>
-                        <span className="flex-1 text-center">{shot.framing || '—'}</span>
-                        <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
+                    {/* Framing: the code in the cell, the long names in the list */}
+                    <Td className="rb-scene-framing-cell">
+                      <span className="rb-scene-framing">
+                        <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
+                        <CellSelect
+                          className="rb-scene-framing-select"
+                          value={shot.framing || null}
+                          onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
+                          placeholder="—"
+                          options={FRAMING_CHOICES}
+                          aria-label={`Framing for ${shotName}`}
+                        />
                       </span>
-                      <select
-                        value={shot.framing || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
-                        style={{ color: 'transparent', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
-                      </select>
-                    </span>
+                    </Td>
 
-                    {/* Camera Movement */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select
-                        value={shot.camera_movement || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr}</option>)}
-                      </select>
-                    </span>
+                    {/* Camera movement */}
+                    <Td className="rb-scene-move-cell">
+                      <CellSelect
+                        value={shot.camera_movement || null}
+                        onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
+                        placeholder="—"
+                        options={MOVE_CHOICES}
+                        aria-label={`Camera movement for ${shotName}`}
+                      />
+                    </Td>
 
                     {/* Description */}
-                    <div className="flex-1 min-w-0">
+                    <Td className="rb-scene-desc-cell">
                       <InlineText
                         value={shot.description || ''}
                         placeholder="Add description…"
                         size="sm"
+                        label={`Description for ${shotName}`}
                         onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
                       />
-                    </div>
+                    </Td>
 
-                    {/* Duration (derived) */}
-                    <span className="w-28 text-dense font-mono text-center tabular-nums flex-shrink-0" style={{ color: (shot.frame_count || 0) > 0 ? '#d6d3d1' : '#44403c' }}>
+                    {/* Duration (derived): a zero at the third ink (R3-13) */}
+                    <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
                       {framesToTimecode(shot.frame_count || 0, fps)}
-                    </span>
+                    </Td>
 
-                    {/* Frame count (editable) */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
+                    {/* Frame count (editable): the kit's small field */}
+                    <Td numeric className="rb-scene-frames-cell">
                       <input
                         type="number"
                         min={0}
@@ -2052,70 +2039,77 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                           const n = parseInt(e.target.value, 10)
                           ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                         }}
-                        className="w-16 px-1 py-0.5 text-dense font-mono text-center rounded-control bg-transparent focus:ring-1 focus:ring-orange-500 tabular-nums"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
-                        onFocus={e => { e.target.style.borderColor = '#44403c' }}
-                        onBlur={e => { e.target.style.borderColor = 'transparent' }}
+                        aria-label={`Frames for ${shotName}`}
+                        className="ui-input rb-scene-frames"
+                        data-size="sm"
                         placeholder="0"
                       />
-                    </span>
+                    </Td>
 
                     {/* Start date */}
-                    <span className="w-24 flex justify-center flex-shrink-0">
+                    <Td className="rb-scene-date-cell">
                       <input
                         type="date"
                         value={shot.start_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500"
-                        style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
+                        aria-label={`Start date for ${shotName}`}
+                        className="ui-input rb-scene-date"
+                        data-size="sm"
+                        data-empty={shot.start_date ? undefined : 'true'}
                       />
-                    </span>
+                    </Td>
 
                     {/* End date */}
-                    <span className="w-24 flex justify-center flex-shrink-0">
+                    <Td className="rb-scene-date-cell">
                       <input
                         type="date"
                         value={shot.end_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-dense rounded-control bg-transparent focus:ring-1 focus:ring-orange-500"
-                        style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
+                        aria-label={`End date for ${shotName}`}
+                        className="ui-input rb-scene-date"
+                        data-size="sm"
+                        data-empty={shot.end_date ? undefined : 'true'}
                       />
-                    </span>
+                    </Td>
 
-                    {/* Actions */}
-                    <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button type="button" onClick={() => onOpenShotDetail(shot.id)}
-                        className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                        <Eye className="w-3 h-3" />
-                      </button>
-                      <button type="button" onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                        className="p-1 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
-                  </div>
-                  )
-                })}
+                    {/* Actions: the kit HoverActions, the one slot width (R3-24) */}
+                    <Td align="right" className="rb-scene-acts-cell">
+                      <HoverActions className="rb-scene-acts">
+                        <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
+                        <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
+                          onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                      </HoverActions>
+                    </Td>
+                  </Row>
+                )
+              })}
 
-                {/* Add shot row */}
-                {g.scene && (
-                  <button type="button" onClick={() => onNewShot(g.sceneId)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-dense rounded-control hover:bg-stone-800/40 transition-colors"
-                    style={{ color: '#57534e', border: '1px dashed #292524' }}>
-                    <Plus className="w-3 h-3" /> Add shot
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
+              {/* Add shot row */}
+              {!collapsed && g.scene && (
+                <Row>
+                  <Td colSpan={span} className="rb-scene-add-cell">
+                    <button type="button" onClick={() => onNewShot(g.sceneId)} className="rb-scene-add">
+                      <Plus aria-hidden="true" /> Add shot
+                    </button>
+                  </Td>
+                </Row>
+              )}
+            </Fragment>
+          )
+        })}
+      </Table>
+
+      {/* W9: the bulk question, word for word, on the kit Dialog in <body>.
+          It never closed on a click outside (window.confirm). */}
+      {confirmBulk && (
+        <ConfirmDialog
+          title="Delete shots"
+          message={`Delete ${selected.size} shot${selected.size === 1 ? '' : 's'}?`}
+          dismissOnBackdrop={false}
+          onCancel={() => setConfirmBulk(false)}
+          onConfirm={() => { setConfirmBulk(false); bulkDelete() }}
+        />
+      )}
     </div>
   )
 }
@@ -3096,38 +3090,29 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 
 
 // ─── Confirmation dialog ───
-function ConfirmDialog({ title, message, onConfirm, onCancel }) {
-  return (
-    <>
-      <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onCancel} />
-      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-sm rounded-control overflow-hidden"
-        style={{ backgroundColor: '#292524', border: '2px solid #ef4444', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
-        onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
-            <span className="text-dense font-semibold" style={{ color: '#ef4444' }}>{title}</span>
-          </div>
-        </div>
-        <div className="px-5 py-4">
-          <p className="text-dense leading-relaxed" style={{ color: '#a8a29e' }}>
-            {message}
-          </p>
-        </div>
-        <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Cancel
-          </button>
-          <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-red-800"
-            style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>
-            Delete
-          </button>
-        </div>
-      </div>
-    </>
+// The kit Dialog at the confirm width (W9), portalled into <body> so no
+// container on the page can hold it (the kit Dialog does not portal): the
+// same words, Cancel first and focused, Delete the kit's danger button, and
+// Escape and the focus trap the kit adds (Q17). A row's delete keeps its
+// backdrop click, as the hand-rolled one had; the three bulk deletes that
+// were window.confirm pass `dismissOnBackdrop={false}`.
+function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true }) {
+  return createPortal(
+    <Dialog
+      width="confirm"
+      title={title}
+      dismissOnBackdrop={dismissOnBackdrop}
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button autoFocus onClick={onCancel}>Cancel</Button>
+          <Button variant="danger" onClick={onConfirm}>Delete</Button>
+        </>
+      )}
+    >
+      {message}
+    </Dialog>,
+    document.body,
   )
 }
 
@@ -3263,20 +3248,30 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
 
 
 // ─── Bulk select ───
+// A bulk bar's picker: the kit's small field (B4b's AssetBulkSelect), its
+// first option the label it always showed, its choices in sentence case.
 function SceneBulkSelect({ label, options, onPick }) {
   return (
-    <select defaultValue="" onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-0.5 text-dense rounded-control bg-transparent cursor-pointer"
-      style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+    <select defaultValue="" aria-label={label}
+      onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
+      className="ui-input rb-scene-bulk-select"
+      data-size="sm">
       <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
+      {options.map(o => <option key={o} value={o}>{humanizeStatus(o)}</option>)}
     </select>
   )
 }
 
 
 // ─── InlineText ───
-function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
+// A cell's words that become a field on a click, exactly as before. At rest
+// the words — `strong` (a row's name) at 600 in the ink, the rest in the
+// second ink, `size="xs"` (the scene popup's shot line) in the third, an
+// empty one its placeholder in the third (R3-13: it was #57534e, 2.3:1) —
+// with the kit's hover fill; editing, the kit's small field, a native
+// `ui-input` (the kit Input's own Escape and Enter would break the draft,
+// B3d trap 3). `label` names the field for a screen reader.
+function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -3293,16 +3288,18 @@ function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className={`w-full bg-transparent ${size === 'xs' ? 'text-dense' : size === 'sm' ? 'text-dense' : 'text-dense'}`}
-        style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
+        aria-label={label}
+        className="ui-input rb-scene-inline-input"
+        data-size="sm"
         onClick={e => e.stopPropagation()}
       />
     )
   }
   return (
     <span
-      className={`truncate cursor-text block ${size === 'xs' ? 'text-dense' : size === 'sm' ? 'text-dense' : 'text-dense'}`}
-      style={{ color: value ? (color || (size === 'xs' ? '#78716c' : '#d6d3d1')) : '#57534e' }}
+      className="rb-scene-inline"
+      data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+      data-empty={value ? undefined : 'true'}
       onClick={e => { e.stopPropagation(); setEditing(true) }}
     >
       {value || placeholder}

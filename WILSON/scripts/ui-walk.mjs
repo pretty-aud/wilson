@@ -330,12 +330,10 @@ const KNOWN = {
     // B4b (2026-09-25): the Assets toolbar's New asset is the kit primary and
     // its Table / Gallery the kit Tabs, and the detail popup's Done the kit
     // primary in the Dialog's footer: the seven asset lines are deleted.
-    { key: 'rabbit-scene-detail', text: '"Scene"' },
-    { key: 'rabbit-scene-detail', text: '"Scenes"' },
-    { key: 'rabbit-scene-detail', text: '"Table"' },
-    { key: 'rabbit-scenes', text: '"Scene"' },
-    { key: 'rabbit-scenes', text: '"Scenes"' },
-    { key: 'rabbit-scenes', text: '"Table"' },
+    // B5b surface 6a (2026-09-27): the Scenes toolbar's content and view
+    // pairs are the kit Tabs and New scene the kit primary (c6=0 on all six
+    // Scenes screens at 1440x900 and 1280x700): the six scene lines are
+    // deleted.
     // rabbit-timeline's two ("Task", "Week") left with B3b: + Task is the kit
     // primary on signal-fill and the zoom is the kit Tabs' underline.
   ],
@@ -387,12 +385,12 @@ const KNOWN = {
     // B5 surface 2a (2026-09-26): rabbit-budget's one was the Agency fee
     // toggle, the kit Switch now and named "Agency fee" (anon=0 at 1440x900
     // and 1280x700), so its line is deleted.
-    { key: 'rabbit-scene-detail', text: 'lucide-arrow-up-down', n: 1 },
-    { key: 'rabbit-scene-detail', text: 'lucide-chevron-right', n: 6 },
+    // B5b surface 6a (2026-09-27): the Scenes table's sort direction and its
+    // six expand toggles are named kit IconButtons (anon=0 on rabbit-scenes
+    // at both sizes), so those four lines are deleted; the scene popup's
+    // trash and close are 6c's and stay.
     { key: 'rabbit-scene-detail', text: 'lucide-trash2', n: 3 },
     { key: 'rabbit-scene-detail', text: 'lucide-x', n: 1 },
-    { key: 'rabbit-scenes', text: 'lucide-arrow-up-down', n: 1 },
-    { key: 'rabbit-scenes', text: 'lucide-chevron-right', n: 6 },
     { key: 'shell-quit', text: 'no-icon', n: 3 },
   ],
 };
