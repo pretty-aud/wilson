@@ -1035,8 +1035,9 @@
                widest figure a money cell draws; "SUBTOTAL" 61.1           -> 120
        acts    Talent's 28px Delete in the kit HoverActions slot           ->  52
        period  "WK20 12/31" 70.3 at the Label step, in a header padded 4px
-               a side; "$99,999" 54.6 + 2 + the 14px paperclip, 70.6, in
-               the 28px button, in a cell padded 4px a side                ->  80
+               a side; "$999,999" 62.4 + 2 + the 14px paperclip, 78.4, in
+               the button, in a cell padded 4px a side (P1-75: at 80 a
+               six-figure actual overflowed its 72px button)               ->  88
      The periods were 72px: at the Label step a weekly header, and a
      five-figure amount beside its paperclip at the icon size, no longer fit
      (the paperclip was 10px and the headers 8.5px when 72 was chosen). The
@@ -1050,7 +1051,7 @@
     --rb-crew-w-rate: 104px;
     --rb-crew-w-days: 72px;
     --rb-crew-w-money: 120px;
-    --rb-crew-w-period: 80px;
+    --rb-crew-w-period: 88px;
     min-width: calc(180px + var(--rb-crew-w-type) + var(--rb-crew-w-rate) + var(--rb-crew-w-days)
       + 6 * var(--rb-crew-w-money) + var(--rb-crew-cols) * var(--rb-crew-w-period));
   }
@@ -1061,7 +1062,7 @@
     --rb-talent-w-pct: 80px;
     --rb-talent-w-money: 120px;
     --rb-talent-w-acts: 52px;
-    --rb-talent-w-period: 80px;
+    --rb-talent-w-period: 88px;
     min-width: calc(180px + var(--rb-talent-w-type) + var(--rb-talent-w-rate) + var(--rb-talent-w-days)
       + var(--rb-talent-w-pct) + 6 * var(--rb-talent-w-money) + var(--rb-talent-w-acts)
       + var(--rb-talent-cols) * var(--rb-talent-w-period));

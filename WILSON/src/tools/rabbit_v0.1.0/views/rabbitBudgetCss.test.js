@@ -507,3 +507,18 @@ describe('reduced motion (plan §3.4): every transition this sheet declares is s
     expect(motionCoverage(withBlock.replace('.rb-budget-y { transition: none; }', '.rb-budget-y { transition: none; opacity: 1; }')).loud).toHaveLength(1)
   })
 })
+
+// P1-75 (B5b-6): a six-figure actual beside its paperclip must fit its
+// period cell. "$999,999" is 8 characters of the 13px mono at its 0.6em
+// advance (62.4px) + a 2px gap + the 14px paperclip, in a cell padded 4px a
+// side: 86.4px.
+describe('a period cell holds a six-figure actual (P1-75)', () => {
+  const need = '$999,999'.length * 13 * 0.6 + 2 + 14 + 2 * 4
+  const period = (css, v) => parseFloat(declaredValue(css, `.ui-table.rb-${v}-table`, `--rb-${v}-w-period`))
+  it('Crew and Talent periods are at least the need', () => {
+    for (const v of ['crew', 'talent']) expect(period(sheet, v), v).toBeGreaterThanOrEqual(need)
+  })
+  it('CONTROL: the 80px they had does not hold it', () => {
+    expect(period(withDeclaration(sheet, '.ui-table.rb-crew-table', '--rb-crew-w-period', '80px'), 'crew')).toBeLessThan(need)
+  })
+})
