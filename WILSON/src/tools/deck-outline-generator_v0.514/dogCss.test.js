@@ -93,3 +93,39 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
     expect(read('./modals/HistoryModal.jsx')).toContain("'Generate image prompts'")
   })
 })
+
+// P1-50: D.O.G.'s two native selects with an empty first option ("No project
+// selected", "Select layout...") read as placeholders, one way: every
+// `.dog-select` says when it is empty, and one rule gives that state the
+// placeholder ink.
+describe('D.O.G.\'s empty selects are drawn one way (P1-50)', () => {
+  const jsx = read('./DeckOutlineGenerator.jsx')
+  // Each `<select …>` opening tag, read to the `>` outside any `{…}` (its
+  // props hold arrows, whose `>` a lazy regex would stop at).
+  const selectTags = (src) => {
+    const out = []
+    for (let at = src.indexOf('<select'); at >= 0; at = src.indexOf('<select', at + 1)) {
+      let depth = 0
+      for (let i = at; i < src.length; i++) {
+        if (src[i] === '{') depth++
+        else if (src[i] === '}') depth--
+        else if (src[i] === '>' && depth === 0) { out.push(src.slice(at, i + 1)); break }
+      }
+    }
+    return out
+  }
+  const selectsWithoutEmpty = (src) => selectTags(src)
+    .filter((tag) => /\bdog-select\b/.test(tag) && !/\bdata-empty=\{/.test(tag))
+  it('every .dog-select carries data-empty, and the placeholder ink is the class\'s, not the project select\'s alone', () => {
+    expect(selectTags(jsx).filter((t) => /\bdog-select\b/.test(t)).length).toBe(2)
+    expect(selectsWithoutEmpty(jsx)).toEqual([])
+    const rule = allRules(DOG).find((r) => splitTop(r.sel).includes(".dog-select[data-empty='true']"))
+    expect(rule, 'no .dog-select empty rule').toBeTruthy()
+    expect(decls(rule.body)).toContainEqual(['color', 'var(--color-ink-3)'])
+    expect(allRules(DOG).some((r) => splitTop(r.sel).includes(".dog-project-select[data-empty='true']"))).toBe(false)
+  })
+  it('CONTROL: the layout select as it was is caught', () => {
+    const was = '<select\n  value={selectedLayout}\n  className="ui-input dog-select" data-size="md" data-surface="dark"\n>'
+    expect(selectsWithoutEmpty(was)).toHaveLength(1)
+  })
+})

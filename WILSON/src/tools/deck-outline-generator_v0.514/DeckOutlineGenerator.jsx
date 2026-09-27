@@ -4106,7 +4106,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       value={selectedLayout}
                       onChange={(e) => setSelectedLayout(e.target.value)}
                       disabled={fullDeckMode}
-                      className="ui-input dog-select" data-size="md" data-surface="dark"
+                      className="ui-input dog-select" data-size="md" data-surface="dark" data-empty={!selectedLayout}
                     >
                       <option value="">Select layout...</option>
                       {SLIDE_LAYOUTS.map((layout) => (

@@ -292,8 +292,10 @@
     color: var(--color-ink-3);
     pointer-events: none;
   }
-  /* "No project selected" reads as a placeholder: the placeholder token. */
-  .dog-project-select[data-empty='true'] { color: var(--color-ink-3); }
+  /* "No project selected" and "Select layout..." read as placeholders: the
+     placeholder token. P1-50: only the project select had it, so the two
+     empty selects on one form were drawn two ways. */
+  .dog-select[data-empty='true'] { color: var(--color-ink-3); }
   .dog-layout-select { position: relative; width: 224px; }
   .dog-layout-desc { margin-top: 4px; }
   .ui-input.dog-page-number { width: 96px; }
