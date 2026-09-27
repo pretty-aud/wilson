@@ -140,7 +140,9 @@ export const PATTERNS = [
    next backtick, where a comment inside it stays visible and a `/*` inside
    a regex in it could hide code. The old rule stays for a bare `https://` in
    JSX text: a `//` after `:` is no comment. */
-const REGEX_AFTER_WORD = new Set(['return', 'typeof', 'case', 'in', 'of', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'else', 'do']);
+// Not `in` / `of` (review round two): a regex after either is never real
+// code, while JSX text ("Zoom in / out") and a variable named `of` are.
+const REGEX_AFTER_WORD = new Set(['return', 'typeof', 'case', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'else', 'do']);
 export function blankJsComments(src) {
   const out = src.split('');
   const blank = (from, to) => { for (let k = from; k < to; k++) if (src[k] !== '\n') out[k] = ' '; };

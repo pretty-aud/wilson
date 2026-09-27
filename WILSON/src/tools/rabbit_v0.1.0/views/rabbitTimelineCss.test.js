@@ -658,18 +658,55 @@ describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lo
 // strip of its own between the body and the footer.
 describe('V2: the task editor scrolls its fields and shows its error', () => {
   const code = jsCode(read('TimelineView.jsx'))
-  const editor = code.slice(code.indexOf('function TaskEditor('), code.indexOf('\n}\n', code.indexOf('function TaskEditor(')))
-  it('an outer scroller wraps the inert fields, and the error sits between the body and the footer, fixed', () => {
+  const editorOf = (c) => c.slice(c.indexOf('function TaskEditor('), c.indexOf('\n}\n', c.indexOf('function TaskEditor(')))
+  const SCROLLER = '<div className="min-h-0 overflow-y-auto scroll-py-1">'
+  const FIELDS = '<div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>'
+  const ERROR = '{error && (\n          <div role="alert" className="px-4 py-3 shrink-0"'
+  const FOOTER = 'className="flex items-center gap-2 px-4 py-3 shrink-0"'
+  /** What is wrong with an editor's structure: every marker present and in
+      order; the scroller, and the fields in it, CLOSED before the error (as
+      many `<div` as `</div>` between the scroller's opening and the error —
+      review round two: order alone cannot tell inside from outside); and
+      `inert` exactly once, on the fields, so nothing that scrolls is inert. */
+  const problems = (editor) => {
+    const at = [SCROLLER, FIELDS, ERROR, FOOTER].map((m) => editor.indexOf(m))
+    if (at.some((i) => i < 0)) return [`missing marker: ${at.join(' ')}`]
+    const out = []
+    if (!(at[0] < at[1] && at[1] < at[2] && at[2] < at[3])) out.push('out of order')
+    const span = editor.slice(at[0], at[2])
+    const open = (span.match(/<div\b/g) || []).length
+    const close = (span.match(/<\/div>/g) || []).length
+    if (open !== close) out.push(`the error sits inside: ${open} <div, ${close} </div> before it`)
+    const inert = editor.match(/\binert\b/g) || []
+    if (inert.length !== 1) out.push(`inert ${inert.length}x`)
+    if ((editor.match(/\{error && \(/g) || []).length !== 1) out.push('the error drawn twice')
+    return out
+  }
+
+  it('an outer scroller wraps the inert fields, and the error is an alert strip between the body and the footer', () => {
+    const editor = editorOf(code)
     expect(editor.length, 'TaskEditor moved').toBeGreaterThan(5000)
-    const scroller = editor.indexOf('<div className="min-h-0 overflow-y-auto scroll-py-1">')
-    const fields = editor.indexOf('<div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>')
-    const error = editor.indexOf('{error && (\n          <div className="px-4 pb-3 shrink-0">')
-    const footer = editor.indexOf('className="flex items-center gap-2 px-4 py-3 shrink-0"')
-    expect([scroller, fields, error, footer].every((i) => i > 0), `${scroller} ${fields} ${error} ${footer}`).toBe(true)
-    expect(scroller < fields && fields < error && error < footer).toBe(true)
-    // Nothing that scrolls is inert, and the error is not inside the fields.
-    expect(editor).not.toMatch(/overflow-y-auto[^"]*"\s+inert=/)
-    expect((editor.match(/\{error && \(/g) || []).length).toBe(1)
+    expect(problems(editor)).toEqual([])
+  })
+
+  it('CONTROL: the error back inside the scroller or the fields, or inert on the panel, is caught', () => {
+    const editor = editorOf(code)
+    const start = editor.indexOf(ERROR)
+    const end = editor.indexOf('\n        )}\n', start) + '\n        )}\n'.length
+    const block = editor.slice(start, end)
+    const without = editor.slice(0, start) + editor.slice(end)
+    const scrollerClose = without.lastIndexOf('        </div>\n', without.indexOf(FOOTER))
+    const fieldsClose = without.lastIndexOf('        </div>\n', scrollerClose - 1)
+    // A: the strip as the scroller's last child — round one's R1-01.
+    const inScroller = without.slice(0, scrollerClose) + block + without.slice(scrollerClose)
+    // A2: the strip as the fields' last child.
+    const inFields = without.slice(0, fieldsClose) + block + without.slice(fieldsClose)
+    // B: inert on the capped panel, the scroller's ancestor — R1-04.
+    const inertPanel = editor.replace('className="rounded-control flex flex-col w-full max-w-md"', 'className="rounded-control flex flex-col w-full max-w-md" inert')
+    expect(inertPanel).not.toBe(editor)
+    expect(problems(inScroller).join()).toMatch(/inside/)
+    expect(problems(inFields).join()).toMatch(/inside/)
+    expect(problems(inertPanel).join()).toMatch(/inert 2x/)
   })
 })
 
@@ -700,8 +737,13 @@ describe('V2: no cream on the signal among the Timeline\'s hand-drawn primaries 
     const first = code.replace(PAIR, "color: '#fff7ed', backgroundColor: '#ea580c'")
     expect(first).not.toBe(code)
     expect(cream(first)).toBe(2)
+    // Each button's own check, on its own plant (review round two: the
+    // conjunction held as soon as Save alone lost the pair).
+    expect(buttonOf(first, 'Extend phase\n')).not.toContain(PAIR)
+    expect(buttonOf(first, "{saving ? 'Saving…' : 'Save'}")).toContain(PAIR)
     const at = code.lastIndexOf(PAIR)
     const second = code.slice(0, at) + "color: '#fff7ed', backgroundColor: '#ea580c'" + code.slice(at + PAIR.length)
-    expect(buttonOf(second, "{saving ? 'Saving…' : 'Save'}").includes(PAIR) && buttonOf(second, 'Extend phase\n').includes(PAIR)).toBe(false)
+    expect(buttonOf(second, "{saving ? 'Saving…' : 'Save'}")).not.toContain(PAIR)
+    expect(buttonOf(second, 'Extend phase\n')).toContain(PAIR)
   })
 })

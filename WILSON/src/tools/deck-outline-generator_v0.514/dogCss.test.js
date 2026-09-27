@@ -80,4 +80,16 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
     }
     expect(src).not.toMatch(/className="dog-check-label">[^<]*\b[A-Z][a-z]* [A-Z]/)
   })
+
+  // Review rounds one and two: Help quoted the controls by their old names.
+  it('D.O.G.\'s Help and the Help page quote each control as the interface writes it', () => {
+    const help = read('../../data/dogHelpContent.jsx')
+    const page = read('../../components/HelpPage.jsx')
+    const OLD = /"(Theme Generator|Use Uploaded Assets|Use Project Assets|Generate Image Prompts)"/
+    expect(help).not.toMatch(OLD)
+    expect(page).not.toMatch(OLD)
+    for (const q of ['"Theme generator"', '"Use uploaded assets"', '"Use project assets"', '"Generate image prompts"']) expect(help, q).toContain(q)
+    // CONTROL: the export dialog's own label is the one Help quotes.
+    expect(read('./modals/HistoryModal.jsx')).toContain("'Generate image prompts'")
+  })
 })

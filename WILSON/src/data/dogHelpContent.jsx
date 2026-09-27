@@ -94,7 +94,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <p><span className="text-orange-400 font-semibold">6. Refine Output:</span> Use the Edit Output bar to regenerate pages with revision notes, change layouts, and undo/redo changes.</p>
           <p><span className="text-orange-400 font-semibold">7. Theme Colors:</span> Enable "Theme generator" to auto-generate AI color palettes. Cycle through themes with arrow buttons. Refresh for new options.</p>
           <p><span className="text-orange-400 font-semibold">8. Export:</span> Download as DECKOUTLINE.md, or check "Include theme colors" for VIS_DECKOUTLINE.md with theme data and visual descriptions.</p>
-          <p><span className="text-orange-400 font-semibold">9. Image Prompts (Optional):</span> Enable "Generate Image Prompts" in the export modal to create AI image prompts for all visual assets. Select your target model (Midjourney, Flux, Nano Banana, or ChatGPT) and download alongside your outline.</p>
+          <p><span className="text-orange-400 font-semibold">9. Image Prompts (Optional):</span> Enable "Generate image prompts" in the export modal to create AI image prompts for all visual assets. Select your target model (Midjourney, Flux, Nano Banana, or ChatGPT) and download alongside your outline.</p>
         </div>
       </section>
       </div>
@@ -476,7 +476,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <h4 className="text-dense font-semibold text-orange-400 mb-2">Preset vs Generated</h4>
             <p className="text-dense text-stone-400 leading-relaxed">
               4 preset themes are always available: Black & Orange, Orange & Black, Black & White, White & Black.
-              When Theme Generator is disabled (checkbox unchecked), only these presets are used. When enabled,
+              When "Theme generator" is unchecked, only these presets are used. When enabled,
               AI-generated themes are added after the presets and the first generated theme is auto-selected.
             </p>
           </div>
@@ -512,7 +512,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className="bg-stone-900 p-3 rounded-control border border-stone-700">
             <h4 className="text-dense font-semibold text-orange-400 mb-2">How It Works</h4>
             <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
-              <li>• <span className="text-stone-300">Export-triggered:</span> Image prompts are ONLY generated when you click the export button with "Generate Image Prompts" enabled</li>
+              <li>• <span className="text-stone-300">Export-triggered:</span> Image prompts are ONLY generated when you click the export button with "Generate image prompts" enabled</li>
               <li>• <span className="text-stone-300">Asset extraction:</span> The system scans all slides and extracts visual assets from the &#9656; REQUIRED ASSETS section</li>
               <li>• <span className="text-stone-300">Logo/Icon skip:</span> Assets typed as Icon or Logo are automatically skipped since they represent existing brand assets</li>
               <li>• <span className="text-stone-300">Context-aware:</span> The AI uses your deck visual description, deck context, and slide content to create relevant prompts</li>
@@ -523,7 +523,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <h4 className="text-dense font-semibold text-orange-400 mb-2">Using Image Prompts at Export</h4>
             <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
               <li>• <span className="text-stone-300">Step 1:</span> Open the Import/Export modal from the header</li>
-              <li>• <span className="text-stone-300">Step 2:</span> Check "Generate Image Prompts" checkbox</li>
+              <li>• <span className="text-stone-300">Step 2:</span> Check "Generate image prompts"</li>
               <li>• <span className="text-stone-300">Step 3:</span> Select your target model from the dropdown (Midjourney, Flux, Nano Banana, or Chat GPT)</li>
               <li>• <span className="text-stone-300">Step 4:</span> Click the export button — your outline downloads first, then image prompts are generated and downloaded as a separate file</li>
               <li>• <span className="text-stone-300">Output file:</span> Downloaded as DECKNAME_IMG_PROMPTS.md</li>
@@ -757,7 +757,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <li>• <span className="text-orange-400">Use descriptive page requests</span> that reference specific content from your uploaded documents.</li>
           <li>• <span className="text-orange-400">Review and edit</span> generated content in the text view before exporting.</li>
           <li>• <span className="text-orange-400">Use the visualizer</span> to preview how your slide will look with different layouts and theme colors.</li>
-          <li>• <span className="text-orange-400">Enable Theme Generator</span> for AI-powered color palettes that match your content.</li>
+          <li>• <span className="text-orange-400">Enable "Theme generator"</span> for AI-powered color palettes that match your content.</li>
           <li>• <span className="text-orange-400">Cycle themes</span> with arrow buttons to compare palettes before exporting.</li>
           <li>• <span className="text-orange-400">Export with VIS format</span> to include theme colors and visual descriptions for downstream design tools.</li>
           <li>• <span className="text-orange-400">For full decks</span>, include desired page count in your deck context (e.g., "Create a 10-slide presentation...").</li>

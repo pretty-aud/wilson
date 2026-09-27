@@ -316,9 +316,11 @@ export function openDialog() {
   /* V2 review round one: a panel CAPPED to fit can still fail to hold its
      content — drop the body's `overflow-y: auto` and the Timeline editor's
      fields paint on over its footer while `fits` stays true. `spills` says
-     the panel lets content out of its own box (its overflow is visible and
-     its content is taller than it). */
-  const spills = cs.overflowY === 'visible' && panel.scrollHeight > panel.clientHeight + 1;
+     the panel's content is taller than its box and the PANEL does not scroll
+     it: visible (it paints over what follows) or hidden (it is cut off —
+     review round two: the usual rounded-corner `overflow: hidden` would
+     otherwise hide the same fault). A panel that scrolls is in `scrolls`. */
+  const spills = !/(auto|scroll)/.test(cs.overflowY) && panel.scrollHeight > panel.clientHeight + 1;
   return {
     kind, bg: hex, radius: cs.borderRadius, border: `${cs.borderTopWidth} ${cs.borderTopStyle}`,
     box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
@@ -747,17 +749,25 @@ export function petOverlap() {
   const pet = [...document.querySelectorAll('div.fixed.right-4.z-30')].find((e) => e.getBoundingClientRect().width > 0);
   if (!pet) return null;
   const p = pet.getBoundingClientRect();
-  /* The part of a box its ancestors let through. A fixed ancestor ends the
-     climb: nothing above it clips it. */
-  const drawn = (el, r) => {
+  /* The part of a box that is drawn: clipped along its CONTAINING-BLOCK
+     chain only (review round two). A text run is clipped by its own element
+     first (`fromSelf`: a truncated cell hides its tail); an absolutely
+     positioned box escapes every static ancestor until its containing block;
+     a fixed one escapes them all. */
+  const drawn = (el, r, fromSelf) => {
     let [l, t, rr, b] = [r.left, r.top, r.right, r.bottom];
-    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+    const clipBy = (a) => {
       const s = getComputedStyle(a);
       if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
         const ar = a.getBoundingClientRect();
         l = Math.max(l, ar.left); t = Math.max(t, ar.top); rr = Math.min(rr, ar.right); b = Math.min(b, ar.bottom);
       }
-      if (s.position === 'fixed') break;
+      return s.position;
+    };
+    let pos = fromSelf ? clipBy(el) : getComputedStyle(el).position;
+    for (let a = el.parentElement; a && a !== document.body && pos !== 'fixed'; a = a.parentElement) {
+      if (pos === 'absolute' && getComputedStyle(a).position === 'static') continue;
+      pos = clipBy(a);
     }
     return Math.min(rr, p.right) - Math.max(l, p.left) >= 1 && Math.min(b, p.bottom) - Math.max(t, p.top) >= 1;
   };
@@ -772,11 +782,11 @@ export function petOverlap() {
     if (!text || !el || pet.contains(el) || el.closest('.wilson-chrome') || !shown(el)) continue;
     const range = document.createRange();
     range.selectNodeContents(n);
-    if ([...range.getClientRects()].some((r) => drawn(el, r))) out.add(`"${text.slice(0, 32)}"`);
+    if ([...range.getClientRects()].some((r) => drawn(el, r, true))) out.add(`"${text.slice(0, 32)}"`);
   }
   for (const el of document.querySelectorAll('button, select, input, textarea')) {
     if (pet.contains(el) || el.closest('.wilson-chrome') || el.textContent.trim() || !shown(el)) continue;
-    if (drawn(el, el.getBoundingClientRect())) {
+    if (drawn(el, el.getBoundingClientRect(), false)) {
       const name = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || el.name || '';
       out.add(`<${el.tagName.toLowerCase()} ${String(name).slice(0, 24)}>`);
     }

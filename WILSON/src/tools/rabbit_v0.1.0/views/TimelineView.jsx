@@ -4852,9 +4852,11 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         {/* V2 review round one: the error is a strip of its own between the
             fields and the footer, so it shows whatever the scroll — as the
             body's last child it landed below the fold and Save seemed to do
-            nothing. */}
+            nothing. Round two: a rule above it, so it does not sit against a
+            half-scrolled field, and `role="alert"`, as the kit Dialog's error
+            has, so a screen reader hears it too. */}
         {error && (
-          <div className="px-4 pb-3 shrink-0">
+          <div role="alert" className="px-4 py-3 shrink-0" style={{ borderTop: '1px solid #44403c' }}>
             <div
               className="text-dense p-2 rounded-control"
               style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}

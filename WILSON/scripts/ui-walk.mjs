@@ -680,8 +680,10 @@ async function visit(ctx, entry) {
   /* `contained` (V2): the screen's dialog must also HOLD its content — a
      capped panel whose body stopped scrolling fits while its fields paint
      over its footer. Reported for every dialog (dlg.spills), failed only
-     where an entry asks. */
-  const dlgBad = dlg && ((!dlg.fits && !isKnown('dialogFit', k, 'fits')) || (entry.contained && dlg.spills));
+     where an entry asks — and a `contained` screen whose dialog the
+     heuristics could not find fails too, rather than pass unmeasured
+     (review round two). */
+  const dlgBad = (dlg && !dlg.fits && !isKnown('dialogFit', k, 'fits')) || (entry.contained && (!dlg || dlg.spills));
   /* "Did this page render?", counted OUTSIDE the shell: the shell and the
      dev badge alone are 18 text nodes, so the old floor of 10 could not
      trip while they were on screen (round one). */
@@ -708,6 +710,7 @@ async function visit(ctx, entry) {
     + ` ground=${gr}${dl}${why}`
     + (urlOk ? '' : `   ← WRONG ROUTE ${new URL(page.url()).pathname}`)
     + (thin ? `   ← ONLY ${body} TEXT NODES OUTSIDE THE SHELL` : '')
+    + (entry.contained && !dlg ? '   ← NO DIALOG FOUND TO MEASURE' : '')
     + (faceGap ? `   ← FACE UNMEASURED ${faces.unmeasured}, PROBED ${faces.probed} OF ${rows.length}` : ''));
   const show = (label, arr, f) => { for (const r of arr.slice(0, VERBOSE ? 50 : 4)) console.log(`      ${label} ${f(r)}`); if (!VERBOSE && arr.length > 4) console.log(`      ${label} … +${arr.length - 4}`); };
   show('face', news.face, (r) => `${r.used} x${r.glyphs} <${r.tag}> "${r.text}"`);

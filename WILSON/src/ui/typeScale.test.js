@@ -2766,6 +2766,13 @@ describe('blankJsComments: a comment opener inside a string or a regex is not a 
     gone('if (a > b) { x = a / 2 } // half\nconst keepD = 5', 'half');
     kept('<p>see</p> {/* note */} <b>ok</b>', '<b>ok</b>');
     gone('<p>see</p> {/* note */} <b>ok</b>', 'note');
+    // Review round two: the two branches no case exercised. A `>` that is
+    // not `=>` starts no regex, and a keyword as a member name is a name.
+    gone('<p>/ {/* note */}</p>', 'note');
+    gone('const t = x.return / 2 /* c */', ' c ');
+    // …and `in` / `of` start none: JSX text and a variable named `of`.
+    gone('<p>Zoom in / out {/* note */}</p>', 'note');
+    kept('const of = 4; const h = of / 2 + "a/b /* c"; const keepO = 6', 'const keepO = 6');
   });
   it('keeps every offset: same length, same newlines', () => {
     const src = 'a /* b\nc */ d // e\n"f/*g" h';
