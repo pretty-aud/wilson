@@ -493,8 +493,12 @@ const LESSON_SELECTORS = ['h1', 'h2', 'h3', ' p ', 'li', 'code', 'pre', 'blockqu
 /** A leading set by hand on an element that already carries a scale step.
  *  §3.1 gives every step one leading; 156 sites override it anyway. */
 const LEADING_OVERRIDE = /\bleading-(?:tight|snug|normal|relaxed|loose|none|\[[^\]]*\])\b/;
-/** Measured 2026-09-22: 19 in T1's lane, 38 in T2's, 99 in the rest. */
-const STEP_LEADING_RESIDUE = 156;
+/** Measured 2026-09-22: 19 in T1's lane, 38 in T2's, 99 in the rest.
+ *  Ratcheted to 45 by P1 (2026-09-27): D.O.G.'s help (P1-35) names each
+ *  class string ONCE in its role objects instead of on every paragraph, which
+ *  took 111 of the class-string sites out; the leadings they carry are the
+ *  same few, now counted once each. */
+const STEP_LEADING_RESIDUE = 45;
 const WHITE_GROUND = /\bbg-white(?:\/\d+)?\b/g;
 const OFF_SPACING = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y)-\[[\d.]+(?:px|rem|em)\]/g;
 /* The INVARIANT ("no vh in any padding"), not the shape of today's ternary:
@@ -813,9 +817,10 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     expect(hits.length, `a scale step with a hand-set leading:\n${hits.slice(0, 20).join('\n')}`)
       .toBeLessThanOrEqual(STEP_LEADING_RESIDUE);
     // The denominator: this really is a live, non-empty pattern, not a regex
-    // that stopped matching.
+    // that stopped matching. (50 until P1's ratchet to 45; the floor keeps the
+    // same distance below the residue.)
     expect(hits.length, 'LEADING_OVERRIDE matches nothing — it has stopped working')
-      .toBeGreaterThan(50);
+      .toBeGreaterThan(30);
   });
 
   it('the measure is on the PROSE rule, and the token is in §3.1s band', () => {

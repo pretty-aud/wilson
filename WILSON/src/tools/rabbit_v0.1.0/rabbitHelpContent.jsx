@@ -45,27 +45,30 @@ function KeyCombos({ keys, range, surface }) {
 export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-overview',     label: 'Overview' },
   { id: 'rabbit-projects',     label: 'Projects' },
-  { id: 'rabbit-intake',       label: 'Intake Wizard' },
+  { id: 'rabbit-intake',       label: 'Intake wizard' },
   { id: 'rabbit-assets',       label: 'Assets' },
   { id: 'rabbit-timeline',     label: 'Timeline' },
-  { id: 'rabbit-phases',       label: 'Phases & Tasks' },
+  { id: 'rabbit-phases',       label: 'Phases & tasks' },
   { id: 'rabbit-dependencies', label: 'Dependencies' },
-  { id: 'rabbit-zoom',         label: 'Zoom & Weekends' },
+  { id: 'rabbit-zoom',         label: 'Zoom & weekends' },
   { id: 'rabbit-budget',       label: 'Budget' },
   { id: 'rabbit-settings',     label: 'Settings' },
-  { id: 'rabbit-shortcuts',    label: 'Shortcuts & Tips' },
+  { id: 'rabbit-shortcuts',    label: 'Shortcuts & tips' },
 ];
 
-// Light-theme style tokens (used by an external help page if any)
+// Light-theme style tokens (used by an external help page if any).
+// P1-35: key for key HelpPage's `L` — one ink on the orange (the stone greys
+// here were the rule's exact failure), the section title at H2 in sentence
+// case, the card title at H3.
 const L = {
-  sectionTitle: 'text-label font-semibold text-stone-900 uppercase mb-3',
-  bodyText: 'text-dense text-stone-800 leading-relaxed',
-  card: 'bg-well-light p-3 rounded-control border border-stone-400/30',
-  cardTitle: 'text-dense font-semibold text-stone-900 mb-2',
-  listItem: 'text-dense text-stone-700 leading-relaxed',
-  listBold: 'text-stone-900',
-  notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-control p-3',
-  notesTitle: 'text-label font-semibold text-stone-900 uppercase mb-2',
+  sectionTitle: 'text-h2 text-ink-light mb-3',
+  bodyText: 'text-body text-ink-light',
+  card: 'bg-well-light border border-rule-light rounded-control p-3',
+  cardTitle: 'text-h3 text-ink-light mb-2',
+  listItem: 'text-dense text-ink-light',
+  listBold: 'font-semibold',
+  notesBox: 'bg-signal/10 border border-signal/30 rounded-control p-3',
+  notesTitle: 'text-label text-ink-light uppercase mb-2',
 };
 
 // Dark-theme style tokens for the in-tool help modal
@@ -75,8 +78,11 @@ const L = {
 // tint with the ink. The section title is the ink too (round 2): the Help
 // modal's own ground is #292524 (TimelineView's, B3's), where the signal
 // measures 4.26:1 at 11px — round one had measured it on the paper.
+// P1-35: the section title leaves the Label step for H2 in sentence case
+// (Q2, §3.1), as D.O.G.'s and O.T.T.E.R.'s now are; it was capitals at 11px
+// ABOVE a 14px card title, an inverted hierarchy.
 const D = {
-  sectionTitle: 'text-label font-semibold text-ink uppercase mb-3',
+  sectionTitle: 'text-h2 text-ink mb-3',
   bodyText: 'text-dense text-ink-2 leading-relaxed',
   card: 'bg-paper-raised p-3 rounded-control border border-rule',
   cardTitle: 'text-h3 font-semibold text-ink mb-2',
@@ -92,7 +98,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-overview') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>R.A.B.B.I.T. Overview</h3>
+        <h3 className={T.sectionTitle}>R.A.B.B.I.T. overview</h3>
         <p className={`${T.bodyText} mb-4`}>
           R.A.B.B.I.T. (Resource Allocation, Budgeting, Bidding & Intake Tracker)
           is WILSON's project planning tool. It ingests intake documents,
@@ -102,7 +108,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
         </p>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Key Features</h4>
+            <h4 className={T.cardTitle}>Key features</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Document intake</span> — Drop a brief or SOW; RABBIT extracts assets, tasks, and rough phases.</li>
               <li>• <span className={T.listBold}>Two-pane timeline</span> — A zoomed-out minimap up top and a zoomable gantt below.</li>
@@ -124,7 +130,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
         <h3 className={T.sectionTitle}>Projects</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Picking & Creating</h4>
+            <h4 className={T.cardTitle}>Picking & creating</h4>
             <p className={T.listItem}>
               Project picking and creation live exclusively in the
               <span className={T.listBold}> Summary tab</span>. The context bar
@@ -149,7 +155,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-intake') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Intake Wizard</h3>
+        <h3 className={T.sectionTitle}>Intake wizard</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>How it works</h4>
@@ -229,7 +235,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-phases') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Phases & Tasks</h3>
+        <h3 className={T.sectionTitle}>Phases & tasks</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Containment</h4>
@@ -309,7 +315,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-zoom') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Zoom & Weekends</h3>
+        <h3 className={T.sectionTitle}>Zoom & weekends</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Zoom levels</h4>
@@ -387,7 +393,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-shortcuts') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Shortcuts & Tips</h3>
+        <h3 className={T.sectionTitle}>Shortcuts & tips</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Tips</h4>

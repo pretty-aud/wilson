@@ -25,7 +25,7 @@ const click = async (text, sel = 'button, [role="tab"], a') => {
   if (!ok) throw new Error(`no control "${text}"`)
   await sleep(1200)
 }
-if (!(await page.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.offsetParent && (b.textContent || '').includes('Control Panel'))))) {
+if (!(await page.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.offsetParent && (b.textContent || '').includes('Control panel'))))) {
   const proj = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.offsetParent && (x.textContent || '').includes('Salt Hours')); if (b) { b.click(); return true } return false })
   if (!proj) await click('R.A.B.B.I.T.')
   await sleep(1500)

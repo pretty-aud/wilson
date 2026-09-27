@@ -405,11 +405,12 @@ export default function ProjectSummaryView() {
               )}
             </div>
             {/* V2 review round one: the kit's secondary Button, as its other
-                end ("Dashboard") is (C8). The label stays: the walk's @proj and
-                rabbit-control-panel key on it (its case is P1-52). */}
+                end ("Dashboard") is (C8). P1-52: sentence case (Q2), and the
+                walk's @proj / rabbit-control-panel steps, the probe and the
+                shot drivers key on "Control panel" with it. */}
             {canOpenControlPanel && (
               <Button variant="secondary" size="sm" Icon={Settings} onClick={() => setShowSettings(true)} className="shrink-0">
-                Control Panel
+                Control panel
               </Button>
             )}
           </div>

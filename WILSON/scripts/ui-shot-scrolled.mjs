@@ -28,7 +28,7 @@ for (let i = 0; i < 8; i++) {
   const open = await page.evaluate(() => {
     const vis = (b) => b.offsetParent !== null
     const bs = [...document.querySelectorAll('button, [role="tab"]')].filter(vis)
-    if (bs.some((b) => (b.textContent || '').trim() === 'Control Panel')) return true
+    if (bs.some((b) => (b.textContent || '').trim() === 'Control panel')) return true
     const proj = bs.find((b) => (b.textContent || '').includes('Salt Hours'))
     if (proj) { proj.click(); return false }
     bs.find((b) => (b.textContent || '').trim() === 'Summary')?.click()

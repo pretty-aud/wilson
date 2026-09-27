@@ -6,22 +6,22 @@ import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../data/otterHelpCon
 
 const TOOL_SECTIONS = [
   { id: 'dog', label: 'D.O.G.', subtitle: 'Deck Outline Generator' },
-  { id: 'otter', label: 'O.T.T.E.R.', subtitle: 'Training & Education Platform' },
-  { id: 'project-manager', label: 'Project Manager', subtitle: 'Project & Asset Management' },
-  { id: 'wilson', label: 'Wilson', subtitle: 'Application Overview' },
+  { id: 'otter', label: 'O.T.T.E.R.', subtitle: 'Training & education platform' },
+  { id: 'project-manager', label: 'Projects', subtitle: 'Project & asset management' },
+  { id: 'wilson', label: 'Wilson', subtitle: 'Application overview' },
 ]
 
 const PM_ITEMS = [
   { id: 'pm-overview', label: 'Overview' },
-  { id: 'pm-projects', label: 'Managing Projects' },
-  { id: 'pm-assets', label: 'Documents & Assets' },
+  { id: 'pm-projects', label: 'Managing projects' },
+  { id: 'pm-assets', label: 'Documents & assets' },
 ]
 
 const WILSON_ITEMS = [
   { id: 'wilson-overview', label: 'About Wilson' },
   { id: 'wilson-navigation', label: 'Navigation' },
-  { id: 'wilson-companion', label: 'Pet Companion' },
-  { id: 'wilson-settings', label: 'System Settings' },
+  { id: 'wilson-companion', label: 'Pet companion' },
+  { id: 'wilson-settings', label: 'App settings' },
 ]
 
 // Light-surface text roles for the content area (HELP-03, HELP-06).
@@ -177,13 +177,16 @@ export default function HelpPage() {
                       transient state and a persistent one never share a fill. */}
                   {isExpanded && (
                     <div id={panelId}>
+                      {/* P1-78 (V1-12): the current item's edge is the kit
+                          Row's selected marker, an inset 2px in the ink, not
+                          a 2px border (one 1px hairline, §3.3). */}
                       {items.map(item => (
                         <button
                           key={item.id}
                           onClick={() => setActivePage(item.id)}
                           data-state={activePage === item.id ? 'active' : 'idle'}
                           aria-current={activePage === item.id ? 'page' : undefined}
-                          className="w-full text-left py-1.5 pl-6 pr-2 text-dense text-ink-light border-l-2 border-l-transparent transition-colors duration-state data-[state=idle]:font-normal data-[state=idle]:hover:bg-hover-light data-[state=active]:font-semibold data-[state=active]:bg-well-light data-[state=active]:border-l-ink-light"
+                          className="w-full text-left py-1.5 pl-6 pr-2 text-dense text-ink-light transition-colors duration-state data-[state=idle]:font-normal data-[state=idle]:hover:bg-hover-light data-[state=active]:font-semibold data-[state=active]:bg-well-light data-[state=active]:shadow-[inset_2px_0_0_0_var(--color-ink-light)]"
                         >
                           {item.label}
                         </button>
@@ -205,13 +208,13 @@ export default function HelpPage() {
 
         {/* ===== CONTENT AREA ===== */}
         <div className="flex-1 overflow-y-auto p-6 bg-ground-light">
-          {/* D.O.G. and O.T.T.E.R. render at the pane's full width, exactly as
-              they did before this session. They come from `src/data/` and are
-              lane A's; the measure cap below deliberately stops short of them
-              because one of them lays out a two-column grid that 72ch would
-              halve, and nobody has looked at those 880 lines. Lane A should
-              adopt the same cap when it restyles them. */}
-
+          {/* HELP-01: one measure cap for every section's prose. Cards and
+              lists inherit it; none sets its own. P1-35: D.O.G. and O.T.T.E.R.
+              used to render at the pane's full width (1255px beside the
+              others' 987 at 1440): the cap waited for lane A to look at their
+              880 lines, and D.O.G.'s one two-column grid (its layout list)
+              holds two short columns at 72ch. */}
+          <div style={{ maxWidth: 'var(--measure-prose-max)' }}>
           {/* D.O.G. Help Content — light theme */}
           {expandedTool === 'dog' && (
             <DogHelpContent helpPage={activePage} theme="light" />
@@ -222,22 +225,18 @@ export default function HelpPage() {
             <OtterHelpContent helpPage={activePage} />
           )}
 
-          {/* HELP-01: one measure cap for the prose this page owns — the
-              Project Manager and Wilson sections. Cards and lists inherit it;
-              none sets its own. */}
-          <div style={{ maxWidth: 'var(--measure-prose-max)' }}>
           {/* Project Manager Help Content */}
           {expandedTool === 'project-manager' && activePage === 'pm-overview' && (
             <div className="space-y-5">
               <section>
-                <h3 className={L.sectionTitle}>Project Manager Overview</h3>
+                <h3 className={L.sectionTitle}>Projects overview</h3>
                 <p className={`${L.bodyText} mb-4`}>
                   The Project Manager lets you organize your presentation work into discrete projects.
                   Each project stores its own documents, visual assets, dates, and descriptions — keeping everything organized across multiple concurrent presentations.
                 </p>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Key Features</h4>
+                    <h4 className={L.cardTitle}>Key features</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Multiple projects</span> — Create and manage separate projects with their own documents and assets</li>
                       <li><span className={L.listBold}>Document storage</span> — Upload PDFs, text files, markdown, and other source materials per project</li>
@@ -254,10 +253,10 @@ export default function HelpPage() {
           {expandedTool === 'project-manager' && activePage === 'pm-projects' && (
             <div className="space-y-5">
               <section>
-                <h3 className={L.sectionTitle}>Managing Projects</h3>
+                <h3 className={L.sectionTitle}>Managing projects</h3>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Creating a Project</h4>
+                    <h4 className={L.cardTitle}>Creating a project</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Click the + button</span> in the project list to create a new project</li>
                       <li><span className={L.listBold}>Set a descriptive title</span> that identifies the presentation or campaign</li>
@@ -266,7 +265,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Using Projects with D.O.G.</h4>
+                    <h4 className={L.cardTitle}>Using projects with D.O.G.</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Select a project</span> in D.O.G. to load its documents and assets into the generation context</li>
                       <li><span className={L.listBold}>Enable "Use project assets"</span> to let the AI place project images into slide frames</li>
@@ -281,7 +280,7 @@ export default function HelpPage() {
           {expandedTool === 'project-manager' && activePage === 'pm-assets' && (
             <div className="space-y-5">
               <section>
-                <h3 className={L.sectionTitle}>Documents & Visual Assets</h3>
+                <h3 className={L.sectionTitle}>Documents & visual assets</h3>
                 <div className="space-y-3">
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Documents</h4>
@@ -293,7 +292,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Visual Assets</h4>
+                    <h4 className={L.cardTitle}>Visual assets</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Supported image formats:</span> JPG, PNG, GIF, WebP, BMP, TIFF, SVG</li>
                       <li><span className={L.listBold}>Supported video formats:</span> MP4, MOV, WebM, AVI, MKV</li>
@@ -317,7 +316,7 @@ export default function HelpPage() {
                 </p>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Included Tools</h4>
+                    <h4 className={L.cardTitle}>Included tools</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>D.O.G. (Deck Outline Generator)</span> — AI-powered slide outline generation with theme colors, image prompts, and a live visualizer</li>
                       <li><span className={L.listBold}>O.T.T.E.R. (Training & Education)</span> — AI-powered learning platform for software, shortcuts, and coding languages</li>
@@ -325,7 +324,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Technical Details</h4>
+                    <h4 className={L.cardTitle}>Technical details</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Platform:</span> Electron desktop application (Windows)</li>
                       <li><span className={L.listBold}>Storage:</span> Workspace data lives in your company's cloud workspace; per-machine preferences stay local</li>
@@ -344,7 +343,7 @@ export default function HelpPage() {
                 <h3 className={L.sectionTitle}>Navigation</h3>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Home Screen</h4>
+                    <h4 className={L.cardTitle}>Home screen</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>The home screen</span> is the central hub with buttons for each tool and System Settings</li>
                       <li><span className={L.listBold}>Use arrow keys</span> to navigate between buttons, press Enter to select</li>
@@ -352,7 +351,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Navigation Menu</h4>
+                    <h4 className={L.cardTitle}>Navigation menu</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Hamburger menu</span> — Available on all non-home pages via the icon in the top-right</li>
                       <li><span className={L.listBold}>Quick access</span> to HOME, other tools, and System Settings from any page</li>
@@ -360,7 +359,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Page Transitions</h4>
+                    <h4 className={L.cardTitle}>Page transitions</h4>
                     <p className={L.bodyText}>
                       Navigating between pages triggers an animated transition: the content fades out, orange bars compress to the center revealing the destination page title, then expand to reveal the new page. This creates a smooth, branded experience between tools.
                     </p>
@@ -373,14 +372,14 @@ export default function HelpPage() {
           {expandedTool === 'wilson' && activePage === 'wilson-companion' && (
             <div className="space-y-5">
               <section>
-                <h3 className={L.sectionTitle}>Pet Companion</h3>
+                <h3 className={L.sectionTitle}>Pet companion</h3>
                 <p className={`${L.bodyText} mb-4`}>
                   Your AI pet companion is visible on every page in Wilson. It combines a Tamagotchi-style virtual pet
                   with an AI chat assistant powered by Claude, providing a study buddy and creative helper across all tools.
                 </p>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Interacting with Your Pet</h4>
+                    <h4 className={L.cardTitle}>Interacting with your pet</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Click the sprite</span> (bottom-right corner) to open/close the chat window</li>
                       <li><span className={L.listBold}>Press Enter</span> to toggle the chat window (when not typing in an input)</li>
@@ -390,7 +389,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Pet Lifecycle</h4>
+                    <h4 className={L.cardTitle}>Pet lifecycle</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Egg</span> — Your pet starts as an egg. Pet it 2-4 times to hatch</li>
                       <li><span className={L.listBold}>Baby</span> — Hatches with a random breed and gender. Smaller sprite. Evolves over time</li>
@@ -400,7 +399,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>8 Pet Breeds</h4>
+                    <h4 className={L.cardTitle}>8 pet breeds</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Otter, Bird, Octopus, Blob, Rabbit, Pig, Monkey</span> — 14% chance each</li>
                       <li><span className={L.listBold}>Demon</span> — Rare breed with only a 2% chance of hatching</li>
@@ -408,7 +407,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Pet States & Moods</h4>
+                    <h4 className={L.cardTitle}>Pet states & moods</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Content</span> — Default happy state when well-fed and recently petted</li>
                       <li><span className={L.listBold}>Hungry</span> — Hunger dropping below 40%. Feed to fix</li>
@@ -419,7 +418,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Pet Mode & Settings</h4>
+                    <h4 className={L.cardTitle}>Pet mode & settings</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Pet Mode ON</span> — Full Tamagotchi experience with hunger, sleep, mood, and lifecycle</li>
                       <li><span className={L.listBold}>Pet Mode OFF</span> — Companion is a helper-only chatbot with no mechanics</li>
@@ -428,7 +427,7 @@ export default function HelpPage() {
                     </ul>
                   </div>
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>Dream Cloud & Animations</h4>
+                    <h4 className={L.cardTitle}>Dream cloud & animations</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li>A thought bubble appears above the sprite showing its current mood</li>
                       <li><span className={L.listBold}>Hearts</span> when content or happy, <span className={L.listBold}>sad face</span> when hungry/lonely</li>
@@ -444,10 +443,10 @@ export default function HelpPage() {
           {expandedTool === 'wilson' && activePage === 'wilson-settings' && (
             <div className="space-y-5">
               <section>
-                <h3 className={L.sectionTitle}>System Settings</h3>
+                <h3 className={L.sectionTitle}>App settings</h3>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>AI Features</h4>
+                    <h4 className={L.cardTitle}>AI features</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Included with sign-in</span> — generation, theme colors, image prompts and rewrites work as soon as you're signed in to your workspace</li>
                       <li><span className={L.listBold}>No API key</span> — access is managed by your workspace admins, not per-user keys</li>

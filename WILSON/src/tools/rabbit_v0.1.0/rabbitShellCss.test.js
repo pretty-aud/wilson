@@ -252,13 +252,26 @@ describe('V2: the Control Panel\'s "Dashboard" is the kit Button', () => {
     expect(bar).not.toMatch(/hover:brightness|style=\{\{ backgroundColor/)
   })
 
-  it('its other end, "Control Panel" on the Summary, is the kit Button too (review round one)', () => {
+  it('its other end, "Control panel" on the Summary, is the kit Button too (review round one)', () => {
     const src = read('views/ProjectSummaryView.jsx')
-    expect(src).toMatch(/<Button variant="secondary" size="sm" Icon=\{Settings\} onClick=\{\(\) => setShowSettings\(true\)\} className="shrink-0">\s*Control Panel\s*<\/Button>/)
+    expect(src).toMatch(/<Button variant="secondary" size="sm" Icon=\{Settings\} onClick=\{\(\) => setShowSettings\(true\)\} className="shrink-0">\s*Control panel\s*<\/Button>/)
     // The hand-drawn one is gone: its 12px glyph beside the label.
-    expect(src).not.toMatch(/<Settings className="w-3 h-3" \/> Control Panel/)
-    // The label stays "Control Panel": the walk's @proj and rabbit-control-panel
-    // key on it (its case is P1's, with them).
-    expect(src.match(/>\s*Control Panel\s*</g)?.length).toBe(1)
+    expect(src).not.toMatch(/<Settings className="w-3 h-3" \/> Control [Pp]anel/)
+    // P1-52: sentence case (Q2). One such button, and no Title Case copy of it
+    // left in a rendered text node.
+    expect(src.match(/>\s*Control panel\s*</g)?.length).toBe(1)
+    expect(src).not.toMatch(/>\s*Control Panel\s*</)
+  })
+
+  it('P1-52: every driver that finds the Summary by this button keys on the new label', () => {
+    // The walk, the probe, the clip and shot scripts all detect "a project is
+    // open" by this button's text; a driver left on the old label would never
+    // see the project open, and its screens would read DID NOT OPEN.
+    const drivers = ['ui-walk.mjs', 'ui-probe.mjs', 'ui-clips.mjs', 'ui-shot-scrolled.mjs', 'ui-print-estimate.mjs',
+      'timeline-minimap-count.mjs', 'timeline-minimap-gestures.mjs', 'timeline-rows-probe.mjs', 'timeline-state-shots.mjs']
+    const stale = drivers.filter((f) => /['"]Control Panel['"]/.test(readFileSync(join(here, '../../../scripts', f), 'utf8')))
+    expect(stale).toEqual([])
+    // CONTROL: the same test sees a planted stale label.
+    expect(/['"]Control Panel['"]/.test("steps: ['@proj', 'Summary', 'Control Panel']")).toBe(true)
   })
 })

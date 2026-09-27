@@ -78,7 +78,7 @@ for (let i = 0; i < 20; i++) {
   const open = await page.evaluate(() => {
     const vis = (b) => b.offsetParent !== null && !b.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
     const buttons = [...document.querySelectorAll('button')].filter(vis);
-    if (buttons.some((b) => ['Control Panel', 'Switch'].includes((b.textContent || '').trim()))) return true;
+    if (buttons.some((b) => ['Control panel', 'Switch'].includes((b.textContent || '').trim()))) return true;
     buttons.find((b) => (b.textContent || '').includes('Salt Hours'))?.click();
     return false;
   });
