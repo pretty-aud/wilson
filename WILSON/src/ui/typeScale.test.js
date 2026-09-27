@@ -2734,3 +2734,40 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     expect(rawUppercase, 'no uppercase at all — the row proves nothing').toBeGreaterThan(20);
   });
 });
+
+// V2 (2026-09-27), B3d §4.2: "the audit's comment blanker reads `/*` inside a
+// string as a comment". D.O.G.'s file picker says accept="…image/*,video/*",
+// and the regex blanker hid every line from there to the next `*/` from the
+// sweep above ("sees the code in every file it reads").
+describe('blankJsComments: a comment opener inside a string or a regex is not a comment', () => {
+  const kept = (src, code) => expect(blankJsComments(src), `lost: ${code}`).toContain(code);
+  const gone = (src, text) => expect(blankJsComments(src), `kept: ${text}`).not.toContain(text);
+  it('keeps the code after a `/*` in a string, and still blanks the comment after it', () => {
+    const src = '<input accept="image/*,video/*" />\nconst x = 1\n{/* a note */}\nconst y = 2';
+    kept(src, 'accept="image/*,video/*"'); kept(src, 'const x = 1'); kept(src, 'const y = 2'); gone(src, 'a note');
+    kept("const g = 'src/**/*.jsx'; const z = 3 // tail", 'const z = 3');
+    gone("const g = 'src/**/*.jsx'; const z = 3 // tail", 'tail');
+  });
+  it('keeps a `//` inside a string or a regex, and blanks a real one', () => {
+    kept('const u = "https://x.test"; const v = 4', 'const v = 4');
+    kept("const re = /\\/\\//g; const w = 5", 'const w = 5');
+    gone('const n = 6 // six', 'six');
+    gone('/* one\n   two */ const m = 7', 'two'); kept('/* one\n   two */ const m = 7', 'const m = 7');
+  });
+  it('keeps every offset: same length, same newlines', () => {
+    const src = 'a /* b\nc */ d // e\n"f/*g" h';
+    const out = blankJsComments(src);
+    expect(out.length).toBe(src.length);
+    expect(out.split('\n').length).toBe(src.split('\n').length);
+  });
+  it('the real case: D.O.G.\'s code after its accept string is seen', () => {
+    const f = 'src/tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx';
+    const src = readFileSync(f, 'utf8');
+    const at = src.indexOf('accept=".pdf,');
+    expect(at, 'the accept string moved').toBeGreaterThan(0);
+    const next = src.indexOf('\n', src.indexOf('\n', at) + 1);   // the line after the accept string's
+    const line = src.slice(src.indexOf('\n', at) + 1, next);
+    expect(line.trim(), 'the line after it is code').not.toBe('');
+    expect(blankJsComments(src).slice(src.indexOf('\n', at) + 1, next)).toBe(line);
+  });
+});

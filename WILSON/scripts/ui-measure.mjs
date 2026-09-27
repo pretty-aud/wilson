@@ -722,3 +722,47 @@ export function nestedButtons() {
   return [...document.querySelectorAll('button button, button [role="button"], [role="button"] button')]
     .filter((e) => e.offsetParent !== null).length;
 }
+
+/**
+ * V2 (2026-09-27): what the pet covers. C5 keeps the pet where it is, so this
+ * is a RECORD for Audrey (walkthrough 45's question 33), never a gate. The
+ * sprite is the fixed `div.fixed.right-4.z-30` PetCompanion draws at the
+ * bottom right. A text run or an unlabelled control counts only where it is
+ * actually drawn under the sprite: the point in the middle of the overlap
+ * must hit the element (hit testing respects a scroller's clip, so a row
+ * scrolled out of view is not "covered"). `underDialog` says a dialog or
+ * drawer was open, so whatever is covered is behind its backdrop anyway.
+ */
+export function petOverlap() {
+  const pet = [...document.querySelectorAll('div.fixed.right-4.z-30')].find((e) => e.getBoundingClientRect().width > 0);
+  if (!pet) return null;
+  const p = pet.getBoundingClientRect();
+  const overlap = (r) => {
+    const l = Math.max(r.left, p.left), t = Math.max(r.top, p.top), rr = Math.min(r.right, p.right), b = Math.min(r.bottom, p.bottom);
+    return rr - l >= 1 && b - t >= 1 ? [(l + rr) / 2, (t + b) / 2] : null;
+  };
+  const drawnAt = (el, pt) => document.elementsFromPoint(pt[0], pt[1]).some((x) => x === el || el.contains(x));
+  const out = new Set();
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.textContent.replace(/\s+/g, ' ').trim();
+    const el = n.parentElement;
+    if (!text || !el || pet.contains(el) || el.closest('.wilson-chrome') || getComputedStyle(el).visibility === 'hidden') continue;
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    for (const r of range.getClientRects()) {
+      const pt = overlap(r);
+      if (pt && drawnAt(el, pt)) { out.add(`"${text.slice(0, 32)}"`); break; }
+    }
+  }
+  for (const el of document.querySelectorAll('button, select, input, textarea')) {
+    if (pet.contains(el) || el.closest('.wilson-chrome') || el.textContent.trim()) continue;
+    const pt = overlap(el.getBoundingClientRect());
+    if (pt && drawnAt(el, pt)) out.add(`<${el.tagName.toLowerCase()} ${(el.getAttribute('aria-label') || el.getAttribute('title') || el.value || '').slice(0, 24)}>`);
+  }
+  return {
+    box: [Math.round(p.left), Math.round(p.top), Math.round(p.width), Math.round(p.height)],
+    covers: [...out],
+    underDialog: !!document.querySelector('[role="dialog"], [aria-modal="true"], .ui-drawer'),
+  };
+}

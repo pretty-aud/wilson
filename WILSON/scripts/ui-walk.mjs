@@ -61,6 +61,7 @@ import { join } from 'node:path';
 import {
   pageCensus, typeCensus, renderedFaces, typeRules, pageGround, openDialog, tableAlignment, toolbarAlignment,
   unnamedControls, selectedControl, styledActive, stopPointCensus, bodyTextCount, formFields, nestedButtons,
+  petOverlap,
 } from './ui-measure.mjs';
 
 /* An orange ground, by hue: the signal, signal-fill and Tailwind's orange
@@ -356,7 +357,8 @@ const KNOWN = {
        there. Neither can happen to a signed-in user in the desktop app. */
     { key: 'admin-logs', text: 'status of 401' },
     { key: 'admin-storage', text: 'status of 401' },
-    { key: 'admin-requests', text: 'status of 401' },
+    // V2 (2026-09-27): admin-requests' 401 matched nothing at 1280x700 or
+    // 1440x900 (err=0 on both walks), so its line is deleted.
     { key: 'shell-quit', text: 'status of 404' },
     /* V1-09 — a <button> nested inside a <button>: React's warning. B4b
        surface 4 (2026-09-25) took the nesting out of RelationsPanel, and
@@ -626,6 +628,8 @@ async function visit(ctx, entry) {
   const census = await page.evaluate(stopPointCensus);
   const fields = await page.evaluate(formFields);
   const nested = await page.evaluate(nestedButtons);
+  // V2: what the pet covers — a record (C5), never a gate.
+  const pet = await page.evaluate(petOverlap);
   /* The URL too (round two): the twelve pages have no step before their
      proof, and "Salt Hours" is page text on three of them. A walk that lands
      on the wrong route fails here whatever its proof says. */
@@ -683,6 +687,7 @@ async function visit(ctx, entry) {
     + ` face=${FAST ? '-' : faces.off.length} wt=${rules.weight.length} up=${rules.upper.length} trk=${rules.tracking.length} anon=${anon.length} c6=${c6.length} nest=${nested}`
     + (knownN ? ` (known ${knownN})` : '')
     + ` b2=${census.border.length} rad=${census.radius.length} white=${census.white.length} cr=${census.contrast.length} brk=${census.broken.length} caps=${census.typedCaps.length}`
+    + ` pet=${pet ? pet.covers.length : '-'}`
     + ` ground=${gr}${dl}${why}`
     + (urlOk ? '' : `   ← WRONG ROUTE ${new URL(page.url()).pathname}`)
     + (thin ? `   ← ONLY ${body} TEXT NODES OUTSIDE THE SHELL` : '')
@@ -707,7 +712,7 @@ async function visit(ctx, entry) {
   }
   REPORT.push({ key: k, open, urlOk, c6, nested, fields: fields.length, ground: dlg ? ['(dialog)'] : ground, dlg, tables, bars, faces: faces.tally,
     faceProbe: { probed: faces.probed, rows: rows.length, unmeasured: faces.unmeasured },
-    clipped: info.clipped, body, anon, census, face: faces.off, rules, errors });
+    clipped: info.clipped, body, anon, census, face: faces.off, rules, errors, pet });
   if (bad) FAILED.push(k);
   await page.close();
 }
@@ -779,6 +784,12 @@ if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ W, H, fast: FAST, report:
 const faceTotal = {};
 for (const r of REPORT) for (const [f, n] of Object.entries(r.faces)) faceTotal[f] = (faceTotal[f] || 0) + n;
 if (!FAST) console.log(`\n— glyphs drawn, all screens — ${Object.entries(faceTotal).map(([f, n]) => `${f} ${n}`).join(' · ')}`);
+
+/* V2: what the pet covers, screen by screen — a record for Audrey (C5; the
+   pets are hers to move, walkthrough 45's question 33), never a failure. */
+const petRows = REPORT.filter((r) => r.pet?.covers.length);
+console.log(`\n— the pet covers (recorded, C5): ${petRows.length} screen${petRows.length === 1 ? '' : 's'} —`);
+for (const r of petRows) console.log(`  ${r.key.padEnd(30)} ${r.pet.underDialog ? '(under a dialog) ' : ''}${r.pet.covers.slice(0, 6).join(' ')}`);
 
 {
   /* A screen counts as WALKED only when it opened: a screen that failed to

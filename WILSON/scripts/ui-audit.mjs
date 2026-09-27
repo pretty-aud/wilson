@@ -121,15 +121,58 @@ export const PATTERNS = [
   ['vh units (inline or class)',     /\d+vh\b/g],
 ];
 
-/* Blank JS/JSX comments to spaces, keeping every byte offset. The `[^:]`
-   before `//` is what stops `https://…` inside a string from blanking the
-   rest of the line — a crude test, and it is crude on purpose: this feeds a
-   REPORTING column, never an assertion, so erring toward leaving code
-   visible is the safe direction. */
+/* Blank JS/JSX comments to spaces, keeping every byte offset, so a hit's line
+   number is still its line number. It feeds the `in code` column AND an
+   assertion (typeScale.test.js: "sees the code in every file it reads").
+
+   A scanner, not the two regexes it replaces (V2, 2026-09-27, B3d §4.2): they
+   read the opener in D.O.G.'s accept="…image/*,video/*" as a comment and
+   blanked its code up to the next comment's end, six lines away. This steps over a quoted
+   string and a regex literal whole, so neither can open a comment. Two limits,
+   each erring toward leaving text VISIBLE, the safe direction for both users:
+   a '…' or "…" ends at its line's end, so an apostrophe in JSX text ("Don't")
+   can keep the rest of that one line's comment; and a `/` after `)`, `]` or a
+   name is division, so a regex right after `return` is read as code. The old
+   rule stays for a bare `https://` in JSX text: a `//` after `:` is no comment. */
 export function blankJsComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + ' '.repeat(m.length - p.length));
+  const out = src.split('');
+  const blank = (from, to) => { for (let k = from; k < to; k++) if (src[k] !== '\n') out[k] = ' '; };
+  const n = src.length;
+  let prev = '';   // the last character of code that was not white space
+  let i = 0;
+  while (i < n) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '/' && d === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const stop = end < 0 ? n : end + 2;
+      blank(i, stop); i = stop; continue;
+    }
+    if (c === '/' && d === '/' && src[i - 1] !== ':') {
+      const end = src.indexOf('\n', i);
+      const stop = end < 0 ? n : end;
+      blank(i, stop); i = stop; continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      let k = i + 1;
+      while (k < n && src[k] !== c && (c === '`' || src[k] !== '\n')) k += src[k] === '\\' ? 2 : 1;
+      i = k + 1; prev = c; continue;
+    }
+    if (c === '/' && (prev === '' || '(,=:[!&|?{};'.includes(prev))) {
+      let k = i + 1;
+      let inClass = false;
+      while (k < n && src[k] !== '\n' && (inClass || src[k] !== '/')) {
+        if (src[k] === '\\') k++;
+        else if (src[k] === '[') inClass = true;
+        else if (src[k] === ']') inClass = false;
+        k++;
+      }
+      i = k + 1; prev = '/'; continue;
+    }
+    if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
+    i++;
+  }
+  return out.join('');
 }
 
 /* 🚨 A SECOND COLUMN, BECAUSE THE FIRST ONE COUNTS PROSE (T3, round one).
