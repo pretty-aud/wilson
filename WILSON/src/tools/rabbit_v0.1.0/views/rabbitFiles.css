@@ -453,7 +453,8 @@
      thumbnail column is ONE width for every row: the size chosen, 1x, 2x or
      3x the row (R4-04). */
   .rb-asset-view { background-color: var(--color-paper); color: var(--color-ink); }
-  .rb-asset-unloaded { color: var(--color-ink-3); }
+  /* `.rb-asset-unloaded` went with its span (P1-74): no project is the kit
+     EmptyState now. */
 
   /* The toolbar: the kit's Toolbar with `wrap`; its left slot wraps too, so
      at Electron's 1024px floor nothing is pushed off the row's end. */
@@ -1641,7 +1642,7 @@
      that the table scrolls sideways, as the Assets table does. The detail
      popup, EntityDetailPopup (step C), is this section's last part. */
   .rb-ent-view { background-color: var(--color-paper); color: var(--color-ink); }
-  .rb-ent-unloaded { color: var(--color-ink-3); }
+  /* `.rb-ent-unloaded` went with its span (P1-74). */
 
   /* The toolbar: the kit's Toolbar with `wrap`; its left slot wraps too, so
      at Electron's 1024px floor nothing is pushed off the row's end. */

@@ -313,10 +313,12 @@ export default function EntityListView({ entity }) {
   // group carries the kit's StatusDot — R4-33, as the Assets page's.)
 
   // ── Render ──
+  // P1-74: the kit EmptyState in sentence case, as Scenes, Assets, Tasks,
+  // Team and the Timeline draw it; it was a capitalised Label-step span.
   if (!project) {
     return (
       <div className="rb-ent-view h-full flex items-center justify-center">
-        <span className="rb-ent-unloaded text-label uppercase">No project loaded</span>
+        <EmptyState Icon={entity.Icon} title="No project loaded" />
       </div>
     )
   }

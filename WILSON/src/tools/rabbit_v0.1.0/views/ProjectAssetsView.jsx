@@ -398,10 +398,12 @@ export default function ProjectAssetsView() {
   }
 
   // ── Render ──
+  // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
+  // draws it; it was a capitalised Label-step span.
   if (!project) {
     return (
       <div className="rb-asset-view h-full flex items-center justify-center">
-        <span className="rb-asset-unloaded text-label uppercase">No project loaded</span>
+        <EmptyState Icon={Boxes} title="No project loaded" />
       </div>
     )
   }

@@ -98,6 +98,7 @@ import { Stat } from '../../../ui/Stat'
 import { Dialog } from '../../../ui/Dialog'
 import { Drawer } from '../../../ui/Drawer'
 import { Switch } from '../../../ui/Switch'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Card } from '../../../ui/Card'
 
 // ─── Constants ──────────────────────────────────────────────
@@ -676,12 +677,12 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   }, [])
 
   // ── early return: no project ─────────────────────────────
+  // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
+  // draws it; it was a capitalised span in two inline hexes.
   if (!project) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-label uppercase" style={{ color: '#a8a29e' }}>
-          No project loaded
-        </span>
+      <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--color-paper)' }}>
+        <EmptyState Icon={CalendarDays} title="No project loaded" />
       </div>
     )
   }

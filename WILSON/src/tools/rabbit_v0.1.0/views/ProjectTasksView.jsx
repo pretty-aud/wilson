@@ -527,10 +527,12 @@ export default function ProjectTasksView() {
   }, [tasks, project?.start_date, project?.end_date])
 
   // ── Render ──
+  // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
+  // draws it; it was a capitalised Label-step span.
   if (!project) {
     return (
       <div className="rb-task-view h-full flex items-center justify-center">
-        <span className="text-label uppercase">No project loaded</span>
+        <EmptyState Icon={ListChecks} title="No project loaded" />
       </div>
     )
   }

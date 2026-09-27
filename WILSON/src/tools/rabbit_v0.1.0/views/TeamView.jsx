@@ -33,6 +33,7 @@ import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import '../rabbitShell.css'
 import { Dialog } from '../../../ui/Dialog'
 import { Button } from '../../../ui/Button'
+import { EmptyState } from '../../../ui/EmptyState'
 
 // ROLE_COLORS went in B1: the extraction moved it onto `.rb-role[data-role]`,
 // and the restyle drew every role in the same ink (a role is a category, not
@@ -400,12 +401,12 @@ export default function TeamView() {
     )
   }
 
+  // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
+  // draws it; it was an inline-styled capitalised span.
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--color-paper)' }}>
-        <span className="text-label uppercase" style={{ color: 'var(--color-ink-2)' }}>
-          No project loaded
-        </span>
+        <EmptyState Icon={Users} title="No project loaded" />
       </div>
     )
   }
