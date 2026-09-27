@@ -12,6 +12,8 @@
 //     estimate), a tile's value, a cell's text.
 //   <CurrencyDisplay value currency signed fallback />      → the figure, for
 //     everything else.
+//   formatTenths(value, { signed })                         → a figure to one
+//     decimal place — days, a percentage — for every tab that prints one.
 //
 // ONE LOCALE, chosen once: MONEY_LOCALE. The four copies all said 'en-US', and
 // a money column is only a column if every row is set by the same rules.
@@ -48,6 +50,25 @@ export function formatMoney(value, currency, { fractionDigits = 0, sign = 'auto'
     // An unknown currency code: say what it is rather than blank the cell.
     return `${code} ${Math.round(n)}`
   }
+}
+
+// A figure to one decimal place (days, a percentage) in the same one locale,
+// with Intl's sign when `signed` (R3-14: the sign is Intl's, never a '+'
+// glued on), and no grouping (`toFixed(1)`, which it replaces, had none).
+// ONE ROUNDING, and it is toFixed's (review round one, R1-11): Intl rounds the
+// decimal it would print (1.15 → "1.2", 29.95 → "30.0"), toFixed the double it
+// is given (1.15 is 1.1499… → "1.1", 29.95 → "29.9"), and before B5 every tab
+// printed toFixed's — Summary and By role said "1.2" where Crew/team said
+// "1.1". So toFixed rounds and Intl only prints what it rounded. Every days
+// figure in the Budget comes through here.
+export function formatTenths(value, { signed = false } = {}) {
+  const tenths = Number((Number(value) || 0).toFixed(1))
+  return new Intl.NumberFormat(MONEY_LOCALE, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    useGrouping: false,
+    signDisplay: signed ? 'exceptZero' : 'auto',
+  }).format(tenths)
 }
 
 export default function CurrencyDisplay({

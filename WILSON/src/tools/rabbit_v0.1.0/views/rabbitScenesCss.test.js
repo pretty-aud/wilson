@@ -26,7 +26,7 @@ import {
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, kitFights,
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
-  arrayValues,
+  arrayValues, scriptedLeaks,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -351,13 +351,8 @@ describe('no state is decided in a style or a className', () => {
       expect(paletteLeaks(source[key])).toEqual([])
     })
   }
-  it('R3-26: no e.target.style write and no onMouseEnter / onMouseLeave anywhere in the file, staged functions included', () => {
-    const whole = jsCode(read('./ScenesView.jsx'))
-    expect(whole.match(/\.(?:target|currentTarget)\.style\b/g) || []).toEqual([])
-    expect(whole.match(/\bonMouse(?:Enter|Leave)\b/g) || []).toEqual([])
-  })
-  it('W9: no window.confirm anywhere in the file', () => {
-    expect(jsCode(read('./ScenesView.jsx'))).not.toMatch(/window\.confirm/)
+  it('R3-26: no onMouseEnter / onMouseLeave anywhere in the file, staged functions included (a style written from script, in any spelling, is R1-09\'s, below)', () => {
+    expect(jsCode(read('./ScenesView.jsx')).match(/\bonMouse(?:Enter|Leave)\b/g) || []).toEqual([])
   })
   it('CONTROL: a hover colour in a style and a state in a className template are caught', () => {
     expect(inlineStateTernaries("<b style={{ color: hovered ? '#fb923c' : '#78716c' }} />").length).toBeGreaterThan(0)
@@ -382,11 +377,93 @@ describe('no state is decided in a style or a className', () => {
       for (const p of ['fill="none"', 'stroke="currentColor"', 'color="inherit"']) expect(paletteLeaks(after(p)), `${file}: ${p}`).toEqual([])
     }
   })
-  it('CONTROL: the R3-26 and W9 scans fire on the spellings they claim', () => {
-    const mutant = "<select onMouseEnter={e => { e.target.style.borderColor = 'x' }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'y' }} />\nif (!window.confirm('Delete?')) return"
-    expect(mutant.match(/\.(?:target|currentTarget)\.style\b/g)).toHaveLength(2)
+  it('CONTROL: the R3-26 scan fires on the spellings it claims', () => {
+    const mutant = "<select onMouseEnter={e => { e.target.style.borderColor = 'x' }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'y' }} />"
     expect(mutant.match(/\bonMouse(?:Enter|Leave)\b/g)).toHaveLength(2)
-    expect(mutant).toMatch(/window\.confirm/)
+  })
+})
+
+/* ── 7b. no style written from script, no window.confirm (R3-26, W9) ───────
+   Review round one, R1-09: the scans above knew one spelling each
+   (`.target.style` / `.currentTarget.style`, `window.confirm`), and a write
+   through an alias or a ref, or a bare `confirm(`, passed them. The one
+   predicate is rabbitCssGuards.js's `scriptedLeaks`, which
+   rabbitBudgetCss.test.js runs over its files too. */
+/** The exact matches a file may keep — a measured geometry written from
+    script — each with its reason. None: every size ScenesView sets is the
+    sheet's (keyed on `data-thumb` and `data-card`) or the kit Dialog's
+    `width`, a prop. */
+const SCRIPTED = {}
+/** Each spelling R1-09 names, and what the predicate reports for it. */
+const PLANTED = [
+  // R3-26's own hover writers, on an event's target and its current target.
+  ["onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}", 'style write: .style.borderColor ='],
+  ["onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#292524' }}", 'style write: .style.backgroundColor ='],
+  // Through an alias, and through a ref.
+  ["const el = e.target; el.style.color = '#fb923c'", 'style write: .style.color ='],
+  ['rowRef.current.style.opacity = 0.5', 'style write: .style.opacity ='],
+  // A writing method, the whole text, the attribute, the object handed on.
+  ["el.style.setProperty('--rb-x', 1)", 'style write: .style.setProperty('],
+  ["el.style.cssText = 'color: red'", 'style write: .style.cssText ='],
+  ["el.setAttribute('style', 'color: red')", "style write: .setAttribute('style'"],
+  ["Object.assign(el.style, { color: 'red' })", 'style handed on: .style'],
+  // W9: window.confirm, and a bare confirm( call.
+  ["if (!window.confirm('Delete?')) return", 'confirm: window.confirm'],
+  ["if (!confirm('Delete?')) return", 'confirm: confirm('],
+]
+/** Reads, which are not writes: each planted, nothing is caught. */
+const READS = ["rule.style?.getPropertyValue('font-family')", 'const w = el.style.width', '<Dialog width="confirm" onConfirm={onConfirm} />']
+
+describe('R1-09: nothing writes a style from script and nothing asks window.confirm, in any spelling', () => {
+  for (const [key, { file }] of Object.entries(FILES)) {
+    it(`${file}: none anywhere in the file, staged functions included`, () => {
+      expect(scriptedLeaks(read(file), SCRIPTED[key])).toEqual([])
+    })
+  }
+  it('CONTROL: in every file, each spelling planted at its first lane class is caught, and is the one thing caught; a read is not', () => {
+    for (const [key, { file }] of Object.entries(FILES)) {
+      // In code, so the first lane class is never one a comment names.
+      const whole = jsCode(read(file))
+      const at = whole.search(/className=(?:"|\{`)rb-/)
+      expect(at, file).toBeGreaterThan(0)
+      const plant = (text) => `${whole.slice(0, at)}${text} ${whole.slice(at)}`
+      for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught])
+      for (const text of READS) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([])
+    }
+  })
+})
+
+/* ── 7c. the nested shots' widths ─────────────────────────────────────────
+   Review round one, R1-03: a 128px description in the nest's min-width and
+   columns wider than the old flex row's held the nest from x 52 to 1620 at
+   1440 with Takes. Worked out from the sheet's own declarations. */
+describe('R1-03: the nested shots end inside the window they did', () => {
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-scene-table-wrap').body
+  const own = Object.fromEntries([...wrap.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
+  const kitToken = (p) => (cssCode(indexCss).match(new RegExp(`(?:^|[\\s;{])${p}\\s*:\\s*([^;]+);`)) || [])[1]
+  /** A length at the small size (the wrap's defaults), in px: every var()
+      resolved against the wrap's declarations, then the kit's tokens; its
+      calc() and max() worked out. */
+  const px = (expr) => {
+    let e = expr
+    for (let i = 0; i < 20 && /var\(/.test(e); i++) e = e.replace(/var\((--[\w-]+)\)/g, (_, p) => `(${own[p] ?? kitToken(p)})`)
+    expect(e, expr).not.toMatch(/var\(|undefined/)
+    return Function(`return ${e.replace(/calc\(/g, '(').replace(/max\(/g, 'Math.max(').replace(/(\d+(?:\.\d+)?)px/g, '$1')}`)()
+  }
+  it('with Takes at the small size they end inside a 1440px window; their description takes what is left, out of their min-width, as the shot table\'s does', () => {
+    expect(own['--rb-scene-nest-min']).not.toMatch(/--rb-scene-col-desc/)
+    // One column in from the table's gutter: the nest cell's padding.
+    expect(sheet).toMatch(/\.rb-scene-nest-row > \.ui-td\.rb-scene-nest-cell \{[^}]*padding: 2px 0 4px var\(--rb-scene-col-check\);/)
+    const left = px('var(--spacing-gutter)') + px('var(--rb-scene-col-check)')
+    expect(left).toBe(52)
+    expect(left + px('var(--rb-scene-nest-min)') + px('var(--rb-scene-col-nest-takes)')).toBeLessThanOrEqual(1440)
+  })
+  it('CONTROL: the arithmetic reads the sheet — the 128px description back in its min-width puts the nest past 1440', () => {
+    const was = own['--rb-scene-nest-min']
+    own['--rb-scene-nest-min'] = was.replace(/\)$/, ' + var(--rb-scene-col-desc))')
+    try {
+      expect(52 + px('var(--rb-scene-nest-min)') + px('var(--rb-scene-col-nest-takes)')).toBeGreaterThan(1440)
+    } finally { own['--rb-scene-nest-min'] = was }
   })
 })
 

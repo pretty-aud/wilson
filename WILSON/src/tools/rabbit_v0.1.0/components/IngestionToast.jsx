@@ -43,9 +43,13 @@ export default function IngestionToast({ onJumpToReview }) {
     }
   }
 
+  // The kit Toast's layer (index.css `.ui-toast-stack`, 90), over the kit
+  // Dialog's backdrop (70), as the Undo toast's (B5b review round one,
+  // R1-01): at z-50 a run finishing behind an open popup was under its
+  // backdrop, its "Review breakdown" unreachable.
   return (
     <div
-      className="fixed bottom-4 left-4 z-50 flex flex-col rounded-control shadow-2xl"
+      className="fixed bottom-4 left-4 z-90 flex flex-col rounded-control shadow-2xl"
       style={{
         backgroundColor: '#292524',
         border: `1px solid ${accent}`,

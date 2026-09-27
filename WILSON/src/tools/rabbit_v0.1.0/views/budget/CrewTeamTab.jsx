@@ -23,7 +23,7 @@ import { Users, RotateCcw, Paperclip } from 'lucide-react'
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
 import { useRabbit } from '../../state/RabbitProvider'
-import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney, formatTenths } from '../../components/CurrencyDisplay'
 import { Table, Th, Td, Row, Stat, Toolbar, Button, Badge, Dialog, EmptyState } from '../../../../ui'
 import BudgetPopover from './BudgetPopover'
 import MarginContPopover from './MarginContPopover'
@@ -390,7 +390,7 @@ export default function CrewTeamTab({
         </Td>
         <Td numeric className="rb-crew-quiet">
           <span className="rb-crew-dash" data-empty={row.bidDays > 0 ? undefined : 'true'}>
-            {row.bidDays > 0 ? row.bidDays.toFixed(1) : '—'}
+            {row.bidDays > 0 ? formatTenths(row.bidDays) : '—'}
           </span>
         </Td>
         <Td numeric className="rb-crew-quiet">

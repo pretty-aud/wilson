@@ -75,10 +75,16 @@ export default function UndoToast() {
 
   const paused = hovered || busy
 
+  // The layer is the kit Toast's (index.css `.ui-toast-stack`, 90), over the
+  // kit Dialog's backdrop (70): a delete made inside a popup — a take
+  // unassigned from a shot, a task deleted from its stacked popup — shows its
+  // Undo over that popup, and a click on it is the Undo's, not the
+  // backdrop's (B5b review round one, R1-01: at z-50 it sat under the
+  // backdrop and the click closed the popup instead).
   return (
     <div
       key={toast.key}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-control shadow-2xl overflow-hidden pl-4 pr-2 py-2"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-90 flex items-center gap-3 rounded-control shadow-2xl overflow-hidden pl-4 pr-2 py-2"
       style={{
         backgroundColor: '#292524',
         border: '1px solid #ea580c',

@@ -799,16 +799,21 @@
 
   /* ═══ BudgetPopover: the lane's one floating editor (surface 2b, R3-32) ══
      views/budget/BudgetPopover.jsx and MarginContPopover.jsx. The kit's
-     float tokens, the kit Menu's surface and layer: the raised paper,
+     float tokens, the kit Menu's surface: the raised paper,
      `--radius-float`, the float shadow and one hairline (five copies drew a
      2px orange border and a heavier shadow). Portalled into <body>; the
      component measures its own box and hands its place over as two custom
-     properties, with the caller's width, all in px. */
+     properties, with the caller's width, all in px.
+     Its layer is UNDER the kit Dialog's backdrop (70) and over the docked
+     Drawer (60): it never opens inside a kit Dialog, so a question asked
+     while it is open — Reset M/C, reached from the keyboard — lands over it,
+     as the question's Escape is the question's (review round one, R1-10: at
+     the kit Menu's 80 it sat over the question). */
   .rb-pop-panel {
     position: fixed;
     left: calc(var(--rb-pop-x) * 1px);
     top: calc(var(--rb-pop-y) * 1px);
-    z-index: 80;
+    z-index: 65;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -888,6 +893,11 @@
     scrollbar-width: none;
   }
   .rb-budget-tabs .ui-tab { padding: 0 8px; }
+  /* The strip clips at the tabs' 36px (it scrolls sideways), which cut every
+     tab's ring top and bottom and Summary's on the left: the ring is drawn
+     inside the tab (review round one, R1-06). (0,3,0), over the kit's
+     `:focus-visible` offset. */
+  .rb-budget-tabs .ui-tab:focus-visible { outline-offset: -2px; }
   .rb-budget-tabs .ui-tabs-sep { margin: 0 4px; }
   .rb-budget-tab-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
   @container rb-budget-tabs (max-width: 1240px) {

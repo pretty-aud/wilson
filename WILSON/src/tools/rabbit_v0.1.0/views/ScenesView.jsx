@@ -386,10 +386,15 @@ export default function ScenesView() {
   useNavigateTarget('scenes', onNavigate, project?.id || null)
   // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
   // them: the provider's history holds every takes mutation (and every
-  // scene and shot edit). Never while typing in a field.
+  // scene and shot edit). Never while typing in a field, and never behind a
+  // delete question (review round one, R1-08: window.confirm, which three of
+  // the four questions were, blocked every key; the kit Dialog does not, and
+  // an edit reverted behind a bulk delete's question). Only a question: with
+  // a popup open the keys undo as they always did (C1).
   useEffect(() => {
     if (!supportsBins) return
     const h = (e) => {
+      if (openQuestions.count > 0) return
       if (!(e.ctrlKey || e.metaKey)) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
@@ -1138,17 +1143,23 @@ export default function ScenesView() {
           from the shot popup's takes — rendered here in the page it would sit
           UNDER the popup (both at the kit's z-index, the later in <body>
           painting over) while it held the top of the modal stack. In <body>
-          it comes after the popup, as it comes after it on the stack. */}
+          it comes after the popup, as it comes after it on the stack.
+          In <body> it is also outside the app's `wilson-dark-scroll` root,
+          and B6's dialogs take no className: the portal's one wrapper
+          carries the class, so the picker's list scrolls on the app's dark
+          bar as it did in the page (review round one, R1-12). */}
       {takesShotId && (() => {
         const shot = shots.find(s => s.id === takesShotId)
         if (!shot) return null
         return createPortal(
-          <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
-            entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
-            onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
-            onOpenPicker={() => setPickerShotId(shot.id)}>
-            {takesNotice && <div className="rb-scene-takes-notice">{takesNotice}</div>}
-          </ShotTakesDialog>,
+          <div className="wilson-dark-scroll">
+            <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
+              entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
+              onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
+              onOpenPicker={() => setPickerShotId(shot.id)}>
+              {takesNotice && <div className="rb-scene-takes-notice">{takesNotice}</div>}
+            </ShotTakesDialog>
+          </div>,
           document.body,
         )
       })()}
@@ -1157,9 +1168,11 @@ export default function ScenesView() {
         if (!shot) return null
         const entries = takesByShotMap.get(shot.id) || []
         return createPortal(
-          <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
-            assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
-            onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />,
+          <div className="wilson-dark-scroll">
+            <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
+              assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
+              onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
+          </div>,
           document.body,
         )
       })()}
@@ -2342,7 +2355,10 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
         <Dialog
           // Wider by the task form's column while it is open.
           width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
-          className="rb-scene-detail"
+          // In <body> it is outside the app's `wilson-dark-scroll` root, so
+          // it carries the class itself, as A4's Help does: its columns
+          // scroll on the app's dark bar (review round one, R1-12).
+          className="rb-scene-detail wilson-dark-scroll"
           // A title that is a node names nothing, so the Dialog carries the
           // scene's name as its aria-label, as B4c's popup does.
           aria-label={name}
@@ -2698,9 +2714,12 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
 
       {/* A task opened from the sidebar: its own kit Dialog, portalled beside
           this one and over it on the modal stack. Not while the task form is
-          open, as before. */}
+          open, as before. B2's popup takes no className: the portal's
+          wrapper gives it the app's dark bar (R1-12, as the takes dialogs'). */}
       {nestedTaskId && !showCreateTask && createPortal(
-        <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
+        <div className="wilson-dark-scroll">
+          <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+        </div>,
         document.body,
       )}
     </>
@@ -2790,7 +2809,8 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
       {createPortal(
         <Dialog
           width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
-          className="rb-scene-detail"
+          // The app's dark bar, as the scene popup's (R1-12).
+          className="rb-scene-detail wilson-dark-scroll"
           aria-label={name}
           title={(
             <span className="rb-scene-detail-title">
@@ -3149,9 +3169,12 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
         document.body,
       )}
 
-      {/* A task opened from the sidebar: its own kit Dialog, over this one */}
+      {/* A task opened from the sidebar: its own kit Dialog, over this one,
+          in the wrapper that gives it the app's dark bar (R1-12) */}
       {nestedTaskId && !showCreateTask && createPortal(
-        <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
+        <div className="wilson-dark-scroll">
+          <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+        </div>,
         document.body,
       )}
     </>
@@ -3182,11 +3205,21 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 // when focus has fallen there, and only while the opener is in the page (a
 // delete takes the row, and its button, with it; StrictMode's rehearsal of an
 // unmount leaves focus on Cancel, so that does nothing).
+//
+// 🚨 …and while one is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
+// above). A question counts itself in `openQuestions` while it is mounted:
+// the tables' bulk questions are their own state, which the page's key
+// handler cannot read, and every question is this component. Module state,
+// as the kit's modal stack is (overlay.js): there is one page and one
+// keyboard.
+const openQuestions = { count: 0 }
 function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
   const cancelRef = useRef(null)
   useEffect(() => {
+    openQuestions.count += 1
     cancelRef.current?.focus()
     return () => {
+      openQuestions.count -= 1
       const active = document.activeElement
       if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
     }
@@ -3364,7 +3397,11 @@ function SceneBulkSelect({ label, options, onPick }) {
 // empty one its placeholder in the third (R3-13: it was #57534e, 2.3:1) —
 // with the kit's hover fill; editing, the kit's small field, a native
 // `ui-input` (the kit Input's own Escape and Enter would break the draft,
-// B3d trap 3). `label` names the field for a screen reader.
+// B3d trap 3). `label` names the field for a screen reader. Escape reverts
+// the draft and is MARKED handled, as PopupInlineText's is (K4's mark): a
+// shot's description in the scene popup is inside the kit Dialog, which
+// stands down on a handled Escape, so the first press only reverts (review
+// round one, R1-02: it reverted AND closed the popup).
 function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -3380,7 +3417,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
         onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
         onKeyDown={e => {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
         }}
         aria-label={label}
         className="ui-input rb-scene-inline-input"

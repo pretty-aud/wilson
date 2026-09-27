@@ -39,7 +39,7 @@ import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudg
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
 import { buildRoleRates } from '../../../components/Budget/budgetMath'
-import CurrencyDisplay, { formatMoney, MONEY_LOCALE } from '../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney, formatTenths } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
@@ -1759,9 +1759,15 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 
   // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z. R3-15 asked for a shortcut
   // bar; Q10 rules there is none, so the keys and the Undo / Redo titles
-  // that name them stay exactly as they were (recorded).
+  // that name them stay exactly as they were (recorded). They do nothing
+  // while a delete or reset question is up (review round one, R1-08):
+  // window.confirm, which two of the three were, blocked every key behind
+  // it, and the kit Dialog does not. Only a question: with the expense popup
+  // open they work as they did (C1).
+  const questionOpen = deleteConfirmId != null || confirmBulkDelete || confirmResetMc
   useEffect(() => {
     function onKey(e) {
+      if (questionOpen) return
       const t = e.target
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
       const mod = e.ctrlKey || e.metaKey
@@ -1772,7 +1778,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, redo])
+  }, [undo, redo, questionOpen])
 
   // ── Lookups ──
   const phaseById = useMemo(() => Object.fromEntries(phases.map(p => [p.id, p])), [phases])
@@ -2370,6 +2376,11 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
         return (
           <MarginContPopover
+            // One editor per expense, as Crew's and Talent's are keyed per
+            // line: opened on another expense while this one is open (from
+            // the keyboard), it must not keep this one's draft and save it
+            // into the next (review round one, R1-04).
+            key={mcPopover.expId}
             anchor={mcPopover}
             amountLabel="Estimated cost"
             baseAmount={est}
@@ -2611,6 +2622,10 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   return createPortal(
     <Dialog
       width="form"
+      // In <body>, outside the app's `wilson-dark-scroll` root: the form and
+      // its relation lists scroll on the app's dark bar, as A4's Help does
+      // (review round one, R1-12).
+      className="wilson-dark-scroll"
       title={isEdit ? 'Edit expense' : 'New expense'}
       dismissOnBackdrop
       onClose={onClose}
@@ -2749,17 +2764,24 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
 // The expense popup is the kit Dialog now, and its relation pickers' open
 // lists are not on the kit's modal stack: an Escape pressed inside one closed
 // the whole popup, draft and all — before the kit, Escape did nothing there.
-// The kit Dialog skips an Escape already marked handled, so the list marks the
-// ones pressed in its own DOM and does nothing else (C1), as RelationsPanel's
-// in-panel layers do (B4c).
-function markOwnEscape(e) {
-  if (e.key === 'Escape' && e.currentTarget.contains(e.target)) e.preventDefault()
-}
-
+// The kit Dialog skips an Escape already marked handled, as RelationsPanel's
+// in-panel layers use it (B4c). While a list is open, an Escape ANYWHERE in
+// its picker closes the list and is marked handled — on the toggle too,
+// where a click on it leaves focus (review round one, R1-05: that Escape
+// closed the popup and lost the draft); focus in the list goes back to the
+// toggle. The popup and its draft stay; with the list closed, Escape is the
+// popup's.
 function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const ref = useRef(null)
+  const toggleRef = useRef(null)
+  function closeOnEscape(e) {
+    if (!open || e.key !== 'Escape') return
+    e.preventDefault()
+    if (toggleRef.current && !toggleRef.current.contains(document.activeElement)) toggleRef.current.focus()
+    setOpen(false)
+  }
   useEffect(() => {
     if (!open) return
     function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
@@ -2776,8 +2798,9 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
     else onChange([...selectedIds, id])
   }
   return (
-    <div ref={ref} className="rb-budget-rel">
+    <div ref={ref} className="rb-budget-rel" onKeyDown={closeOnEscape}>
       <button
+        ref={toggleRef}
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
@@ -2788,7 +2811,7 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
         {selectedIds.length > 0 && <Badge className="rb-budget-rel-count">{selectedIds.length}</Badge>}
       </button>
       {open && (
-        <div className="rb-budget-rel-menu" onKeyDown={markOwnEscape}>
+        <div className="rb-budget-rel-menu">
           {items.length > 5 && (
             <div className="rb-budget-rel-search">
               <input
@@ -2825,17 +2848,9 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
 
 // ─── Sub-components ───────────────────────────────────────
 
-// A figure to one decimal place (days, a percentage) in the money's one
-// locale, with Intl's sign when `signed` (R3-14: the sign is Intl's, never a
-// '+' glued on). No grouping: `toFixed(1)`, which it replaces, had none.
-function formatTenths(value, { signed = false } = {}) {
-  return new Intl.NumberFormat(MONEY_LOCALE, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-    useGrouping: false,
-    signDisplay: signed ? 'exceptZero' : 'auto',
-  }).format(Number(value) || 0)
-}
+// (A figure to one decimal place — days, a percentage — is `formatTenths`,
+// CurrencyDisplay's, which Crew/team shares: one rounding, review round one,
+// R1-11.)
 
 // A section of a Budget tab: the kit SectionTitle (H2, sentence case, a
 // hairline above) over its content, with no box and no fill (R3-30). The

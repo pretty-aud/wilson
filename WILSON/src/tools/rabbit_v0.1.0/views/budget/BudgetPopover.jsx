@@ -25,7 +25,15 @@
 //     Escape. None of the five closed on Escape: that is Q17's ruled
 //     behaviour for a floating surface (the kit Menu's), added here. The key
 //     is taken in the capture phase and marked handled, as the Menu marks
-//     it, so a Dialog under the popover stands down on the same key.
+//     it.
+//   · It never opens INSIDE a kit Dialog: its callers are the Crew/team,
+//     Talent and Expenses tables' cells (checked, review round one). A kit
+//     Dialog or Menu open while it is — Reset M/C reached from the keyboard
+//     with a period popover open — is over it: the sheet stacks the popover
+//     under the kit Dialog's layer, and its Escape stands down while the
+//     kit's overlay stack holds one, so the key is the question's and focus
+//     goes back where it was (R1-10: the question opened UNDER the popover,
+//     and the first Escape closed the popover and dropped focus to <body>).
 //
 // `anchor` is the rect the callers already store ({ x, y, h }: the cell's
 // left, top and height); `width` is the caller's, in px (the five were 280).
@@ -34,7 +42,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-import { IconButton } from '../../../../ui'
+import { IconButton, overlayOpen } from '../../../../ui'
 import '../rabbitBudget.css'
 
 /** The gap between the anchor and the popover, and the least distance kept
@@ -64,6 +72,9 @@ export default function BudgetPopover({ anchor, title, onClose, children, width 
     function onDown(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
     function onKey(e) {
       if (e.key !== 'Escape' || e.defaultPrevented) return
+      // A kit Dialog or Menu is up, and it is over this popover (above): the
+      // Escape is its own.
+      if (overlayOpen()) return
       e.preventDefault()
       onClose()
     }

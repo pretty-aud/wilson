@@ -22,7 +22,7 @@ vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupa
 vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({ role: 'admin', ready: true }) }))
 vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => ({ entries: [], rateCards: [] }) }))
 
-const { default: CurrencyDisplay, formatMoney, MONEY_LOCALE } = await import('../components/CurrencyDisplay')
+const { default: CurrencyDisplay, formatMoney, formatTenths, MONEY_LOCALE } = await import('../components/CurrencyDisplay')
 const { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTab, ExpensePopup } = await import('./BudgetView')
 const { default: BudgetPopover, placePopover } = await import('./budget/BudgetPopover')
 const { default: MarginContPopover } = await import('./budget/MarginContPopover')
@@ -658,7 +658,7 @@ describe('surface 2b', () => {
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     expect(within(dialog).getByText('Estimated cost (EUR)')).toBeTruthy()
   })
-  it('Escape inside an open relation picker keeps the popup and its draft; Escape anywhere else closes it (Q17)', () => {
+  it('Escape inside an open relation picker closes its list and keeps the popup and its draft, focus back on its toggle; with the list closed, Escape closes the popup (Q17)', () => {
     const onClose = vi.fn()
     const phases = [{ id: 'ph1', name: 'Pre-production' }]
     render(<ExpensePopup expense={null} phases={phases} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={onClose} />)
@@ -669,9 +669,94 @@ describe('surface 2b', () => {
     fireEvent.keyDown(option, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
     const toggle = within(dialog).getByRole('button', { name: /Phases/ })
-    toggle.focus()
+    expect(within(dialog).queryByRole('checkbox', { name: 'Pre-production' })).toBeNull()
+    expect(document.activeElement).toBe(toggle)
     fireEvent.keyDown(toggle, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  /* ── review round one ─────────────────────────────────────────────────── */
+  it('R1-05: with a list open, Escape on its toggle — where a click on it leaves focus — closes the list; the popup and its draft stay, and the next Escape closes the popup', () => {
+    const onClose = vi.fn()
+    const phases = [{ id: 'ph1', name: 'Pre-production' }]
+    render(<ExpensePopup expense={null} phases={phases} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={onClose} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), { target: { value: 'Lens rental' } })
+    const toggle = within(dialog).getByRole('button', { name: /Phases/ })
+    toggle.focus()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { toggle.dispatchEvent(esc) })
+    expect(esc.defaultPrevented).toBe(true)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'New expense' })).toBe(dialog)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(within(dialog).queryByRole('checkbox', { name: 'Pre-production' })).toBeNull()
+    expect(within(dialog).getByRole('textbox', { name: 'Title' }).value).toBe('Lens rental')
+    fireEvent.keyDown(toggle, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('R1-04: the margin & contingency editor belongs to its expense: opened on another while one is open, it starts from that expense — never the last one\'s draft — and saves there', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const [camera, timber] = rowsOf(container)
+    fireEvent.click(camera.querySelectorAll('.rb-budget-exp-mc')[0])
+    let pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+    fireEvent.change(within(pop).getByRole('spinbutton', { name: 'Margin %' }), { target: { value: '37' } })
+    // A click with no mousedown is the keyboard's (Enter / Space on the
+    // cell), so nothing outside the open editor was pressed.
+    fireEvent.click(timber.querySelectorAll('.rb-budget-exp-mc')[0])
+    pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+    expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('5')
+    expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('0')
+    await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Save' })) })
+    expect(h.updateExpense.mock.calls).toEqual([['e2', { margin_pct: 5, contingency_pct: 0 }]])
+  })
+
+  it('R1-08: Ctrl+Z and Ctrl+Shift+Z do nothing behind a delete or reset question — window.confirm blocked them — and work as before on the page and with the expense popup open (C1)', () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const press = (el) => {
+      expect(el.tagName, 'a button, never a field').toBe('BUTTON')
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true })
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true, shiftKey: true })
+    }
+    const calls = () => [h.undo.mock.calls.length, h.redo.mock.calls.length]
+    const cancel = () => fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+    // The bulk Delete's question, Reset M/C's, a row's Delete: each with focus on its Cancel.
+    fireEvent.click(within(rowsOf(container)[0]).getByRole('button', { name: /^Select/ }))
+    fireEvent.click(within(container.querySelector('.rb-budget-bulk')).getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete expenses' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+    expect(screen.getByRole('dialog', { name: 'Reset margin & contingency' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    fireEvent.click(within(rowsOf(container)[1]).getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete expense' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // No question up: the keys work on the page…
+    press(screen.getByRole('button', { name: 'Reset M/C' }))
+    expect(calls()).toEqual([1, 1])
+    // …and with the expense popup open, as they did.
+    fireEvent.click(rowsOf(container)[1].querySelector('.rb-budget-exp-title'))
+    press(within(screen.getByRole('dialog', { name: 'Edit expense' })).getByRole('button', { name: 'Cancel' }))
+    expect(calls()).toEqual([2, 2])
+  })
+
+  it('R1-12: the expense popup carries the app\'s dark scrollbar class itself — in <body> it is outside the app\'s root, and its form and lists scroll', () => {
+    render(<ExpensePopup expense={null} phases={[]} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(dialog.classList.contains('wilson-dark-scroll')).toBe(true)
   })
 })
 
@@ -859,6 +944,37 @@ describe('surface 4', () => {
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(confirm).not.toHaveBeenCalled()
       confirm.mockRestore()
+    })
+
+    it('review round one, R1-10: Reset M/C asked from the keyboard with a period popover open lands OVER the popover and takes the Escape — the first closes the question and hands focus back, the next the popover', () => {
+      const { container } = render(tab())
+      fireEvent.click(memberRow(container).querySelectorAll('button.rb-crew-cell')[1])
+      const pop = screen.getByRole('dialog', { name: 'Ana Ruiz / #2' })
+      // The keyboard's way to it: focus on Reset M/C, then its activation — a
+      // click with no mousedown, so nothing outside the popover was pressed.
+      const reset = screen.getByRole('button', { name: 'Reset M/C' })
+      reset.focus()
+      fireEvent.click(reset)
+      const question = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      expect(pop.isConnected).toBe(true)
+      // Over it: the popover's layer is under the kit Dialog's backdrop.
+      const layer = (css, sel) => Number((css.replace(/\/\*[\s\S]*?\*\//g, '').match(new RegExp(`\\${sel} \\{[^}]*?z-index: (\\d+);`)) || [])[1])
+      const popLayer = layer(sheet, '.rb-pop-panel')
+      const dialogLayer = layer(read('../../../index.css'), '.ui-dialog-backdrop')
+      expect(popLayer).toBeGreaterThan(0)
+      expect(popLayer).toBeLessThan(dialogLayer)
+      expect(document.activeElement.textContent).toBe('Cancel')
+      expect(question.contains(document.activeElement)).toBe(true)
+      // The first Escape is the question's; focus goes back to Reset M/C.
+      let esc = escape()
+      expect(esc.defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Reset margin & contingency' })).toBeNull()
+      expect(pop.isConnected).toBe(true)
+      expect(document.activeElement).toBe(reset)
+      // The next is the popover's.
+      esc = escape()
+      expect(esc.defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
     })
 
     it('the tiles are the kit Stat and the bar the kit Toolbar, in sentence case; no brightness hover, no inline colour (R3-10, R3-23, Q2)', () => {
@@ -1154,5 +1270,62 @@ describe('InvoiceAttachment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove attachment' }))
     expect(onChange).toHaveBeenCalledWith({ name: '', path: '' })
     noStyle(container)
+  })
+})
+
+/* ── review round one, R1-11: one rounding for a days figure ─────────────── */
+describe('review round one, R1-11: every tab rounds days as toFixed(1) did', () => {
+  afterEach(() => { cleanup(); _resetOverlaysForTests() })
+
+  it('formatTenths rounds as toFixed(1) — 1.15 is 1.1, 29.95 is 29.9 — keeping Intl\'s sign and no grouping', () => {
+    expect([formatTenths(1.15), formatTenths(29.95)]).toEqual([(1.15).toFixed(1), (29.95).toFixed(1)])
+    expect([formatTenths(1.15), formatTenths(29.95)]).toEqual(['1.1', '29.9'])
+    expect([formatTenths(1.15, { signed: true }), formatTenths(-29.95, { signed: true }), formatTenths(0, { signed: true })]).toEqual(['+1.1', '-29.9', '0.0'])
+    expect([formatTenths(12345.6), formatTenths(null), formatTenths('4')]).toEqual(['12345.6', '0.0', '4.0'])
+  })
+
+  it('Summary and Crew/team print the same figure for the same days: 1.15 bid days is 1.1 on both, 29.95 logged 29.9', () => {
+    const { container: summary } = render(
+      <SummaryTab
+        ctx={{ updateProject: vi.fn(), setActiveProject: vi.fn(), getAdapter: () => ({ upsertBudgetVersion: vi.fn(), deleteBudgetVersion: vi.fn() }) }}
+        project={{ id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }}
+        variance={{ bid: 1.15, logged: 29.95, variance: 28.8 }}
+        budget={{ total: 0, byRole: {}, currency: 'USD' }}
+        tasks={[]}
+        roleRates={{}}
+        missingRolesCount={0}
+        rateCardName="General"
+        budgetVersions={[]}
+        budgetHook={{ lines: [], lineComputations: {} }}
+        rateCard={{ entries: [] }}
+        teamMembers={[]}
+        expensesHook={{ expenses: [] }}
+      />,
+    )
+    expect([...summary.querySelectorAll('.ui-stat .ui-stat-value')].map((v) => v.textContent)).toEqual(['1.1', '29.9', '+28.8'])
+    cleanup()
+    const { container: crew } = render(
+      <CrewTeamTab
+        budgetHook={{ lines: [{ id: 'l1', sheet: 'crew', team_member_id: 'm1' }], actualsByLine: {}, addLine: vi.fn(), updateLine: vi.fn(), upsertActual: vi.fn(), deleteActual: vi.fn() }}
+        project={{ id: 'p1', budget_actual_column_mode: 'count', budget_actual_column_count: 3, budget_margin_pct: 0, budget_contingency_pct: 0 }}
+        tasks={[{ assigned_role_slug: 'anim', bid_days: 1.15 }]}
+        roleRates={{}}
+        rateCard={{ entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }] }}
+        teamMembers={[{ id: 'm1', name: 'Ana Ruiz', title: 'Animator', department: 'Animation', employment_type: 'fulltime' }]}
+        currency="USD"
+      />,
+    )
+    const row = [...crew.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Ana Ruiz'))
+    expect([...row.querySelectorAll('td[data-numeric="true"]')][1].textContent).toBe('1.1')
+  })
+
+  it('every days figure comes through the one helper: no toFixed and no second formatter in the Budget\'s views', () => {
+    for (const f of BUDGET_FILES) {
+      const src = read(f)
+      expect(src, f).not.toMatch(/\.toFixed\(/)
+      expect(src, f).not.toMatch(/function formatTenths\(/)
+    }
+    expect(read('./budget/CrewTeamTab.jsx')).toMatch(/\bformatTenths\(row\.bidDays\)/)
+    expect(read('./BudgetView.jsx')).toMatch(/import CurrencyDisplay, \{[^}]*\bformatTenths\b[^}]*\} from '\.\.\/components\/CurrencyDisplay'/)
   })
 })

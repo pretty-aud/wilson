@@ -25,6 +25,7 @@ import {
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, kitFights,
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
+  scriptedLeaks,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -294,6 +295,58 @@ describe('no state is decided in a style or a className', () => {
       }
       for (const p of ['color="white"', "fill='#fff'"]) expect(paletteLeaks(after(p)), `${file}: ${p}`).toEqual([p])
       for (const p of ['fill="none"', 'stroke="currentColor"', 'color="inherit"']) expect(paletteLeaks(after(p)), `${file}: ${p}`).toEqual([])
+    }
+  })
+})
+
+/* ── 7b. no style written from script, no window.confirm (R3-26, W9) ───────
+   Review round one, R1-09: this file had no scan for either — a planted
+   `onMouseEnter={e => { e.currentTarget.style.backgroundColor = … }}` and a
+   `window.confirm(…)` in BudgetView.jsx and CrewTeamTab.jsx passed every
+   guard. The one predicate is rabbitCssGuards.js's `scriptedLeaks`, which
+   rabbitScenesCss.test.js runs over its file too. */
+/** The exact matches a file may keep — a measured geometry written from
+    script — each with its reason. None, checked file by file: BudgetPopover
+    places itself through custom properties in its JSX style (STYLES.pop),
+    never by writing `.style`; CurrencyDisplay, the tabs and InvoiceAttachment
+    write none; ClientViewTab's one `.style` READS its font rules
+    (`rule.style?.getPropertyValue`), which is not a write. */
+const SCRIPTED = {}
+/** Each spelling R1-09 names, and what the predicate reports for it. */
+const PLANTED = [
+  // R3-26's own hover writers, on an event's target and its current target.
+  ["onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}", 'style write: .style.borderColor ='],
+  ["onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#292524' }}", 'style write: .style.backgroundColor ='],
+  // Through an alias, and through a ref.
+  ["const el = e.target; el.style.color = '#fb923c'", 'style write: .style.color ='],
+  ['rowRef.current.style.opacity = 0.5', 'style write: .style.opacity ='],
+  // A writing method, the whole text, the attribute, the object handed on.
+  ["el.style.setProperty('--rb-pop-x', 1)", 'style write: .style.setProperty('],
+  ["el.style.cssText = 'color: red'", 'style write: .style.cssText ='],
+  ["el.setAttribute('style', 'color: red')", "style write: .setAttribute('style'"],
+  ["Object.assign(el.style, { color: 'red' })", 'style handed on: .style'],
+  // W9: window.confirm, and a bare confirm( call.
+  ["if (!window.confirm('Delete 2 expenses?')) return", 'confirm: window.confirm'],
+  ["if (!confirm('Delete 2 expenses?')) return", 'confirm: confirm('],
+]
+/** Reads, which are not writes: each planted, nothing is caught. */
+const READS = ["rule.style?.getPropertyValue('font-family')", 'const w = el.style.width', '<Dialog width="confirm" onConfirm={onConfirm} />']
+
+describe('R1-09: nothing writes a style from script and nothing asks window.confirm, in any spelling', () => {
+  for (const [key, { file }] of Object.entries(FILES)) {
+    it(`${file}: none anywhere in the file`, () => {
+      expect(scriptedLeaks(read(file), SCRIPTED[key])).toEqual([])
+    })
+  }
+  it('CONTROL: in every file, each spelling planted at its first lane class is caught, and is the one thing caught; a read is not', () => {
+    for (const [key, { file }] of Object.entries(FILES)) {
+      // In code, so the first lane class is never one a comment names.
+      const whole = jsCode(read(file))
+      const at = whole.search(/className=(?:"|\{`)rb-/)
+      expect(at, file).toBeGreaterThan(0)
+      const plant = (text) => `${whole.slice(0, at)}${text} ${whole.slice(at)}`
+      for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught])
+      for (const text of READS) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([])
     }
   })
 })

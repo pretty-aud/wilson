@@ -290,7 +290,23 @@
      shot table's fixed columns are 1756px with Takes; below a table's sum it
      scrolls sideways, as the rows always overflowed). The thumbnail heights
      are THUMB_SIZES' three (36 / 54 / 72px, 16:9), which ScenesView still
-     hands the Bins components; the nested row's is 8px less, never under 28. */
+     hands the Bins components; the nested row's is 8px less, never under 28.
+     The nested shots have no header row, so five of their columns are their
+     own content's width, trimmed toward the old flex row's (its item and
+     its 12px gap), and their description takes what is left, out of the
+     nest's min-width, as the shot table's does (review round one, R1-03: a
+     128px description and the wider columns held the nest from x 52 to
+     1620 at 1440 with Takes, Frames and the row actions past the window's
+     edge; the old row overflowed by 16):
+       num      "9999" in the 13px mono (31)                          ->  56
+       name     the old row's 160 and its gap                         -> 172
+       takes    three 22px posters and the count (143)                -> 172
+       type     "Exterior" (46) with its caret                        ->  88
+       framing  "EWS" at the Label step (27) with its caret; no
+                header holds it open                                  ->  72
+     The rest are the tables' own. With Takes at the small size the nest's
+     columns come to 1384px: at 1440 it ends at 1436, its actions inside
+     the window, its description down to nothing, as the old row's was. */
   .rb-scene-table-wrap {
     --rb-scene-thumb-h: 36px;
     --rb-scene-thumb-w: calc(var(--rb-scene-thumb-h) * 16 / 9);
@@ -302,15 +318,17 @@
     --rb-scene-col-thumb: calc(var(--rb-scene-thumb-w) + 12px);
     --rb-scene-col-nest-thumb: calc(var(--rb-scene-nest-w) + 12px);
     --rb-scene-col-num: 56px;
-    --rb-scene-col-nest-num: 64px;
+    --rb-scene-col-nest-num: 56px;
     --rb-scene-col-name: 216px;
-    --rb-scene-col-nest-name: 184px;
+    --rb-scene-col-nest-name: 172px;
     --rb-scene-col-takes: 200px;
-    --rb-scene-col-nest-takes: 184px;
+    --rb-scene-col-nest-takes: 172px;
     --rb-scene-col-status: 160px;
     --rb-scene-col-time: 128px;
     --rb-scene-col-type: 96px;
+    --rb-scene-col-nest-type: 88px;
     --rb-scene-col-framing: 88px;
+    --rb-scene-col-nest-framing: 72px;
     --rb-scene-col-move: 128px;
     --rb-scene-col-desc: 128px;
     --rb-scene-col-runtime: 120px;
@@ -319,8 +337,8 @@
     --rb-scene-col-acts: 84px;
     --rb-scene-nest-min: calc(var(--rb-scene-col-check) + var(--rb-scene-col-mark) + var(--rb-scene-col-nest-thumb)
       + var(--rb-scene-col-nest-num) + var(--rb-scene-col-nest-name) + var(--rb-scene-col-status)
-      + var(--rb-scene-col-time) + var(--rb-scene-col-type) + var(--rb-scene-col-framing) + var(--rb-scene-col-move)
-      + var(--rb-scene-col-desc) + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
+      + var(--rb-scene-col-time) + var(--rb-scene-col-nest-type) + var(--rb-scene-col-nest-framing)
+      + var(--rb-scene-col-move) + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
     position: relative;
     display: flex;
     flex: 1 1 auto;
@@ -618,6 +636,12 @@
   .rb-scene-row[data-ticked="true"] .ui-input.rb-scene-date[data-empty="true"],
   .rb-scene-row:hover .ui-cell-select > select[data-empty="true"],
   .rb-scene-row[data-ticked="true"] .ui-cell-select > select[data-empty="true"] { color: var(--color-ink-2); }
+  /* …and so does ShotTakeChips' "+ takes", B6's: its inks are custom
+     properties with the token as the fallback, so a painted row LIFTS the
+     quiet one (ui-b6-2026-09-23.md §3, `C`). Its third ink measured 4.17:1
+     on a ticked shot row (review round one, R1-12). */
+  .rb-scene-row:hover > .rb-scene-takes-cell,
+  .rb-scene-row[data-ticked="true"] > .rb-scene-takes-cell { --bn-ink-3: var(--color-ink-2); }
 
   /* ═══ The nested shots (surface 6a) ═══════════════════════════════════════
      One row across the scene table holds the scene's shots as a table of
@@ -647,8 +671,8 @@
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-takes-cell { width: var(--rb-scene-col-nest-takes); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-status-cell { width: var(--rb-scene-col-status); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-time-cell { width: var(--rb-scene-col-time); }
-  .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-type-cell { width: var(--rb-scene-col-type); }
-  .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-framing-cell { width: var(--rb-scene-col-framing); }
+  .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-type-cell { width: var(--rb-scene-col-nest-type); }
+  .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-framing-cell { width: var(--rb-scene-col-nest-framing); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-move-cell { width: var(--rb-scene-col-move); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-dur-cell { width: var(--rb-scene-col-runtime); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-frames-cell { width: var(--rb-scene-col-frames); }
@@ -681,7 +705,9 @@
   .rb-scene-nest-bulk > .ui-btn.rb-scene-nest-delete { margin-left: auto; }
 
   /* Add shot: the dashed row it always was, in the third ink (#57534e on a
-     #292524 dash before), the hover fill and the second ink on hover. */
+     #292524 dash before), the hover fill and the second ink on hover. Its
+     cell clips at its left edge, so the kit's ring is drawn inside the box,
+     as the checkbox's is (review round one, R1-07). */
   .rb-scene-add {
     display: flex;
     align-items: center;
@@ -695,6 +721,7 @@
     background-color: transparent;
     border: 1px dashed var(--color-rule);
     border-radius: var(--radius-control);
+    outline-offset: -2px;
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
   }
@@ -712,6 +739,8 @@
   .rb-scene-group-row:hover > .ui-td { background-color: var(--color-hover); }
   .rb-scene-table .ui-tr > .ui-td.rb-scene-group-cell { padding: 0 4px 0 0; }
   .rb-scene-group-head { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100cqw; }
+  /* The toggle fills its cell, which clips: its ring is drawn inside the box
+     (review round one, R1-07: cut top, bottom and left). */
   .rb-scene-group-toggle {
     display: flex;
     flex: 1 1 auto;
@@ -725,6 +754,7 @@
     color: var(--color-ink);
     background-color: transparent;
     border: 0;
+    outline-offset: -2px;
     cursor: pointer;
   }
   .rb-scene-group-chevron,

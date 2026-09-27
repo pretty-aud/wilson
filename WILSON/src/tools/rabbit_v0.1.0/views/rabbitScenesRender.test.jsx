@@ -36,6 +36,9 @@ vi.mock('../../../components/TeamMembers/useRosterMembers', () => ({ useRosterMe
 const rabbit = vi.hoisted(() => ({ current: null }))
 
 const { default: ScenesView } = await import('./ScenesView')
+// Review round one, R1-01: the shell's two toasts, which read the same context.
+const { default: UndoToast } = await import('../components/UndoToast')
+const { default: IngestionToast } = await import('../components/IngestionToast')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
@@ -965,7 +968,10 @@ describe('surface 6c', () => {
       const dialog = open()
       fireEvent.click(within(dialog.querySelector('.rb-scene-detail-side')).getByText(task))
       const taskDialog = screen.getByRole('dialog', { name: task })
-      expect(taskDialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      // In <body>, in the portal's one wrapper, which carries the app's dark
+      // scrollbar class B2's popup cannot take (review round one, R1-12).
+      const wrap = taskDialog.closest('.ui-dialog-backdrop').parentElement
+      expect([wrap.parentElement, wrap.className]).toEqual([document.body, 'wilson-dark-scroll'])
       expect(dialog.contains(taskDialog)).toBe(false)
       // Over it: later in <body>, as it is later on the modal stack.
       expect(after(dialog.closest('.ui-dialog-backdrop'), taskDialog)).toBe(true)
@@ -982,7 +988,10 @@ describe('surface 6c', () => {
     const dialog = openShotPopup('The cold lamp')
     fireEvent.click(within(dialog.querySelector('.rb-scene-detail-takes')).getByRole('button', { name: /Add takes/ }))
     const picker = screen.getByRole('dialog', { name: 'Add takes to "The cold lamp"' })
-    expect(picker.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    // In <body>, in the portal's one wrapper, which carries the app's dark
+    // scrollbar class B6's dialog cannot take (review round one, R1-12).
+    const wrap = picker.closest('.ui-dialog-backdrop').parentElement
+    expect([wrap.parentElement, wrap.className]).toEqual([document.body, 'wilson-dark-scroll'])
     expect(after(dialog.closest('.ui-dialog-backdrop'), picker)).toBe(true)
     escape()
     expect(screen.queryByRole('dialog', { name: 'Add takes to "The cold lamp"' })).toBeNull()
@@ -1112,5 +1121,99 @@ describe('surface 6c', () => {
     escape()
     const empty = openScenePopup('Cliff path').querySelector('.rb-scene-detail-main .ui-empty.rb-scene-detail-empty')
     expect(empty.textContent).toBe('No shots yet')
+  })
+})
+
+/* ── review round one ───────────────────────────────────────────────────── */
+describe('review round one', () => {
+  it('R1-01: the Undo and ingestion toasts are on the kit Toast\'s layer, over the kit Dialog\'s backdrop — an Undo for a take unassigned in a popup is the Undo\'s to click', () => {
+    const kit = read('../../../index.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    const layer = (sel) => Number((kit.match(new RegExp(`\\${sel} \\{[^}]*?z-index: (\\d+);`)) || [])[1])
+    const toastLayer = layer('.ui-toast-stack')
+    const dialogLayer = layer('.ui-dialog-backdrop')
+    expect(toastLayer).toBeGreaterThan(dialogLayer)
+    rabbit.current = {
+      undoToast: { key: 1, message: 'Unassigned 1 take from "The door"', onUndo: vi.fn() },
+      dismissUndoToast: vi.fn(),
+      ingestionRun: { phase: 'done', chunksDone: 3, chunksTotal: 3, fileCount: 1 },
+    }
+    render(<><UndoToast /><IngestionToast /></>)
+    /** A fixed surface's layer: its one z- utility, a number. */
+    const zOf = (el) => (el.className.match(/(?:^|\s)z-\[?(\d+)\]?(?=\s|$)/g) || []).map((z) => Number(z.replace(/\D/g, '')))
+    const undo = screen.getByRole('button', { name: 'Undo' }).closest('.fixed')
+    const ingestion = screen.getByText('Breakdown ready').closest('.fixed')
+    expect([zOf(undo), zOf(ingestion)]).toEqual([[toastLayer], [toastLayer]])
+  })
+
+  it('R1-02: a shot\'s description in the scene popup reverts on Escape and the popup stays; the next Escape closes it', () => {
+    const { ctx } = page()
+    const dialog = openScenePopup()
+    const row = dialog.querySelector('.rb-scene-shot-list > .rb-scene-shot')
+    fireEvent.click(within(row).getByText('Mara in the doorway.'))
+    const field = within(row).getByRole('textbox', { name: 'Description for The door' })
+    expect(document.activeElement).toBe(field)
+    fireEvent.change(field, { target: { value: 'Oops' } })
+    // Marked handled: fireEvent answers false for a key whose default was prevented.
+    expect(fireEvent.keyDown(field, { key: 'Escape' })).toBe(false)
+    expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
+    expect(within(row).queryByRole('textbox')).toBeNull()
+    expect(within(row).getByText('Mara in the doorway.')).toBeTruthy()
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('R1-08: Ctrl+Z and Ctrl+Y do nothing behind a delete question — a table\'s bulk one and a row\'s; window.confirm blocked them — and undo as before on the page and with a popup open (C1)', () => {
+    const undo = vi.fn()
+    const redo = vi.fn()
+    page({ ...TAKES, undo, redo })
+    const press = (el) => {
+      expect(el.tagName, 'a button, never a field').toBe('BUTTON')
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true })
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true, shiftKey: true })
+      fireEvent.keyDown(el, { key: 'y', ctrlKey: true })
+    }
+    const calls = () => [undo.mock.calls.length, redo.mock.calls.length]
+    const cancel = () => fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+    toShots()
+    // The shot table's bulk question, The door ticked: an undo behind it
+    // reverted a status while the question was up.
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Select The door' }))
+    fireEvent.click(within(document.querySelector('.rb-scene-bulk')).getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete shots' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    // A row's question.
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Delete shot' }))
+    expect(screen.getByRole('dialog', { name: 'Delete shot?' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // No question up: the keys undo and redo on the page…
+    press(within(rowOf('The door')).getByRole('button', { name: 'View details' }))
+    expect(calls()).toEqual([1, 2])
+    // …and with a popup open, as they did before the kit Dialog.
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'View details' }))
+    const popup = screen.getByRole('dialog', { name: 'The door' })
+    press(popup.querySelector('.ui-dialog-head button'))
+    expect(calls()).toEqual([2, 4])
+  })
+
+  it('R1-12: every dialog the page portals scrolls on the app\'s dark bar — <body> is outside the app\'s root: its two popups carry the class, and B6\'s takes dialogs (and B2\'s task popup, above) sit in a wrapper that does', () => {
+    page(TAKES)
+    for (const [open, name] of [[() => openScenePopup(), 'Lighthouse, dawn'], [() => openShotPopup(), 'The door']]) {
+      const dialog = open()
+      expect(dialog.closest('.ui-dialog-backdrop').parentElement, name).toBe(document.body)
+      expect(dialog.classList.contains('wilson-dark-scroll'), name).toBe(true)
+      escape()
+      expect(screen.queryByRole('dialog'), name).toBeNull()
+    }
+    // B6's takes dialog, from a row's takes (the picker's is above).
+    fireEvent.click(rowOf('The cold lamp').querySelector('.rb-scene-takes-cell button'))
+    const takes = screen.getByRole('dialog', { name: 'Takes — The cold lamp' })
+    const wrap = takes.closest('.ui-dialog-backdrop').parentElement
+    expect([wrap.parentElement, wrap.className]).toEqual([document.body, 'wilson-dark-scroll'])
   })
 })

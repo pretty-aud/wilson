@@ -874,3 +874,55 @@ export function propValues(sources, component, prop) {
   }
   return [...out]
 }
+
+/* ══ lanes B5 and B5b, review round one (2026-09-27) ═════════════════════════
+   R1-09. R3-26's thirty-two `e.target.style.borderColor = …` hover writers
+   and W9's `window.confirm` calls were each held by a scan that knew ONE
+   spelling, in one lane: Scenes looked for `.target.style` /
+   `.currentTarget.style` and `window.confirm`, and the Budget for neither —
+   a planted `onMouseEnter={e => { e.currentTarget.style.backgroundColor = … }}`
+   and a `window.confirm(…)` in BudgetView.jsx and CrewTeamTab.jsx passed
+   every Budget guard, and a write through an alias or a ref, or a bare
+   `confirm(…)`, passed the Scenes one. This is the ONE predicate both lanes
+   run over every file they guard, whole (a staged function included).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** An expression's `.style` (`e.target.style`, `el.style`, `ref.current.style`,
+    `rows[0].style`, `node?.style`), as a RegExp source; the match starts at
+    the dot. */
+const STYLE_OF = String.raw`(?<=[\w$\])])\s*\??\.\s*style`
+/** Every place a source writes an element's style from script, and every
+    `window.confirm`, read on the code (comments out) and labelled by kind:
+      · `style write`: a style property assigned, on any receiver — an
+        event's target, an alias, a ref — `x.style.color = …`,
+        `x.style['color'] = …`, `x.style.cssText = …`, a compound `+=`; a
+        writing method, `x.style.setProperty(…)` / `removeProperty(…)`; and
+        `setAttribute('style', …)`;
+      · `style handed on`: the style object itself aliased
+        (`const s = el.style`), replaced (`el.style = …`) or passed
+        (`Object.assign(el.style, …)`) — a write through it is out of sight;
+      · `confirm`: `window.confirm` (or `globalThis.` / `self.`), called or
+        not, in any spelling, and a bare `confirm(…)` call.
+    A read is not a write: `rule.style?.getPropertyValue(…)` (ClientViewTab's
+    font rules), `el.style.width` in an expression, a JSX `style={{ … }}`.
+    `allowed` lists the exact matches (as reported, less the kind) a file
+    may keep — a measured geometry written from script — each with its
+    reason where the caller lists it. */
+export function scriptedLeaks(src, allowed = []) {
+  const code = jsCode(src)
+  const out = []
+  const add = (kind, text) => {
+    const t = text.replace(/\s+/g, ' ').trim()
+    if (!allowed.includes(t)) out.push(`${kind}: ${t}`)
+  }
+  const assigned = new RegExp(`${STYLE_OF}\\s*(?:\\.\\s*[\\w$]+|\\[[^\\]]*\\])\\s*(?:\\*\\*|<<|>>>?|&&|\\|\\||\\?\\?|[-+*/%&|^])?=(?!=)`, 'g')
+  const method = new RegExp(`${STYLE_OF}\\s*\\??\\.\\s*(?:setProperty|removeProperty)\\s*\\(`, 'g')
+  const whole = new RegExp(`${STYLE_OF}\\b(?!\\s*(?:\\??\\.|\\[))`, 'g')
+  for (const m of code.matchAll(assigned)) add('style write', m[0])
+  for (const m of code.matchAll(method)) add('style write', m[0])
+  for (const m of code.matchAll(/\.\s*setAttribute\s*\(\s*(['"`])style\1/g)) add('style write', m[0])
+  for (const m of code.matchAll(whole)) add('style handed on', m[0])
+  for (const m of code.matchAll(/(?<![\w$.])(?:window|globalThis|self)\s*(?:\??\.\s*confirm\b|\[\s*(['"`])confirm\1\s*\])/g)) add('confirm', m[0])
+  for (const m of code.matchAll(/(?<![\w$.])confirm\s*\(/g)) add('confirm', m[0])
+  return out
+}
