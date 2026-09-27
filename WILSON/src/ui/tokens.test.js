@@ -335,23 +335,49 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
 })
 
 // ── "The only place a hex is written", made countable ──────────────────────
-// One legacy block at the bottom of index.css — the agent panel's
-// companion-chat rules — still carries its own hexes; it is the unreviewed
-// agent surface's (P1) and was left byte-for-byte. O.T.T.E.R.'s lesson-content
-// block carried ten more values until A3 (2026-09-24) put it on the tokens,
-// so it is no longer exempt. This pins the set so nothing new can join it.
+// Until P1 (2026-09-27) one legacy block at the bottom of index.css — the pet
+// chat's companion-chat rules — carried five hexes of its own, pinned here so
+// nothing could join them; O.T.T.E.R.'s lesson-content block carried ten more
+// until A3 (2026-09-24). P1-36 put the chat's markdown on the bubble's ink and
+// the kit's tokens, so the set is empty: @theme is the only place a hex is
+// written in this file.
 describe('hexes in index.css outside @theme', () => {
   const themeBlock = css.match(/@theme[^{]*\{[\s\S]*?\n\}/)[0]
   // Code only: the comments quote hexes when they explain a measurement.
   const rest = css.replace(themeBlock, '').replace(/\/\*[\s\S]*?\*\//g, '')
   const outside = new Set((rest.match(HEX) || []).map((h) => h.toLowerCase()))
-  const LEGACY = new Set(['#f97316', '#fb923c', '#a8a29e', '#fbbf24', '#292524'])
 
-  it('is exactly the companion-chat legacy set', () => {
-    expect([...outside].sort()).toEqual([...LEGACY].sort())
+  it('there are none (P1-36 retired the companion-chat set)', () => {
+    expect([...outside].sort()).toEqual([])
+    // CONTROL: the same reading finds a planted one below the theme.
+    const planted = `${rest}\n.companion-chat-md strong { color: #fbbf24; }`
+    expect(new Set((planted.match(HEX) || []).map((h) => h.toLowerCase()))).toEqual(new Set(['#fbbf24']))
   })
 
-  it('every one of them sits in a .companion-chat-md rule, and none reaches the lesson', () => {
+  it('the chat markdown is on the scale, the two weights, one hairline and the control radius (P1-36)', () => {
+    const offScale = (source) => {
+      const bad = []
+      for (const r of allRules(source)) {
+        if (r.sel.startsWith('@') || !/\.companion-chat-md(?![\w-])/.test(r.sel)) continue
+        for (const [prop, v] of decls(r.body)) {
+          if (prop === 'font-size' && !/^(inherit|var\(--text-[a-z]+\))$/.test(v)) bad.push(`${r.sel} ${prop}: ${v}`)
+          if (prop === 'font-weight' && !/^(400|600)$/.test(v)) bad.push(`${r.sel} ${prop}: ${v}`)
+          if (/^border(-(top|right|bottom|left))?(-width)?$/.test(prop) && /\b([2-9]|\d\d)px\b/.test(v)) bad.push(`${r.sel} ${prop}: ${v}`)
+          if (prop === 'border-radius' && v !== 'var(--radius-control)') bad.push(`${r.sel} ${prop}: ${v}`)
+          if (/^(color|background(-color)?)$/.test(prop) && !/^(inherit|currentColor|var\(--color-[a-z0-9-]+\))$/.test(v)) bad.push(`${r.sel} ${prop}: ${v}`)
+        }
+      }
+      return bad
+    }
+    expect(offScale(css)).toEqual([])
+    // CONTROL: the block as it stood before P1 names five kinds of break.
+    const before = `.companion-chat-md h1 { font-size: 0.85rem; font-weight: 700; color: #fb923c; }
+      .companion-chat-md code:not(pre code) { border-radius: 2px; }
+      .companion-chat-md blockquote { border-left: 2px solid #f97316; }`
+    expect(offScale(before)).toHaveLength(5)
+  })
+
+  it('a hex-bearing rule, if one ever returns, must be the chat\'s and never reach the lesson', () => {
     /* Brace-walked (A3 review round 2). A leaf-rule regex read
        `color: #f97316; & svg { … }` in a kit rule as part of a selector, so
        that hex passed; and `.companion-chat-md ~ * .lesson-content strong`
@@ -374,7 +400,8 @@ describe('hexes in index.css outside @theme', () => {
     }
     const { bad, read } = hexRuleViolations(css)
     expect(bad, bad.join('\n')).toEqual([])
-    expect(read, 'the hex-bearing rules were read').toBeGreaterThan(3)
+    // P1-36: none is left to read (it was five rules before P1).
+    expect(read).toBe(0)
     // CONTROL: round two's two survivors, and a clean rule.
     expect(hexRuleViolations(`
       .ui-x { color: #f97316; & svg { width: 1px; } }

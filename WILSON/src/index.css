@@ -16,9 +16,9 @@
    with its job, and the test measures it before it ships. `static` so every
    token is emitted as a custom property even before it has a utility caller
    (inline sites read `var(--…)` at runtime). The two legacy blocks at the
-   bottom of this file (O.T.T.E.R.'s `.lesson-content`, the agent panel's
-   `.companion-chat-md`) still carry ten hexes of their own until lane A
-   re-derives them; tokens.test.js pins that set so it cannot grow.
+   bottom of this file that carried hexes of their own are on the tokens now
+   (O.T.T.E.R.'s `.lesson-content` in A3, the pet chat's `.companion-chat-md`
+   in P1); tokens.test.js asserts no hex is written outside this block.
 
    Ink ladder: 100 / 72 / 52 percent of `#f5f0ec` over `#1c1917`, pre-flattened
    so nobody re-derives them. 48 percent was proposed and measures 4.47:1 —
@@ -2487,23 +2487,33 @@ select option {
 .lesson-content th { padding: 8px 12px; border: 1px solid var(--color-rule); text-align: left; background: var(--color-paper-raised); color: var(--color-ink); font-size: var(--text-dense); line-height: var(--text-dense--line-height); font-weight: 600; }
 .lesson-content td { padding: 8px 12px; border: 1px solid var(--color-rule); color: var(--color-ink-2); font-size: var(--text-dense); line-height: var(--text-dense--line-height); font-variant-numeric: tabular-nums; }
 
-/* Companion chat markdown styling (the agent panel; unreviewed, see the
-   review's "Missing coverage" — same rule as the lesson block above). */
-.companion-chat-md p { margin: 0.25rem 0; line-height: 1.5; }
+/* Companion chat markdown styling (the pet's chat bubble, P1-36).
+   The bubble itself — its ground, its ink, its size — is PetCompanion.jsx's
+   and C5 keeps that file untouched; it paints two grounds: stone-900 with an
+   orange ink on the dark pages and #e8924e with #1c1917 on the light ones.
+   These rules used to give the markdown its own inks (amber, a stone grey and
+   two oranges), which on the light bubble are orange-on-orange (C6: on orange
+   the ink is black or white), plus a 700 weight, three sizes off the scale, a
+   2px edge and a 2px radius. Now everything but the code chip inherits the
+   bubble's ink and size, as the lesson's markdown does (`strong` and `em`
+   carry weight and slant, never a second colour); the code chip is the one
+   dark island on the kit's tokens, legible on both grounds. */
+.companion-chat-md p { margin: 4px 0; }
 .companion-chat-md p:first-child { margin-top: 0; }
 .companion-chat-md p:last-child { margin-bottom: 0; }
-.companion-chat-md strong { color: #fbbf24; font-weight: 600; }
-.companion-chat-md em { color: #a8a29e; font-style: italic; }
-.companion-chat-md ul, .companion-chat-md ol { margin: 0.25rem 0; padding-left: 1.25rem; }
-.companion-chat-md li { margin: 0.15rem 0; line-height: 1.4; }
-.companion-chat-md li::marker { color: #f97316; }
+.companion-chat-md strong { font-weight: 600; color: inherit; }
+.companion-chat-md em { font-style: italic; color: inherit; }
+.companion-chat-md ul, .companion-chat-md ol { margin: 4px 0; padding-left: 20px; }
+.companion-chat-md li { margin: 0; }
+.companion-chat-md li::marker { color: currentColor; }
 .companion-chat-md h1, .companion-chat-md h2, .companion-chat-md h3 {
-  font-size: 0.85rem; font-weight: 700; margin: 0.3rem 0 0.15rem; color: #fb923c;
+  font-size: inherit; line-height: inherit; font-weight: 600; margin: 4px 0 0; color: inherit;
 }
 .companion-chat-md code:not(pre code) {
-  background: #292524; color: #fb923c; padding: 0.1rem 0.3rem; border-radius: 2px; font-size: 0.8em;
+  font-family: var(--font-mono); font-size: var(--text-caption); padding: 0 4px;
+  border-radius: var(--radius-control); background: var(--color-paper-raised); color: var(--color-ink);
 }
 .companion-chat-md blockquote {
-  border-left: 2px solid #f97316; padding-left: 0.5rem; margin: 0.25rem 0; color: #a8a29e; font-size: 0.85em;
+  margin: 4px 0; padding-left: 8px; border-left: 1px solid currentColor; color: inherit;
 }
-.companion-chat-md a { color: #f97316; text-decoration: underline; }
+.companion-chat-md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
