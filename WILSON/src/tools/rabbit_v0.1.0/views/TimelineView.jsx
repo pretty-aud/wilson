@@ -4384,7 +4384,9 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-label font-mono uppercase font-semibold rb-tl-ed-title">
+          {/* P1 §7 audit: a title is not data, so not the mono (Q4). Its step
+              and case wait on the editor's look (P1-31, walkthrough 42 Q6). */}
+          <span className="text-label uppercase font-semibold rb-tl-ed-title">
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset

@@ -98,7 +98,10 @@ export default function IntakeProgress({
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-label font-mono tabular-nums uppercase" style={{ color: 'var(--color-ink-2)' }}>
+          {/* P1 §7 audit: a progress readout, not a label — the Caption step
+              in sentence case with tabular figures (it was the capitalised
+              Label step in the mono, a sentence included; Q2, Q4). */}
+          <div className="flex items-center justify-between text-caption tabular-nums" style={{ color: 'var(--color-ink-2)' }}>
             <span>
               {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'
@@ -106,7 +109,7 @@ export default function IntakeProgress({
             </span>
             <span className="flex items-center gap-1">
               {phase === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
-              {phase === 'done'    && 'done'}
+              {phase === 'done'    && 'Done'}
             </span>
           </div>
           {lastLabel && (

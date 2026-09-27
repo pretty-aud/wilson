@@ -84,7 +84,7 @@ export default function UndoToast() {
   return (
     <div
       key={toast.key}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-90 flex items-center gap-3 rounded-control shadow-2xl overflow-hidden pl-4 pr-2 py-2"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-90 flex items-center gap-3 rounded-float shadow-float overflow-hidden pl-4 pr-2 py-2"
       style={{
         backgroundColor: '#292524',
         border: '1px solid #ea580c',

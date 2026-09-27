@@ -333,13 +333,15 @@ export default function TeamView() {
         </Td>
         <Td>
           <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>
-            {member.department || '--'}
+            {member.department || '—'}
           </span>
         </Td>
         <Td>
-          <span className="rb-employment text-dense font-mono px-1.5 py-0.5 rounded-control"
+          {/* P1 §7 audit: a kind of contract is a word, not data — the sans
+              in sentence case (Q2, Q4); it was the mono and "Full-Time". */}
+          <span className="rb-employment text-dense px-1.5 py-0.5 rounded-control"
             data-kind={member.employment_type === 'freelancer' ? 'freelancer' : 'full_time'}>
-            {member.employment_type === 'freelancer' ? 'Freelancer' : 'Full-Time'}
+            {member.employment_type === 'freelancer' ? 'Freelancer' : 'Full-time'}
           </span>
         </Td>
         <Td>
@@ -750,11 +752,12 @@ function ProjectMembersPanel({ ctx }) {
                       >
                         <MemberAvatar member={{ name: m.display_name || m.username }} size={28} />
                         <div className="flex-1 min-w-0">
-                          <div className="text-dense font-mono" style={{ color: 'var(--color-ink)' }}>
+                          {/* A person's name is not data: the sans (P1 §7 audit, Q4). */}
+                          <div className="text-dense" style={{ color: 'var(--color-ink)' }}>
                             {m.display_name || m.username || 'Unnamed'}
                           </div>
                           <div className="text-dense truncate" style={{ color: 'var(--color-ink-3)' }}>
-                            {[m.username ? `@${m.username}` : null, m.title].filter(Boolean).join(' — ') || '--'}
+                            {[m.username ? `@${m.username}` : null, m.title].filter(Boolean).join(' — ') || '—'}
                           </div>
                         </div>
                       </button>
@@ -934,7 +937,8 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2">
               <Users className="w-6 h-6" style={{ color: 'var(--color-ink-3)' }} />
-              <span className="text-caption font-mono italic" style={{ color: 'var(--color-ink-3)' }}>
+              {/* A sentence, not data: the sans, upright (P1 §7 audit, Q4). */}
+              <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>
                 {members.length === 0 ? 'All members are already assigned, or none exist in the database.' : 'No matches.'}
               </span>
             </div>

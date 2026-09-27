@@ -404,7 +404,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             }} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 text-dense rounded-control hover:bg-hover transition-colors"
-              style={{ color: 'var(--color-ink-2)', border: '2px dashed var(--color-rule)' }}>
+              style={{ color: 'var(--color-ink-2)', border: '1px dashed var(--color-rule)' }}>{/* one hairline (§3.3; P1 §7 audit) */}
               <Upload className="w-4 h-4" /> Drop or click to add files
             </button>
             {files.length > 0 && (

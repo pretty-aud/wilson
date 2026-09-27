@@ -1,4 +1,6 @@
-import { X, Play, RotateCcw, BookOpen, FolderPlus } from 'lucide-react'
+import { Play, RotateCcw } from 'lucide-react'
+import { Dialog } from '../ui/Dialog'
+import { Button } from '../ui/Button'
 
 /**
  * Unified proposal popup for agent generation actions.
@@ -9,6 +11,16 @@ import { X, Play, RotateCcw, BookOpen, FolderPlus } from 'lucide-react'
  *   onRefresh     - () => void — re-ask agent for a different proposal
  *   onCancel      - () => void
  *   loading       - boolean
+ *
+ * UI overhaul P1 (the §7 grep audit): this was a hand-drawn overlay — a
+ * private backdrop, the stone palette, an orange frame, a Tailwind
+ * `shadow-2xl`, a GREEN primary where the app's one filled primary is the
+ * signal fill (Q16), Title Case labels and a disabled state drawn as
+ * `opacity-50` three times (§3.1: disabled is the third ink and
+ * `not-allowed`, never an opacity). It is the kit Dialog now (Q17: its
+ * Escape, stack and busy lock come with it, and nothing else), with the
+ * kit's Buttons in the footer. The same three actions, the same words in
+ * sentence case, the same note.
  */
 export default function LessonOutlinePopup({
   proposalData,
@@ -18,82 +30,49 @@ export default function LessonOutlinePopup({
   loading,
 }) {
   const isSingleSubject = proposalData.mode === 'single_subject'
-  const isCourse = proposalData.mode === 'full_course'
+  const busy = !!loading
 
-  const headerText = isSingleSubject ? 'New Subject' : 'New Course'
-  const HeaderIcon = isSingleSubject ? BookOpen : FolderPlus
-  const generateLabel = isSingleSubject ? 'Generate Subject' : 'Generate Course'
-  const generatingLabel = isSingleSubject ? 'Generating...' : 'Generating...'
+  const title = isSingleSubject ? 'New subject' : 'New course'
+  const generateLabel = isSingleSubject ? 'Generate subject' : 'Generate course'
   const noteText = isSingleSubject
     ? 'This will generate a full subject with lessons, hotkeys, and web-sourced content using the AI pipeline.'
     : 'This will create a new course with 5-10 subject outlines. After creation, subjects can be filled with content using the Generate All button.'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-      <div className="bg-stone-900 border border-orange-500 rounded-control shadow-2xl flex flex-col" style={{ width: '500px', maxHeight: '70vh' }}>
-        {/* Header */}
-        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0 rounded-t-float">
-          <div className="flex items-center gap-2">
-            <HeaderIcon className="w-4 h-4 text-orange-400" />
-            <span className="text-label font-semibold text-orange-400 uppercase">{headerText}</span>
+    <Dialog
+      title={title}
+      width="form"
+      busy={busy}
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button Icon={RotateCcw} onClick={onRefresh} disabled={busy}>Refresh</Button>
+          <Button onClick={onCancel} disabled={busy}>Cancel</Button>
+          <Button variant="primary" Icon={Play} onClick={onGenerate} loading={busy} loadingLabel="Generating…">
+            {generateLabel}
+          </Button>
+        </>
+      )}
+    >
+      <div className="space-y-4">
+        <div>
+          <div className="text-label uppercase text-ink-3 mb-1">
+            {isSingleSubject ? 'Topic' : 'Software / language'}
           </div>
-          <button onClick={onCancel} className="p-1 hover:bg-stone-700 rounded-control transition-colors" disabled={loading}>
-            <X className="w-4 h-4 text-stone-400" />
-          </button>
+          <div className="text-h2 text-ink">
+            {isSingleSubject ? proposalData.topic : proposalData.softwareName}
+          </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Title / Topic */}
+        {proposalData.description && (
           <div>
-            <div className="text-label font-semibold uppercase text-stone-400 mb-1">
-              {isSingleSubject ? 'Topic' : 'Software / Language'}
-            </div>
-            <div className="text-h1 font-semibold text-orange-400">
-              {isSingleSubject ? proposalData.topic : proposalData.softwareName}
-            </div>
+            <div className="text-label uppercase text-ink-3 mb-1">Description</div>
+            <div className="text-body text-ink-2">{proposalData.description}</div>
           </div>
+        )}
 
-          {/* Description */}
-          {proposalData.description && (
-            <div>
-              <div className="text-label font-semibold uppercase text-stone-400 mb-1">Description</div>
-              <div className="text-body text-stone-300">{proposalData.description}</div>
-            </div>
-          )}
-
-          {/* Info note */}
-          <div className="bg-stone-800 border border-stone-600 rounded-control px-3 py-2">
-            <p className="text-dense text-stone-400 leading-relaxed">{noteText}</p>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="px-4 py-3 border-t border-stone-600 flex items-center gap-2 shrink-0">
-          <button
-            onClick={onGenerate}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-dense font-semibold rounded-control hover:bg-green-600 transition-colors disabled:opacity-50"
-          >
-            <Play className="w-3.5 h-3.5" /> {loading ? generatingLabel : generateLabel}
-          </button>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-control hover:bg-stone-600 transition-colors disabled:opacity-50"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> Refresh
-          </button>
-          <div className="flex-1" />
-          <button
-            onClick={onCancel}
-            disabled={loading}
-            className="px-4 py-2 bg-stone-700 text-stone-300 text-dense font-semibold rounded-control hover:bg-stone-600 transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        </div>
+        <p className="text-dense text-ink-2 bg-paper-recessed border border-rule rounded-control px-3 py-2">{noteText}</p>
       </div>
-    </div>
+    </Dialog>
   )
 }

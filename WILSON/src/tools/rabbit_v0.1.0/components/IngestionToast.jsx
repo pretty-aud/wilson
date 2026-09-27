@@ -49,7 +49,7 @@ export default function IngestionToast({ onJumpToReview }) {
   // backdrop, its "Review breakdown" unreachable.
   return (
     <div
-      className="fixed bottom-4 left-4 z-90 flex flex-col rounded-control shadow-2xl"
+      className="fixed bottom-4 left-4 z-90 flex flex-col rounded-float shadow-float"
       style={{
         backgroundColor: '#292524',
         border: `1px solid ${accent}`,
