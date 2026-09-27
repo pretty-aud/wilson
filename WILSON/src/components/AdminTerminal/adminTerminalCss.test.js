@@ -361,7 +361,9 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     [/\.at-log-row\[data-expanded='true'\] \.ui-td\s*\{\s*border-bottom-color:\s*transparent/, 'expanded log row'],
     // AT-27: the models row is a grid with a RESERVED reset track
     [/\.at-model-cells\s*\{[^}]*display:\s*grid/, 'AT-27 models row is a grid'],
-    [/\.at-model-cells\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 190px 84px/, 'AT-27 reserved reset track'],
+    // P1-47: the select track holds its longest value (335px measured), so a
+    // native select no longer cuts "Inherit (claude-…" mid-word.
+    [/\.at-model-cells\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 340px 84px/, 'AT-27 reserved reset track, P1-47 select track'],
     [/\.at-model-row\[data-overridden='true'\]\s*\{\s*background-color:\s*var\(--color-signal-tint\)/, 'overridden model row'],
     // AT-17: label/value pairs are a grid, never `justify-between`
     [/\.at-sec-row\s*\{[^}]*display:\s*grid/, 'AT-17 label/value grid'],
@@ -1287,5 +1289,61 @@ describe('C8: the sheet is tokens now, and the transcription ledger is closed', 
       .filter(([, src]) => /from '\.\.\/lightSurface'/.test(src))
       .map(([f]) => f)
     expect(importers).toEqual([])
+  })
+})
+
+// P1-39 (A4-12): the Requests section kept a private copy of the five
+// change-request tones after A4-KR-2 moved them into the kit's STATUS map.
+// One source: no file here may define its own status-to-tone table.
+describe('status tones come from the kit (P1-39)', () => {
+  const privateToneMap = (src) => /\b(?:open|changes_requested|withdrawn)\s*:\s*\{\s*tone\s*:/.test(src)
+  it('no Admin Terminal file carries its own status map', () => {
+    expect(Object.keys(sources).filter((f) => privateToneMap(sources[f]))).toEqual([])
+    expect(sources['ChangeRequestsSection.jsx']).toMatch(/import StatusDot, \{ STATUS, statusMeta \} from '\.\.\/\.\.\/ui\/StatusDot'/)
+  })
+  it('CONTROL: the table this file used to carry is caught', () => {
+    expect(privateToneMap("const STATUS_TONE = {\n  open:              { tone: 'signal',  label: 'Open' },")).toBe(true)
+  })
+})
+
+// P1-48: two content widths, the plan's two (§3.3), and one error treatment.
+describe('the Admin Terminal has two measures and one load-error treatment (P1-48)', () => {
+  const rule = (sheet, sel) => {
+    const at = sheet.indexOf(`\n  ${sel} {`)
+    return at < 0 ? null : sheet.slice(at, sheet.indexOf('}', at))
+  }
+  const widths = (sheet) => ({
+    narrow: (rule(sheet, '.at-section-narrow') || '').match(/max-width:\s*([^;]+);/)?.[1] ?? null,
+    storage: (rule(sheet, '.at-storage') || '').match(/max-width:\s*([^;]+);/)?.[1] ?? null,
+    models: (rule(sheet, '.at-models') || '').match(/max-width:\s*([^;]+);/)?.[1] ?? null,
+  })
+  it('Company, Diagnostics and Storage take the reading measure; Models the data cap with the tables', () => {
+    expect(widths(cssCode)).toEqual({ narrow: 'var(--width-reading)', storage: 'var(--width-reading)', models: null })
+  })
+  // NESTING, not order (V2 trap 15): from `{loadError && (` to the message,
+  // a danger Banner must have opened and not closed, with no hand-drawn tint.
+  const loadErrorInBanner = (src) => {
+    const from = src.indexOf('{loadError && (')
+    const to = src.indexOf('Storage settings could not be loaded')
+    if (from < 0 || to < from) return false
+    const span = src.slice(from, to)
+    const open = (span.match(/<Banner\b/g) || []).length - (span.match(/<\/Banner>/g) || []).length
+    return open === 1 && /<Banner\s+tone="danger"/.test(span) && !/color-mix/.test(span)
+      && /action=\{<Button variant="secondary" size="sm" onClick=\{load\}>Retry<\/Button>\}/.test(span)
+  }
+  it('Storage\'s load error is the kit Banner with a kit Retry, as Logs\' is', () => {
+    expect(loadErrorInBanner(sources['StorageSection.jsx'])).toBe(true)
+    expect(sources['LogsSection.jsx']).toMatch(/<Banner tone="danger">\{error\}<\/Banner>/)
+  })
+  it('CONTROL: the four widths, the hand-drawn box, and a Banner closed before the message are caught', () => {
+    const before = '\n  .at-section-narrow {\n    max-width: 640px;\n  }\n  .at-models { overflow-y: auto; max-width: 900px; padding-bottom: 24px; }\n  .at-storage { max-width: 720px; height: auto; }'
+    expect(widths(before)).toEqual({ narrow: '640px', storage: '720px', models: '900px' })
+    expect(loadErrorInBanner(`{loadError && (
+        <div className="p-3 rounded-control mb-3"
+             style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
+          <p>Storage settings could not be loaded: {loadError}.</p>`)).toBe(false)
+    expect(loadErrorInBanner(`{loadError && (
+        <Banner tone="danger" action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}>x</Banner>
+        <p>Storage settings could not be loaded</p>`)).toBe(false)
   })
 })

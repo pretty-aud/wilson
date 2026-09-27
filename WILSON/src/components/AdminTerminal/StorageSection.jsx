@@ -62,6 +62,8 @@ import {
   INK, INK_2, RULE, PAPER_RAISED, PAPER_RECESSED, SIGNAL, SIGNAL_TINT, SUCCESS, DANGER,
 } from '../../ui/tokens'
 import SectionTitle from '../../ui/SectionTitle'
+import Banner from '../../ui/Banner'
+import Button from '../../ui/Button'
 
 const cardStyle = {
   backgroundColor: PAPER_RAISED,
@@ -610,17 +612,18 @@ export default function StorageSection({ isActive, workspaceId }) {
         Storage
       </SectionTitle>
 
+      {/* P1-48: the kit Banner, as Logs' load error is — this was a
+          hand-drawn tinted box in the danger ink with a raw <button> wearing
+          the kit's classes (C8). Same words, same Retry. */}
       {loadError && (
-        <div className="p-3 rounded-control mb-3"
-             style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>
-          <p className="text-dense mb-2" style={{ color: DANGER }}>
-            Storage settings could not be loaded: {loadError}. Changes are
-            disabled so a root you cannot see is not overwritten.
-          </p>
-          <button type="button" onClick={load} className="ui-btn" data-variant="secondary" data-size="sm" data-surface="dark">
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="danger"
+          className="mb-3"
+          action={<Button variant="secondary" size="sm" onClick={load}>Retry</Button>}
+        >
+          Storage settings could not be loaded: {loadError}. Changes are
+          disabled so a root you cannot see is not overwritten.
+        </Banner>
       )}
 
       {/* ── Mode ─────────────────────────────────────────────────────── */}

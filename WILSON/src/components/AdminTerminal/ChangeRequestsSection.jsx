@@ -61,7 +61,7 @@ import {
 import Button from '../../ui/Button'
 import Chip from '../../ui/Chip'
 import SectionTitle from '../../ui/SectionTitle'
-import StatusDot from '../../ui/StatusDot'
+import StatusDot, { STATUS, statusMeta } from '../../ui/StatusDot'
 import EmptyState from '../../ui/EmptyState'
 import Loading from '../../ui/Loading'
 
@@ -76,13 +76,11 @@ const TABS = [
 // collapsed `open` and `changes_requested` onto the same value, so the two
 // states an admin most needs to tell apart looked identical: one is waiting
 // on them, the other is waiting on the proposer.
-const STATUS_TONE = {
-  open:              { tone: 'signal',  label: 'Open' },
-  changes_requested: { tone: 'warning', label: 'Changes requested' },
-  approved:          { tone: 'success', label: 'Approved' },
-  rejected:          { tone: 'danger',  label: 'Rejected' },
-  withdrawn:         { tone: 'neutral', label: 'Withdrawn' },
-}
+//
+// P1-39: this file kept its own copy of those five tones after A4-KR-2 moved
+// them into the kit's STATUS map, which RequestsView reads. One source now;
+// a status the map does not know reads as "Open", as it did here before.
+const requestStatus = (status) => statusMeta(STATUS[status] ? status : 'open')
 
 function fmt(iso) {
   if (!iso) return '--'
@@ -309,7 +307,7 @@ export default function ChangeRequestsSection({ isActive }) {
         ) : (
           <ul className="space-y-2">
             {visible.map(r => {
-              const st = STATUS_TONE[r.status] ?? STATUS_TONE.open
+              const st = requestStatus(r.status)
               const isOpen = expandedId === r.id
               return (
                 <li key={r.id} className="rounded-control" style={{ backgroundColor: PAPER_RAISED }}>
@@ -328,10 +326,7 @@ export default function ChangeRequestsSection({ isActive }) {
                         {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                       </span>
                     </span>
-                    <span
-                      className="text-label uppercase flex-shrink-0"
-                      style={{ color: st.color }}
-                    >
+                    <span className="text-label uppercase flex-shrink-0">
                       {st.label}
                     </span>
                   </button>

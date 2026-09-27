@@ -152,9 +152,15 @@
      one, and a keyboard PageDown that depends on which of them has focus.
      `height: auto` is the other half: `.at-section` is `height: 100%`, which
      inside a scroll container means "the visible height" and would cap the
-     stack rather than let the wrapper carry it. */
+     stack rather than let the wrapper carry it.
+
+     P1-48: the page had four content widths (640, 720, 900 and the data cap;
+     right edges 887 / 967 / 1147 / 1255 at 1440) and its Refresh moved with
+     them. Two now, the plan's two (§3.3): the reading measure for Company,
+     Diagnostics and Storage, the data cap for Users, Requests, Logs and
+     Models, whose three Refresh buttons now sit in one place. */
   .at-section-narrow {
-    max-width: 640px;
+    max-width: var(--width-reading);
     height: auto;
     padding-bottom: 24px;
   }
@@ -496,12 +502,14 @@
 
   /* ═══ MODELS ═══════════════════════════════════════════════════════════ */
   /* Models is the one of the four whose wrapper does NOT scroll, so it keeps
-     its own scroller — one either way, never two. */
-  .at-models { overflow-y: auto; max-width: 900px; padding-bottom: 24px; }
+     its own scroller — one either way, never two. Its 28 rows are a list of
+     three columns, so it takes the data cap with Users, Requests and Logs
+     (P1-48; it was 900px). */
+  .at-models { overflow-y: auto; padding-bottom: 24px; }
   /* Storage is a stack of cards and pickers, not a table: the form measure,
      not the data cap. */
   /* Same as `.at-section-narrow`: the wrapper scrolls this one. */
-  .at-storage { max-width: 720px; height: auto; padding-bottom: 24px; }
+  .at-storage { max-width: var(--width-reading); height: auto; padding-bottom: 24px; }
   .at-model-group { display: flex; flex-direction: column; gap: 4px; }
   .at-model-list {
     border: 1px solid var(--color-rule);
@@ -514,10 +522,14 @@
      its own line BELOW the select it resets — the control that undoes a choice
      stopped sitting beside it. Three tracks mean the twenty-eight rows form
      three columns at every width, and the reset slot is RESERVED whether or
-     not the row has one, so no row shifts when it gains or loses the control. */
+     not the row has one, so no row shifts when it gains or loses the control.
+     P1-47: a native select has no ellipsis, so at 190px it cut its value
+     mid-word ("Inherit (claude-sonnet-5 ("). The longest option in the
+     fixtures, "Inherit (claude-haiku-4-5-20251001 (built-in fast))", is 335px
+     with the control's padding (measured in the app); the column holds it. */
   .at-model-cells {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 190px 84px;
+    grid-template-columns: minmax(0, 1fr) 340px 84px;
     gap: 12px;
     align-items: center;
   }
