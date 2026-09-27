@@ -5,7 +5,8 @@
 // mocked R.A.B.B.I.T. context and asserts what a user would meet. One
 // describe per surface, added in the commit that moves it — surface 6a: the
 // tiles, the toolbar and both tables (the scene table with its nested shots,
-// and the shot table), and the four delete questions on the kit Dialog (W9).
+// and the shot table), and the four delete questions on the kit Dialog (W9);
+// surface 6b: the two galleries, the filter strip and the saved-views menu.
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
@@ -466,5 +467,296 @@ describe('surface 6a', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(bulk()).toBeNull()
     expect(confirm).not.toHaveBeenCalled()
+  })
+})
+
+/* ── surface 6b: the two galleries, the filter strip, the saved-views menu ─ */
+const toGallery = () => fireEvent.click(screen.getByRole('tab', { name: 'Gallery' }))
+const gallery = () => document.querySelector('.rb-scene-view > .rb-scene-gallery')
+const cardsOf = (root = gallery()) => [...root.querySelectorAll('.rb-scene-card')]
+const cardName = (card) => card.querySelector('.rb-scene-card-name').textContent
+const cardOf = (name) => cardsOf().find((c) => cardName(c) === name)
+/** The rows a table lists, in order, by their checkboxes' names. */
+const rowNames = (table) => [...table.querySelectorAll(':scope > tbody > tr .rb-scene-check')].map((b) => b.getAttribute('aria-label').replace(/^Select /, ''))
+const SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
+const TAKES = {
+  supportsBins: true,
+  shotTakes: [{ id: 't1', shot_id: 'sh2', bin_file_id: 'f1', role: 'primary', position: 0 }],
+  binFiles: [{ id: 'f1', display_name: 'take_01.mov', media_type: 'video', online: true }],
+}
+
+describe('surface 6b', () => {
+  it('each gallery holds its table\'s cards in the same order, with the same words, on the kit Card (C1)', () => {
+    page()
+    const scenes = rowNames(sceneTable())
+    toGallery()
+    expect(sceneTable()).toBeNull()
+    const cards = cardsOf()
+    for (const c of cards) expect(c.classList.contains('ui-card'), cardName(c)).toBe(true)
+    expect(cards.map(cardName)).toEqual(scenes)
+    expect(scenes).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    // A scene card: its name, description, type, time of day and status, then
+    // its shot count and runtime (none for a scene with no shots), as before.
+    const words = (card) => ({
+      desc: card.querySelector('.rb-scene-card-desc')?.textContent ?? null,
+      tags: [...card.querySelectorAll('.rb-scene-card-tag')].map((t) => t.textContent),
+      status: card.querySelector('.ui-status').textContent,
+      figures: [...card.querySelectorAll('.rb-scene-card-figure')].map((f) => f.textContent),
+    })
+    expect(words(cards[0])).toEqual({ desc: 'Mara lets herself in.', tags: ['Interior', 'Dawn'], status: 'Final', figures: ['2 shots', '00:00:10:00'] })
+    expect(words(cards[1])).toEqual({ desc: null, tags: ['Exterior'], status: 'Needs revisions', figures: [] })
+
+    toShots()
+    toGallery()
+    expect(gallery()).not.toBeNull()
+    cleanup()
+    page()
+    toShots()
+    const shots = rowNames(shotTable())
+    toGallery()
+    expect(cardsOf().map(cardName)).toEqual(shots)
+    expect(shots).toEqual(['The door', 'The cold lamp'])
+    // A shot card: its number and status, then its runtime and frame count.
+    const [door, lamp] = cardsOf()
+    expect([door.querySelector('.rb-scene-card-desc').textContent, door.querySelector('.rb-scene-card-num').textContent, door.querySelector('.ui-status').textContent])
+      .toEqual(['Mara in the doorway.', '#10', 'Final'])
+    expect([...door.querySelectorAll('.rb-scene-card-figure')].map((f) => f.textContent)).toEqual(['00:00:10:00', '240 fr'])
+    expect([lamp.querySelector('.rb-scene-card-desc'), lamp.querySelector('.rb-scene-card-num').textContent, lamp.querySelectorAll('.rb-scene-card-figure').length])
+      .toEqual([null, '#20', 0])
+    // A group's head: the scene, its count and its runtime, and Scene details the named kit IconButton.
+    const head = gallery().querySelector('.rb-scene-gallery-group > .rb-scene-gallery-head')
+    expect(head.querySelector('.rb-scene-group-label').textContent).toBe('Lighthouse, dawn')
+    expect([...head.querySelectorAll('.rb-scene-group-count')].map((s) => s.textContent)).toEqual(['2 shots', '· 00:00:10:00'])
+    expect(within(head).getByRole('button', { name: 'Scene details' }).classList.contains('ui-iconbtn')).toBe(true)
+  })
+
+  it('the three card sizes stay three, keyed on the gallery\'s data-card, and the sheet sizes them', () => {
+    page()
+    toGallery()
+    expect(gallery().getAttribute('data-card')).toBe('md')
+    for (const s of ['sm', 'lg', 'md']) {
+      fireEvent.click(screen.getByRole('button', { name: `${s} cards` }))
+      expect(gallery().getAttribute('data-card')).toBe(s)
+      expect(screen.getByRole('button', { name: `${s} cards` }).getAttribute('aria-pressed')).toBe('true')
+    }
+    toShots()
+    fireEvent.click(screen.getByRole('button', { name: 'lg cards' }))
+    expect(gallery().getAttribute('data-card')).toBe('lg')
+    // No card carries a size of its own: the sheet's widths, keyed on data-card.
+    for (const c of cardsOf()) expect(c.getAttribute('style')).toBeNull()
+  })
+
+  it('a card\'s status is the kit StatusBadge, its tone from the one STATUS map; the status-coloured bar is gone (R3-11)', () => {
+    page()
+    toGallery()
+    for (const [name, status] of [['Lighthouse, dawn', 'final'], ['Cliff path', 'needs_revisions']]) {
+      const badges = cardOf(name).querySelectorAll('.ui-status')
+      expect(badges, name).toHaveLength(1)
+      expect([badges[0].getAttribute('data-status'), badges[0].getAttribute('data-tone')]).toEqual([status, STATUS[status].tone])
+    }
+    // needs_revisions was magenta (#e879f9): the kit's warning.
+    expect(cardOf('Cliff path').querySelector('.ui-status').getAttribute('data-tone')).toBe('warning')
+    toShots()
+    expect(cardOf('The cold lamp').querySelector('.ui-status').getAttribute('data-tone')).toBe('signal')
+    // The ScenesView source no longer calls statusColor outside the two popups (6c's).
+    const src = read('./ScenesView.jsx')
+    for (const name of ['SceneGallery', 'ShotGallery']) {
+      const body = src.slice(src.indexOf(`function ${name}(`), src.indexOf('\n}\n', src.indexOf(`function ${name}(`)))
+      expect(body, name).not.toMatch(/statusColor\(/)
+    }
+  })
+
+  it('no element in the mounted galleries writes an inline colour, border or background', () => {
+    page()
+    toGallery()
+    expect(cardsOf()).toHaveLength(2)
+    expect(inlineColours(gallery())).toEqual([])
+    toShots()
+    expect(cardsOf()).toHaveLength(2)
+    expect(inlineColours(gallery())).toEqual([])
+    cleanup()
+    // With the bins: the primary take's poster keeps the size it is handed and
+    // takes its edge from a class. The chips are ShotTakeChips (B6's, its inks
+    // its own contract), left out of the scan.
+    page(TAKES)
+    toShots()
+    toGallery()
+    const poster = cardOf('The cold lamp').querySelector('.bn-poster')
+    expect(poster.classList.contains('rb-scene-poster')).toBe(true)
+    expect([poster.style.width, poster.style.height, poster.style.border]).toEqual(['220px', '124px', ''])
+    const host = gallery().cloneNode(true)
+    host.querySelectorAll('.rb-scene-card-takes').forEach((n) => n.remove())
+    expect(host.querySelectorAll('.rb-scene-card').length).toBe(2)
+    expect(inlineColours(host)).toEqual([])
+    // ShotTakeChips keeps the 20px ScenesView always handed it in a card.
+    expect(within(cardOf('The door')).getByTitle('Assign takes from the bins').style.height).toBe('20px')
+  })
+
+  it('a card\'s delete sits in the kit HoverActions, named for its card: it asks and does not open the card; the card opens it (R3-24)', async () => {
+    const { ctx } = page()
+    toGallery()
+    const card = cardOf('Lighthouse, dawn')
+    // The card hosts the kit's reveal: on hover AND on focus-within (Q17(b)).
+    expect(card.classList.contains('ui-hover-host')).toBe(true)
+    const acts = card.querySelector(':scope > .rb-scene-card-media > .ui-hover-actions')
+    const del = within(acts).getByRole('button', { name: 'Delete Lighthouse, dawn' })
+    expect([del.classList.contains('ui-iconbtn'), del.getAttribute('data-danger'), del.getAttribute('data-size')]).toEqual([true, 'true', 'sm'])
+    fireEvent.click(del)
+    const dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
+    expect(dialog.textContent).toContain('This will permanently delete "Lighthouse, dawn" and all its shots.')
+    expect(screen.queryByText('Scene name')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(ctx.deleteScene).not.toHaveBeenCalled()
+    // The whole card opens the scene, as it did.
+    fireEvent.click(card)
+    expect(await screen.findByText('Scene name')).toBeTruthy()
+    cleanup()
+
+    page()
+    toShots()
+    toGallery()
+    const door = cardOf('The door')
+    fireEvent.click(within(door.querySelector('.ui-hover-actions')).getByRole('button', { name: 'Delete The door' }))
+    expect(screen.getByRole('dialog', { name: 'Delete shot?' }).textContent).toContain('"The door"')
+    expect(screen.queryByText('Shot name')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(door)
+    expect(await screen.findByText('Shot name')).toBeTruthy()
+  })
+
+  it('grouped by a field, the shot gallery keys each group on its own key (a scene\'s id was every group\'s key)', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    page()
+    toShots()
+    toGallery()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
+    const heads = [...gallery().querySelectorAll('.rb-scene-gallery-head')]
+    expect(heads.map((h) => h.querySelector('.rb-scene-group-label').textContent)).toEqual(['Final', 'In progress'])
+    // A field group has no scene, so no Scene details.
+    for (const h of heads) expect(within(h).queryByRole('button', { name: 'Scene details' })).toBeNull()
+    expect(error.mock.calls.map((c) => String(c[0])).filter((m) => /unique "key"/.test(m))).toEqual([])
+  })
+
+  it('nothing to show is the kit EmptyState, in the same words (R3-19)', () => {
+    page({ scenes: [], shots: [] })
+    toGallery()
+    let empty = document.querySelector('.rb-scene-view > .ui-empty')
+    expect(empty?.getAttribute('role')).toBe('status')
+    expect(empty.textContent).toBe('No scenes yet')
+    toShots()
+    empty = document.querySelector('.rb-scene-view > .ui-empty')
+    expect(empty.querySelector('.ui-empty-title').textContent).toBe('No shots yet')
+    // The gallery's never had the table's instruction line.
+    expect(empty.querySelector('.ui-empty-body')).toBeNull()
+  })
+
+  it('the filter strip: the same controls in the same order on the kit; Add filter adds a row, and each field acts as before', () => {
+    page()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    const strip = () => document.querySelector('.rb-scene-filters')
+    // No filter yet: Add filter and Done, the kit's Buttons (Done shows, as it did).
+    const actions = () => within(strip().querySelector('.rb-scene-filter-actions')).getAllByRole('button')
+    expect(actions().map((b) => [b.textContent, b.classList.contains('ui-btn'), b.getAttribute('data-variant')]))
+      .toEqual([['Add filter', true, 'secondary'], ['Done', true, 'ghost']])
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Add filter' }))
+    const rows = () => [...strip().querySelectorAll('.rb-scene-filter-row')]
+    expect(rows()).toHaveLength(1)
+    const named = (row) => [...row.children].map((el) => el.getAttribute('aria-label') || el.textContent.trim())
+    expect(named(rows()[0])).toEqual(['Where', 'Field', 'Condition', 'Value', 'Remove this filter'])
+    // Every field the kit's small well; the remove the kit's danger IconButton.
+    for (const el of rows()[0].querySelectorAll('select, input')) {
+      expect(el.classList.contains('ui-input'), el.getAttribute('aria-label')).toBe(true)
+      expect(el.getAttribute('data-size')).toBe('sm')
+    }
+    const remove = within(rows()[0]).getByRole('button', { name: 'Remove this filter' })
+    expect([remove.classList.contains('ui-iconbtn'), remove.getAttribute('data-danger')]).toEqual([true, 'true'])
+    const row = () => within(rows()[0])
+    const options = (name) => [...row().getByRole('combobox', { name }).options].map((o) => o.textContent)
+    expect(options('Field')).toEqual(['Status', 'Type', 'Time of day', 'Name'])
+    expect(options('Condition')).toEqual(['is', 'is not', 'is empty', 'is not empty'])
+    // The choices in sentence case (they were "not started", "in progress"…).
+    expect(options('Value')).toEqual(['Select…', 'Not started', 'In progress', 'Pending review', 'Needs revisions', 'Approved', 'Final', 'Blocked', 'On hold', 'Omitted'])
+    // It filters as before: status is final leaves one scene of two.
+    fireEvent.change(row().getByRole('combobox', { name: 'Value' }), { target: { value: 'final' } })
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn'])
+    expect(screen.getByRole('button', { name: 'Filter (1)' })).toBeTruthy()
+    // A text field: its own conditions, a text value in the kit's small well.
+    fireEvent.change(row().getByRole('combobox', { name: 'Field' }), { target: { value: 'name' } })
+    expect(options('Condition')).toEqual(['contains', 'does not contain', 'is', 'is not', 'is empty', 'is not empty'])
+    fireEvent.change(row().getByRole('combobox', { name: 'Condition' }), { target: { value: 'contains' } })
+    const value = row().getByRole('textbox', { name: 'Value' })
+    expect([value.classList.contains('ui-input'), value.getAttribute('placeholder')]).toEqual([true, 'Value…'])
+    fireEvent.change(value, { target: { value: 'cliff' } })
+    expect(rowNames(sceneTable())).toEqual(['Cliff path'])
+    // "is empty" takes no value.
+    fireEvent.change(row().getByRole('combobox', { name: 'Condition' }), { target: { value: 'is_empty' } })
+    expect(named(rows()[0])).toEqual(['Where', 'Field', 'Condition', 'Remove this filter'])
+    // A second row says And; the remove takes its own row; Done closes the strip.
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Add filter' }))
+    expect(rows().map((r) => r.firstElementChild.textContent)).toEqual(['Where', 'And'])
+    fireEvent.click(within(rows()[0]).getByRole('button', { name: 'Remove this filter' }))
+    expect(rows().map((r) => within(r).getByRole('combobox', { name: 'Field' }).value)).toEqual(['status'])
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Done' }))
+    expect(strip()).toBeNull()
+    // The shots' strip offers the shots' fields, in their order.
+    toShots()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter (1)' }))
+    expect([...within(strip()).getByRole('combobox', { name: 'Field' }).options].map((o) => o.textContent))
+      .toEqual(['Status', 'Type', 'Time of day', 'Framing', 'Camera movement', 'Name'])
+    expect(inlineColours(strip())).toEqual([])
+  })
+
+  it('the saved-views menu: the icon it was, named "Saved views"; a view\'s row loads it, its named delete deletes it, and the foot saves the current view', () => {
+    const shotCards = { id: 'v1', name: 'Shot cards, large', filters: [], sortField: '', sortDir: 'asc', groupBy: '', viewMode: 'gallery', gallerySize: 'lg', thumbSize: 'sm', contentMode: 'shots' }
+    const sceneCards = { id: 'v2', name: 'Scene cards, small', filters: [], sortField: '', sortDir: 'asc', groupBy: '', viewMode: 'gallery', gallerySize: 'sm', thumbSize: 'sm', contentMode: 'scenes' }
+    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify([shotCards, sceneCards]))
+    page()
+    const button = screen.getByRole('button', { name: 'Saved views' })
+    expect([button.classList.contains('ui-iconbtn'), button.getAttribute('data-saved'), button.getAttribute('aria-expanded')]).toEqual([true, 'true', 'false'])
+    const menu = () => document.querySelector('.rb-scene-menu')
+    const mode = () => ['Scenes', 'Shots', 'Table', 'Gallery'].filter((n) => screen.getByRole('tab', { name: n }).getAttribute('aria-selected') === 'true')
+    expect(mode()).toEqual(['Scenes', 'Table'])
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect([...menu().querySelectorAll('.rb-scene-menu-list > .rb-scene-menu-item')].map((r) => r.textContent)).toEqual(['Shot cards, large', 'Scene cards, small'])
+
+    // Delete: the view's own named button. The view goes, nothing loads, the menu stays.
+    fireEvent.click(within(menu()).getByRole('button', { name: 'Delete the saved view "Shot cards, large"' }))
+    expect(JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY)).map((v) => v.id)).toEqual(['v2'])
+    expect(mode()).toEqual(['Scenes', 'Table'])
+    expect([...menu().querySelectorAll('.rb-scene-menu-list > .rb-scene-menu-item')].map((r) => r.textContent)).toEqual(['Scene cards, small'])
+
+    // Load: a click on the view's row. The menu closes and the view is on show.
+    fireEvent.click(within(menu()).getByText('Scene cards, small'))
+    expect(menu()).toBeNull()
+    expect(mode()).toEqual(['Scenes', 'Gallery'])
+    expect(gallery().getAttribute('data-card')).toBe('sm')
+
+    // Delete the last: none saved, the glyph back to the ink.
+    fireEvent.click(button)
+    fireEvent.click(within(menu()).getByRole('button', { name: 'Delete the saved view "Scene cards, small"' }))
+    expect(menu().querySelector('.rb-scene-menu-empty').textContent).toBe('No saved views yet')
+    expect(button.getAttribute('data-saved')).toBe('false')
+
+    // Save current view: the menu closes and the inline row under the toolbar opens, as before.
+    fireEvent.click(within(menu()).getByRole('button', { name: 'Save current view' }))
+    expect(menu()).toBeNull()
+    const name = screen.getByRole('textbox', { name: 'View name' })
+    fireEvent.change(name, { target: { value: 'Mine' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    expect(JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY)).map((v) => v.name)).toEqual(['Mine'])
+    fireEvent.click(button)
+    expect(within(menu()).getByText('Mine')).toBeTruthy()
+    expect(inlineColours(menu())).toEqual([])
+    // An outside press closes it, as it always did.
+    fireEvent.mouseDown(document.body)
+    expect(menu()).toBeNull()
+  })
+
+  it('the menu\'s look is the sheet\'s: the signal on the glyph while views are saved, the float tokens, the list scrolling past 200px', () => {
+    const css = read('./rabbitScenes.css')
+    expect(css).toContain('.rb-scene-views > .ui-iconbtn.rb-scene-views-button[data-saved="true"] { color: var(--color-signal); }')
+    expect(css).toMatch(/\.rb-scene-menu \{[^}]*min-width: 180px;[^}]*background-color: var\(--color-paper-raised\);[^}]*border-radius: var\(--radius-float\);[^}]*box-shadow: var\(--shadow-float\);/)
+    expect(css).toContain('.rb-scene-menu-list { max-height: 200px; overflow-y: auto; }')
   })
 })

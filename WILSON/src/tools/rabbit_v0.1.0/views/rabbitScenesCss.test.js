@@ -42,26 +42,25 @@ const FILES = {
   // B5b surface 6a: the page, its tiles and toolbar (inside the default
   // ScenesView), BigTile, SceneTable (its nested shots), ShotTable, and the
   // helpers they call — InlineText, SceneBulkSelect, ConfirmDialog (W9) and
-  // the pure formatters. Staged: 6b's galleries, filter panel and saved
-  // views, 6c's two popups and the two helpers only they call, and
-  // statusColor, which only they still call (the tables read the kit's
-  // STATUS map now).
+  // the pure formatters. Surface 6b: SceneGallery, ShotGallery,
+  // SceneFilterPanel and SceneSavedViewsDropdown. Staged: 6c's two popups
+  // and the two helpers only they call, and statusColor, which only they
+  // still call (the tables and the galleries read the kit's STATUS map now).
   scenes: {
     file: './ScenesView.jsx',
     prefix: 'rb-scene-',
     min: 3000,
     staged: [
       'statusColor',
-      'SceneGallery', 'ShotGallery',
       'SceneDetailPopup', 'ShotDetailPopup',
-      'SceneFilterPanel', 'SceneSavedViewsDropdown',
       'PopupInlineText', 'FieldLabel',
     ],
   },
 }
 /** The inline styles each file may write: a caller-given geometry or a
-    measured quantity carried as a custom property, never a state. Surface
-    6a writes none: every size is the sheet's, keyed on `data-thumb`. */
+    measured quantity carried as a custom property, never a state. Surfaces
+    6a and 6b write none: every size is the sheet's, keyed on `data-thumb`
+    (the tables) and `data-card` (the galleries). */
 const STYLES = {}
 
 /** A source with the named top-level functions taken out. A function starts
@@ -80,6 +79,18 @@ function withoutFunctions(src, names) {
     if (!skipping) kept.push(line)
   }
   return kept.join('\n')
+}
+/** One top-level function's own lines, bounded as withoutFunctions bounds it. */
+function functionText(src, name) {
+  const boundary = /^(function |export |const |\/\/ ─)/
+  const out = []
+  let inside = false
+  for (const line of src.split('\n')) {
+    if (inside && boundary.test(line)) break
+    if (!inside && (line.startsWith(`function ${name}(`) || line.startsWith(`export default function ${name}(`))) inside = true
+    if (inside) out.push(line)
+  }
+  return out.join('\n')
 }
 const source = Object.fromEntries(Object.entries(FILES).map(([k, { file, staged }]) => [k, staged ? withoutFunctions(read(file), staged) : read(file)]))
 const code = Object.fromEntries(Object.entries(source).map(([k, s]) => [k, normal(jsCode(s))]))
@@ -133,8 +144,11 @@ describe('a staged function is read out of the guards, and only a staged one', (
       }
     }
   })
-  it('every function surface 6a restyled is still read', () => {
-    for (const name of ['ScenesView', 'BigTile', 'SceneTable', 'ShotTable', 'ConfirmDialog', 'SceneBulkSelect', 'InlineText']) {
+  it('every function surfaces 6a and 6b restyled is still read', () => {
+    for (const name of [
+      'ScenesView', 'BigTile', 'SceneTable', 'ShotTable', 'ConfirmDialog', 'SceneBulkSelect', 'InlineText',
+      'SceneGallery', 'ShotGallery', 'SceneFilterPanel', 'SceneSavedViewsDropdown',
+    ]) {
       expect(source.scenes, name).toMatch(new RegExp(`^(?:export default )?function ${name}\\(`, 'm'))
     }
   })
@@ -143,17 +157,29 @@ describe('a staged function is read out of the guards, and only a staged one', (
     const whole = read(file)
     // Plant on the first line inside the function's body.
     const plant = (name) => whole.replace(new RegExp(`^((?:export default )?function ${name}\\([^\\n]*\\n)`, 'm'), "$1  const planted = '#abcdef'\n")
-    const inGallery = plant('SceneGallery')
+    // Still staged (6c's): a popup, and statusColor, which only the popups call.
     const inPopup = plant('ShotDetailPopup')
+    const inStatusColor = plant('statusColor')
+    // Read (6a's and, since surface 6b, the galleries, the strip and the menu).
     const inSceneTable = plant('SceneTable')
     const inShotTable = plant('ShotTable')
     const inShell = plant('ScenesView')
-    for (const planted of [inGallery, inPopup, inSceneTable, inShotTable, inShell]) expect(planted).not.toBe(whole)
-    expect(stateLeaks(withoutFunctions(inGallery, staged), STYLES.scenes || [], [])).toEqual([])
+    const inGallery = plant('SceneGallery')
+    const inShotGallery = plant('ShotGallery')
+    const inFilters = plant('SceneFilterPanel')
+    const inViews = plant('SceneSavedViewsDropdown')
+    const read6 = [inSceneTable, inShotTable, inShell, inGallery, inShotGallery, inFilters, inViews]
+    for (const planted of [inPopup, inStatusColor, ...read6]) expect(planted).not.toBe(whole)
     expect(stateLeaks(withoutFunctions(inPopup, staged), STYLES.scenes || [], [])).toEqual([])
-    expect(stateLeaks(withoutFunctions(inSceneTable, staged), STYLES.scenes || [], [])).toEqual(['#abcdef'])
-    expect(stateLeaks(withoutFunctions(inShotTable, staged), STYLES.scenes || [], [])).toEqual(['#abcdef'])
-    expect(stateLeaks(withoutFunctions(inShell, staged), STYLES.scenes || [], [])).toEqual(['#abcdef'])
+    expect(stateLeaks(withoutFunctions(inStatusColor, staged), STYLES.scenes || [], [])).toEqual([])
+    for (const planted of read6) expect(stateLeaks(withoutFunctions(planted, staged), STYLES.scenes || [], [])).toEqual(['#abcdef'])
+  })
+  it('statusColor stays staged only while a popup (6c) calls it: nothing that is read calls it', () => {
+    expect(code.scenes).not.toMatch(/\bstatusColor\(/)
+    const whole = read('./ScenesView.jsx')
+    const callers = ['SceneDetailPopup', 'ShotDetailPopup'].filter((n) => /\bstatusColor\(/.test(jsCode(functionText(whole, n))))
+    // When neither popup calls it, it is dead: delete it and its staged entry.
+    expect(callers).not.toEqual([])
   })
   it('CONTROL: a function ends at the next column-0 function, export, const or section divider', () => {
     const src = [
@@ -209,6 +235,11 @@ const VARIABLE = [
   // it from this state). The wrap's own custom properties are the small size.
   { cls: 'rb-scene-table-wrap', attr: 'data-thumb', set: '{thumbSize}', from: ['scenes', "const [thumbSize, setThumbSize] = useState('sm')"],
     domain: () => arrayValues(source.scenes, 'SIZE_KEYS'), base: ['sm'] },
+  // The galleries' card size (surface 6b): state, one of SIZE_KEYS (the card
+  // triple sets it; a saved view saves it from this state). The gallery's
+  // own custom properties are the middle size, the old `|| sizeMap.md`.
+  { cls: 'rb-scene-gallery', attr: 'data-card', set: '{gallerySize}', from: ['scenes', "const [gallerySize, setGallerySize] = useState('md')"],
+    domain: () => arrayValues(source.scenes, 'SIZE_KEYS'), base: ['md'] },
 ]
 const variableKey = ({ classes, cls, attr, set }) => `${classes ? classes.join(' ') : cls} ${attr}=${set}`
 
@@ -247,6 +278,17 @@ describe('a data-* set from a variable: every value it can take has a rule, and 
     expect(sheet).toMatch(/\.rb-scene-table-wrap \{\n {4}--rb-scene-thumb-h: 36px;/)
     expect(sheet).toContain('.rb-scene-table-wrap[data-thumb="md"] { --rb-scene-thumb-h: 54px; }')
     expect(sheet).toContain('.rb-scene-table-wrap[data-thumb="lg"] { --rb-scene-thumb-h: 72px; }')
+  })
+  it('the sheet\'s three card widths and frame heights are ShotGallery\'s — the numbers BinPoster is handed', () => {
+    const shots = functionText(read('./ScenesView.jsx'), 'ShotGallery')
+    expect(shots).toMatch(/const sizeMap = \{ sm: 160, md: 220, lg: 300 \}\n/)
+    expect(shots).toMatch(/const cardH = Math\.round\(cardW \* 9 \/ 16\)\n/)
+    const frame = (w) => Math.round(w * 9 / 16)
+    expect(sheet).toMatch(new RegExp(`\\.rb-scene-gallery \\{\\n {4}--rb-scene-card: 220px;\\n {4}--rb-scene-card-frame: ${frame(220)}px;`))
+    expect(sheet).toContain(`.rb-scene-gallery[data-card="sm"] { --rb-scene-card: 160px; --rb-scene-card-frame: ${frame(160)}px; }`)
+    expect(sheet).toContain(`.rb-scene-gallery[data-card="lg"] { --rb-scene-card: 300px; --rb-scene-card-frame: ${frame(300)}px; }`)
+    // A scene's well is half its card's width, as `cardW * 0.5` was.
+    expect(sheet).toContain('height: calc(var(--rb-scene-card) * 0.5);')
   })
 })
 
