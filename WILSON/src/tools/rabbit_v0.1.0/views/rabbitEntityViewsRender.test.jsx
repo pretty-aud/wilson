@@ -305,7 +305,12 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     expect(rows.map((r) => [...r.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent))).toEqual(p.counts)
     // The name is the row's anchor: its own button, whose text is the name.
     expect(within(rows[0]).getByRole('button', { name: p.names[0] }).getAttribute('data-quiet')).toBe('false')
-    expect(within(rows[0]).getByRole('button', { name: 'No description' }).getAttribute('data-quiet')).toBe('true')
+    // P1-76: an empty description shows the one empty mark the other tables
+    // print, and is named by its field, not read as a dash.
+    const desc = within(rows[0]).getByRole('button', { name: 'Description, empty' })
+    expect(desc.getAttribute('data-quiet')).toBe('true')
+    expect(desc.textContent).toBe('—')
+    expect(within(rows[0]).queryByText('No description')).toBeNull()
     // R4-05: the kit's words in a kit CellSelect with no colour of its own,
     // the kit's dot beside it, toned by the one STATUS map.
     const { status } = ctx[p.nouns][0]

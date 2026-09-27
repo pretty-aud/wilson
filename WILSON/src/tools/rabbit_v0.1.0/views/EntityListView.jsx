@@ -698,11 +698,13 @@ function EntityRow({ entity, item, assetCount, taskCount, onUpdate, onOpenDetail
       <Td numeric className="rb-ent-num">{assetCount}</Td>
       <Td numeric className="rb-ent-num">{taskCount}</Td>
 
-      {/* Description — inline editable, in the second ink */}
+      {/* Description — inline editable, in the second ink. Empty, it shows
+          the one mark the other tables print (P1-76; it said "No
+          description" here alone). */}
       <Td className="rb-ent-ctl-cell">
         <InlineText
           value={item.description || ''}
-          placeholder="No description"
+          placeholder="—"
           label="Description"
           quiet
           onCommit={v => onUpdate({ description: v })}
@@ -1422,6 +1424,10 @@ function InlineText({ value, placeholder, label, onCommit, quiet = false }) {
     <button type="button" onClick={() => setEditing(true)}
       className="rb-ent-cell-text"
       title={value || undefined}
+      // An empty cell showing the app's one empty mark (P1-76) would be read
+      // as a dash: it is named by its field instead. A placeholder in words
+      // ("Untitled level") stays the name, so the visible words are in it.
+      aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
       data-quiet={quiet ? 'true' : 'false'}
       data-empty={value ? 'false' : 'true'}>
       {value || placeholder}

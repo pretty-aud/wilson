@@ -200,9 +200,11 @@ describe('the sheet keys on values the JSX can produce', () => {
     expect(colourOf('.rb-hist-action[data-action="delete"]')).toBe('var(--color-danger)')
     expect(colourOf('.rb-hist-action[data-action="restore"]')).toBe('var(--color-success)')
     expect(colourOf('.rb-hist-action')).toBe('var(--color-ink-3)')
-    expect(THEME['color-success']).toBe(ACTION_META.create.color)
-    expect(THEME['color-success']).toBe(RESTORE_META.color)
-    expect(THEME['color-danger']).toBe(ACTION_META.delete.color)
+    // The tokens are the hexes the table used to name (P1-66 deleted its
+    // unread `color` fields; the values stay pinned here).
+    expect(THEME['color-success']).toBe('#4ade80')
+    expect(THEME['color-danger']).toBe('#fca5a5')
+    expect(Object.values({ ...ACTION_META, restore: RESTORE_META }).some((m) => 'color' in m)).toBe(false)
   })
   it('CONTROL: each fires on a value nobody sets, a class nobody wears and an operator; each passes the real shape', () => {
     const src = "<div className=\"rb-tl-x\" data-on={on ? 'true' : 'false'} />"

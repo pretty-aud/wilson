@@ -38,38 +38,50 @@ export default function TitleBar() {
       justifyContent: 'flex-end',
       WebkitAppRegion: 'drag',
     }}>
+      {/* P1-77 (V1-05): the three window controls are icon-only, so each
+          carries a name and the tooltip that says it (plan §3.3); their
+          glyphs are decoration. Nothing else about them changes. */}
       {/* Minimize */}
       <button
+        type="button"
+        aria-label="Minimize"
+        title="Minimize"
         style={btnBase}
         onClick={() => window.electronAPI.minimize()}
         onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
-        <svg width="10" height="1" viewBox="0 0 10 1">
+        <svg width="10" height="1" viewBox="0 0 10 1" aria-hidden="true">
           <rect width="10" height="1" fill="currentColor" />
         </svg>
       </button>
 
       {/* Maximize / Restore */}
       <button
+        type="button"
+        aria-label="Maximize"
+        title="Maximize"
         style={btnBase}
         onClick={() => window.electronAPI.maximize()}
         onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
-        <svg width="10" height="10" viewBox="0 0 10 10">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
         </svg>
       </button>
 
       {/* Close */}
       <button
+        type="button"
+        aria-label="Close"
+        title="Close"
         style={{ ...btnBase, borderRadius: '0' }}
         onClick={() => window.electronAPI.close()}
         onMouseEnter={(e) => { e.currentTarget.style.background = '#e81123'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
-        <svg width="10" height="10" viewBox="0 0 10 10">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2" />
           <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2" />
         </svg>

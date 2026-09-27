@@ -412,7 +412,9 @@ const KNOWN = {
     // the kit's, named "Close", and each shot row's trash a kit IconButton
     // named for its shot — so rabbit-scene-detail reads anon=0 at 1440x900
     // and 1280x700 (rabbit-shot-detail too), and its two lines are deleted.
-    { key: 'shell-quit', text: 'no-icon', n: 3 },
+    // P1-77 (2026-09-27): the Electron title bar's three window controls are
+    // named (Minimize, Maximize, Close, each with its tooltip), so shell-quit
+    // reads anon=0 at 1280x700 and its line is deleted.
   ],
 };
 /* `text` is REQUIRED: a key-only entry would excuse everything of its kind on
