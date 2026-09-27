@@ -179,7 +179,9 @@ const REGISTRY = [
   // with its title above the window. This line gates all three (C6, anon,
   // dialog fit). Its chrome is B3d's question 6. Proven by the editor's own
   // title element: the words "New task" are on the Timeline before it opens.
-  P('rabbit-timeline-task-new', '/rabbit', { steps: ['@proj', 'Timeline', 'Task'], expect: { selector: '.rb-tl-ed-title' } }),
+  // `contained` (V2 review round one): the capped panel must also hold its
+  // fields — its body scrolls — or they paint over the footer while it fits.
+  P('rabbit-timeline-task-new', '/rabbit', { steps: ['@proj', 'Timeline', 'Task'], contained: true, expect: { selector: '.rb-tl-ed-title' } }),
   // B2: the rest of the Tasks view the walk could not see — the board, and
   // the two small dialogs off its toolbar (Phase creates nothing until its
   // own Create; Save view writes nothing until its own Save).
@@ -675,7 +677,11 @@ async function visit(ctx, entry) {
      is checked — every visible input, select and textarea (round two found
      30 selects on the Rate Card that no check had looked at). */
   const formFace = fields.filter((f) => !/^Geist( Mono)?$/.test(f.family));
-  const dlgBad = dlg && !dlg.fits && !isKnown('dialogFit', k, 'fits');
+  /* `contained` (V2): the screen's dialog must also HOLD its content — a
+     capped panel whose body stopped scrolling fits while its fields paint
+     over its footer. Reported for every dialog (dlg.spills), failed only
+     where an entry asks. */
+  const dlgBad = dlg && ((!dlg.fits && !isKnown('dialogFit', k, 'fits')) || (entry.contained && dlg.spills));
   /* "Did this page render?", counted OUTSIDE the shell: the shell and the
      dev badge alone are 18 text nodes, so the old floor of 10 could not
      trip while they were on screen (round one). */
@@ -690,7 +696,7 @@ async function visit(ctx, entry) {
   const knownN = (faces.off.length - news.face.length) + (rules.weight.length - news.weight.length)
     + (rules.upper.length - news.upper.length) + (rules.tracking.length - news.tracking.length) + (anon.length - news.anon.length)
     + (c6.length - news.c6.length);
-  const dl = dlg ? ` dlg=${dlg.kind}:${dlg.bg}/r${dlg.radius}/${dlg.box[2]}x${dlg.box[3]}${dlg.fits ? '' : ' OFF-SCREEN'}${dlg.scrolls.length ? ' scrolls' : ''}` : '';
+  const dl = dlg ? ` dlg=${dlg.kind}:${dlg.bg}/r${dlg.radius}/${dlg.box[2]}x${dlg.box[3]}${dlg.fits ? '' : ' OFF-SCREEN'}${dlg.scrolls.length ? ' scrolls' : ''}${dlg.spills ? ' SPILLS' : ''}` : '';
   const gr = dlg ? '(under a dialog)' : ground.join('/');
   const why = !open ? (preexisting ? '   ← PROOF TRUE BEFORE ITS STEP' : !isOpen ? '   ← DID NOT OPEN' : '   ← CLOSED WHILE MEASURED') : '';
   console.log(`${(open ? '' : '✗ ') + k}`.padEnd(30)

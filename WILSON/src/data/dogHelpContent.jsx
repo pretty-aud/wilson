@@ -92,7 +92,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <p><span className="text-orange-400 font-semibold">4. For Single Pages:</span> Select a layout type, optionally set a page number, and describe what content you want on the slide.</p>
           <p><span className="text-orange-400 font-semibold">5. Generate & Review:</span> Generated outlines appear in the output panel. Use the visualizer to preview layouts with theme colors, or edit the raw markdown.</p>
           <p><span className="text-orange-400 font-semibold">6. Refine Output:</span> Use the Edit Output bar to regenerate pages with revision notes, change layouts, and undo/redo changes.</p>
-          <p><span className="text-orange-400 font-semibold">7. Theme Colors:</span> Enable "Theme Generator" to auto-generate AI color palettes. Cycle through themes with arrow buttons. Refresh for new options.</p>
+          <p><span className="text-orange-400 font-semibold">7. Theme Colors:</span> Enable "Theme generator" to auto-generate AI color palettes. Cycle through themes with arrow buttons. Refresh for new options.</p>
           <p><span className="text-orange-400 font-semibold">8. Export:</span> Download as DECKOUTLINE.md, or check "Include theme colors" for VIS_DECKOUTLINE.md with theme data and visual descriptions.</p>
           <p><span className="text-orange-400 font-semibold">9. Image Prompts (Optional):</span> Enable "Generate Image Prompts" in the export modal to create AI image prompts for all visual assets. Select your target model (Midjourney, Flux, Nano Banana, or ChatGPT) and download alongside your outline.</p>
         </div>
@@ -456,7 +456,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className="bg-stone-900 p-3 rounded-control border border-stone-700">
             <h4 className="text-dense font-semibold text-orange-400 mb-2">How It Works</h4>
             <ul className="text-dense text-stone-400 leading-relaxed space-y-1 ml-2">
-              <li>• <span className="text-stone-300">Enable:</span> Check "Theme Generator" next to Deck Context & Guidelines</li>
+              <li>• <span className="text-stone-300">Enable:</span> Check "Theme generator" next to Deck Context & Guidelines</li>
               <li>• <span className="text-stone-300">Auto-generation:</span> When enabled, themes are generated automatically after each deck or page generation</li>
               <li>• <span className="text-stone-300">Context-aware:</span> Haiku reads your deck context, slide titles, and file content to create relevant palettes</li>
               <li>• <span className="text-stone-300">3 themes per batch:</span> Each generation produces 3 new color themes</li>
@@ -575,8 +575,8 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className="bg-stone-900 p-3 rounded-control border border-stone-700">
             <h4 className="text-dense font-semibold text-orange-400 mb-2">How to Enable</h4>
             <ul className="text-dense text-stone-400 leading-relaxed space-y-1.5 ml-2">
-              <li>• <span className="text-stone-300">Use Uploaded Assets:</span> Check this box in Section 1 (next to Theme Generator) to include images and videos you uploaded via the file upload area</li>
-              <li>• <span className="text-stone-300">Use Project Assets:</span> Check this box to include visual assets stored in the currently selected project</li>
+              <li>• <span className="text-stone-300">Use uploaded assets:</span> Check this box in Section 1 (next to Theme generator) to include images and videos you uploaded via the file upload area</li>
+              <li>• <span className="text-stone-300">Use project assets:</span> Check this box to include visual assets stored in the currently selected project</li>
               <li>• <span className="text-stone-300">Both can be enabled simultaneously</span> — the system combines assets from both sources</li>
               <li>• <span className="text-stone-300">Non-destructive:</span> Unchecking both boxes returns the system to its default behavior with no side effects</li>
             </ul>
@@ -769,7 +769,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <li>• <span className="text-orange-400">Use --- separators</span> in column layouts — The AI separates column content with --- dividers. Each section becomes one column.</li>
           <li>• <span className="text-orange-400">Match image count to columns</span> — For the best visual balance in column layouts, request one image per column (e.g., 3 images for three columns).</li>
           <li>• <span className="text-orange-400">Control image sizes with text length</span> — In column layouts, adding more bullet points causes images to shrink dynamically. Use shorter text for larger images.</li>
-          <li>• <span className="text-orange-400">Place your own images</span> — Enable "Use Uploaded Assets" or "Use Project Assets" to have the AI embed your images directly into slide frames.</li>
+          <li>• <span className="text-orange-400">Place your own images</span> — Enable "Use uploaded assets" or "Use project assets" to have the AI embed your images directly into slide frames.</li>
           <li>• <span className="text-orange-400">Name image files descriptively</span> — "product_hero.jpg" gives the AI much better context for placement than "IMG_4521.jpg".</li>
           <li>• <span className="text-orange-400">Set an export folder</span> — Use the Browse button in the export modal to save files directly to a specific folder instead of the browser's downloads.</li>
           <li>• <span className="text-orange-400">Include contact info</span> in your Deck Context prompt — emails and contact details from both source documents and the deck context are included in OUTRO slides.</li>

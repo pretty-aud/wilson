@@ -86,7 +86,7 @@
 
      S17's grouping rides here: `data-group-end` draws a separator after
      Profile and after Teams so the seven tabs read as
-     [General | Profile] [Models | Storage | Teams] [Agent | Agent Skills].
+     [General | Profile] [Models | Storage | Teams] [Agent | Agent skills].
      Purely visual — no tab moves, none is hidden, none is collapsed. */
   .s-tabs {
     display: flex;

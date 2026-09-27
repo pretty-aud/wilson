@@ -2754,6 +2754,19 @@ describe('blankJsComments: a comment opener inside a string or a regex is not a 
     gone('const n = 6 // six', 'six');
     gone('/* one\n   two */ const m = 7', 'two'); kept('/* one\n   two */ const m = 7', 'const m = 7');
   });
+  it('reads a regex after `=>` or `return` as a regex, and a JSX closing tag as no regex (V2 review round one)', () => {
+    // Before: `>` and a keyword were not regex starts, so the `/*` and `//`
+    // inside these regexes blanked the code after them.
+    kept('(s) => /\\/*x/.test(s)\nconst keep = 1\n/* c */', 'const keep = 1');
+    gone('(s) => /\\/*x/.test(s)\nconst keep = 1\n/* c */', ' c ');
+    kept('[].filter((s) => /\\/\\//.test(s)).length; const keepK = 3', 'const keepK = 3');
+    kept('function f(s) { return /\\/\\//.test(s) } const keepR = 4', 'const keepR = 4');
+    // …while a comparison and a closing tag stay what they were.
+    kept('if (a > b) { x = a / 2 } // half\nconst keepD = 5', 'const keepD = 5');
+    gone('if (a > b) { x = a / 2 } // half\nconst keepD = 5', 'half');
+    kept('<p>see</p> {/* note */} <b>ok</b>', '<b>ok</b>');
+    gone('<p>see</p> {/* note */} <b>ok</b>', 'note');
+  });
   it('keeps every offset: same length, same newlines', () => {
     const src = 'a /* b\nc */ d // e\n"f/*g" h';
     const out = blankJsComments(src);

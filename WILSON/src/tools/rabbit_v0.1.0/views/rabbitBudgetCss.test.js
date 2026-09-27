@@ -280,8 +280,8 @@ describe('no state is decided in a style or a className', () => {
   })
   it('CONTROL: in every file, a spread in any spacing, a palette utility and a literal colour prop are each caught', () => {
     for (const [key, { file }] of Object.entries(FILES)) {
-      // The first lane class, written as a literal or as a template whose only
-      // hole is the caller's `${className}` (CurrencyDisplay's).
+      // The first lane class, written as a literal or as a template (V2
+      // removed CurrencyDisplay's `${className}` hole; its class is a literal).
       const first = code[key].match(/className=(?:"|\{`)(rb-[a-z0-9-]+)/)
       expect(first, file).toBeTruthy()
       const at = first.index

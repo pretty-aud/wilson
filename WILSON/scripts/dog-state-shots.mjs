@@ -105,12 +105,15 @@ await park();
 await page.getByPlaceholder(/pitch deck for a luxury brand/).click();
 await shot('03-focus-context');
 await blur();
-await main().getByText('Use Uploaded Assets', { exact: true }).click();
-await main().getByText('Theme Generator', { exact: true }).click();
+// V2 (2026-09-27): the checkboxes by role and their sentence-case names. The
+// old exact-text clicks hit the label SPAN, which has no handler, so shot 04
+// never showed a box ticked — and the V2 rename broke them outright.
+await main().getByRole('checkbox', { name: 'Use uploaded assets' }).click();
+await main().getByRole('checkbox', { name: 'Theme generator' }).click();
 await park();
 await shot('04-checks-toggled');
-await main().getByText('Use Uploaded Assets', { exact: true }).click();
-await main().getByText('Theme Generator', { exact: true }).click();
+await main().getByRole('checkbox', { name: 'Use uploaded assets' }).click();
+await main().getByRole('checkbox', { name: 'Theme generator' }).click();
 await page.locator('select').first().selectOption({ label: 'Salt Hours' });
 await park();
 await shot('05-project-selected');

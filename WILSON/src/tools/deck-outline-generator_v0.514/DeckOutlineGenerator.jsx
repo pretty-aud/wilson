@@ -3977,7 +3977,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <label className="ui-field-label">
                       Deck Context & Guidelines
                     </label>
-                    {/* Theme Generator Checkbox */}
+                    {/* "Theme generator" checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setEnableThemeGen(!enableThemeGen)}
@@ -3987,7 +3987,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       </button>
                       <span className="dog-check-label">Theme generator</span>
                     </div>
-                    {/* Use Uploaded Assets Checkbox */}
+                    {/* "Use uploaded assets" checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseUploadedAssets(!useUploadedAssets)}
@@ -3997,7 +3997,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       </button>
                       <span className="dog-check-label">Use uploaded assets</span>
                     </div>
-                    {/* Use Project Assets Checkbox */}
+                    {/* "Use project assets" checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseProjectAssets(!useProjectAssets)}

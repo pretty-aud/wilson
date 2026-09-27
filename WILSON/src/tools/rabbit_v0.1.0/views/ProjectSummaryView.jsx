@@ -404,15 +404,13 @@ export default function ProjectSummaryView() {
                 </div>
               )}
             </div>
+            {/* V2 review round one: the kit's secondary Button, as its other
+                end ("Dashboard") is (C8). The label stays: the walk's @proj and
+                rabbit-control-panel key on it (its case is P1-52). */}
             {canOpenControlPanel && (
-              <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense transition-colors hover:brightness-110 flex-shrink-0"
-                style={{ backgroundColor: 'var(--color-paper-raised)', color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}
-              >
-                <Settings className="w-3 h-3" /> Control Panel
-              </button>
+              <Button variant="secondary" size="sm" Icon={Settings} onClick={() => setShowSettings(true)} className="shrink-0">
+                Control Panel
+              </Button>
             )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">

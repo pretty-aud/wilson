@@ -251,4 +251,14 @@ describe('V2: the Control Panel\'s "Dashboard" is the kit Button', () => {
     expect(bar).not.toMatch(/<button\b/)
     expect(bar).not.toMatch(/hover:brightness|style=\{\{ backgroundColor/)
   })
+
+  it('its other end, "Control Panel" on the Summary, is the kit Button too (review round one)', () => {
+    const src = read('views/ProjectSummaryView.jsx')
+    expect(src).toMatch(/<Button variant="secondary" size="sm" Icon=\{Settings\} onClick=\{\(\) => setShowSettings\(true\)\} className="shrink-0">\s*Control Panel\s*<\/Button>/)
+    // The hand-drawn one is gone: its 12px glyph beside the label.
+    expect(src).not.toMatch(/<Settings className="w-3 h-3" \/> Control Panel/)
+    // The label stays "Control Panel": the walk's @proj and rabbit-control-panel
+    // key on it (its case is P1's, with them).
+    expect(src.match(/>\s*Control Panel\s*</g)?.length).toBe(1)
+  })
 })

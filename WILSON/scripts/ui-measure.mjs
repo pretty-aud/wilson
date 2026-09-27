@@ -313,11 +313,18 @@ export function openDialog() {
     const s = getComputedStyle(e);
     return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1 && e.clientHeight > 0;
   }).map((e) => `${e.clientHeight}/${e.scrollHeight}`);
+  /* V2 review round one: a panel CAPPED to fit can still fail to hold its
+     content — drop the body's `overflow-y: auto` and the Timeline editor's
+     fields paint on over its footer while `fits` stays true. `spills` says
+     the panel lets content out of its own box (its overflow is visible and
+     its content is taller than it). */
+  const spills = cs.overflowY === 'visible' && panel.scrollHeight > panel.clientHeight + 1;
   return {
     kind, bg: hex, radius: cs.borderRadius, border: `${cs.borderTopWidth} ${cs.borderTopStyle}`,
     box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
     fits: r.top >= -0.5 && r.left >= -0.5 && r.bottom <= innerHeight + 0.5 && r.right <= innerWidth + 0.5,
     scrolls,
+    spills,
     // What the panel SAYS, so a proof can name which dialog it expects —
     // round two: `dialog: true` proved "a dialog", not "the dialog".
     panelText: (panel.innerText || '').replace(/\s+/g, ' ').slice(0, 400),
@@ -465,7 +472,7 @@ export function unnamedControls() {
  */
 export function selectedControl(label) {
   /* Round one of V1's review, three holes, all closed here:
-       - PREFIX matching: "Agent" is a prefix of Settings' "Agent Skills". The
+       - PREFIX matching: "Agent" is a prefix of Settings' "Agent skills". The
          label must match EXACTLY, allowing only a trailing count ("Shared
          with me1", "Requests 2") — digits, nothing else.
        - `aria-current="false"` is what React writes for `aria-current={false}`,
@@ -727,38 +734,52 @@ export function nestedButtons() {
  * V2 (2026-09-27): what the pet covers. C5 keeps the pet where it is, so this
  * is a RECORD for Audrey (walkthrough 45's question 33), never a gate. The
  * sprite is the fixed `div.fixed.right-4.z-30` PetCompanion draws at the
- * bottom right. A text run or an unlabelled control counts only where it is
- * actually drawn under the sprite: the point in the middle of the overlap
- * must hit the element (hit testing respects a scroller's clip, so a row
- * scrolled out of view is not "covered"). `underDialog` says a dialog or
- * drawer was open, so whatever is covered is behind its backdrop anyway.
+ * bottom right. A text run, or a control with no text of its own, counts
+ * only where it is actually DRAWN under the sprite: its box clipped by every
+ * ancestor that clips (so a row scrolled out of its scroller is not
+ * "covered"), and the element visible — `checkVisibility` with opacity and
+ * visibility, so a hover-only action at opacity 0 is not "covered" either
+ * (V2 review round one: hit testing counted those, and missed text under
+ * `pointer-events: none`). `underDialog` says a dialog or drawer was open,
+ * so whatever is covered is behind its backdrop anyway.
  */
 export function petOverlap() {
   const pet = [...document.querySelectorAll('div.fixed.right-4.z-30')].find((e) => e.getBoundingClientRect().width > 0);
   if (!pet) return null;
   const p = pet.getBoundingClientRect();
-  const overlap = (r) => {
-    const l = Math.max(r.left, p.left), t = Math.max(r.top, p.top), rr = Math.min(r.right, p.right), b = Math.min(r.bottom, p.bottom);
-    return rr - l >= 1 && b - t >= 1 ? [(l + rr) / 2, (t + b) / 2] : null;
+  /* The part of a box its ancestors let through. A fixed ancestor ends the
+     climb: nothing above it clips it. */
+  const drawn = (el, r) => {
+    let [l, t, rr, b] = [r.left, r.top, r.right, r.bottom];
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
+        const ar = a.getBoundingClientRect();
+        l = Math.max(l, ar.left); t = Math.max(t, ar.top); rr = Math.min(rr, ar.right); b = Math.min(b, ar.bottom);
+      }
+      if (s.position === 'fixed') break;
+    }
+    return Math.min(rr, p.right) - Math.max(l, p.left) >= 1 && Math.min(b, p.bottom) - Math.max(t, p.top) >= 1;
   };
-  const drawnAt = (el, pt) => document.elementsFromPoint(pt[0], pt[1]).some((x) => x === el || el.contains(x));
+  const shown = (el) => (typeof el.checkVisibility === 'function'
+    ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+    : getComputedStyle(el).visibility !== 'hidden');
   const out = new Set();
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const text = n.textContent.replace(/\s+/g, ' ').trim();
     const el = n.parentElement;
-    if (!text || !el || pet.contains(el) || el.closest('.wilson-chrome') || getComputedStyle(el).visibility === 'hidden') continue;
+    if (!text || !el || pet.contains(el) || el.closest('.wilson-chrome') || !shown(el)) continue;
     const range = document.createRange();
     range.selectNodeContents(n);
-    for (const r of range.getClientRects()) {
-      const pt = overlap(r);
-      if (pt && drawnAt(el, pt)) { out.add(`"${text.slice(0, 32)}"`); break; }
-    }
+    if ([...range.getClientRects()].some((r) => drawn(el, r))) out.add(`"${text.slice(0, 32)}"`);
   }
   for (const el of document.querySelectorAll('button, select, input, textarea')) {
-    if (pet.contains(el) || el.closest('.wilson-chrome') || el.textContent.trim()) continue;
-    const pt = overlap(el.getBoundingClientRect());
-    if (pt && drawnAt(el, pt)) out.add(`<${el.tagName.toLowerCase()} ${(el.getAttribute('aria-label') || el.getAttribute('title') || el.value || '').slice(0, 24)}>`);
+    if (pet.contains(el) || el.closest('.wilson-chrome') || el.textContent.trim() || !shown(el)) continue;
+    if (drawn(el, el.getBoundingClientRect())) {
+      const name = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || el.name || '';
+      out.add(`<${el.tagName.toLowerCase()} ${String(name).slice(0, 24)}>`);
+    }
   }
   return {
     box: [Math.round(p.left), Math.round(p.top), Math.round(p.width), Math.round(p.height)],

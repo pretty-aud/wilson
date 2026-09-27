@@ -415,9 +415,10 @@
   }
   .dog-check-glyph { width: 10px; height: 10px; color: var(--color-ink); }
   /* V2 (2026-09-27): a checkbox's words are a control's label, not a field
-     label, so they are sentence case (Q2) — the kit Switch's step and ink,
-     as "Full deck" beside them on the same row is, and as the history
-     dialog's kit checkboxes are. They were the capitalised Label step. */
+     label, so they are sentence case (Q2), at the kit Switch's step and ink,
+     as "Full deck" beside them on the same row is. They were the capitalised
+     Label step. (The history dialog's checkboxes are sentence case too, at
+     Dense and the second ink — `.dog-history-check-label`, inside a dialog.) */
   .dog-check-label {
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);

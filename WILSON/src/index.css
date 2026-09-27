@@ -1544,8 +1544,11 @@ select option {
   .ui-th[data-align="center"] .ui-th-btn { justify-content: center; }
   /* V2 (2026-09-27), B5b §4.2 item 14: a sortable head is sticky at the top
      edge of `.ui-table-scroll`, which scrolls and so clips, and the base
-     ring sits 1px OUTSIDE its button: 3px of it were cut on top (Expenses).
-     Drawn inside, as Bins drew its own (`.bn-th .ui-th-btn`). */
+     ring sits 1px OUTSIDE its button: 3px of it were cut on top. Drawn
+     inside, as Expenses (`.rb-budget-exp .ui-th-btn`, B5b R2-04) and Bins
+     (`.bn-th .ui-th-btn`) already drew theirs — so this changes the Files
+     page, and those two lane rules are duplicates their guards still pin
+     (V2 hand-off P1-83). */
   .ui-th-btn:focus-visible { outline-offset: -2px; }
   /* 🚨 `overflow: hidden; text-overflow: ellipsis` does NOTHING on a
      non-replaced INLINE box, and this span was inline in both of the two

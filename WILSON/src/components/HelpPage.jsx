@@ -269,7 +269,7 @@ export default function HelpPage() {
                     <h4 className={L.cardTitle}>Using Projects with D.O.G.</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Select a project</span> in D.O.G. to load its documents and assets into the generation context</li>
-                      <li><span className={L.listBold}>Enable "Use Project Assets"</span> to let the AI place project images into slide frames</li>
+                      <li><span className={L.listBold}>Enable "Use project assets"</span> to let the AI place project images into slide frames</li>
                       <li><span className={L.listBold}>Project documents</span> are automatically included as context alongside any directly uploaded files</li>
                     </ul>
                   </div>

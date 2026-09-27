@@ -56,9 +56,9 @@ describe('dog.css: the settings accordions, level with O.T.T.E.R.\'s (V2; A4 §4
 
 // V2: the page's three checkboxes ("Theme generator", "Use uploaded assets",
 // "Use project assets") sat in the capitalised Label step beside the kit
-// Switch's sentence-case "Full deck" on the same row; the history dialog's
-// kit checkboxes were already sentence case. A checkbox's words are a
-// control's label (Q2), so they take the Switch's step and ink.
+// Switch's sentence-case "Full deck" on the same row. A checkbox's words are
+// a control's label (Q2), so they take the Switch's step and ink. (The
+// history dialog's own checkboxes were already sentence case, at Dense.)
 describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence case (V2)', () => {
   const INDEX = read('../../index.css')
   it('the label is the kit Switch label\'s step and ink, with no capitals and no tracking', () => {

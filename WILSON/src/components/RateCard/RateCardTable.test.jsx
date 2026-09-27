@@ -470,9 +470,17 @@ describe('a ghost or draft row\'s quiet words clear 4.5:1 on its wash (V2)', () 
     expect(contrast(INK_2, ground)).toBeGreaterThanOrEqual(4.5)
   })
 
-  it('each is lifted to the second ink in both kinds of row', () => {
+  it('each is lifted to the second ink in both kinds of row — the currency symbol in the cell\'s face only', () => {
     const lifted = ruled('var(--color-ink-2)')
-    const missing = ROWS.flatMap((row) => QUIET.map((q) => norm(`${row} ${q}`))).filter((s) => !lifted.has(s))
+    // Review round one: the row can host the currency MENU (opaque, the
+    // raised paper, not the wash), whose options pair a symbol with a label
+    // on the third ink; lifting every symbol in the row split each option in
+    // two inks. Only the face's symbol sits on the wash.
+    const LIFTED = QUIET.map((q) => (q === '.rc-currency-symbol' ? '.rc-currency-face > .rc-currency-symbol' : q))
+    const missing = ROWS.flatMap((row) => LIFTED.map((q) => norm(`${row} ${q}`))).filter((s) => !lifted.has(s))
     expect(missing, `not lifted:\n${missing.join('\n')}`).toEqual([])
+    for (const row of ROWS) {
+      expect(lifted.has(norm(`${row} .rc-currency-symbol`)), `${row}: every symbol lifted, the menu's too`).toBe(false)
+    }
   })
 })

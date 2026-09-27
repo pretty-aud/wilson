@@ -127,18 +127,36 @@ export const PATTERNS = [
 
    A scanner, not the two regexes it replaces (V2, 2026-09-27, B3d §4.2): they
    read the opener in D.O.G.'s accept="…image/*,video/*" as a comment and
-   blanked its code up to the next comment's end, six lines away. This steps over a quoted
-   string and a regex literal whole, so neither can open a comment. Two limits,
-   each erring toward leaving text VISIBLE, the safe direction for both users:
-   a '…' or "…" ends at its line's end, so an apostrophe in JSX text ("Don't")
-   can keep the rest of that one line's comment; and a `/` after `)`, `]` or a
-   name is division, so a regex right after `return` is read as code. The old
-   rule stays for a bare `https://` in JSX text: a `//` after `:` is no comment. */
+   blanked its code up to the next comment's end, six lines away. This steps
+   over a quoted string and a regex literal whole, so neither can open a
+   comment. A `/` starts a regex after an operator or an opening bracket,
+   after `=>`, and after a keyword that takes an expression (`return`,
+   `typeof`, `case`…); after `)`, `]` or any other name it is division.
+   Limits (V2 review round one measured them; nothing in src/ trips one, and
+   against Babel's own comment ranges this blanks 0 characters wrongly where
+   the regexes blanked 20,746): a '…' or "…" ends at its line's end, so an
+   apostrophe in JSX text ("Don't") can keep the rest of that one line's
+   comment; and a lone backtick in JSX text opens a template that runs to the
+   next backtick, where a comment inside it stays visible and a `/*` inside
+   a regex in it could hide code. The old rule stays for a bare `https://` in
+   JSX text: a `//` after `:` is no comment. */
+const REGEX_AFTER_WORD = new Set(['return', 'typeof', 'case', 'in', 'of', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'else', 'do']);
 export function blankJsComments(src) {
   const out = src.split('');
   const blank = (from, to) => { for (let k = from; k < to; k++) if (src[k] !== '\n') out[k] = ' '; };
   const n = src.length;
   let prev = '';   // the last character of code that was not white space
+  let prevAt = -1; // …and where it was
+  /* A `/` here starts a regex literal, not a division. */
+  const regexCanStart = () => {
+    // Not `<`: in JSX, `</p>` is a closing tag, not a regex.
+    if (prev === '' || '(,=:[!&|?{};'.includes(prev)) return true;
+    if (prev === '>') return src[prevAt - 1] === '=';   // `=>`, not a comparison
+    if (!/[A-Za-z_$]/.test(prev)) return false;
+    let k = prevAt;
+    while (k >= 0 && /[A-Za-z0-9_$]/.test(src[k])) k--;
+    return REGEX_AFTER_WORD.has(src.slice(k + 1, prevAt + 1)) && src[k] !== '.';
+  };
   let i = 0;
   while (i < n) {
     const c = src[i];
@@ -156,9 +174,9 @@ export function blankJsComments(src) {
     if (c === '"' || c === "'" || c === '`') {
       let k = i + 1;
       while (k < n && src[k] !== c && (c === '`' || src[k] !== '\n')) k += src[k] === '\\' ? 2 : 1;
-      i = k + 1; prev = c; continue;
+      i = k + 1; prev = c; prevAt = k; continue;
     }
-    if (c === '/' && (prev === '' || '(,=:[!&|?{};'.includes(prev))) {
+    if (c === '/' && regexCanStart()) {
       let k = i + 1;
       let inClass = false;
       while (k < n && src[k] !== '\n' && (inClass || src[k] !== '/')) {
@@ -167,9 +185,9 @@ export function blankJsComments(src) {
         else if (src[k] === ']') inClass = false;
         k++;
       }
-      i = k + 1; prev = '/'; continue;
+      i = k + 1; prev = '/'; prevAt = k; continue;
     }
-    if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
+    if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') { prev = c; prevAt = i; }
     i++;
   }
   return out.join('');

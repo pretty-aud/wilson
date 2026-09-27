@@ -4417,7 +4417,11 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
           </div>
         )}
 
-        <div className="px-4 py-4 flex flex-col gap-3 min-h-0 overflow-y-auto scroll-py-1" inert={!canWrite ? true : undefined}>
+        {/* V2 review round one: the SCROLLER wraps the inert fields — an
+            inert element cannot be hit-tested, so a read-only viewer could
+            not scroll a body that was both. */}
+        <div className="min-h-0 overflow-y-auto scroll-py-1">
+        <div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>
           {isMilestone ? (
             <>
               <Field label="Title">
@@ -4842,16 +4846,23 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               })()}
             </>
           )}
+        </div>
+        </div>
 
-          {error && (
+        {/* V2 review round one: the error is a strip of its own between the
+            fields and the footer, so it shows whatever the scroll — as the
+            body's last child it landed below the fold and Save seemed to do
+            nothing. */}
+        {error && (
+          <div className="px-4 pb-3 shrink-0">
             <div
               className="text-dense p-2 rounded-control"
               style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
             >
               {error}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div
           className="flex items-center gap-2 px-4 py-3 shrink-0"

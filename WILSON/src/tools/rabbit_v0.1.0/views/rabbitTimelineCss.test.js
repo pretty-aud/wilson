@@ -648,3 +648,60 @@ describe('SettingsPanel on the kit (B3d): the Drawer holds the title bar, the lo
     expect(() => between('abc', 'x', 'c')).toThrow()
   })
 })
+
+// V2, the second visual QA pass (2026-09-27): the task editor is capped at the
+// kit Dialog's 88vh and its body scrolls. Review round one found two things
+// the cap broke: the save error was the scroll body's last child, so "Task
+// title is required." landed below the fold and Save seemed to do nothing;
+// and the scroll body was also the `inert` element, which a read-only viewer
+// cannot scroll. The scroller wraps the inert fields now, and the error is a
+// strip of its own between the body and the footer.
+describe('V2: the task editor scrolls its fields and shows its error', () => {
+  const code = jsCode(read('TimelineView.jsx'))
+  const editor = code.slice(code.indexOf('function TaskEditor('), code.indexOf('\n}\n', code.indexOf('function TaskEditor(')))
+  it('an outer scroller wraps the inert fields, and the error sits between the body and the footer, fixed', () => {
+    expect(editor.length, 'TaskEditor moved').toBeGreaterThan(5000)
+    const scroller = editor.indexOf('<div className="min-h-0 overflow-y-auto scroll-py-1">')
+    const fields = editor.indexOf('<div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>')
+    const error = editor.indexOf('{error && (\n          <div className="px-4 pb-3 shrink-0">')
+    const footer = editor.indexOf('className="flex items-center gap-2 px-4 py-3 shrink-0"')
+    expect([scroller, fields, error, footer].every((i) => i > 0), `${scroller} ${fields} ${error} ${footer}`).toBe(true)
+    expect(scroller < fields && fields < error && error < footer).toBe(true)
+    // Nothing that scrolls is inert, and the error is not inside the fields.
+    expect(editor).not.toMatch(/overflow-y-auto[^"]*"\s+inert=/)
+    expect((editor.match(/\{error && \(/g) || []).length).toBe(1)
+  })
+})
+
+// V2, the second visual QA pass (2026-09-27): the two primaries the Timeline
+// still draws by hand — the task editor's Save and the phase-window dialog's
+// Extend phase — were cream on the signal (#fff7ed on #ea580c, 3.35:1, a C6
+// break). Both carry the kit primary's pair now. The walk's
+// `rabbit-timeline-task-new` gates Save in the running app; Extend phase needs
+// a drag no walk makes, so this gates both in the source (V2 review round one).
+describe('V2: no cream on the signal among the Timeline\'s hand-drawn primaries (C6)', () => {
+  const PAIR = "color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)'"
+  const cream = (code) => (code.match(/color: '#fff7ed'|backgroundColor: '#ea580c'/g) || []).length
+  const buttonOf = (code, label) => {
+    const at = code.indexOf(label)
+    return at < 0 ? null : code.slice(code.lastIndexOf('<button', at), at)
+  }
+  it('Save and Extend phase each carry the kit primary\'s pair, and no cream ink or signal ground is left in code', () => {
+    const code = jsCode(read('TimelineView.jsx'))
+    for (const label of ["{saving ? 'Saving…' : 'Save'}", 'Extend phase\n']) {
+      const button = buttonOf(code, label)
+      expect(button, `no button before ${label}`).toBeTruthy()
+      expect(button, label).toContain(PAIR)
+    }
+    expect(cream(code)).toBe(0)
+  })
+  it('CONTROL: the old pair, planted back on either button, is caught', () => {
+    const code = jsCode(read('TimelineView.jsx'))
+    const first = code.replace(PAIR, "color: '#fff7ed', backgroundColor: '#ea580c'")
+    expect(first).not.toBe(code)
+    expect(cream(first)).toBe(2)
+    const at = code.lastIndexOf(PAIR)
+    const second = code.slice(0, at) + "color: '#fff7ed', backgroundColor: '#ea580c'" + code.slice(at + PAIR.length)
+    expect(buttonOf(second, "{saving ? 'Saving…' : 'Save'}").includes(PAIR) && buttonOf(second, 'Extend phase\n').includes(PAIR)).toBe(false)
+  })
+})

@@ -335,7 +335,7 @@ export default function SettingsPage({
   //
   // `groupEnd` draws a hairline separator after the tab, nothing more. It is
   // the whole of S17's fix: seven ungrouped peers read as
-  // [General | Profile] [Models | Storage | Teams] [Agent | Agent Skills]
+  // [General | Profile] [Models | Storage | Teams] [Agent | Agent skills]
   // — two account tabs, three workspace tabs, two AI tabs. No tab moves, none
   // is hidden and none is collapsed, so the count of reachable controls and
   // the number of clicks to each are unchanged (C1).
