@@ -37,7 +37,7 @@ import { canCreateNewEgg } from '../lib/petLifecycle'
 // file header for why this had to be its own commit.
 import './settings/settings.css'
 import { Section, Group, Row, Note } from './settings/SettingsChrome'
-import { Button, IconButton, Input, TextArea, Select, Dialog } from '../ui'
+import { Button, IconButton, Input, TextArea, Select, Dialog, Switch } from '../ui'
 import { Lock, X } from 'lucide-react'
 
 
@@ -456,7 +456,10 @@ export default function SettingsPage({
                       and the numbers the 12px caption step with tabular
                       figures, so rank comes from size, not colour. */}
                   <div className="s-well mb-4">
-                    <div className="flex items-center justify-between gap-4 mb-3">
+                    {/* P1-81: the gap under this row belongs to the stats row
+                        below it; an egg has none, and the card used to keep
+                        the gap anyway, half empty under one line. */}
+                    <div className={`flex items-center justify-between gap-4${(form === 'baby' || form === 'adult') ? ' mb-3' : ''}`}>
                       <div className="min-w-0">
                         <span className="s-card-title">{petData.name || 'Ollie'}</span>
                         <span className="s-row-desc inline-block ml-2">
@@ -510,14 +513,17 @@ export default function SettingsPage({
                       label="Pet mode"
                       description="When off, companion is a helper-only chatbot with no hunger/sleep mechanics"
                     >
-                      <button
-                        type="button"
-                        onClick={() => onPetModeToggle(!petData.petMode)}
-                        className="s-toggle"
-                        data-on={!!petData.petMode}
-                      >
-                        {petData.petMode ? 'On' : 'Off'}
-                      </button>
+                      {/* P1-46: the kit Switch, on the light track D1's kit
+                          request 4 gave it — the reason this was a two-state
+                          "ON"/"OFF" button in an orange fill has landed. One
+                          click still flips it; the row's label names it. */}
+                      <Switch
+                        surface="light"
+                        checked={!!petData.petMode}
+                        onChange={(on) => onPetModeToggle(on)}
+                        aria-label="Pet mode"
+                        title="Pet mode"
+                      />
                     </Row>
 
                     {petData.petMode && (
@@ -533,7 +539,8 @@ export default function SettingsPage({
                             className="s-seg"
                             data-selected={petData.difficulty === d}
                           >
-                            {d}
+                            {/* Sentence case (Q2): the stored value stays lower case. */}
+                            {d.charAt(0).toUpperCase() + d.slice(1)}
                           </button>
                         ))}
                       </Row>
@@ -982,14 +989,14 @@ export default function SettingsPage({
                     label="Agent mode"
                     description="When off, the agent toggle is hidden from the companion"
                   >
-                    <button
-                      type="button"
-                      onClick={() => onAgentEnabledChange(!agentEnabled)}
-                      className="s-toggle"
-                      data-on={!!agentEnabled}
-                    >
-                      {agentEnabled ? 'On' : 'Off'}
-                    </button>
+                    {/* P1-46: the kit Switch, as Pet mode above. */}
+                    <Switch
+                      surface="light"
+                      checked={!!agentEnabled}
+                      onChange={(on) => onAgentEnabledChange(on)}
+                      aria-label="Agent mode"
+                      title="Agent mode"
+                    />
                   </Row>
 
                   {agentEnabled && (

@@ -275,11 +275,15 @@
     line-height: 1.4;
     color: var(--color-ink-light);
   }
+  /* P1-81 (V1-16): the well used to stop at the reading measure (x≈873 at
+     1280) while every group's rules and controls ran on to the column's edge
+     (976), a ragged right side the eye reads as misalignment. The WELL fills
+     the column now; the TEXT keeps the 72ch cap §3.1 sets for Settings prose,
+     through the right padding. */
   .s-note {
     margin-top: 16px;
     margin-bottom: 16px;
-    max-width: var(--measure-reading);
-    padding: 8px 12px;
+    padding: 8px max(12px, calc(100% - var(--measure-prose-max))) 8px 12px;
     font-size: var(--text-dense);
     line-height: 1.45;
     color: var(--color-ink-light);
@@ -369,21 +373,20 @@
     transition: width var(--duration-state) ease-out;
   }
 
-  /* ── Two-state toggle (pet mode, agent mode) ──────────────────────────
-     🚨 NOT the kit Switch, and that is a kit gap rather than a preference.
-     F1's Switch has no light-surface rule for its TRACK: off resolves to
-     `--color-ink-3` (a grey on orange) and on resolves to `--color-signal`
-     on `--color-ground-light`, about 1.06:1 — the state would be invisible.
-     Filed as a kit request; these stay two-state buttons until it lands. */
-  .s-toggle,
+  /* ── Segments and the lock button (difficulty, auto-approve, a subject's
+     lock) ───────────────────────────────────────────────────────────────
+     The two ON/OFF toggles that shared this rule are the kit Switch now
+     (P1-46): the light track its kit request asked for has landed. These
+     stay buttons until the kit has a segmented control (B5b-KR-2), and are
+     set as the kit's small Button is — Dense, 600, sentence case (Q2: a
+     control is never on the capitalised Label step). The selected state's
+     fill waits on that control. */
   .s-seg,
   .s-lock {
     height: var(--control-sm);
     padding: 0 12px;
-    font-size: var(--text-label);
-    letter-spacing: 0.06em;
+    font-size: var(--text-dense);
     font-weight: 600;
-    text-transform: uppercase;
     color: var(--color-ink-light);
     background-color: var(--color-well-light);
     border: 1px solid transparent;
@@ -391,12 +394,10 @@
     transition: background-color var(--duration-state) ease-out,
                 color var(--duration-state) ease-out;
   }
-  .s-toggle:hover,
   .s-seg:hover,
   .s-lock:hover {
     border-color: var(--color-rule-light);
   }
-  .s-toggle[data-on='true'],
   .s-seg[data-selected='true'],
   .s-lock[data-locked='true'] {
     color: var(--color-on-fill);
@@ -691,9 +692,15 @@
     flex: 1;
     min-width: 0;
   }
+  /* P1-47: a native select has no ellipsis, so at 220px it cut its value
+     mid-word ("Inherit (claude-sonnet-5 ("). The longest value in the
+     fixtures, "Inherit (claude-haiku-4-5-20251001 (built-in fast))", is 335px
+     with the control's padding (measured in the app), as in Admin → Models;
+     the name column keeps about 260px and wraps its caption rather than the
+     select cutting its words. */
   .s-model-select {
     flex: none;
-    width: 220px;
+    width: 340px;
   }
   .s-model-reset {
     flex: none;

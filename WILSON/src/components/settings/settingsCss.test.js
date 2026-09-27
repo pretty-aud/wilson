@@ -103,3 +103,80 @@ describe('the scrollbar override can actually beat the one it overrides', () => 
     expect(src).toMatch(/\.s-currency-menu\[data-surface='dark'\]::-webkit-scrollbar-thumb/)
   })
 })
+
+// P1-46: the two ON/OFF toggles are the kit Switch on its light track (D1's
+// kit request 4 landed), and the segments and lock button that shared their
+// rule are set as the kit's small Button is: sentence case, never the
+// capitalised Label step (Q2).
+describe('Settings controls are sentence case, and the toggles are the kit Switch (P1-46)', () => {
+  const page = read('../SettingsPage.jsx')
+  const segRule = (css) => {
+    const c = code(css)
+    const at = c.search(/\n\s*\.s-seg,\s*\n\s*\.s-lock\s*\{/)
+    return at < 0 ? null : c.slice(at, c.indexOf('}', at))
+  }
+  it('no .s-toggle rule is left, and .s-seg / .s-lock are Dense with no capitals or tracking', () => {
+    expect(code(settingsCss)).not.toMatch(/\.s-toggle\b/)
+    const rule = segRule(settingsCss)
+    expect(rule).not.toBeNull()
+    expect(rule).toMatch(/font-size:\s*var\(--text-dense\)/)
+    expect(rule).not.toMatch(/text-transform|letter-spacing|--text-label/)
+  })
+  // `[\s\S]{0,200}?`, not `[^>]*`: the props hold an arrow (`(on) => …`).
+  const switchNamed = (src, name) => new RegExp(`<Switch\\s+surface="light"[\\s\\S]{0,200}?aria-label="${name}"`).test(src)
+  it('Pet mode and Agent mode are <Switch surface="light">, named by aria-label', () => {
+    for (const name of ['Pet mode', 'Agent mode']) expect(switchNamed(page, name), name).toBe(true)
+    expect(page).not.toMatch(/className="s-toggle"/)
+    expect(page).toMatch(/d\.charAt\(0\)\.toUpperCase\(\) \+ d\.slice\(1\)/)
+  })
+  it('CONTROL: the rule and the button as they stood before P1 are caught', () => {
+    const before = '\n  .s-toggle,\n  .s-seg,\n  .s-lock {\n    font-size: var(--text-label);\n    letter-spacing: 0.06em;\n    text-transform: uppercase;\n  }'
+    expect(code(before)).toMatch(/\.s-toggle\b/)
+    expect(segRule(before)).toMatch(/text-transform/)
+    expect(switchNamed('<button type="button" className="s-toggle" data-on={!!agentEnabled}>', 'Agent mode')).toBe(false)
+    expect(switchNamed('<Switch\n  surface="light"\n  checked={!!agentEnabled}\n  aria-label="Agent mode"', 'Agent mode')).toBe(true)
+  })
+})
+
+// P1-81 (V1-16): the note's WELL fills the column, so its right edge meets
+// the groups' rules; its TEXT keeps §3.1's 72ch cap through the right
+// padding. And the pet card keeps no gap for a stats row it does not draw.
+describe('Settings aligns its wells with its rules (P1-81)', () => {
+  const noteRule = (css) => {
+    const c = code(css)
+    const at = c.indexOf('\n  .s-note {')
+    return at < 0 ? null : c.slice(at, c.indexOf('}', at))
+  }
+  it('the note has no max-width of its own, and caps its text with the 72ch padding', () => {
+    const rule = noteRule(settingsCss)
+    expect(rule).not.toBeNull()
+    expect(rule).not.toMatch(/max-width/)
+    expect(rule).toMatch(/padding:\s*8px max\(12px, calc\(100% - var\(--measure-prose-max\)\)\) 8px 12px/)
+  })
+  it('the pet card\'s header row spaces itself only when the stats row follows', () => {
+    const page = read('../SettingsPage.jsx')
+    expect(page).toMatch(/gap-4\$\{\(form === 'baby' \|\| form === 'adult'\) \? ' mb-3' : ''\}/)
+    expect(page).not.toMatch(/<div className="flex items-center justify-between gap-4 mb-3">\s*<div className="min-w-0">\s*<span className="s-card-title">/)
+  })
+  it('CONTROL: the note as it stood before P1 is caught', () => {
+    expect(noteRule('\n  .s-note {\n    margin-top: 16px;\n    max-width: var(--measure-reading);\n    padding: 8px 12px;\n  }')).toMatch(/max-width/)
+  })
+})
+
+// P1-47: a native select has no ellipsis; the model select must hold its
+// longest value (335px measured in the app) rather than cut it mid-word.
+describe('the model select holds its longest value (P1-47)', () => {
+  const selectWidth = (css) => {
+    const c = code(css)
+    const at = c.indexOf('\n  .s-model-select {')
+    if (at < 0) return null
+    const m = c.slice(at, c.indexOf('}', at)).match(/width:\s*(\d+)px/)
+    return m ? Number(m[1]) : null
+  }
+  it('is at least 335px wide', () => {
+    expect(selectWidth(settingsCss)).toBeGreaterThanOrEqual(335)
+  })
+  it('CONTROL: the 220px it had is caught', () => {
+    expect(selectWidth('\n  .s-model-select {\n    flex: none;\n    width: 220px;\n  }')).toBeLessThan(335)
+  })
+})
