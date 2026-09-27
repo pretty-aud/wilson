@@ -328,3 +328,29 @@ describe('Table', () => {
     expect(rows[1].textContent).toContain('GBP')
   })
 })
+
+// V2 (2026-09-27), B5b §4.2 item 14: a sortable head's focus ring was cut
+// 3px on top. The head is sticky at the top edge of `.ui-table-scroll`,
+// which scrolls and so clips, and the base ring sits 1px OUTSIDE its button.
+// Bins drew it inside in its own sheet (`.bn-th .ui-th-btn`); the kit does now.
+describe('the sortable head\'s focus ring (V2)', () => {
+  it('is drawn inside the button, because the scroller clips the head\'s top edge', () => {
+    const rule = css.match(/\n {2}\.ui-th-btn:focus-visible \{([^}]*)\}/)
+    expect(rule, 'no .ui-th-btn:focus-visible rule in the kit').not.toBeNull()
+    expect(rule[1]).toMatch(/outline-offset:\s*-2px/)
+    // CONTROL: the clip is real — the scroller scrolls, and the head sticks to its top.
+    expect(css).toMatch(/\.ui-table-scroll \{ overflow: auto;/)
+    expect(css.match(/\n {2}\.ui-th \{([^}]*)\}/)[1]).toMatch(/position:\s*sticky;\s*top:\s*0;/)
+  })
+
+  it('renders on every sortable head, and on no plain one', () => {
+    const { container } = render(
+      <Table head={<Row><Th onSort={() => {}}>Name</Th><Th>Kind</Th></Row>}>
+        <Row><Td>a</Td><Td>b</Td></Row>
+      </Table>,
+    )
+    const heads = [...container.querySelectorAll('th')]
+    expect(heads[0].querySelector('button.ui-th-btn')).not.toBeNull()
+    expect(heads[1].querySelector('button')).toBeNull()
+  })
+})

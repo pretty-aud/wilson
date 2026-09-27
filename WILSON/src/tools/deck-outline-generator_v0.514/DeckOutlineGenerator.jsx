@@ -3981,31 +3981,31 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setEnableThemeGen(!enableThemeGen)}
-                        className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme Generator"
+                        className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
                       >
                         {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="dog-check-label">Theme Generator</span>
+                      <span className="dog-check-label">Theme generator</span>
                     </div>
                     {/* Use Uploaded Assets Checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                        className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use Uploaded Assets"
+                        className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use uploaded assets"
                       >
                         {useUploadedAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="dog-check-label">Use Uploaded Assets</span>
+                      <span className="dog-check-label">Use uploaded assets</span>
                     </div>
                     {/* Use Project Assets Checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseProjectAssets(!useProjectAssets)}
-                        className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use Project Assets"
+                        className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use project assets"
                       >
                         {useProjectAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="dog-check-label">Use Project Assets</span>
+                      <span className="dog-check-label">Use project assets</span>
                     </div>
                   </div>
                   {/* Full Deck Toggle */}

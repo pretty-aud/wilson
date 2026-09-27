@@ -414,13 +414,14 @@
     background-color: var(--color-signal-tint);
   }
   .dog-check-glyph { width: 10px; height: 10px; color: var(--color-ink); }
+  /* V2 (2026-09-27): a checkbox's words are a control's label, not a field
+     label, so they are sentence case (Q2) — the kit Switch's step and ink,
+     as "Full deck" beside them on the same row is, and as the history
+     dialog's kit checkboxes are. They were the capitalised Label step. */
   .dog-check-label {
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    letter-spacing: var(--text-label--letter-spacing);
-    font-weight: var(--text-label--font-weight);
-    text-transform: uppercase;
-    color: var(--color-ink-2);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink);
   }
   @media (prefers-reduced-motion: reduce) {
     .dog-check { transition: none; }
@@ -1030,9 +1031,18 @@
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out;
   }
+  /* V2 (2026-09-27), A4 §4 row 17 — the two corrections O.T.T.E.R.'s copy of
+     these accordions already has. The third ink on the hover wash over
+     paper-raised is 3.99:1 (tokens.test.js), so the description and a locked
+     label lift to the second ink under the pointer; and `.dog-acc` clips
+     (overflow: hidden), which cut the head's ring on every side, so the ring
+     is drawn inside. */
   @media (hover: hover) {
     .dog-acc-head:hover { background-color: var(--color-hover); }
+    .dog-acc-head:hover .dog-acc-desc { color: var(--color-ink-2); }
+    .dog-settings-body[data-locked='true'] .dog-acc-head:hover .dog-acc-label { color: var(--color-ink-2); }
   }
+  .dog-acc-head:focus-visible { outline-offset: -2px; }
   .dog-acc-text { min-width: 0; }
   .dog-acc-label {
     display: block;

@@ -1542,6 +1542,11 @@ select option {
   }
   .ui-th[data-align="right"] .ui-th-btn { justify-content: flex-end; }
   .ui-th[data-align="center"] .ui-th-btn { justify-content: center; }
+  /* V2 (2026-09-27), B5b §4.2 item 14: a sortable head is sticky at the top
+     edge of `.ui-table-scroll`, which scrolls and so clips, and the base
+     ring sits 1px OUTSIDE its button: 3px of it were cut on top (Expenses).
+     Drawn inside, as Bins drew its own (`.bn-th .ui-th-btn`). */
+  .ui-th-btn:focus-visible { outline-offset: -2px; }
   /* 🚨 `overflow: hidden; text-overflow: ellipsis` does NOTHING on a
      non-replaced INLINE box, and this span was inline in both of the two
      places it renders — which is why a clipped header was cut mid-word and
