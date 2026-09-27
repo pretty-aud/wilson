@@ -43,24 +43,24 @@ const FILES = {
   // ScenesView), BigTile, SceneTable (its nested shots), ShotTable, and the
   // helpers they call — InlineText, SceneBulkSelect, ConfirmDialog (W9) and
   // the pure formatters. Surface 6b: SceneGallery, ShotGallery,
-  // SceneFilterPanel and SceneSavedViewsDropdown. Staged: 6c's two popups
-  // and the two helpers only they call, and statusColor, which only they
-  // still call (the tables and the galleries read the kit's STATUS map now).
+  // SceneFilterPanel and SceneSavedViewsDropdown. Surface 6c: the two detail
+  // popups, SceneDetailPopup and ShotDetailPopup, and the two helpers only
+  // they call, PopupInlineText and FieldLabel; statusColor and fmt, which
+  // only they still called, are deleted. Nothing is staged: the whole file
+  // is guarded. (The list and `withoutFunctions` stay, with their CONTROLs,
+  // for the next file restyled in parts.)
   scenes: {
     file: './ScenesView.jsx',
     prefix: 'rb-scene-',
     min: 3000,
-    staged: [
-      'statusColor',
-      'SceneDetailPopup', 'ShotDetailPopup',
-      'PopupInlineText', 'FieldLabel',
-    ],
+    staged: [],
   },
 }
 /** The inline styles each file may write: a caller-given geometry or a
-    measured quantity carried as a custom property, never a state. Surfaces
-    6a and 6b write none: every size is the sheet's, keyed on `data-thumb`
-    (the tables) and `data-card` (the galleries). */
+    measured quantity carried as a custom property, never a state. The file
+    writes none: every size is the sheet's, keyed on `data-thumb` (the
+    tables) and `data-card` (the galleries); the popups' 896px is the kit
+    Dialog's `width`, a prop (the kit writes it). */
 const STYLES = {}
 
 /** A source with the named top-level functions taken out. A function starts
@@ -144,42 +144,54 @@ describe('a staged function is read out of the guards, and only a staged one', (
       }
     }
   })
-  it('every function surfaces 6a and 6b restyled is still read', () => {
+  it('every function surfaces 6a, 6b and 6c restyled is still read, and nothing is staged', () => {
     for (const name of [
       'ScenesView', 'BigTile', 'SceneTable', 'ShotTable', 'ConfirmDialog', 'SceneBulkSelect', 'InlineText',
       'SceneGallery', 'ShotGallery', 'SceneFilterPanel', 'SceneSavedViewsDropdown',
+      'SceneDetailPopup', 'ShotDetailPopup', 'PopupInlineText', 'FieldLabel',
     ]) {
       expect(source.scenes, name).toMatch(new RegExp(`^(?:export default )?function ${name}\\(`, 'm'))
     }
+    expect(FILES.scenes.staged).toEqual([])
+    expect(source.scenes).toBe(read(FILES.scenes.file))
   })
-  it('CONTROL: a hex planted in a staged function is ignored; one planted in a restyled function is caught', () => {
+  it('CONTROL: the mechanism, on a source of its own — a hex planted in a staged function is ignored; one planted in a function that is read is caught', () => {
+    // Nothing is staged in ScenesView since surface 6c, so the mechanism is
+    // proven on a synthetic source, as withoutFunctions' boundaries are below.
+    const src = [
+      "import './rabbitScenes.css'",
+      'function Staged() {', "  const planted = '#abcdef'", '  return <b className="rb-scene-x" />', '}',
+      'function Read() {', '  return <i className="rb-scene-y" />', '}',
+    ].join('\n')
+    const inRead = src.replace('  return <i className="rb-scene-y" />', "  const planted = '#fedcba'\n  return <i className=\"rb-scene-y\" />")
+    expect(inRead).not.toBe(src)
+    expect(stateLeaks(withoutFunctions(src, ['Staged']), [], [])).toEqual([])
+    expect(stateLeaks(withoutFunctions(src, []), [], [])).toEqual(['#abcdef'])
+    expect(stateLeaks(withoutFunctions(inRead, ['Staged']), [], [])).toEqual(['#fedcba'])
+  })
+  it('CONTROL: with nothing staged, a hex planted in any of 6c\'s functions — either popup, PopupInlineText, FieldLabel — is caught, as in 6a\'s', () => {
     const { file, staged } = FILES.scenes
     const whole = read(file)
     // Plant on the first line inside the function's body.
     const plant = (name) => whole.replace(new RegExp(`^((?:export default )?function ${name}\\([^\\n]*\\n)`, 'm'), "$1  const planted = '#abcdef'\n")
-    // Still staged (6c's): a popup, and statusColor, which only the popups call.
-    const inPopup = plant('ShotDetailPopup')
-    const inStatusColor = plant('statusColor')
-    // Read (6a's and, since surface 6b, the galleries, the strip and the menu).
-    const inSceneTable = plant('SceneTable')
-    const inShotTable = plant('ShotTable')
-    const inShell = plant('ScenesView')
-    const inGallery = plant('SceneGallery')
-    const inShotGallery = plant('ShotGallery')
-    const inFilters = plant('SceneFilterPanel')
-    const inViews = plant('SceneSavedViewsDropdown')
-    const read6 = [inSceneTable, inShotTable, inShell, inGallery, inShotGallery, inFilters, inViews]
-    for (const planted of [inPopup, inStatusColor, ...read6]) expect(planted).not.toBe(whole)
-    expect(stateLeaks(withoutFunctions(inPopup, staged), STYLES.scenes || [], [])).toEqual([])
-    expect(stateLeaks(withoutFunctions(inStatusColor, staged), STYLES.scenes || [], [])).toEqual([])
-    for (const planted of read6) expect(stateLeaks(withoutFunctions(planted, staged), STYLES.scenes || [], [])).toEqual(['#abcdef'])
+    for (const name of ['SceneDetailPopup', 'ShotDetailPopup', 'PopupInlineText', 'FieldLabel', 'SceneTable', 'ScenesView']) {
+      const planted = plant(name)
+      expect(planted, name).not.toBe(whole)
+      expect(stateLeaks(withoutFunctions(planted, staged), STYLES.scenes || [], []), name).toEqual(['#abcdef'])
+    }
   })
-  it('statusColor stays staged only while a popup (6c) calls it: nothing that is read calls it', () => {
-    expect(code.scenes).not.toMatch(/\bstatusColor\(/)
+  it('statusColor and fmt are gone (6c): nothing in the file defines or calls either; the popups\' status reads the kit\'s one STATUS map', () => {
     const whole = read('./ScenesView.jsx')
-    const callers = ['SceneDetailPopup', 'ShotDetailPopup'].filter((n) => /\bstatusColor\(/.test(jsCode(functionText(whole, n))))
-    // When neither popup calls it, it is dead: delete it and its staged entry.
-    expect(callers).not.toEqual([])
+    expect(jsCode(whole)).not.toMatch(/\bstatusColor\b/)
+    expect(jsCode(whole)).not.toMatch(/\bfmt\(/)
+    for (const name of ['SceneDetailPopup', 'ShotDetailPopup']) {
+      const body = jsCode(functionText(whole, name))
+      expect(body, name).toMatch(/subtitle=\{<StatusBadge status=\{status\} \/>\}/)
+      expect(body, name).toMatch(/<StatusDot status=\{status\}/)
+      expect(body, name).toMatch(/\{STATUS_OPTIONS\.map\(/)
+    }
+    // CONTROL: the scan would see a call that came back.
+    expect(jsCode(`${whole}\nconst x = statusColor('final')`)).toMatch(/\bstatusColor\b/)
   })
   it('CONTROL: a function ends at the next column-0 function, export, const or section divider', () => {
     const src = [

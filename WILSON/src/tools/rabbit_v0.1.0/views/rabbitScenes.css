@@ -6,8 +6,8 @@
    page, its four tiles, the toolbar and the two TABLES — the scene table
    with its nested shots, and the shot table — with the helpers they call
    (InlineText, SceneBulkSelect, ConfirmDialog). Surface 6b: the two
-   GALLERIES, the filter strip and the saved-views menu. The two detail
-   popups (6c) join it in their own commit. Every class here is
+   GALLERIES, the filter strip and the saved-views menu. Surface 6c: the two
+   DETAIL POPUPS on the kit Dialog. Every class here is
    `rb-scene-`: the `rb-` prefix is what B1's scanners (rabbitCssGuards.js)
    key on; the second word keeps these clear of B1's rabbitShell.css, B2's
    `rb-task-`, B3's `rb-tl-`, B4's `rb-files-` family, B5's Budget families
@@ -947,6 +947,350 @@
   .rb-scene-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
   .rb-scene-menu-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
 
+  /* ═══ The detail popups (surface 6c) ══════════════════════════════════════
+     SceneDetailPopup and ShotDetailPopup: the kit Dialog at their old 896px,
+     portalled into <body> — B4c's EntityDetailPopup (rabbitFiles.css,
+     `.rb-ent-detail`) re-made in this lane's classes. Off the legacy #292524
+     onto the Dialog's raised paper, where the third ink measures 4.66:1 (it
+     failed on #292524, 4.37) and the labels' second ink 7.85 (#78716c
+     measured 3.16). Two columns that scroll on their own — RelationsPanel's
+     sidebar, the kit Panel, then the properties — and, while the task form
+     is open, the form as the first of three. (0,2,0) against the kit's
+     (0,1,0) body. */
+  .rb-scene-detail .ui-dialog-body { display: flex; padding: 0; overflow: hidden; }
+  /* A long name ellipsizes instead of pushing the close button out. */
+  .rb-scene-detail .ui-dialog-head > div:first-child { min-width: 0; }
+  /* The title: the glyph, then the name in the kit title's H2, 600 and ink
+     (it was 14px in orange), then the code. The glyph in the second ink:
+     orange is the one active treatment, and a title is not a state. */
+  .rb-scene-detail-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-scene-detail-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-scene-detail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The scene's or shot's code: the kit Badge — the Label step in the second
+     ink on one hairline (it was #78716c on #1c1917, 3.65:1) — in the mono it
+     was set in. One class over `.ui-badge`. */
+  .ui-badge.rb-scene-detail-code {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: max(var(--text-label), calc(var(--text-label) * var(--mono-size-adjust)));
+  }
+  /* Delete keeps the footer's left, opposite Close. */
+  .rb-scene-detail-delete { margin-right: auto; }
+
+  .rb-scene-detail-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+  /* 🚨 The task form, NewTaskSidePopup, as the Dialog's first column (the
+     kit has no side-panel slot, B4c-KR-1): the float frame it wore beside
+     the old popup — the hairline box, the float radius and shadow — stands
+     down, one hairline divides it from the sidebar, and it fills the
+     column's height, its fields scrolling under a footer that stays. Its
+     root is B4's (`.rb-rel-task` in rabbitFiles.css), reached here as the
+     column's one child: (0,1,1) over its (0,1,0). */
+  .rb-scene-detail-task {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    border-right: 1px solid var(--color-rule);
+  }
+  .rb-scene-detail-task > div {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  /* The relations column holds the kit Panel, which scrolls itself. */
+  .rb-scene-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
+  /* The properties take what is left, at the page's 24px gutter (R3-31; the
+     old column was 20px in): at 94vw with the task form open (a 1280px
+     window) they give first, as the old popup shrank beside the form. The
+     popup's scroller, so the kit body's `scroll-padding-block: 4px`. */
+  .rb-scene-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; scroll-padding-block: 4px; container-type: inline-size; }
+
+  /* The thumbnail beside the name field, as they were. */
+  .rb-scene-detail-top { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+  .rb-scene-detail-field { flex: 1 1 auto; min-width: 0; }
+  /* The thumbnail's well: its old 142 × 80, on the paper. */
+  .rb-scene-detail-thumb {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 142px;
+    height: 80px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-scene-detail-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* Change and remove over the picture, on the kit's scrim: the kit's
+     HoverActions shows them on the well's hover, as they were shown, and on
+     keyboard focus now. (0,2,0) over the kit slot's gap (0,1,0). */
+  .ui-hover-actions.rb-scene-detail-thumb-acts {
+    position: absolute;
+    inset: 0;
+    justify-content: center;
+    gap: 4px;
+    background-color: var(--color-backdrop);
+  }
+  /* Each button on the raised paper, so its glyph reads over ANY picture
+     (B4c measured 2.54:1 through the scrim alone over a light one; 7.85 on
+     the paper). The hover is the kit's screen laid over that ground as an
+     image, so the ground stays. (0,4,0) over the kit's hover (0,3,0). */
+  .ui-hover-actions.rb-scene-detail-thumb-acts > .ui-iconbtn.rb-scene-detail-thumb-act { background-color: var(--color-paper-raised); }
+  .ui-hover-actions.rb-scene-detail-thumb-acts > .ui-iconbtn.rb-scene-detail-thumb-act:hover {
+    background-image: linear-gradient(var(--color-hover), var(--color-hover));
+  }
+  /* No picture: the whole well is the one button it was. At rest the scene's
+     or shot's glyph in the third ink, at the empty states' 24px (R3-29: it
+     was 20px, in the ground's own colour, 1.15:1); on hover or keyboard
+     focus the glyph gives way to the picture glyph and the words, sentence
+     case at Caption in the second ink (they were 11px capitals at 2.29:1).
+     Its focus ring is drawn inside: the well clips anything outside it. */
+  .rb-scene-detail-thumb-set {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    outline-offset: -2px;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-scene-detail-thumb-set:hover { background-color: var(--color-hover); }
+  .rb-scene-detail-thumb-hint {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .rb-scene-detail-thumb-hint-icon { width: var(--icon-md); height: var(--icon-md); }
+  .rb-scene-detail-thumb-glyph {
+    position: absolute;
+    width: var(--icon-lg);
+    height: var(--icon-lg);
+    color: var(--color-ink-3);
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .rb-scene-detail-thumb-set:hover .rb-scene-detail-thumb-hint,
+  .rb-scene-detail-thumb-set:focus-visible .rb-scene-detail-thumb-hint { opacity: 1; }
+  .rb-scene-detail-thumb-set:hover .rb-scene-detail-thumb-glyph,
+  .rb-scene-detail-thumb-set:focus-visible .rb-scene-detail-thumb-glyph { opacity: 0; }
+  /* A shot with no thumbnail of its own shows its primary take's poster, at
+     the 142 × 80 ScenesView hands BinPoster; it dims under the words on
+     hover, as it did. The well draws the edge (the poster was handed
+     `style={{ border: 'none' }}`): one class over bins.css's `.bn-poster`.
+     The words then read in the ink (they were #d6d3d1 there). */
+  .rb-scene-detail-poster { position: absolute; inset: 0; transition: opacity var(--duration-state) ease-out; }
+  .rb-scene-detail-poster > .rb-scene-poster { border: 0; }
+  .rb-scene-detail-thumb-set:hover > .rb-scene-detail-poster,
+  .rb-scene-detail-thumb-set:focus-visible > .rb-scene-detail-poster { opacity: 0.4; }
+  .rb-scene-detail-thumb-set[data-take="true"] .rb-scene-detail-thumb-hint { color: var(--color-ink); }
+  /* "From primary take": the Label step on the paper along the well's foot
+     (R3-07: it was 7.5px; the floor is 11), in the second ink (it was the
+     orange on a 75% veil — orange is the one active treatment). */
+  .rb-scene-detail-thumb-take {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 1px 0;
+    text-align: center;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper);
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .rb-scene-detail-thumb-set:hover > .rb-scene-detail-thumb-take,
+  .rb-scene-detail-thumb-set:focus-visible > .rb-scene-detail-thumb-take { opacity: 0; }
+
+  /* The Label step over each value (FieldLabel: the kit Field's label
+     class), a block with its old 4px and 2px more, B4c's 6. */
+  .rb-scene-label { display: block; margin-bottom: 6px; }
+  /* The name: at rest its words in the kit's small well, a button (it was a
+     bare span), the words on one line; an empty one's placeholder in the
+     third ink. The kit's small field takes its place on a click, the same
+     size. (0,2,0) over the kit's `.ui-input` (0,1,0). */
+  .ui-input.rb-scene-name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    cursor: text;
+  }
+  .ui-input.rb-scene-name-text[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* R3-36: each grid under the kit's SectionTitle — its hairline above and
+     its 16px, the heading an h3 under the Dialog's H2 title at the Label
+     step, the kit eyebrow's look: 11px capitals in the third ink (4.66:1 on
+     the raised paper). The grid's three columns and 16px gaps as they were,
+     and 20px after it, its old margin. (0,2,0) over the kit's title (0,1,0). */
+  .rb-scene-group { margin-bottom: 20px; }
+  .ui-section.rb-scene-section { margin-bottom: 12px; }
+  .rb-scene-section .ui-section-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .rb-scene-prop-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .rb-scene-prop { display: flex; flex-direction: column; min-width: 0; }
+  /* Where the Camera grid held its last cell open with an empty div, the
+     movement spans the two columns it left (R3-36). */
+  .rb-scene-prop-wide { grid-column: span 2; }
+  /* Only where the properties are squeezed (the task form open in a window
+     under about 1200px: at 1024 the grid is 212px, three 60px columns and a
+     date field cut to 60px), the same fields in the same order reflow to
+     two columns, then one, so each date field keeps its 125px. */
+  @container (max-width: 406px) {
+    .rb-scene-prop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @container (max-width: 265px) {
+    .rb-scene-prop-grid { grid-template-columns: minmax(0, 1fr); }
+    .rb-scene-prop-grid > .rb-scene-prop-wide { grid-column: auto; }
+  }
+  /* An editable field is the kit's small well (legible as editable at rest,
+     as the tables' fields are since R3-26), its rest, hover and focus the
+     kit's. An empty choice's dash in the third ink (it was #57534e). A
+     number's figures tabular. */
+  .ui-input.rb-scene-prop-select[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-scene-prop-number { font-variant-numeric: tabular-nums; }
+  /* Status: the kit's dot inside the well, the kit's words in the select
+     (the text and every option wore the status colour, R3-11). (0,3,0) over
+     the kit's small select's padding. */
+  .rb-scene-prop-status { position: relative; display: block; }
+  .rb-scene-prop-status > .ui-status-dot { position: absolute; left: 8px; top: 50%; margin-top: -4px; pointer-events: none; }
+  .rb-scene-prop-status > .ui-input.rb-scene-prop-status-input { padding-left: 24px; }
+  /* R3-36: a value nobody types — Runtime, Total frames, the counts,
+     Duration, Parent scene, the folder — is inert: no well and no edge, the
+     second ink, no hover and never a tab stop (so no focus ring), one
+     control tall so its row stays level with the wells beside it. A zero or
+     a missing value in the third ink (R3-13), as the tables' are. */
+  .rb-scene-prop-inert {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: var(--control-sm);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-scene-prop-inert[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-scene-prop-figure {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+  }
+  .rb-scene-prop-strong { font-weight: 600; }
+  .rb-scene-prop-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-scene-prop-glyph { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+
+  /* Description and notes: the words in the kit's well, a button that opens
+     the editor (a bordered box before, as a well is), at least 40px tall;
+     an empty one's prompt in the third ink (it was #57534e, 2.29:1). Open,
+     the kit's textarea at the words' place, at least 80 and 60px tall and
+     not resizable, as they were; Save and Cancel the kit's small Buttons
+     under it. (0,3,0) over the kit's small well (0,2,0) and textarea (0,1,1). */
+  .rb-scene-detail-text { margin-bottom: 16px; }
+  .rb-scene-detail-text > .ui-input.rb-scene-prop-text {
+    height: auto;
+    min-height: 40px;
+    padding: 8px 12px;
+    overflow-wrap: anywhere;
+    text-align: left;
+    cursor: pointer;
+  }
+  .rb-scene-detail-text > .ui-input.rb-scene-prop-text[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-scene-textarea { resize: none; }
+  .ui-input.rb-scene-textarea[data-field="description"] { min-height: 80px; }
+  .ui-input.rb-scene-textarea[data-field="notes"] { min-height: 60px; }
+  .rb-scene-edit-acts { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* The takes' notice: the kit Banner, 8px over the list, as it was. */
+  .rb-scene-detail-takes > .ui-banner.rb-scene-detail-notice { margin-bottom: 8px; }
+
+  /* The scene popup's shots: the label and Add shot (the kit's small
+     Button; it was orange words) on one line, then the list — each row on
+     the paper with one hairline, as it was, the hover the kit's screen over
+     it. The name the row's words at Dense in the ink, the description
+     (InlineText) under it; the number in the second ink, the runtime in the
+     third (#78716c and #57534e before) — each lifted a step while the row is
+     hovered, where the third measures 4.34:1. The status the kit's
+     StatusBadge (R3-11); the delete the kit's IconButton in the kit's
+     HoverActions (R3-24). Nothing yet: the kit's EmptyState, framed where
+     the old box was — (0,3,0), over its compact padding (0,2,0). */
+  .rb-scene-detail-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .rb-scene-detail-list-head > .rb-scene-label { margin-bottom: 0; }
+  .rb-scene-detail-text > .ui-empty.rb-scene-detail-empty {
+    padding: 16px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-scene-shot-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+  .rb-scene-shot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+  .rb-scene-shot:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  .rb-scene-shot-glyph { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-scene-shot-words { flex: 1 1 auto; min-width: 0; }
+  .rb-scene-shot-name {
+    display: block;
+    max-width: 100%;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .rb-scene-shot-num,
+  .rb-scene-shot-time {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+  }
+  .rb-scene-shot-num { color: var(--color-ink-2); }
+  .rb-scene-shot-time { color: var(--color-ink-3); }
+  .rb-scene-shot > .ui-status { flex-shrink: 0; }
+  .ui-hover-actions.rb-scene-shot-acts { flex-shrink: 0; }
+  .rb-scene-shot:hover .rb-scene-shot-glyph,
+  .rb-scene-shot:hover .rb-scene-shot-time,
+  .rb-scene-shot:hover .rb-scene-inline { color: var(--color-ink-2); }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped. Never a `*`: the pet's
      keyframes must keep playing (C5). */
@@ -960,5 +1304,10 @@
     .rb-scene-add { transition: none; }
     .rb-scene-card { transition: none; }
     .rb-scene-menu-item { transition: none; }
+    .rb-scene-detail-thumb-set { transition: none; }
+    .rb-scene-detail-thumb-hint { transition: none; }
+    .rb-scene-detail-thumb-glyph { transition: none; }
+    .rb-scene-detail-poster { transition: none; }
+    .rb-scene-detail-thumb-take { transition: none; }
   }
 }

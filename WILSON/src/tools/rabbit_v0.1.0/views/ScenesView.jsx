@@ -32,10 +32,12 @@ import {
 } from 'lucide-react'
 // Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
 // on the kit and rabbitScenes.css; surface 6b the two galleries, the filter
-// panel and the saved-views menu. The two detail popups are 6c's.
+// panel and the saved-views menu; surface 6c the two detail popups, each the
+// kit Dialog in <body>.
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+  SectionTitle,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -215,23 +217,6 @@ const FILTER_OPS = {
 
 const SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 
-// ── Color system ──
-function statusColor(status) {
-  switch (status) {
-    case 'in_progress':    return '#fb923c'
-    case 'pending_review': return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':       return '#4ade80'
-    case 'final':          return '#22c55e'
-    case 'blocked':        return '#ef4444'
-    case 'on_hold':        return '#fcd34d'
-    case 'omitted':        return '#57534e'
-    default:               return '#a8a29e'  // not_started
-  }
-}
-
-function fmt(s) { return (s || '').replace(/_/g, ' ') }
-
 // ── Timecode helpers ──
 function framesToTimecode(totalFrames, fps) {
   if (!totalFrames || !fps || fps <= 0) return '00:00:00:00'
@@ -265,6 +250,15 @@ const MOVE_CHOICES = CAMERA_MOVEMENT_OPTIONS.map(c => ({ value: c.abbr, label: c
 // mode switches.
 const CONTENT_PANEL_ID = 'rb-scene-content'
 const VIEW_PANEL_ID = 'rb-scene-view'
+
+// ── The detail popups' width (surface 6c) ──
+// Their old max-w-4xl, 896px: a real geometry, which the kit Dialog takes as
+// a number (B4c's EntityDetailPopup's). While the task form is open it is
+// the Dialog's first column, and the Dialog is wider by the form's 400px
+// (rabbitFiles.css, `.rb-rel-task`) and the hairline after it
+// (`.rb-scene-detail-task`).
+const DETAIL_WIDTH = 896
+const DETAIL_TASK_WIDTH = 400 + 1
 
 
 
@@ -1138,27 +1132,35 @@ export default function ScenesView() {
         />
       )}
 
-      {/* ── Shot takes: the dialog from a row, and the picker (milestone 2) ── */}
+      {/* ── Shot takes: the dialog from a row, and the picker (milestone 2) ──
+          Each its own kit Dialog (B6's Modal), 🚨 PORTALLED into <body>
+          (surface 6c): the detail popups are there now, and the picker opens
+          from the shot popup's takes — rendered here in the page it would sit
+          UNDER the popup (both at the kit's z-index, the later in <body>
+          painting over) while it held the top of the modal stack. In <body>
+          it comes after the popup, as it comes after it on the stack. */}
       {takesShotId && (() => {
         const shot = shots.find(s => s.id === takesShotId)
         if (!shot) return null
-        return (
+        return createPortal(
           <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
             entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
             onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
             onOpenPicker={() => setPickerShotId(shot.id)}>
             {takesNotice && <div className="rb-scene-takes-notice">{takesNotice}</div>}
-          </ShotTakesDialog>
+          </ShotTakesDialog>,
+          document.body,
         )
       })()}
       {pickerShotId && (() => {
         const shot = shots.find(s => s.id === pickerShotId)
         if (!shot) return null
         const entries = takesByShotMap.get(shot.id) || []
-        return (
+        return createPortal(
           <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
             assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
-            onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
+            onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />,
+          document.body,
         )
       })()}
 
@@ -1176,6 +1178,8 @@ export default function ScenesView() {
             else handleDeleteShot(confirmDelete.id)
           }}
           onCancel={() => setConfirmDelete(null)}
+          // From a detail popup's Delete: what opened the popup (surface 6c).
+          returnTo={confirmDelete.returnTo || null}
         />
       )}
     </div>
@@ -2234,6 +2238,43 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 
 
 // ─── Scene detail popup ───
+// Lane B5b, surface 6c (2026-09-27): the kit Dialog at the popup's old width,
+// 896px (its max-w-4xl: a real geometry, so a number), 🚨 PORTALLED into
+// <body> — the kit Dialog does not portal (B4-KR-2) — on the Dialog's raised
+// paper, where it was the legacy #292524 (the third ink fails there, 4.37:1,
+// and passes on the raised paper, 4.66). B4c's EntityDetailPopup
+// (EntityListView.jsx) is its pattern, re-made in this lane's classes. The
+// kit's backdrop centres it with flex, as the old layer did, never a
+// transform, so a fixed-position layer inside it still places against the
+// window. The header keeps the scene's glyph, its name and its code: the name
+// is the H2 title, read-only — the "Scene name" field below is still where it
+// is edited (C1: the two stay two) — and names the Dialog. The status is the
+// kit's StatusBadge, where the 3px status-coloured rule under the header said
+// it (R3-11). The kit brings the named ✕ (the old one had no name), Escape
+// (Q17) and the backdrop, which closed it before and still does. The body
+// keeps its two columns — RelationsPanel's sidebar, then the properties — and
+// every section, field and button in its old order.
+//
+// R3-36: the same fields in the same order in the same two grids, each grid
+// under the kit's SectionTitle, its hairline above and its heading at the
+// Label step — Identity, and Schedule (the counts and the two dates, as the
+// shot popup's Schedule holds its parent scene and its dates). Each field is
+// the kit's small well (legible as editable at rest, R3-26's lesson in the
+// tables); a value nobody types — Runtime, Total frames, the counts, the
+// folder — is inert: no well, no edge, the second ink, never a tab stop.
+//
+// 🚨 THE TASK FORM. "Add new task" opens NewTaskSidePopup to the popup's
+// LEFT, as it always did — INSIDE the Dialog now, as its first column: the
+// Dialog is one surface, and its focus trap would strand a panel drawn beside
+// it (the kit has no side-panel slot, B4c-KR-1). The Dialog grows by the
+// form's width and the hairline after it; at 94vw the properties column
+// gives, as the old popup shrank beside the form. A task opened from the
+// sidebar is TaskDetailPopup, itself a kit Dialog: it opens as this Dialog's
+// SIBLING, portalled, over it on the modal stack, so one Escape closes it and
+// this popup stays.
+//
+// R4-26's twin — a related asset's click sets `nestedAssetId`, which nothing
+// renders — is RECORDED, not changed (C1), as B4c recorded it.
 function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot }) {
   const scene = (ctx?.scenes || []).find(s => s.id === sceneId)
   const sceneShots = shotsByScene[sceneId] || []
@@ -2248,13 +2289,20 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // What opened this popup — a row's "View details" — captured in render, as
+  // the kit Dialog captures it (an effect would read the popup's own focus).
+  // The delete question asked from here is handed it (ConfirmDialog).
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
   useEffect(() => { setDescDraft(scene?.description || '') }, [scene?.description])
   useEffect(() => { setNotesDraft(scene?.notes || '') }, [scene?.notes])
 
   if (!scene) return null
 
-  const sc = statusColor(scene.status)
+  // What the Dialog is named for: the name its title shows.
+  const name = scene.name || 'Untitled scene'
+  const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
 
   function handleUpdate(patch) { ctx?.updateScene?.(scene.id, patch) }
@@ -2288,384 +2336,392 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
   const sceneFolderPath = `SCENES/${sceneSlug}/`
   const fileCount = managedFiles.filter(f => f.scene_id === scene.id && !f.deleted_at).length
 
-  // Show side panel?
-  const hasLeftSide = showCreateTask || nestedTaskId || nestedAssetId
-
   return (
     <>
-      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
-
-        {/* ── LEFT SIDE POPUP (task creation / nested detail) ── */}
-        {showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
-            <NewTaskSidePopup
-              entityType="scene"
-              entityId={scene.id}
-              assets={ctx?.assets || []}
-              phases={ctx?.phases || []}
-              scenes={ctx?.scenes || []}
-              shots={ctx?.shots || []}
-              levels={ctx?.levels || []}
-              experiences={ctx?.experiences || []}
-              projectMembers={projectMembers || []}
-              roleEntries={roleEntries || []}
-              project={project}
-              onConfirm={handleCreateTask}
-              onClose={() => setShowCreateTask(false)}
-            />
-          </div>
-        )}
-
-        {nestedTaskId && !showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
-            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
-          </div>
-        )}
-
-        {/* ── MAIN POPUP ── */}
-        <div
-          className="pointer-events-auto w-full max-w-4xl rounded-control overflow-hidden flex flex-col"
-          style={{
-            backgroundColor: '#292524',
-            border: '2px solid #f97316',
-            maxHeight: '85vh',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-          }}
-          onClick={e => e.stopPropagation()}
+      {createPortal(
+        <Dialog
+          // Wider by the task form's column while it is open.
+          width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
+          className="rb-scene-detail"
+          // A title that is a node names nothing, so the Dialog carries the
+          // scene's name as its aria-label, as B4c's popup does.
+          aria-label={name}
+          title={(
+            <span className="rb-scene-detail-title">
+              <Film aria-hidden="true" className="rb-scene-detail-icon" />
+              <span className="rb-scene-detail-name">{name}</span>
+              <Badge className="rb-scene-detail-code">{sceneCode}</Badge>
+            </span>
+          )}
+          subtitle={<StatusBadge status={status} />}
+          dismissOnBackdrop
+          onClose={onClose}
+          footer={(
+            <>
+              {/* At the footer's left, where it was; Close at its right. */}
+              <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
+                onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled', returnTo: openerRef.current }) }}>
+                Delete scene
+              </Button>
+              <Button onClick={onClose}>
+                Close
+              </Button>
+            </>
+          )}
         >
-        {/* Header — spans full width */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
-          <div className="flex items-center gap-2.5">
-            <Film className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
-              {scene.name || 'Untitled scene'}
-            </span>
-            <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded-control"
-              style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {sceneCode}
-            </span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+          <div className="rb-scene-detail-body">
 
-        {/* Two-column body */}
-        <div className="flex-1 overflow-auto flex">
+            {/* The task form: the first column, while it is open */}
+            {showCreateTask && (
+              <div className="rb-scene-detail-task">
+                <NewTaskSidePopup
+                  entityType="scene"
+                  entityId={scene.id}
+                  assets={ctx?.assets || []}
+                  phases={ctx?.phases || []}
+                  scenes={ctx?.scenes || []}
+                  shots={ctx?.shots || []}
+                  levels={ctx?.levels || []}
+                  experiences={ctx?.experiences || []}
+                  projectMembers={projectMembers || []}
+                  roleEntries={roleEntries || []}
+                  project={project}
+                  onConfirm={handleCreateTask}
+                  onClose={() => setShowCreateTask(false)}
+                />
+              </div>
+            )}
 
-          {/* LEFT COLUMN — Relations */}
-          <RelationsPanel
-            entityType="scene"
-            entityId={scene.id}
-            assets={ctx?.assets || []}
-            tasks={ctx?.tasks || []}
-            ctx={ctx}
-            onOpenAsset={id => setNestedAssetId(id)}
-            onOpenTask={id => setNestedTaskId(id)}
-            onCreateTask={() => setShowCreateTask(true)}
-          />
+            {/* Relations: RelationsPanel's sidebar, the kit Panel */}
+            <div className="rb-scene-detail-side">
+              <RelationsPanel
+                entityType="scene"
+                entityId={scene.id}
+                assets={ctx?.assets || []}
+                tasks={ctx?.tasks || []}
+                ctx={ctx}
+                onOpenAsset={id => setNestedAssetId(id)}
+                onOpenTask={id => setNestedTaskId(id)}
+                onCreateTask={() => setShowCreateTask(true)}
+              />
+            </div>
 
-          {/* RIGHT COLUMN — Properties */}
-          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
+            {/* Properties */}
+            <div className="rb-scene-detail-main">
 
-          {/* Thumbnail + Title */}
-          <div className="flex items-start gap-4 mb-5">
-            <div className="relative flex-shrink-0 rounded-control overflow-hidden flex items-center justify-center group/thumb"
-              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {hasThumbnail ? (
-                <>
-                  <img
-                    src={`/api/rabbit/projects/${project?.id}/scenes/${scene.id}/thumbnail?r=${thumbRevision}`}
-                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
-                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+              {/* The thumbnail, then the name */}
+              <div className="rb-scene-detail-top">
+                <div className="rb-scene-detail-thumb ui-hover-host">
+                  {hasThumbnail ? (
+                    <>
+                      <img
+                        className="rb-scene-detail-thumb-img"
+                        src={`/api/rabbit/projects/${project?.id}/scenes/${scene.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" />
+                      {/* Change and remove over the picture: the kit's
+                          HoverActions, shown on hover as they were, and on
+                          keyboard focus now. */}
+                      <HoverActions className="rb-scene-detail-thumb-acts">
+                        <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                      </HoverActions>
+                    </>
+                  ) : (
                     <button type="button" onClick={handleSetThumbnail}
-                      className="p-1.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
-                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
-                    <button type="button" onClick={handleClearThumbnail}
-                      className="p-1.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
-                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
-                  </div>
-                </>
-              ) : (
-                <button type="button" onClick={handleSetThumbnail}
-                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
-                  style={{ color: '#57534e' }} title="Set thumbnail">
-                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                    <ImagePlus className="w-4 h-4" />
-                    <span className="text-label uppercase">Set thumbnail</span>
-                  </div>
-                  <Film className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
-                </button>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <FieldLabel>Scene name</FieldLabel>
-              <PopupInlineText
-                value={scene.name || ''}
-                placeholder="Untitled scene"
-                onCommit={v => handleUpdate({ name: v })}
-              />
-            </div>
-          </div>
-
-          {/* Properties grid */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Status</FieldLabel>
-              <select value={scene.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
-                {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Type</FieldLabel>
-              <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
-                {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Time of Day</FieldLabel>
-              <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: scene.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Scene number</FieldLabel>
-              <input type="number" value={scene.scene_number ?? ''} onChange={e => {
-                const n = parseInt(e.target.value, 10)
-                if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
-              }}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
-            </div>
-            <div>
-              <FieldLabel>Runtime</FieldLabel>
-              <div className="px-2.5 py-1.5 text-dense font-mono tabular-nums rounded-control"
-                style={{ backgroundColor: '#1c1917', color: totals.totalFrames > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {totals.runtime}
-              </div>
-            </div>
-            <div>
-              <FieldLabel>Total Frames</FieldLabel>
-              <div className="px-2.5 py-1.5 text-dense font-mono tabular-nums rounded-control"
-                style={{ backgroundColor: '#1c1917', color: totals.totalFrames > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {fmtNumber(totals.totalFrames)}
-              </div>
-            </div>
-          </div>
-
-          {/* Counts + dates */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Shots / Assets / Tasks</FieldLabel>
-              <div className="flex items-center gap-2">
-                <span className="text-dense font-mono font-semibold" style={{ color: '#d6d3d1' }}>
-                  {sceneShots.length}
-                </span>
-                <span className="text-dense font-mono tabular-nums" style={{ color: '#78716c' }}>
-                  / {assetCountByScene[sceneId] || 0} / {taskCountByScene[sceneId] || 0}
-                </span>
-              </div>
-            </div>
-            <div>
-              <FieldLabel>Start Date</FieldLabel>
-              <input
-                type="date"
-                value={scene.start_date || ''}
-                onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-            <div>
-              <FieldLabel>End Date</FieldLabel>
-              <input
-                type="date"
-                value={scene.end_date || ''}
-                onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-          </div>
-
-          {/* Description */}
-          <div className="mb-4">
-            <FieldLabel>Description</FieldLabel>
-            {editingDesc ? (
-              <div>
-                <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control resize-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-dense text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}
-                    className="text-dense text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-dense rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: scene.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {scene.description || 'Click to add a description...'}
-              </div>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div className="mb-4">
-            <FieldLabel>Notes</FieldLabel>
-            {editingNotes ? (
-              <div>
-                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control resize-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-dense text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}
-                    className="text-dense text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-dense rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: scene.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {scene.notes || 'Click to add notes...'}
-              </div>
-            )}
-          </div>
-
-          {/* Folder path */}
-          <div className="mb-4">
-            <FieldLabel>Folder</FieldLabel>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-control"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
-              <span className="text-dense font-mono truncate" style={{ color: '#a8a29e' }}>
-                {sceneFolderPath}
-              </span>
-            </div>
-          </div>
-
-          {/* Files */}
-          <div className="mb-4">
-            <FieldLabel>Files ({fileCount})</FieldLabel>
-            <FileManager
-              files={managedFiles}
-              sceneId={scene.id}
-              sceneName={scene.name || 'Untitled-Scene'}
-              projectId={project?.id}
-              project={project}
-              mode="full"
-              onFileAdded={() => ctx?.refreshManagedFiles?.()}
-              onFileDeleted={() => ctx?.refreshManagedFiles?.()}
-              onFileUpdated={() => ctx?.refreshManagedFiles?.()}
-            />
-          </div>
-
-          {/* Shots list */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <FieldLabel>Shots ({sceneShots.length})</FieldLabel>
-              <button type="button" onClick={() => onNewShot(sceneId)}
-                className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control transition-colors hover:bg-stone-700"
-                style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-                <Plus className="w-3 h-3" /> Add shot
-              </button>
-            </div>
-            {sceneShots.length === 0 ? (
-              <div className="px-3 py-4 text-center text-label uppercase rounded-control"
-                style={{ color: '#57534e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                No shots yet
-              </div>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {sceneShots.map(shot => (
-                  <div key={shot.id}
-                    className="flex items-center gap-2 px-3 py-2 rounded-control hover:bg-stone-800 transition-colors group/shot cursor-pointer"
-                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-                    onClick={() => onOpenShot?.(shot.id)}>
-                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-                    <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
-                      <span className="text-dense truncate block cursor-pointer" style={{ color: '#d6d3d1' }}
-                        onClick={() => onOpenShot?.(shot.id)}>
-                        {shot.name || 'Untitled shot'}
+                      className="rb-scene-detail-thumb-set"
+                      title="Set thumbnail">
+                      <span className="rb-scene-detail-thumb-hint">
+                        <ImagePlus aria-hidden="true" className="rb-scene-detail-thumb-hint-icon" />
+                        Set thumbnail
                       </span>
-                      <InlineText
-                        value={shot.description || ''}
-                        placeholder="Add description…"
-                        size="xs"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
-                      />
-                    </div>
-                    <span className="text-dense font-mono flex-shrink-0" style={{ color: '#78716c' }}>
-                      #{shot.shot_number ?? '—'}
-                    </span>
-                    {(shot.frame_count || 0) > 0 && (
-                      <span className="text-dense font-mono tabular-nums flex-shrink-0" style={{ color: '#57534e' }}>
-                        {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
-                      </span>
-                    )}
-                    <span className="px-1.5 py-0.5 text-label font-mono uppercase rounded-control flex-shrink-0"
-                      style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
-                      {fmt(shot.status || 'not_started')}
-                    </span>
-                    <button type="button"
-                      onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                      className="p-0.5 rounded-control hover:bg-stone-700 transition-colors opacity-0 group-hover/shot:opacity-100"
-                      style={{ color: '#ef4444' }}>
-                      <Trash2 className="w-3 h-3" />
+                      <Film aria-hidden="true" className="rb-scene-detail-thumb-glyph" />
                     </button>
-                  </div>
-                ))}
+                  )}
+                </div>
+                <div className="rb-scene-detail-field">
+                  <FieldLabel>Scene name</FieldLabel>
+                  <PopupInlineText
+                    value={scene.name || ''}
+                    placeholder="Untitled scene"
+                    label="Scene name"
+                    onCommit={v => handleUpdate({ name: v })}
+                  />
+                </div>
               </div>
-            )}
-          </div>
-          </div>{/* close RIGHT COLUMN */}
-        </div>{/* close two-column flex */}
 
-        {/* Footer */}
-        <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button"
-            onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-red-900/30"
-            style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-            <Trash2 className="w-3 h-3" /> Delete scene
-          </button>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Close
-          </button>
-        </div>
-      </div>{/* close MAIN POPUP */}
-      </div>{/* close flex container */}
+              {/* Identity: the status, type, time of day and number, and the
+                  runtime and frames its shots add up to (R3-36). Each control
+                  is named for its label, which labels nothing by itself. */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Identity</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Status</FieldLabel>
+                    {/* The kit's dot inside the well, the kit's words in the
+                        select: the status colour on the text and on every
+                        option is gone (R3-11). */}
+                    <span className="rb-scene-prop-status">
+                      <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                      <select value={status} onChange={e => handleUpdate({ status: e.target.value })}
+                        aria-label="Status"
+                        className="ui-input rb-scene-prop-status-input"
+                        data-size="sm">
+                        {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Type</FieldLabel>
+                    <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
+                      aria-label="Type"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm">
+                      {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Time of day</FieldLabel>
+                    <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                      aria-label="Time of day"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={scene.time_of_day ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Scene number</FieldLabel>
+                    <input type="number" value={scene.scene_number ?? ''} onChange={e => {
+                      const n = parseInt(e.target.value, 10)
+                      if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
+                    }}
+                      aria-label="Scene number"
+                      className="ui-input rb-scene-prop-number"
+                      data-size="sm" />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Runtime</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                      {totals.runtime}
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Total frames</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                      {fmtNumber(totals.totalFrames)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Schedule: the counts, then the two dates (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Schedule</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Shots / assets / tasks</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure">
+                      <span className="rb-scene-prop-strong">{sceneShots.length}</span>
+                      {` / ${assetCountByScene[sceneId] || 0} / ${taskCountByScene[sceneId] || 0}`}
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Start date</FieldLabel>
+                    <input
+                      type="date"
+                      value={scene.start_date || ''}
+                      onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                      aria-label="Start date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={scene.start_date ? undefined : 'true'}
+                    />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>End date</FieldLabel>
+                    <input
+                      type="date"
+                      value={scene.end_date || ''}
+                      onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                      aria-label="End date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={scene.end_date ? undefined : 'true'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Description: the words in the kit's well open its textarea;
+                  Save and Cancel are the kit's Buttons. Escape cancels, and is
+                  MARKED handled so the Dialog stays (W2). */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Description</FieldLabel>
+                {editingDesc ? (
+                  <>
+                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(scene.description || ''); setEditingDesc(false) } }}
+                      aria-label="Description"
+                      className="ui-input rb-scene-textarea"
+                      data-field="description"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setEditingDesc(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={scene.description ? undefined : 'true'}>
+                    {scene.description || 'Click to add a description...'}
+                  </button>
+                )}
+              </div>
+
+              {/* Notes: the same editor */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Notes</FieldLabel>
+                {editingNotes ? (
+                  <>
+                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(scene.notes || ''); setEditingNotes(false) } }}
+                      aria-label="Notes"
+                      className="ui-input rb-scene-textarea"
+                      data-field="notes"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setEditingNotes(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={scene.notes ? undefined : 'true'}>
+                    {scene.notes || 'Click to add notes...'}
+                  </button>
+                )}
+              </div>
+
+              {/* The folder: a value nobody types, so inert (R3-36) */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Folder</FieldLabel>
+                <span className="rb-scene-prop-inert">
+                  <FolderOpen aria-hidden="true" className="rb-scene-prop-glyph" />
+                  <span className="rb-scene-prop-words rb-scene-prop-figure">{sceneFolderPath}</span>
+                </span>
+              </div>
+
+              {/* Files */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>{`Files (${fileCount})`}</FieldLabel>
+                <FileManager
+                  files={managedFiles}
+                  sceneId={scene.id}
+                  sceneName={scene.name || 'Untitled-Scene'}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
+              </div>
+
+              {/* Shots: the list, each row opening its shot as before. A row
+                  is on the paper with one hairline; its status the kit's
+                  StatusBadge (R3-11); its delete the kit's IconButton, named
+                  for its shot, in the kit's HoverActions — on hover as it
+                  was, and on keyboard focus now (R3-24). Its click still
+                  reaches the row, as it did (C1: recorded). */}
+              <div className="rb-scene-detail-text">
+                <div className="rb-scene-detail-list-head">
+                  <FieldLabel>{`Shots (${sceneShots.length})`}</FieldLabel>
+                  <Button size="sm" Icon={Plus} onClick={() => onNewShot(sceneId)}>
+                    Add shot
+                  </Button>
+                </div>
+                {sceneShots.length === 0 ? (
+                  <EmptyState title="No shots yet" className="rb-scene-detail-empty" />
+                ) : (
+                  <ul className="rb-scene-shot-list">
+                    {sceneShots.map(shot => (
+                      <li key={shot.id} className="rb-scene-shot" onClick={() => onOpenShot?.(shot.id)}>
+                        <Clapperboard aria-hidden="true" className="rb-scene-shot-glyph" />
+                        <div className="rb-scene-shot-words" onClick={e => e.stopPropagation()}>
+                          <button type="button" className="rb-scene-shot-name" onClick={() => onOpenShot?.(shot.id)}>
+                            {shot.name || 'Untitled shot'}
+                          </button>
+                          <InlineText
+                            value={shot.description || ''}
+                            placeholder="Add description…"
+                            size="xs"
+                            label={`Description for ${shot.name || 'Untitled shot'}`}
+                            onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
+                          />
+                        </div>
+                        <span className="rb-scene-shot-num">#{shot.shot_number ?? '—'}</span>
+                        {(shot.frame_count || 0) > 0 && (
+                          <span className="rb-scene-shot-time">
+                            {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
+                          </span>
+                        )}
+                        <StatusBadge status={shot.status || 'not_started'} />
+                        <HoverActions className="rb-scene-shot-acts">
+                          <IconButton size="sm" Icon={Trash2} danger title={`Delete ${shot.name || 'Untitled shot'}`}
+                            onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                        </HoverActions>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* A task opened from the sidebar: its own kit Dialog, portalled beside
+          this one and over it on the modal stack. Not while the task form is
+          open, as before. */}
+      {nestedTaskId && !showCreateTask && createPortal(
+        <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
+        document.body,
+      )}
     </>
   )
 }
 
 
 // ─── Shot detail popup ───
+// Lane B5b, surface 6c (2026-09-27): the scene popup's twin (above) — the kit
+// Dialog at 896px, portalled into <body>, on the raised paper; the shot's
+// glyph, name and code in its title and its status the kit's StatusBadge;
+// the task form as the Dialog's first column; a task opened from the sidebar
+// its own kit Dialog over it. R3-36: the same fields in the same order in the
+// same three grids — Identity, Camera, Schedule — each under the kit's
+// SectionTitle at the Label step with a hairline above. The empty cell that
+// held the Camera grid open is gone: Camera movement spans the two columns it
+// left (its "DOLLY ZOOM — Dolly zoom / vertigo" cut at one). Duration and
+// Parent scene, and the folder, are inert: no well, no edge, the second ink,
+// never a tab stop. The primary take stands in for an empty thumbnail as
+// before, BinPoster at the 142 × 80 it is handed; its "From primary take"
+// caption at the Label step (it was 7.5px, R3-07's floor is 11).
 function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
   const shot = (ctx?.shots || []).find(s => s.id === shotId)
   const scene = shot ? (ctx?.scenes || []).find(s => s.id === shot.scene_id) : null
@@ -2679,13 +2735,17 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // What opened this popup, handed to the delete question (the scene popup's).
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
   useEffect(() => { setDescDraft(shot?.description || '') }, [shot?.description])
   useEffect(() => { setNotesDraft(shot?.notes || '') }, [shot?.notes])
 
   if (!shot) return null
 
-  const sc = statusColor(shot.status)
+  const name = shot.name || 'Untitled shot'
+  const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
 
   function handleUpdate(patch) { ctx?.updateShot?.(shot.id, patch) }
@@ -2727,357 +2787,373 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 
   return (
     <>
-      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
-
-        {/* ── LEFT SIDE POPUP ── */}
-        {showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
-            <NewTaskSidePopup
-              entityType="shot"
-              entityId={shot.id}
-              assets={ctx?.assets || []}
-              phases={ctx?.phases || []}
-              scenes={ctx?.scenes || []}
-              shots={ctx?.shots || []}
-              levels={ctx?.levels || []}
-              experiences={ctx?.experiences || []}
-              projectMembers={projectMembers || []}
-              roleEntries={roleEntries || []}
-              project={project}
-              onConfirm={handleCreateTask}
-              onClose={() => setShowCreateTask(false)}
-            />
-          </div>
-        )}
-
-        {nestedTaskId && !showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
-            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
-          </div>
-        )}
-
-        {/* ── MAIN POPUP ── */}
-        <div
-          className="pointer-events-auto w-full max-w-4xl rounded-control overflow-hidden flex flex-col"
-          style={{
-            backgroundColor: '#292524',
-            border: '2px solid #f97316',
-            maxHeight: '85vh',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-        {/* Header — spans full width */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
-          <div className="flex items-center gap-2.5">
-            <Clapperboard className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-h3 font-semibold" style={{ color: '#fb923c' }}>
-              {shot.name || 'Untitled shot'}
+      {createPortal(
+        <Dialog
+          width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
+          className="rb-scene-detail"
+          aria-label={name}
+          title={(
+            <span className="rb-scene-detail-title">
+              <Clapperboard aria-hidden="true" className="rb-scene-detail-icon" />
+              <span className="rb-scene-detail-name">{name}</span>
+              <Badge className="rb-scene-detail-code">{shotCode}</Badge>
             </span>
-            <span className="text-label font-mono uppercase px-1.5 py-0.5 rounded-control"
-              style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {shotCode}
-            </span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-control transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Two-column body */}
-        <div className="flex-1 overflow-auto flex">
-
-          {/* LEFT COLUMN — Relations */}
-          <RelationsPanel
-            entityType="shot"
-            entityId={shot.id}
-            assets={ctx?.assets || []}
-            tasks={ctx?.tasks || []}
-            ctx={ctx}
-            onOpenAsset={id => setNestedAssetId(id)}
-            onOpenTask={id => setNestedTaskId(id)}
-            onCreateTask={() => setShowCreateTask(true)}
-          />
-
-          {/* RIGHT COLUMN — Properties */}
-          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
-
-          {/* Thumbnail + Title */}
-          <div className="flex items-start gap-4 mb-5">
-            <div className="relative flex-shrink-0 rounded-control overflow-hidden flex items-center justify-center group/thumb"
-              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {hasThumbnail ? (
-                <>
-                  <img
-                    src={`/api/rabbit/projects/${project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
-                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
-                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-                    <button type="button" onClick={handleSetThumbnail}
-                      className="p-1.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
-                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
-                    <button type="button" onClick={handleClearThumbnail}
-                      className="p-1.5 rounded-control hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
-                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
-                  </div>
-                </>
-              ) : (
-                <button type="button" onClick={handleSetThumbnail}
-                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors relative"
-                  style={{ color: '#57534e' }} title={takeFallback ? 'Showing the primary take. Click to set a thumbnail of your own.' : 'Set thumbnail'}>
-                  {takeFallback && (
-                    <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={142} height={80} radius={0}
-                      className="absolute inset-0 group-hover/thumb:opacity-40 transition-opacity" style={{ border: 'none' }} iconSize={24} />
-                  )}
-                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity relative">
-                    <ImagePlus className="w-4 h-4" style={{ color: takeFallback ? '#d6d3d1' : undefined }} />
-                    <span className="text-label uppercase" style={{ color: takeFallback ? '#d6d3d1' : undefined }}>Set thumbnail</span>
-                  </div>
-                  {!takeFallback && <Clapperboard className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />}
-                  {takeFallback && <span className="absolute bottom-0 left-0 right-0 text-label uppercase text-center py-px group-hover/thumb:opacity-0 transition-opacity" style={{ color: '#fb923c', backgroundColor: 'rgba(12,10,9,0.75)' }}>from primary take</span>}
-                </button>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <FieldLabel>Shot name</FieldLabel>
-              <PopupInlineText
-                value={shot.name || ''}
-                placeholder="Untitled shot"
-                onCommit={v => handleUpdate({ name: v })}
-              />
-            </div>
-          </div>
-
-          {/* Properties grid */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Status</FieldLabel>
-              <select value={shot.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
-                {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Type</FieldLabel>
-              <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
-                {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Time of Day</FieldLabel>
-              <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: shot.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Shot number</FieldLabel>
-              <input type="number" value={shot.shot_number ?? ''} onChange={e => {
-                const n = parseInt(e.target.value, 10)
-                if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
-              }}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
-            </div>
-            <div>
-              <FieldLabel>Frame count</FieldLabel>
-              <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
-                const n = parseInt(e.target.value, 10)
-                handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
-              }}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
-                placeholder="0" />
-            </div>
-            <div>
-              <FieldLabel>Duration</FieldLabel>
-              <div className="px-2.5 py-1.5 text-dense font-mono tabular-nums rounded-control"
-                style={{ backgroundColor: '#1c1917', color: (shot.frame_count || 0) > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {framesToTimecode(shot.frame_count || 0, fps)}
-              </div>
-            </div>
-          </div>
-
-          {/* Framing + Camera Movement */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Framing</FieldLabel>
-              <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: shot.framing ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Camera Movement</FieldLabel>
-              <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: shot.camera_movement ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr} — {c.label}</option>)}
-              </select>
-            </div>
-            <div />
-          </div>
-
-          {/* Parent scene + dates */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Parent scene</FieldLabel>
-              <div className="px-2.5 py-1.5 text-dense truncate rounded-control"
-                style={{ backgroundColor: '#1c1917', color: scene ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {scene?.name || '—'}
-              </div>
-            </div>
-            <div>
-              <FieldLabel>Start Date</FieldLabel>
-              <input
-                type="date"
-                value={shot.start_date || ''}
-                onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-            <div>
-              <FieldLabel>End Date</FieldLabel>
-              <input
-                type="date"
-                value={shot.end_date || ''}
-                onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-dense rounded-control focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-          </div>
-
-          {/* Description */}
-          <div className="mb-4">
-            <FieldLabel>Description</FieldLabel>
-            {editingDesc ? (
-              <div>
-                <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control resize-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-dense text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}
-                    className="text-dense text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-dense rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: shot.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {shot.description || 'Click to add a description...'}
-              </div>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div className="mb-4">
-            <FieldLabel>Notes</FieldLabel>
-            {editingNotes ? (
-              <div>
-                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-dense rounded-control resize-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-dense text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}
-                    className="text-dense text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-dense rounded-control cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: shot.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {shot.notes || 'Click to add notes...'}
-              </div>
-            )}
-          </div>
-
-          {/* Folder path */}
-          <div className="mb-4">
-            <FieldLabel>Folder</FieldLabel>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-control"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
-              <span className="text-dense font-mono truncate" style={{ color: '#a8a29e' }}>
-                {shotFolderPath}
-              </span>
-            </div>
-          </div>
-
-          {/* Takes (milestone 2): the bin files this shot is cut from, in order */}
-          {takes?.supports && (
-            <div className="mb-4">
-              <FieldLabel>Takes ({shotTakeEntries.length})</FieldLabel>
-              {takes.notice && (
-                <div className="flex items-center gap-2 mb-2 text-dense" style={{ color: '#f59e0b' }}>
-                  <span className="flex-1">{takes.notice}</span>
-                  <button type="button" onClick={takes.clearNotice} className="p-0.5 rounded-control hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
-                </div>
-              )}
-              <ShotTakesPanel shot={shot} entries={shotTakeEntries} fps={fps} canWrite={takes.canWrite} thumbUrlFor={takes.thumbUrlFor} binPathFor={takes.binPathFor} projectId={takes.projectId}
-                onUpdate={takes.onUpdate} onRemove={takes.onRemove} onReorder={takes.onReorder} onUseLength={takes.onUseLength}
-                onOpenPicker={() => takes.openPicker(shot.id)} />
-            </div>
           )}
+          subtitle={<StatusBadge status={status} />}
+          dismissOnBackdrop
+          onClose={onClose}
+          footer={(
+            <>
+              <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
+                onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled', returnTo: openerRef.current }) }}>
+                Delete shot
+              </Button>
+              <Button onClick={onClose}>
+                Close
+              </Button>
+            </>
+          )}
+        >
+          <div className="rb-scene-detail-body">
 
-          {/* Files */}
-          <div className="mb-4">
-            <FieldLabel>Files ({fileCount})</FieldLabel>
-            <FileManager
-              files={managedFiles}
-              shotId={shot.id}
-              shotName={shot.name || 'Untitled-Shot'}
-              projectId={project?.id}
-              project={project}
-              mode="full"
-              onFileAdded={() => ctx?.refreshManagedFiles?.()}
-              onFileDeleted={() => ctx?.refreshManagedFiles?.()}
-              onFileUpdated={() => ctx?.refreshManagedFiles?.()}
-            />
+            {/* The task form: the first column, while it is open */}
+            {showCreateTask && (
+              <div className="rb-scene-detail-task">
+                <NewTaskSidePopup
+                  entityType="shot"
+                  entityId={shot.id}
+                  assets={ctx?.assets || []}
+                  phases={ctx?.phases || []}
+                  scenes={ctx?.scenes || []}
+                  shots={ctx?.shots || []}
+                  levels={ctx?.levels || []}
+                  experiences={ctx?.experiences || []}
+                  projectMembers={projectMembers || []}
+                  roleEntries={roleEntries || []}
+                  project={project}
+                  onConfirm={handleCreateTask}
+                  onClose={() => setShowCreateTask(false)}
+                />
+              </div>
+            )}
+
+            {/* Relations: RelationsPanel's sidebar, the kit Panel */}
+            <div className="rb-scene-detail-side">
+              <RelationsPanel
+                entityType="shot"
+                entityId={shot.id}
+                assets={ctx?.assets || []}
+                tasks={ctx?.tasks || []}
+                ctx={ctx}
+                onOpenAsset={id => setNestedAssetId(id)}
+                onOpenTask={id => setNestedTaskId(id)}
+                onCreateTask={() => setShowCreateTask(true)}
+              />
+            </div>
+
+            {/* Properties */}
+            <div className="rb-scene-detail-main">
+
+              {/* The thumbnail, then the name */}
+              <div className="rb-scene-detail-top">
+                <div className="rb-scene-detail-thumb ui-hover-host">
+                  {hasThumbnail ? (
+                    <>
+                      <img
+                        className="rb-scene-detail-thumb-img"
+                        src={`/api/rabbit/projects/${project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" />
+                      <HoverActions className="rb-scene-detail-thumb-acts">
+                        <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                      </HoverActions>
+                    </>
+                  ) : (
+                    <button type="button" onClick={handleSetThumbnail}
+                      className="rb-scene-detail-thumb-set"
+                      data-take={takeFallback ? 'true' : undefined}
+                      title={takeFallback ? 'Showing the primary take. Click to set a thumbnail of your own.' : 'Set thumbnail'}>
+                      {/* The primary take's poster fills the well, dimmed on
+                          hover under the words (BinPoster at the size it is
+                          handed; the well draws the edge, where it was
+                          handed `style={{ border: 'none' }}`). */}
+                      {takeFallback && (
+                        <span className="rb-scene-detail-poster">
+                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={142} height={80} radius={0}
+                            className="rb-scene-poster" iconSize={24} />
+                        </span>
+                      )}
+                      <span className="rb-scene-detail-thumb-hint">
+                        <ImagePlus aria-hidden="true" className="rb-scene-detail-thumb-hint-icon" />
+                        Set thumbnail
+                      </span>
+                      {!takeFallback && <Clapperboard aria-hidden="true" className="rb-scene-detail-thumb-glyph" />}
+                      {takeFallback && <span className="rb-scene-detail-thumb-take">From primary take</span>}
+                    </button>
+                  )}
+                </div>
+                <div className="rb-scene-detail-field">
+                  <FieldLabel>Shot name</FieldLabel>
+                  <PopupInlineText
+                    value={shot.name || ''}
+                    placeholder="Untitled shot"
+                    label="Shot name"
+                    onCommit={v => handleUpdate({ name: v })}
+                  />
+                </div>
+              </div>
+
+              {/* Identity (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Identity</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Status</FieldLabel>
+                    <span className="rb-scene-prop-status">
+                      <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                      <select value={status} onChange={e => handleUpdate({ status: e.target.value })}
+                        aria-label="Status"
+                        className="ui-input rb-scene-prop-status-input"
+                        data-size="sm">
+                        {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Type</FieldLabel>
+                    <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
+                      aria-label="Type"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm">
+                      {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Time of day</FieldLabel>
+                    <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                      aria-label="Time of day"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={shot.time_of_day ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Shot number</FieldLabel>
+                    <input type="number" value={shot.shot_number ?? ''} onChange={e => {
+                      const n = parseInt(e.target.value, 10)
+                      if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
+                    }}
+                      aria-label="Shot number"
+                      className="ui-input rb-scene-prop-number"
+                      data-size="sm" />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Frame count</FieldLabel>
+                    <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
+                      const n = parseInt(e.target.value, 10)
+                      handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
+                    }}
+                      aria-label="Frame count"
+                      className="ui-input rb-scene-prop-number"
+                      data-size="sm"
+                      placeholder="0" />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Duration</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
+                      {framesToTimecode(shot.frame_count || 0, fps)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Camera: framing, then the movement across the two columns
+                  the empty placeholder held (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Camera</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Framing</FieldLabel>
+                    <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
+                      aria-label="Framing"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={shot.framing ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {FRAMING_CHOICES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop rb-scene-prop-wide">
+                    <FieldLabel>Camera movement</FieldLabel>
+                    <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
+                      aria-label="Camera movement"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={shot.camera_movement ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr} — {c.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Schedule: the parent scene, then the two dates (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Schedule</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Parent scene</FieldLabel>
+                    <span className="rb-scene-prop-inert" data-empty={scene ? undefined : 'true'}>
+                      <span className="rb-scene-prop-words">{scene?.name || '—'}</span>
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Start date</FieldLabel>
+                    <input
+                      type="date"
+                      value={shot.start_date || ''}
+                      onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                      aria-label="Start date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={shot.start_date ? undefined : 'true'}
+                    />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>End date</FieldLabel>
+                    <input
+                      type="date"
+                      value={shot.end_date || ''}
+                      onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                      aria-label="End date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={shot.end_date ? undefined : 'true'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Description (W2, as the scene popup's) */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Description</FieldLabel>
+                {editingDesc ? (
+                  <>
+                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(shot.description || ''); setEditingDesc(false) } }}
+                      aria-label="Description"
+                      className="ui-input rb-scene-textarea"
+                      data-field="description"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setEditingDesc(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={shot.description ? undefined : 'true'}>
+                    {shot.description || 'Click to add a description...'}
+                  </button>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Notes</FieldLabel>
+                {editingNotes ? (
+                  <>
+                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(shot.notes || ''); setEditingNotes(false) } }}
+                      aria-label="Notes"
+                      className="ui-input rb-scene-textarea"
+                      data-field="notes"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setEditingNotes(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={shot.notes ? undefined : 'true'}>
+                    {shot.notes || 'Click to add notes...'}
+                  </button>
+                )}
+              </div>
+
+              {/* The folder: inert (R3-36) */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Folder</FieldLabel>
+                <span className="rb-scene-prop-inert">
+                  <FolderOpen aria-hidden="true" className="rb-scene-prop-glyph" />
+                  <span className="rb-scene-prop-words rb-scene-prop-figure">{shotFolderPath}</span>
+                </span>
+              </div>
+
+              {/* Takes (milestone 2): the bin files this shot is cut from, in
+                  order — ShotTakesPanel, B6's, as it was. A failed load says
+                  so on the kit Banner, its dismiss named (it had no name). */}
+              {takes?.supports && (
+                <div className="rb-scene-detail-text rb-scene-detail-takes">
+                  <FieldLabel>{`Takes (${shotTakeEntries.length})`}</FieldLabel>
+                  {takes.notice && (
+                    <Banner
+                      tone="warning"
+                      className="rb-scene-detail-notice"
+                      action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={takes.clearNotice} />}
+                    >
+                      {takes.notice}
+                    </Banner>
+                  )}
+                  <ShotTakesPanel shot={shot} entries={shotTakeEntries} fps={fps} canWrite={takes.canWrite} thumbUrlFor={takes.thumbUrlFor} binPathFor={takes.binPathFor} projectId={takes.projectId}
+                    onUpdate={takes.onUpdate} onRemove={takes.onRemove} onReorder={takes.onReorder} onUseLength={takes.onUseLength}
+                    onOpenPicker={() => takes.openPicker(shot.id)} />
+                </div>
+              )}
+
+              {/* Files */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>{`Files (${fileCount})`}</FieldLabel>
+                <FileManager
+                  files={managedFiles}
+                  shotId={shot.id}
+                  shotName={shot.name || 'Untitled-Shot'}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
+              </div>
+            </div>
           </div>
-          </div>{/* close RIGHT COLUMN */}
-        </div>{/* close two-column flex */}
+        </Dialog>,
+        document.body,
+      )}
 
-        {/* Footer */}
-        <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button"
-            onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-dense rounded-control transition-colors hover:bg-red-900/30"
-            style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-            <Trash2 className="w-3 h-3" /> Delete shot
-          </button>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-dense rounded-control transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Close
-          </button>
-        </div>
-      </div>{/* close MAIN POPUP */}
-      </div>{/* close flex container */}
+      {/* A task opened from the sidebar: its own kit Dialog, over this one */}
+      {nestedTaskId && !showCreateTask && createPortal(
+        <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
+        document.body,
+      )}
     </>
   )
 }
@@ -3090,7 +3166,31 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 // Escape and the focus trap the kit adds (Q17). A row's delete keeps its
 // backdrop click, as the hand-rolled one had; the three bulk deletes that
 // were window.confirm pass `dismissOnBackdrop={false}`.
-function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true }) {
+//
+// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus` (surface 6c,
+// B4c's lesson). From a detail popup's Delete the popup closes in the same
+// commit this opens: `autoFocus` puts focus on Cancel during the commit, the
+// popup's unmount hands focus back to what opened IT, and the kit Dialog's
+// own effect, finding focus outside, lands it on ✕. This effect runs after
+// both — a child's effects run before its parent's — so the question opens on
+// Cancel from every path, as it does from a row.
+//
+// 🚨 …and on close, focus goes back to `returnTo` when a popup asked: what
+// opened the popup, the row's "View details". The kit Dialog hands focus to
+// what had it when the question opened — the popup's own Delete, gone with
+// the popup — so every close from that path dropped focus to <body>. Only
+// when focus has fallen there, and only while the opener is in the page (a
+// delete takes the row, and its button, with it; StrictMode's rehearsal of an
+// unmount leaves focus on Cancel, so that does nothing).
+function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
+  const cancelRef = useRef(null)
+  useEffect(() => {
+    cancelRef.current?.focus()
+    return () => {
+      const active = document.activeElement
+      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
+    }
+  }, [])
   return createPortal(
     <Dialog
       width="confirm"
@@ -3099,7 +3199,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop 
       onClose={onCancel}
       footer={(
         <>
-          <Button autoFocus onClick={onCancel}>Cancel</Button>
+          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
           <Button variant="danger" onClick={onConfirm}>Delete</Button>
         </>
       )}
@@ -3303,7 +3403,17 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
 
 
 // ─── PopupInlineText ───
-function PopupInlineText({ value, placeholder, onCommit }) {
+// The popups' name field (surface 6c). At rest its words in the kit's small
+// well, a button — legible as a field, and a tab stop where it was a span
+// only a pointer could open — an empty one's placeholder in the third ink
+// (it was #57534e, 2.3:1). On a click the kit's small field takes its place,
+// the same size (a native `ui-input`: the kit Input's own Escape and Enter
+// would break the draft, B3d trap 3), in the ink where it was orange with an
+// orange underline. Enter and blur commit the draft as they did. Escape
+// reverts it and is MARKED handled (K4's mark), so the kit Dialog around it
+// stands down: the first press reverts the edit, the next closes the popup
+// (W2). `label` names the field.
+function PopupInlineText({ value, placeholder, label, onCommit }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -3318,30 +3428,35 @@ function PopupInlineText({ value, placeholder, onCommit }) {
         onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
         onKeyDown={e => {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
         }}
-        className="w-full bg-transparent text-body"
-        style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
+        aria-label={label}
+        className="ui-input"
+        data-size="sm"
       />
     )
   }
   return (
-    <span
-      className="text-dense truncate cursor-text block"
-      style={{ color: value ? '#d6d3d1' : '#57534e' }}
-      onClick={() => setEditing(true)}
-    >
+    <button type="button" onClick={() => setEditing(true)}
+      className="ui-input rb-scene-name-text"
+      data-size="sm"
+      data-empty={value ? undefined : 'true'}>
       {value || placeholder}
-    </span>
+    </button>
   )
 }
 
 
 // ─── FieldLabel ───
+// A property's label: the kit Field's own label class — 11px, 600, capitals
+// at the kit's tracking, the second ink (7.85:1 on the Dialog's raised paper,
+// where #78716c measured 3.16 on #292524) — a block over its value, as B4c's
+// FieldLabel. As before it labels no control by itself: each control carries
+// its own name.
 function FieldLabel({ children }) {
   return (
-    <span className="block text-label uppercase font-semibold mb-1" style={{ color: '#78716c' }}>
+    <label className="ui-field-label rb-scene-label">
       {children}
-    </span>
+    </label>
   )
 }

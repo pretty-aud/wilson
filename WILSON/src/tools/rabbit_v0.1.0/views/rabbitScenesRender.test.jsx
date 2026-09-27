@@ -6,7 +6,8 @@
 // describe per surface, added in the commit that moves it — surface 6a: the
 // tiles, the toolbar and both tables (the scene table with its nested shots,
 // and the shot table), and the four delete questions on the kit Dialog (W9);
-// surface 6b: the two galleries, the filter strip and the saved-views menu.
+// surface 6b: the two galleries, the filter strip and the saved-views menu;
+// surface 6c: the scene and shot detail popups on the kit Dialog.
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
@@ -14,11 +15,12 @@ import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-li
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { _resetOverlaysForTests } from '../../../ui/overlay'
+import { _resetOverlaysForTests, focusableWithin } from '../../../ui/overlay'
 import { STATUS } from '../../../ui/StatusDot'
+import { formatSceneCode, formatShotCode } from '../entityNaming'
 
 // ScenesView's module graph reaches the cloud client and the permission hook
-// at import; the popups it can open are not opened here.
+// at import.
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
 vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({ role: 'admin', ready: true, can: () => true }) }))
@@ -27,6 +29,10 @@ const team = vi.hoisted(() => ({ members: [] }))
 const rateCard = vi.hoisted(() => ({ entries: [], rateCards: [] }))
 vi.mock('../../../components/TeamMembers/useTeamMembers', () => ({ useTeamMembers: () => team }))
 vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => rateCard }))
+// Surface 6c: a task opened from a popup's sidebar is TaskDetailPopup, which
+// reads the roster (rabbitEntityViewsRender.test.jsx's stand-in).
+const roster = vi.hoisted(() => ({ members: [], mode: 'supabase' }))
+vi.mock('../../../components/TeamMembers/useRosterMembers', () => ({ useRosterMembers: () => roster }))
 const rabbit = vi.hoisted(() => ({ current: null }))
 
 const { default: ScenesView } = await import('./ScenesView')
@@ -758,5 +764,353 @@ describe('surface 6b', () => {
     expect(css).toContain('.rb-scene-views > .ui-iconbtn.rb-scene-views-button[data-saved="true"] { color: var(--color-signal); }')
     expect(css).toMatch(/\.rb-scene-menu \{[^}]*min-width: 180px;[^}]*background-color: var\(--color-paper-raised\);[^}]*border-radius: var\(--radius-float\);[^}]*box-shadow: var\(--shadow-float\);/)
     expect(css).toContain('.rb-scene-menu-list { max-height: 200px; overflow-y: auto; }')
+  })
+})
+
+/* ── surface 6c: the scene and shot detail popups ────────────────────────── */
+/** A popup, opened from its row's "View details" (the walk's way in). */
+const openScenePopup = (name = 'Lighthouse, dawn') => {
+  fireEvent.click(within(rowOf(name)).getByRole('button', { name: 'View details' }))
+  return screen.getByRole('dialog', { name })
+}
+const openShotPopup = (name = 'The door') => {
+  toShots()
+  fireEvent.click(within(rowOf(name)).getByRole('button', { name: 'View details' }))
+  return screen.getByRole('dialog', { name })
+}
+const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+/** R3-36's groups: each SectionTitle's words, and the labels of its grid's cells, in order. */
+const groupsOf = (dialog) => [...dialog.querySelectorAll('.rb-scene-detail-main .rb-scene-group')].map((g) => [
+  g.querySelector(':scope > .ui-section .ui-section-title').textContent,
+  [...g.querySelectorAll(':scope > .rb-scene-prop-grid > .rb-scene-prop > .rb-scene-label')].map((l) => l.textContent),
+])
+/** Every label in the properties column, in order. */
+const labelsOf = (dialog) => [...dialog.querySelectorAll('.rb-scene-detail-main .rb-scene-label')].map((l) => l.textContent)
+const inertOf = (dialog) => [...dialog.querySelectorAll('.rb-scene-detail-main .rb-scene-prop-inert')]
+const wordsOf = (el) => el.textContent.replace(/\s+/g, ' ').trim()
+/** Is `b` after `a` in the document? (Later in <body>: painted over it.) */
+const after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+describe('surface 6c', () => {
+  it('each popup is the kit Dialog in <body>, 896px, named by its scene or shot: the glyph, name and code its title, its status the kit StatusBadge, Delete the kit danger at the footer\'s left; Escape, the backdrop and Close close it', () => {
+    const { container, ctx } = page()
+    // The codes the page names them by (entityNaming, as before).
+    const codes = [formatSceneCode(ctx.project, 1), formatShotCode(ctx.project, 1, 10)]
+    for (const [open, name, noun, code] of [[() => openScenePopup(), 'Lighthouse, dawn', 'scene', codes[0]], [() => openShotPopup(), 'The door', 'shot', codes[1]]]) {
+      const dialog = open()
+      expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      expect(container.contains(dialog)).toBe(false)
+      expect([dialog.classList.contains('ui-dialog'), dialog.classList.contains('rb-scene-detail'), dialog.style.width]).toEqual([true, true, '896px'])
+      // Off the legacy #292524: the kit's surface, no ground of its own.
+      expect(dialog.getAttribute('data-surface')).toBe('dark')
+      // The title: the glyph, the name (read-only: the name field below still
+      // edits it, C1) and the code, the kit Badge.
+      const title = dialog.querySelector('.ui-dialog-title')
+      expect(title.querySelector('svg.rb-scene-detail-icon')).not.toBeNull()
+      expect(title.querySelector('.rb-scene-detail-name').textContent).toBe(name)
+      expect(title.querySelector('.ui-badge.rb-scene-detail-code').textContent).toBe(code)
+      expect(within(title).queryByRole('button')).toBeNull()
+      // The status, where the status-coloured rule under the header said it (R3-11).
+      const badge = dialog.querySelector('.ui-dialog-subtitle .ui-status')
+      expect([badge.getAttribute('data-status'), badge.textContent]).toEqual(['final', STATUS.final.label])
+      // Every control named — the kit's ✕ too (the old one had no name).
+      expect(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' })).toBeTruthy()
+      for (const b of within(dialog).getAllByRole('button')) {
+        expect(b.getAttribute('aria-label') || b.title || b.textContent.trim(), b.outerHTML.slice(0, 90)).toBeTruthy()
+      }
+      const foot = dialog.querySelector('.ui-dialog-foot')
+      const del = within(foot).getByRole('button', { name: `Delete ${noun}` })
+      expect([foot.firstElementChild === del, del.getAttribute('data-variant')]).toEqual([true, 'danger'])
+      expect(within(foot).getByRole('button', { name: 'Close' }).getAttribute('data-variant')).toBe('secondary')
+      // Escape closes it now (Q17); the backdrop and Close close it, as they did.
+      escape()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      fireEvent.mouseDown(open().parentElement)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      fireEvent.click(within(open().querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+    }
+  })
+
+  it('R3-36: the grids under the kit SectionTitle at the Label step — Identity and Schedule in the scene, Identity, Camera and Schedule in the shot — each with the same fields in the same order', () => {
+    page()
+    let dialog = openScenePopup()
+    expect(groupsOf(dialog)).toEqual([
+      ['Identity', ['Status', 'Type', 'Time of day', 'Scene number', 'Runtime', 'Total frames']],
+      ['Schedule', ['Shots / assets / tasks', 'Start date', 'End date']],
+    ])
+    // Every label in the column, in the old order, in sentence case (Q2: they
+    // were "Time of Day", "Total Frames", "Start Date"…; the Label step draws the capitals).
+    expect(labelsOf(dialog)).toEqual(['Scene name', 'Status', 'Type', 'Time of day', 'Scene number', 'Runtime', 'Total frames',
+      'Shots / assets / tasks', 'Start date', 'End date', 'Description', 'Notes', 'Folder', 'Files (0)', 'Shots (2)'])
+    // Each heading is the kit's SectionTitle: its hairline above, an h3 under
+    // the Dialog's H2, and the sheet sets it at the Label step.
+    const sections = [...dialog.querySelectorAll('.rb-scene-group > .ui-section')]
+    expect(sections).toHaveLength(2)
+    for (const s of sections) {
+      expect([s.classList.contains('rb-scene-section'), s.getAttribute('data-rule'), s.querySelector('.ui-section-title').tagName]).toEqual([true, 'true', 'H3'])
+    }
+    const css = read('./rabbitScenes.css')
+    expect(css).toMatch(/\.rb-scene-section \.ui-section-title \{\n {4}font-size: var\(--text-label\);[^}]*text-transform: uppercase;\n {4}color: var\(--color-ink-3\);\n {2}\}/)
+    expect(css).toContain('.rb-scene-prop-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }')
+    escape()
+
+    dialog = openShotPopup()
+    expect(groupsOf(dialog)).toEqual([
+      ['Identity', ['Status', 'Type', 'Time of day', 'Shot number', 'Frame count', 'Duration']],
+      ['Camera', ['Framing', 'Camera movement']],
+      ['Schedule', ['Parent scene', 'Start date', 'End date']],
+    ])
+    expect(labelsOf(dialog)).toEqual(['Shot name', 'Status', 'Type', 'Time of day', 'Shot number', 'Frame count', 'Duration',
+      'Framing', 'Camera movement', 'Parent scene', 'Start date', 'End date', 'Description', 'Notes', 'Folder', 'Files (0)'])
+    // The empty div that held the Camera grid open is gone: the movement spans
+    // the two columns it left.
+    const camera = dialog.querySelectorAll('.rb-scene-group > .rb-scene-prop-grid')[1]
+    expect([...camera.children].map((c) => c.className)).toEqual(['rb-scene-prop', 'rb-scene-prop rb-scene-prop-wide'])
+    expect(css).toContain('.rb-scene-prop-wide { grid-column: span 2; }')
+  })
+
+  it('R3-36: a value nobody types is inert — no form control, never a tab stop, the inert class — and every other field a named control in the kit\'s small well, writing as before', () => {
+    const { ctx } = page()
+    let dialog = openScenePopup()
+    expect(inertOf(dialog).map(wordsOf)).toEqual(['00:00:10:00', '240', '2 / 0 / 0', 'SCENES/Lighthouse-Dawn/'])
+    for (const el of inertOf(dialog)) {
+      expect(el.matches('input, select, textarea, button, [tabindex]'), wordsOf(el)).toBe(false)
+      expect(el.querySelector('input, select, textarea, button, [tabindex]'), wordsOf(el)).toBeNull()
+      expect(focusableWithin(dialog).some((f) => el.contains(f)), wordsOf(el)).toBe(false)
+    }
+    for (const [name, role] of [['Status', 'combobox'], ['Type', 'combobox'], ['Time of day', 'combobox'], ['Scene number', 'spinbutton']]) {
+      const el = within(dialog).getByRole(role, { name })
+      expect([el.classList.contains('ui-input'), el.getAttribute('data-size')], name).toEqual([true, 'sm'])
+    }
+    for (const name of ['Start date', 'End date']) {
+      const el = within(dialog).getByLabelText(name)
+      expect([el.type, el.className, el.getAttribute('data-size')], name).toEqual(['date', 'ui-input rb-scene-date', 'sm'])
+    }
+    // The status: the kit's dot inside the well and the kit's words, no colour
+    // of its own on the select or any option (R3-11).
+    const status = within(dialog).getByRole('combobox', { name: 'Status' })
+    expect(status.closest('.rb-scene-prop-status').querySelector('.ui-status-dot').getAttribute('data-tone')).toBe(STATUS.final.tone)
+    expect([status.getAttribute('style'), ...[...status.options].map((o) => o.getAttribute('style'))].filter(Boolean)).toEqual([])
+    expect([...status.options].map((o) => o.textContent))
+      .toEqual(['Not started', 'In progress', 'Pending review', 'Needs revisions', 'Approved', 'Final', 'Blocked', 'On hold', 'Omitted'])
+    // The same writes as before.
+    fireEvent.change(status, { target: { value: 'approved' } })
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { status: 'approved' })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Time of day' }), { target: { value: '' } })
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { time_of_day: null })
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Scene number' }), { target: { value: '4' } })
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { scene_number: 4 })
+    fireEvent.change(within(dialog).getByLabelText('End date'), { target: { value: '2026-10-02' } })
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { end_date: '2026-10-02' })
+    escape()
+    // A scene with no shots: a zero runtime and frame count, and an empty time
+    // of day, marked for the third ink (R3-13).
+    dialog = openScenePopup('Cliff path')
+    expect(inertOf(dialog).slice(0, 2).map((el) => [wordsOf(el), el.getAttribute('data-empty')])).toEqual([['00:00:00:00', 'true'], ['0', 'true']])
+    expect(within(dialog).getByRole('combobox', { name: 'Time of day' }).getAttribute('data-empty')).toBe('true')
+    escape()
+
+    dialog = openShotPopup()
+    expect(inertOf(dialog).map(wordsOf)).toEqual(['00:00:10:00', 'Lighthouse, dawn', 'SHOTS/The-Door/'])
+    for (const el of inertOf(dialog)) expect(el.querySelector('input, select, textarea, button, [tabindex]'), wordsOf(el)).toBeNull()
+    for (const name of ['Status', 'Type', 'Time of day', 'Framing', 'Camera movement']) {
+      expect(within(dialog).getByRole('combobox', { name }).classList.contains('ui-input'), name).toBe(true)
+    }
+    expect(within(dialog).getByRole('combobox', { name: 'Framing' }).selectedOptions[0].textContent).toBe('Wide shot')
+    expect(within(dialog).getByRole('combobox', { name: 'Camera movement' }).selectedOptions[0].textContent).toBe('TILT — Tilt')
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Frame count' }), { target: { value: '96' } })
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { frame_count: 96 })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Camera movement' }), { target: { value: '' } })
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { camera_movement: null })
+    // The sheet's inert treatment: no well, no edge, the second ink; a zero the third.
+    const css = read('./rabbitScenes.css')
+    expect(css).toMatch(/\.rb-scene-prop-inert \{[^}]*min-height: var\(--control-sm\);[^}]*color: var\(--color-ink-2\);\n {2}\}/)
+    expect(css).not.toMatch(/\.rb-scene-prop-inert \{[^}]*(border|background)/)
+    expect(css).toContain('.rb-scene-prop-inert[data-empty="true"] { color: var(--color-ink-3); }')
+  })
+
+  it('no element in either mounted popup writes an inline colour, border or background; the primary take\'s poster keeps the 142 × 80 it is handed', () => {
+    page(TAKES)
+    let dialog = openScenePopup()
+    expect(inlineColours(dialog)).toEqual([])
+    escape()
+    // The cold lamp has no thumbnail of its own: its primary take stands in,
+    // its caption at the Label step (it was 7.5px), the well its edge.
+    dialog = openShotPopup('The cold lamp')
+    const set = dialog.querySelector('.rb-scene-detail-thumb > .rb-scene-detail-thumb-set')
+    expect([set.getAttribute('data-take'), set.title]).toEqual(['true', 'Showing the primary take. Click to set a thumbnail of your own.'])
+    const poster = set.querySelector(':scope > .rb-scene-detail-poster > .bn-poster')
+    expect(poster.classList.contains('rb-scene-poster')).toBe(true)
+    expect([poster.style.width, poster.style.height, poster.style.borderRadius, poster.style.border]).toEqual(['142px', '80px', '0px', ''])
+    expect(set.querySelector('.rb-scene-detail-thumb-take').textContent).toBe('From primary take')
+    expect(read('./rabbitScenes.css')).toMatch(/\.rb-scene-detail-thumb-take \{[^}]*font-size: var\(--text-label\);[^}]*text-transform: uppercase;/)
+    // ShotTakesPanel is B6's, its inks its own contract: left out of the scan,
+    // and only it — the last child of the takes block, under its label.
+    const takes = dialog.querySelector('.rb-scene-detail-takes')
+    expect(takes.querySelector('.rb-scene-label').textContent).toBe('Takes (1)')
+    const host = dialog.cloneNode(true)
+    const panel = host.querySelector('.rb-scene-detail-takes').lastElementChild
+    expect(within(panel).getByRole('button', { name: /Add takes/ })).toBeTruthy()
+    panel.remove()
+    expect(inlineColours(host)).toEqual([])
+  })
+
+  it('a task opened from a popup\'s sidebar is its own kit Dialog in <body>, over the popup: ONE Escape closes only the task, and the next closes the popup', () => {
+    page({ tasks: [
+      { id: 't9', title: 'Light pass', status: 'in_progress', scene_id: 'sc1' },
+      { id: 't8', title: 'Door wipe', status: 'in_progress', shot_id: 'sh1', scene_id: 'sc1' },
+    ] })
+    for (const [open, name, task] of [[() => openScenePopup(), 'Lighthouse, dawn', 'Light pass'], [() => openShotPopup(), 'The door', 'Door wipe']]) {
+      const dialog = open()
+      fireEvent.click(within(dialog.querySelector('.rb-scene-detail-side')).getByText(task))
+      const taskDialog = screen.getByRole('dialog', { name: task })
+      expect(taskDialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      expect(dialog.contains(taskDialog)).toBe(false)
+      // Over it: later in <body>, as it is later on the modal stack.
+      expect(after(dialog.closest('.ui-dialog-backdrop'), taskDialog)).toBe(true)
+      escape()
+      expect(screen.queryByRole('dialog', { name: task })).toBeNull()
+      expect(screen.getByRole('dialog', { name })).toBe(dialog)
+      escape()
+      expect(screen.queryByRole('dialog')).toBeNull()
+    }
+  })
+
+  it('the take picker opened from the shot popup\'s takes is its own kit Dialog in <body>, after the popup and over it: one Escape closes only the picker', () => {
+    page(TAKES)
+    const dialog = openShotPopup('The cold lamp')
+    fireEvent.click(within(dialog.querySelector('.rb-scene-detail-takes')).getByRole('button', { name: /Add takes/ }))
+    const picker = screen.getByRole('dialog', { name: 'Add takes to "The cold lamp"' })
+    expect(picker.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(after(dialog.closest('.ui-dialog-backdrop'), picker)).toBe(true)
+    escape()
+    expect(screen.queryByRole('dialog', { name: 'Add takes to "The cold lamp"' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'The cold lamp' })).toBe(dialog)
+  })
+
+  it('the popup\'s Delete asks with focus on Cancel, and the question hands focus back to the row\'s "View details" every way it closes; its Delete deletes, as before', async () => {
+    const { ctx } = page()
+    const view = within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'View details' })
+    const ask = () => {
+      view.focus()
+      fireEvent.click(view)
+      fireEvent.click(within(screen.getByRole('dialog', { name: 'Lighthouse, dawn' }).querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Delete scene' }))
+      expect(screen.queryByRole('dialog', { name: 'Lighthouse, dawn' })).toBeNull()
+      return screen.getByRole('dialog', { name: 'Delete scene?' })
+    }
+    const closes = {
+      Cancel: (q) => fireEvent.click(within(q.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' })),
+      Escape: () => fireEvent.keyDown(document.activeElement, { key: 'Escape' }),
+      '✕': (q) => fireEvent.click(within(q.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' })),
+      backdrop: (q) => fireEvent.mouseDown(q.parentElement),
+    }
+    for (const [way, close] of Object.entries(closes)) {
+      const question = ask()
+      expect(question.textContent, way).toContain('This will permanently delete "Lighthouse, dawn" and all its shots.')
+      // On Cancel — not on the question's ✕, where the popup's close sent it.
+      expect(document.activeElement, way).toBe(within(question.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' }))
+      close(question)
+      expect(screen.queryByRole('dialog'), way).toBeNull()
+      expect(document.activeElement, way).toBe(view)
+    }
+    expect(ctx.deleteScene).not.toHaveBeenCalled()
+    fireEvent.click(within(ask().querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
+    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2'])
+  })
+
+  it('W2: the name edits in place, the kit\'s small field where its well was — Enter commits; Escape reverts it and the popup stays; Description opens the kit\'s textarea, Escape drops the edit and the popup stays, Save writes', () => {
+    const { ctx } = page()
+    const dialog = openScenePopup()
+    const main = dialog.querySelector('.rb-scene-detail-main')
+    const name = () => within(main).getByRole('button', { name: 'Lighthouse, dawn' })
+    expect([name().className, name().getAttribute('data-size')]).toEqual(['ui-input rb-scene-name-text', 'sm'])
+    fireEvent.click(name())
+    let field = within(main).getByRole('textbox', { name: 'Scene name' })
+    expect(document.activeElement).toBe(field)
+    expect([field.className, field.getAttribute('data-size')]).toEqual(['ui-input', 'sm'])
+    fireEvent.change(field, { target: { value: 'Lighthouse, night' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(ctx.updateScene).toHaveBeenCalledWith('sc1', { name: 'Lighthouse, night' })
+    fireEvent.click(name())
+    field = within(main).getByRole('textbox', { name: 'Scene name' })
+    fireEvent.change(field, { target: { value: 'Oops' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
+    expect(within(main).queryByRole('textbox', { name: 'Scene name' })).toBeNull()
+    expect(ctx.updateScene).not.toHaveBeenCalledWith('sc1', { name: 'Oops' })
+
+    const words = () => within(main).getByRole('button', { name: 'Mara lets herself in.' })
+    expect(words().className).toBe('ui-input rb-scene-prop-text')
+    fireEvent.click(words())
+    let box = within(main).getByRole('textbox', { name: 'Description' })
+    expect([document.activeElement === box, box.className]).toEqual([true, 'ui-input rb-scene-textarea'])
+    fireEvent.change(box, { target: { value: 'Draft' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
+    expect(within(main).queryByRole('textbox', { name: 'Description' })).toBeNull()
+    fireEvent.click(words())
+    box = within(main).getByRole('textbox', { name: 'Description' })
+    expect(box.value).toBe('Mara lets herself in.')
+    fireEvent.change(box, { target: { value: 'Mara lets herself in. The lamp is cold.' } })
+    const save = within(main).getByRole('button', { name: 'Save' })
+    expect(save.getAttribute('data-variant')).toBe('primary')
+    fireEvent.click(save)
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { description: 'Mara lets herself in. The lamp is cold.' })
+    // Notes: none yet, its prompt marked for the third ink.
+    expect(within(main).getByRole('button', { name: 'Click to add notes...' }).getAttribute('data-empty')).toBe('true')
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('"Add new task" opens the task form INSIDE the Dialog as its first column, in its focus trap, the Dialog wider by it; an Escape inside the form is the form\'s', () => {
+    page()
+    const dialog = openScenePopup()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add new task' }))
+    const title = screen.getByPlaceholderText('Task title…')
+    const form = title.closest('.rb-rel-task')
+    expect(dialog.contains(form)).toBe(true)
+    expect([...dialog.querySelector('.rb-scene-detail-body').children].map((c) => c.className))
+      .toEqual(['rb-scene-detail-task', 'rb-scene-detail-side', 'rb-scene-detail-main'])
+    expect(form.parentElement.className).toBe('rb-scene-detail-task')
+    // 896 + the form's 400 + its hairline; the Dialog's Tab trap holds the form.
+    expect(dialog.style.width).toBe('1297px')
+    expect(document.activeElement).toBe(title)
+    expect(focusableWithin(dialog)).toContain(title)
+    // RelationsPanel's mark: an Escape in the form is the form's; the draft stays.
+    fireEvent.change(title, { target: { value: 'Draft kept' } })
+    fireEvent.keyDown(title, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
+    expect(screen.getByPlaceholderText('Task title…').value).toBe('Draft kept')
+    fireEvent.click(within(form).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByPlaceholderText('Task title…')).toBeNull()
+    expect(dialog.style.width).toBe('896px')
+    // Its float frame stands down in the column (the sheet's).
+    expect(read('./rabbitScenes.css')).toMatch(/\.rb-scene-detail-task > div \{[^}]*border: 0;[^}]*box-shadow: none;/)
+  })
+
+  it('the scene popup\'s shots: a row\'s name opens its shot over the popup; its status the kit StatusBadge, its delete named in the kit HoverActions; none is the kit EmptyState', () => {
+    const { ctx } = page()
+    const dialog = openScenePopup()
+    const rows = [...dialog.querySelectorAll('.rb-scene-shot-list > .rb-scene-shot')]
+    expect(rows.map((r) => r.querySelector('.rb-scene-shot-name').textContent)).toEqual(['The door', 'The cold lamp'])
+    expect(rows.map((r) => r.querySelector('.ui-status').getAttribute('data-status'))).toEqual(['final', 'in_progress'])
+    expect(rows.map((r) => r.querySelector('.rb-scene-shot-num').textContent)).toEqual(['#10', '#20'])
+    expect([rows[0].querySelector('.rb-scene-shot-time').textContent, rows[1].querySelector('.rb-scene-shot-time')]).toEqual(['00:00:10:00 · 240 fr', null])
+    const del = within(rows[0].querySelector('.ui-hover-actions.rb-scene-shot-acts')).getByRole('button', { name: 'Delete The door' })
+    expect([del.classList.contains('ui-iconbtn'), del.getAttribute('data-danger')]).toEqual([true, 'true'])
+    // The name opens the shot's popup over this one, both in <body>.
+    fireEvent.click(within(rows[0]).getByRole('button', { name: 'The door' }))
+    const shot = screen.getByRole('dialog', { name: 'The door' })
+    expect(after(dialog.closest('.ui-dialog-backdrop'), shot)).toBe(true)
+    escape()
+    expect(screen.queryByRole('dialog', { name: 'The door' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add shot' }))
+    expect(ctx.addShot).toHaveBeenCalledWith(expect.objectContaining({ scene_id: 'sc1' }))
+    escape()
+    const empty = openScenePopup('Cliff path').querySelector('.rb-scene-detail-main .ui-empty.rb-scene-detail-empty')
+    expect(empty.textContent).toBe('No shots yet')
   })
 })

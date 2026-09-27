@@ -245,7 +245,9 @@ const REGISTRY = [
       P(`rabbit-${k.slice(0, -1)}-task`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add new task'], expect: { selector: 'input[placeholder="Task title…"]' } }),
     ];
   }),
-  // "Lighthouse, dawn" is on the Scenes table before the dialog opens.
+  // "Lighthouse, dawn" is on the Scenes table before the dialog opens. Since
+  // B5b surface 6c both popups are the kit Dialog, proven by its role (and
+  // its words), no longer by the fixed-backdrop fallback.
   P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: 'Lighthouse, dawn' } }),
   // B5: the rest of Scenes. A gallery is proven by its card-size buttons,
   // which the toolbar draws only in gallery mode. The shot popup is opened
@@ -389,8 +391,10 @@ const KNOWN = {
     // six expand toggles are named kit IconButtons (anon=0 on rabbit-scenes
     // at both sizes), so those four lines are deleted; the scene popup's
     // trash and close are 6c's and stay.
-    { key: 'rabbit-scene-detail', text: 'lucide-trash2', n: 3 },
-    { key: 'rabbit-scene-detail', text: 'lucide-x', n: 1 },
+    // B5b surface 6c (2026-09-27): the scene popup is the kit Dialog — its ✕
+    // the kit's, named "Close", and each shot row's trash a kit IconButton
+    // named for its shot — so rabbit-scene-detail reads anon=0 at 1440x900
+    // and 1280x700 (rabbit-shot-detail too), and its two lines are deleted.
     { key: 'shell-quit', text: 'no-icon', n: 3 },
   ],
 };
