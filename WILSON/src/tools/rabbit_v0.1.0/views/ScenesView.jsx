@@ -387,14 +387,17 @@ export default function ScenesView() {
   // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
   // them: the provider's history holds every takes mutation (and every
   // scene and shot edit). Never while typing in a field, and never behind a
-  // delete question (review round one, R1-08: window.confirm, which three of
-  // the four questions were, blocked every key; the kit Dialog does not, and
-  // an edit reverted behind a bulk delete's question). Only a question: with
-  // a popup open the keys undo as they always did (C1).
+  // question (review round one, R1-08: window.confirm, which three of the
+  // four questions were, blocked every key; the kit Dialog does not, and an
+  // edit reverted behind a bulk delete's question) — this page's own, or
+  // any other the kit puts on screen over it (round two, R2-01: a popup's
+  // FileManager "Delete file" or RelationsPanel "Create task";
+  // `questionOnScreen`, at ConfirmDialog). Only a question: with a popup
+  // open the keys undo as they always did (C1).
   useEffect(() => {
     if (!supportsBins) return
     const h = (e) => {
-      if (openQuestions.count > 0) return
+      if (questionOnScreen()) return
       if (!(e.ctrlKey || e.metaKey)) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
@@ -2299,6 +2302,9 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
   const [notesDraft, setNotesDraft] = useState(scene?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  // Focus back to each one's words when its edit closes (R2-05, useFocusBack).
+  const descWordsRef = useFocusBack(editingDesc)
+  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
@@ -2594,7 +2600,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                     </div>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setEditingDesc(true)}
+                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
                     className="ui-input rb-scene-prop-text"
                     data-empty={scene.description ? undefined : 'true'}>
                     {scene.description || 'Click to add a description...'}
@@ -2625,7 +2631,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                     </div>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setEditingNotes(true)}
+                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
                     className="ui-input rb-scene-prop-text"
                     data-empty={scene.notes ? undefined : 'true'}>
                     {scene.notes || 'Click to add notes...'}
@@ -2751,6 +2757,9 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const [notesDraft, setNotesDraft] = useState(shot?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  // Focus back to each one's words when its edit closes (R2-05, as the scene popup's).
+  const descWordsRef = useFocusBack(editingDesc)
+  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
@@ -3079,7 +3088,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                     </div>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setEditingDesc(true)}
+                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
                     className="ui-input rb-scene-prop-text"
                     data-empty={shot.description ? undefined : 'true'}>
                     {shot.description || 'Click to add a description...'}
@@ -3110,7 +3119,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                     </div>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setEditingNotes(true)}
+                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
                     className="ui-input rb-scene-prop-text"
                     data-empty={shot.notes ? undefined : 'true'}>
                     {shot.notes || 'Click to add notes...'}
@@ -3207,12 +3216,23 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 // unmount leaves focus on Cancel, so that does nothing).
 //
 // 🚨 …and while one is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
-// above). A question counts itself in `openQuestions` while it is mounted:
-// the tables' bulk questions are their own state, which the page's key
-// handler cannot read, and every question is this component. Module state,
-// as the kit's modal stack is (overlay.js): there is one page and one
-// keyboard.
+// above). This page's question counts itself in `openQuestions` while it is
+// mounted: the tables' bulk questions are their own state, which the page's
+// key handler cannot read. Module state, as the kit's modal stack is
+// (overlay.js): there is one page and one keyboard.
+//
+// 🚨 This component is NOT every question on the page (review round two,
+// R2-01). The popups host FileManager's "Delete file" and RelationsPanel's
+// "Create task", each the kit Dialog at the confirm width in <body>, and
+// Ctrl+Z behind them reverted an edit (a status set in the table) while the
+// question was up. So the handler also stands down while ANY kit Dialog at
+// the confirm width is on screen, whoever opened it: the kit writes the
+// width token on its surface (`data-width="confirm"`, Dialog.jsx). A popup
+// is the kit Dialog at another width, so the keys still undo there (C1).
 const openQuestions = { count: 0 }
+function questionOnScreen() {
+  return openQuestions.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+}
 function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
   const cancelRef = useRef(null)
   useEffect(() => {
@@ -3449,11 +3469,13 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
 // orange underline. Enter and blur commit the draft as they did. Escape
 // reverts it and is MARKED handled (K4's mark), so the kit Dialog around it
 // stands down: the first press reverts the edit, the next closes the popup
-// (W2). `label` names the field.
+// (W2). Closed, it gives focus back to its words (R2-05, useFocusBack).
+// `label` names the field.
 function PopupInlineText({ value, placeholder, label, onCommit }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
+  const wordsRef = useFocusBack(editing)
 
   useEffect(() => { setDraft(value) }, [value])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
@@ -3474,13 +3496,41 @@ function PopupInlineText({ value, placeholder, label, onCommit }) {
     )
   }
   return (
-    <button type="button" onClick={() => setEditing(true)}
+    <button ref={wordsRef} type="button" onClick={() => setEditing(true)}
       className="ui-input rb-scene-name-text"
       data-size="sm"
       data-empty={value ? undefined : 'true'}>
       {value || placeholder}
     </button>
   )
+}
+
+
+// ─── useFocusBack ───
+// An editor in a popup whose words at rest are a control — the name field
+// (PopupInlineText) and each popup's description and notes — gives focus
+// back to them when its edit closes (review round two, R2-05). The field
+// that had focus goes with the edit, and focus fell to <body>: the next Tab
+// started again from the popup's first control (Escape in the description,
+// then Tab, landed on the popup's Close). Whenever focus has fallen there —
+// always after Escape, Enter, Save or Cancel, whose control is the one that
+// went; after a blur that commits only then, so a Tab or a click elsewhere
+// keeps where it went. Returns the ref for the words' button.
+// InlineText (the tables' editor, also in the scene popup's shot list) is
+// NOT on it: its words are a span, not a control, and making them one would
+// add a Tab stop to every row (C1; recorded for Audrey), so its close there
+// still leaves focus on <body>.
+function useFocusBack(editing) {
+  const wordsRef = useRef(null)
+  const wasEditing = useRef(editing)
+  useEffect(() => {
+    const closed = wasEditing.current && !editing
+    wasEditing.current = editing
+    if (!closed) return
+    const active = document.activeElement
+    if (!active || active === document.body) wordsRef.current?.focus()
+  }, [editing])
+  return wordsRef
 }
 
 

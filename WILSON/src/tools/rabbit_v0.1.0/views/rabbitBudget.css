@@ -620,6 +620,13 @@
   /* The cell clips at its edge (`.ui-td` is overflow: hidden) and gives the
      box no padding, so the kit's ring (2px, 1px out) is drawn inside it. */
   .rb-budget-check:focus-visible { outline-offset: -2px; }
+  /* A sortable header is the kit's `.ui-th-btn`, the whole height of its
+     sticky cell, at the top edge of the table's scroller: the kit's ring
+     (2px, 1px out) lost its top to the scroller and its bottom under the
+     rows, and read as two vertical lines on Estimated, Actual, Variance and
+     Date (review round two, R2-04). Drawn inside the button. (0,3,0): over
+     the kit's `:focus-visible` offset, (0,1,0). */
+  .rb-budget-exp .ui-th-btn:focus-visible { outline-offset: -2px; }
 
   /* A row is the kit Row: its one hover (R3-23), and `selected` the one
      selection (R3-38; it was an orange tint AND a full orange border). The
@@ -919,8 +926,24 @@
   .rb-budget-rates-lead { font-weight: 600; }
   .rb-budget-rates-place { font-weight: 600; }
   /* The content under the strip: ONE 24px gutter for every tab (R3-31),
-     and the one scroller. */
-  .rb-budget-panel { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--spacing-gutter); }
+     and the one scroller. Tab scrolls the next control to its edge, and the
+     kit's ring (2px, 1px out) fell past it: Shift+Tab up Crew/team cut
+     twenty-two period cells' rings 2.6px at the top (review round two,
+     R2-03). The ring's 4px is kept in view both ways, as the kit Dialog
+     body keeps it (A4-KR-9). */
+  .rb-budget-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--spacing-gutter);
+    scroll-padding-block: 4px;
+  }
+  /* A tab with nothing to Tab to that overflows (By asset at 1280) makes
+     the panel itself a Tab stop in Chromium, for keyboard scrolling, which
+     it keeps; its ring was cut left, right and bottom by the view around it
+     (R2-04). Drawn inside the panel, in its gutter. (0,2,0): over the kit's
+     `:focus-visible` offset, (0,1,0). */
+  .rb-budget-panel:focus-visible { outline-offset: -2px; }
 
   /* ═══ ClientViewTab (surface 5) ═══════════════════════════════════════════
      The client estimate's on-screen preview (R3-39, C9). It was a near-white

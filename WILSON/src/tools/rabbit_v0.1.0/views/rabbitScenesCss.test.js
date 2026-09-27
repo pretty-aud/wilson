@@ -26,7 +26,7 @@ import {
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, kitFights,
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
-  arrayValues, scriptedLeaks,
+  arrayValues, scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -394,7 +394,8 @@ describe('no state is decided in a style or a className', () => {
     sheet's (keyed on `data-thumb` and `data-card`) or the kit Dialog's
     `width`, a prop. */
 const SCRIPTED = {}
-/** Each spelling R1-09 names, and what the predicate reports for it. */
+/** Each spelling R1-09 and R2-02 name, and what the predicate reports for it
+    (a list where one spelling is two catches). */
 const PLANTED = [
   // R3-26's own hover writers, on an event's target and its current target.
   ["onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}", 'style write: .style.borderColor ='],
@@ -410,24 +411,54 @@ const PLANTED = [
   // W9: window.confirm, and a bare confirm( call.
   ["if (!window.confirm('Delete?')) return", 'confirm: window.confirm'],
   ["if (!confirm('Delete?')) return", 'confirm: confirm('],
+  // Review round two, R2-02: the spellings round one's claim of "any
+  // spelling" let through. The style object destructured, and written
+  // through; the bracket; the optional call; the Typed OM; the namespaced
+  // attribute.
+  ["const { style } = el; style.color = 'red'", ['style write: style.color =', 'style handed on: { style } =']],
+  ['const { style: s } = e.target', 'style handed on: { style: s } ='],
+  ["el['style'].color = 'red'", "style write: ['style'].color ="],
+  ["el.style.setProperty?.('--rb-x', 1)", 'style write: .style.setProperty?.('],
+  ["el.attributeStyleMap.set('color', 'red')", 'style write: .attributeStyleMap.set('],
+  ["el.setAttributeNS(null, 'style', 'color: red')", "style write: .setAttributeNS(null, 'style'"],
+  // …and confirm on another window's name, aliased, passed and destructured.
+  ["window.top.confirm('Delete?')", 'confirm: top.confirm'],
+  ["window.parent.confirm('Delete?')", 'confirm: parent.confirm'],
+  ["document.defaultView.confirm('Delete?')", 'confirm: defaultView.confirm'],
+  ['const ask = confirm', 'confirm: confirm'],
+  ['[].map(confirm)', 'confirm: confirm'],
+  ['const { confirm: ask } = window', 'confirm: confirm'],
 ]
-/** Reads, which are not writes: each planted, nothing is caught. */
-const READS = ["rule.style?.getPropertyValue('font-family')", 'const w = el.style.width', '<Dialog width="confirm" onConfirm={onConfirm} />']
+/** Reads, which are not writes, and names that only contain the word: each
+    planted, nothing is caught (R2-02: the lanes' own near misses). */
+const READS = [
+  "rule.style?.getPropertyValue('font-family')", 'const w = el.style.width', 'const m = el.attributeStyleMap.get(\'color\')',
+  'for (const sheet of doc.styleSheets) {}', "new Intl.NumberFormat('en-US', { style: 'currency', currency })",
+  '<Dialog width="confirm" onConfirm={onConfirm} />', 'const [confirmBulk, setConfirmBulk] = useState(null)',
+  "setConfirmBulk('shots')", '<ConfirmDialog onConfirm={handleConfirm} />', 'function handleConfirm() { onConfirm() }',
+  "document.querySelector('.ui-dialog[data-width=\"confirm\"]')", 'const { canWrite: canWriteProject } = useProjectAccess()',
+]
+/** The near misses each real file holds, in its code: a clean scan of the
+    file (below) is a clean scan of these. */
+const NEAR_MISSES = {
+  scenes: ['width="confirm"', 'onConfirm={', 'setConfirmBulk(', '<ConfirmDialog', 'data-width="confirm"', 'const { canWrite: canWriteProject } = useProjectAccess()'],
+}
 
-describe('R1-09: nothing writes a style from script and nothing asks window.confirm, in any spelling', () => {
+describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
   for (const [key, { file }] of Object.entries(FILES)) {
-    it(`${file}: none anywhere in the file, staged functions included`, () => {
+    it(`${file}: none anywhere in the file, staged functions included — and the file's own near misses are in its code`, () => {
       expect(scriptedLeaks(read(file), SCRIPTED[key])).toEqual([])
+      for (const near of NEAR_MISSES[key]) expect(jsCode(read(file)), `${file}: ${near}`).toContain(near)
     })
   }
-  it('CONTROL: in every file, each spelling planted at its first lane class is caught, and is the one thing caught; a read is not', () => {
+  it('CONTROL: in every file, each spelling planted at its first lane class is caught, and is the one thing caught; a read or a near miss is not', () => {
     for (const [key, { file }] of Object.entries(FILES)) {
       // In code, so the first lane class is never one a comment names.
       const whole = jsCode(read(file))
       const at = whole.search(/className=(?:"|\{`)rb-/)
       expect(at, file).toBeGreaterThan(0)
       const plant = (text) => `${whole.slice(0, at)}${text} ${whole.slice(at)}`
-      for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught])
+      for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught].flat())
       for (const text of READS) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([])
     }
   })
@@ -464,6 +495,82 @@ describe('R1-03: the nested shots end inside the window they did', () => {
     try {
       expect(52 + px('var(--rb-scene-nest-min)') + px('var(--rb-scene-col-nest-takes)')).toBeGreaterThan(1440)
     } finally { own['--rb-scene-nest-min'] = was }
+  })
+})
+
+/* ── 7d. the rings, the lift and the scroll-padding, on the sheet ─────────
+   Review round two, R2-07: round one's inset rings (R1-07: Add shot, a
+   group band's toggle) and its "+ takes" lift (R1-12), and this round's
+   scroll-padding (R2-03), are CSS the mounted tests cannot see — reverting
+   any of them passed every test. Each is read off the sheet by
+   rabbitCssGuards.js's `declaredValue`, with a CONTROL that the reading
+   fails on the sheet without it (`withDeclaration`'s mutant). */
+describe('R2-07: the inset rings, the "+ takes" lift and the table scroller\'s scroll-padding are on the sheet', () => {
+  const ring = kitRing()
+  it('the kit ring they are measured against: 2px, 1px out — it reaches 3px past a box', () => {
+    expect(ring).toEqual({ width: 2, offset: 1, reach: 3 })
+  })
+
+  // R1-07: each fills a cell that clips it (the toggle its band's, Add shot
+  // the nest's), so its ring is drawn inside the box.
+  const INSET = ['.rb-scene-add', '.rb-scene-group-toggle']
+  it('R1-07: Add shot\'s and a group band\'s toggle\'s rings are drawn inside the box, which its cell clips', () => {
+    for (const sel of INSET) expect(ringInset(sheet, sel), sel).toBe(true)
+  })
+  it('CONTROL: with the offset taken out, or back at the kit\'s 1px, or only -1px in, neither ring is inset', () => {
+    for (const sel of INSET) {
+      expect(ringInset(withDeclaration(sheet, sel, 'outline-offset', null), sel), sel).toBe(false)
+      expect(ringInset(withDeclaration(sheet, sel, 'outline-offset', '1px'), sel), sel).toBe(false)
+      expect(ringInset(withDeclaration(sheet, sel, 'outline-offset', '-1px'), sel), sel).toBe(false)
+    }
+  })
+
+  // R1-12: a hovered or ticked shot row lifts ShotTakeChips' quiet ink.
+  const LIFT = ['.rb-scene-row:hover > .rb-scene-takes-cell', '.rb-scene-row[data-ticked="true"] > .rb-scene-takes-cell']
+  it('R1-12: a hovered or ticked shot row lifts the takes cell\'s third ink to the second — the property B6 draws "+ takes" in', () => {
+    for (const sel of LIFT) expect(declaredValue(sheet, sel, '--bn-ink-3'), sel).toBe('var(--color-ink-2)')
+    // B6's "+ takes" is `C.dimmer`, binUi's `--bn-ink-3` over the third ink:
+    // the property the rule sets is the one the chip reads.
+    const binUi = read('./bins/binUi.jsx')
+    expect(binUi).toMatch(/const INK_3_PROP = 'var\(--bn-ink-3, var\(--color-ink-3\)\)'/)
+    expect(binUi).toMatch(/\bdimmer: INK_3_PROP\b/)
+    expect(read('./bins/ShotTakeChips.jsx')).toMatch(/className="bn-take-add[^"]*"\s+style=\{\{[^}]*\bcolor: C\.dimmer\b/)
+    // The chip sits in that cell.
+    expect(code.scenes).toMatch(/<Td className="rb-scene-takes-cell"[^\n]*\n\s*<ShotTakeChips\b/)
+  })
+  it('CONTROL: with the rule taken out, or lifting to the third ink, neither row lifts', () => {
+    for (const sel of LIFT) {
+      expect(declaredValue(withDeclaration(sheet, sel, '--bn-ink-3', null), sel, '--bn-ink-3'), sel).toBe(null)
+      expect(declaredValue(withDeclaration(sheet, sel, '--bn-ink-3', 'var(--color-ink-3)'), sel, '--bn-ink-3'), sel).toBe('var(--color-ink-3)')
+    }
+  })
+
+  // R2-03: the table's scroller keeps its sticky head, and the ring, clear.
+  const SCROLLER = '.rb-scene-table-wrap > .ui-table-scroll'
+  /** A scroll-padding: does it keep the kit head's height, and how many px beyond it. */
+  const padding = (v) => ({ head: /^calc\(var\(--table-head\) \+ \d+(?:\.\d+)?px\)$/.test(v || ''), px: Number(((v || '').match(/(\d+(?:\.\d+)?)px\)?$/) || [])[1] ?? NaN) })
+  it('R2-03: the table scroller keeps the kit\'s sticky head, `--table-head` tall, and the ring\'s reach clear at its top, and the ring\'s reach at its bottom', () => {
+    // The head is the kit's `.ui-th`: sticky at the scroller's top, `--table-head` tall.
+    const th = rulesOf(indexCss).find(({ sel }) => sel === '.ui-th').body
+    expect(th).toMatch(/(?:^|;)\s*position: sticky;/)
+    expect(th).toMatch(/(?:^|;)\s*top: 0;/)
+    expect(th).toMatch(/(?:^|;)\s*height: var\(--table-head\);/)
+    const top = padding(declaredValue(sheet, SCROLLER, 'scroll-padding-top'))
+    const bottom = padding(declaredValue(sheet, SCROLLER, 'scroll-padding-bottom'))
+    expect(top.head).toBe(true)
+    expect(top.px).toBeGreaterThanOrEqual(ring.reach)
+    expect(bottom.px).toBeGreaterThanOrEqual(ring.reach)
+  })
+  it('CONTROL: taken out, the ring\'s 4px alone at the top (the head forgotten), or the head alone, each fails', () => {
+    const top = (css) => padding(declaredValue(css, SCROLLER, 'scroll-padding-top'))
+    const gone = withDeclaration(sheet, SCROLLER, 'scroll-padding-top', null)
+    expect(top(gone).head && top(gone).px >= ring.reach).toBe(false)
+    const ringOnly = withDeclaration(sheet, SCROLLER, 'scroll-padding-top', '4px')
+    expect(top(ringOnly).head && top(ringOnly).px >= ring.reach).toBe(false)
+    const headOnly = withDeclaration(sheet, SCROLLER, 'scroll-padding-top', 'var(--table-head)')
+    expect(top(headOnly).head && top(headOnly).px >= ring.reach).toBe(false)
+    const noBottom = withDeclaration(sheet, SCROLLER, 'scroll-padding-bottom', null)
+    expect(padding(declaredValue(noBottom, SCROLLER, 'scroll-padding-bottom')).px >= ring.reach).toBe(false)
   })
 })
 

@@ -9,6 +9,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, within, screen, fireEvent, act } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
+// Review round two, R2-01: a question the app raises over a tab.
+import { Dialog } from '../../../ui/Dialog'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -750,6 +752,37 @@ describe('surface 2b', () => {
     fireEvent.click(rowsOf(container)[1].querySelector('.rb-budget-exp-title'))
     press(within(screen.getByRole('dialog', { name: 'Edit expense' })).getByRole('button', { name: 'Cancel' }))
     expect(calls()).toEqual([2, 2])
+  })
+
+  it('R2-01: Ctrl+Z and Ctrl+Shift+Z do nothing behind ANY kit question on screen — the Save current view name, and a question the app raises over the tab, neither of them this tab\'s three — and work again once it is gone (C1)', () => {
+    const h = hook()
+    const { rerender } = render(tab(h))
+    const press = (el) => {
+      expect(el.tagName, 'a button, never a field').toBe('BUTTON')
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true })
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true, shiftKey: true })
+    }
+    const calls = () => [h.undo.mock.calls.length, h.redo.mock.calls.length]
+    // Save current view: the kit Dialog at the confirm width, its name field
+    // focused; Tab would take focus to its Cancel.
+    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
+    fireEvent.click(within(document.querySelector('.rb-budget-menu')).getByRole('button', { name: 'Save current view' }))
+    const save = screen.getByRole('dialog', { name: 'Save current view' })
+    expect(save.getAttribute('data-width')).toBe('confirm')
+    press(within(save).getByRole('button', { name: 'Cancel' }))
+    expect(calls()).toEqual([0, 0])
+    fireEvent.click(within(save).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // A question the app raises over the page (the update prompt is one): the
+    // kit Dialog at the confirm width, which this tab knows nothing of.
+    rerender(<>{tab(h)}<Dialog width="confirm" title="Restart to update" onClose={() => {}} footer={<button type="button">Later</button>}>A new version is ready.</Dialog></>)
+    press(within(screen.getByRole('dialog', { name: 'Restart to update' })).getByRole('button', { name: 'Later' }))
+    expect(calls()).toEqual([0, 0])
+    // Gone: the keys work on the page again.
+    rerender(tab(h))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    press(screen.getByRole('button', { name: 'Reset M/C' }))
+    expect(calls()).toEqual([1, 1])
   })
 
   it('R1-12: the expense popup carries the app\'s dark scrollbar class itself — in <body> it is outside the app\'s root, and its form and lists scroll', () => {

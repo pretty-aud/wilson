@@ -355,6 +355,20 @@
   /* The scroller insets the table to the gutter, so its checkboxes start
      under the toolbar's first control. */
   .rb-scene-table-wrap > .ui-table-scroll { padding: 0 var(--spacing-gutter); }
+  /* Tab and Shift+Tab scroll the next control to the scroller's edge, and
+     the kit Table's head is sticky INSIDE this scroller: Shift+Tab up a
+     scrolled table left Add shot, a group band's toggle and Scene details
+     UNDER the head at 1280x700 (review round two, R2-03; WCAG 2.4.11), and a
+     stop Tabbed to at the bottom edge lost up to 3px of its ring. The top keeps
+     the head's height clear — the kit's `--table-head`, which its sticky
+     `.ui-th` is — and the ring's 4px (a 2px outline at a 1px offset, and a
+     pixel's rounding: the kit Dialog body's A4-KR-9 margin); the bottom
+     keeps the ring's 4px. The kit's own Table has neither (a kit request
+     for every lane). */
+  .rb-scene-table-wrap > .ui-table-scroll {
+    scroll-padding-top: calc(var(--table-head) + 4px);
+    scroll-padding-bottom: 4px;
+  }
 
   .ui-table.rb-scene-table-scenes {
     min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-expand) + var(--rb-scene-col-thumb)

@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, waitFor, act } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -1215,5 +1215,90 @@ describe('review round one', () => {
     const takes = screen.getByRole('dialog', { name: 'Takes — The cold lamp' })
     const wrap = takes.closest('.ui-dialog-backdrop').parentElement
     expect([wrap.parentElement, wrap.className]).toEqual([document.body, 'wilson-dark-scroll'])
+  })
+})
+
+/* ── review round two ───────────────────────────────────────────────────── */
+describe('review round two', () => {
+  it('R2-01: Ctrl+Z and Ctrl+Y do nothing behind a question the page did not ask — FileManager\'s "Delete file" in the scene popup, the kit Dialog at the confirm width — and undo with the popup open before it and after it (C1)', () => {
+    const undo = vi.fn()
+    const redo = vi.fn()
+    page({ ...TAKES, undo, redo, files: [{ id: 'f9', scene_id: 'sc1', name: 'SC04_lighting_plan.pdf', size_bytes: 2048, uploaded_at: '2026-09-20T10:00:00Z' }] })
+    const press = (el) => {
+      expect(el.tagName, 'a button, never a field').toBe('BUTTON')
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true })
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true, shiftKey: true })
+      fireEvent.keyDown(el, { key: 'y', ctrlKey: true })
+    }
+    const calls = () => [undo.mock.calls.length, redo.mock.calls.length]
+    const dialog = openScenePopup()
+    // The popup open and no question: the keys undo, as they did (C1).
+    press(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' }))
+    expect(calls()).toEqual([1, 2])
+    // The file's delete asks FileManager's question, over the popup, focus on its Cancel.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete SC04_lighting_plan.pdf' }))
+    const question = screen.getByRole('dialog', { name: 'Delete file' })
+    expect([question.getAttribute('data-width'), dialog.contains(question)]).toEqual(['confirm', false])
+    expect(document.activeElement).toBe(within(question).getByRole('button', { name: 'Cancel' }))
+    press(document.activeElement)
+    expect(calls()).toEqual([1, 2])
+    fireEvent.click(within(question).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Delete file' })).toBeNull()
+    // Answered: the popup's keys undo again.
+    press(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' }))
+    expect(calls()).toEqual([2, 4])
+  })
+
+  it('R2-05: an editor whose words are a control gives focus back to them when it closes — the name by Enter and Escape, each description and notes by Escape, Save and Cancel — in both popups; focus had fallen to <body>', () => {
+    const { ctx } = page()
+    const inBody = () => document.activeElement === document.body
+    for (const [open, name, desc] of [[() => openScenePopup(), 'Lighthouse, dawn', 'Mara lets herself in.'], [() => openShotPopup(), 'The door', 'Mara in the doorway.']]) {
+      const dialog = open()
+      const main = dialog.querySelector('.rb-scene-detail-main')
+      // The name (PopupInlineText): Enter commits, Escape reverts; each hands focus back.
+      const nameWords = () => within(main).getByRole('button', { name })
+      for (const key of ['Enter', 'Escape']) {
+        fireEvent.click(nameWords())
+        const field = within(main).getByRole('textbox', { name: name === 'The door' ? 'Shot name' : 'Scene name' })
+        expect(document.activeElement, `${name}: ${key}`).toBe(field)
+        fireEvent.keyDown(field, { key })
+        expect([inBody(), document.activeElement === nameWords()], `${name}: ${key}`).toEqual([false, true])
+      }
+      // The description and the notes: Escape, Save and Cancel each hand focus back.
+      for (const [words, label] of [[desc, 'Description'], ['Click to add notes...', 'Notes']]) {
+        for (const close of ['Escape', 'Save', 'Cancel']) {
+          fireEvent.click(within(main).getByRole('button', { name: words }))
+          const box = within(main).getByRole('textbox', { name: label })
+          expect(document.activeElement, `${name}: ${label} ${close}`).toBe(box)
+          if (close === 'Escape') fireEvent.keyDown(box, { key: 'Escape' })
+          else fireEvent.click(within(box.parentElement).getByRole('button', { name: close }))
+          expect([inBody(), document.activeElement === within(main).getByRole('button', { name: words })], `${name}: ${label} ${close}`).toEqual([false, true])
+        }
+      }
+      escape()
+      expect(screen.queryByRole('dialog')).toBeNull()
+    }
+    // The edits were the editors' own, as before: the name's Enter wrote an unchanged draft nowhere.
+    expect(ctx.updateScene.mock.calls.filter(([, patch]) => 'name' in patch)).toEqual([])
+  })
+
+  it('R2-05: a blur commit hands focus back only when it fell to <body> — a Tab or a click elsewhere keeps where it went', () => {
+    const { ctx } = page()
+    const dialog = openScenePopup()
+    const main = dialog.querySelector('.rb-scene-detail-main')
+    const nameWords = () => within(main).getByRole('button', { name: 'Lighthouse, dawn' })
+    // Focus moves on to another control: the edit commits there and focus stays there.
+    fireEvent.click(nameWords())
+    let field = within(main).getByRole('textbox', { name: 'Scene name' })
+    fireEvent.change(field, { target: { value: 'Lighthouse, noon' } })
+    const status = within(main).getByRole('combobox', { name: 'Status' })
+    act(() => { status.focus() })
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { name: 'Lighthouse, noon' })
+    expect(document.activeElement).toBe(status)
+    // Focus goes nowhere (the window loses it, say): the words take it back.
+    fireEvent.click(nameWords())
+    field = within(main).getByRole('textbox', { name: 'Scene name' })
+    act(() => { field.blur() })
+    expect(document.activeElement).toBe(nameWords())
   })
 })

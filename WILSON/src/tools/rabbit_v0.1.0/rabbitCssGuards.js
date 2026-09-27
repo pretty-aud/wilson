@@ -887,24 +887,73 @@ export function propValues(sources, component, prop) {
    run over every file they guard, whole (a staged function included).
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/** An expression's `.style` (`e.target.style`, `el.style`, `ref.current.style`,
-    `rows[0].style`, `node?.style`), as a RegExp source; the match starts at
-    the dot. */
-const STYLE_OF = String.raw`(?<=[\w$\])])\s*\??\.\s*style`
+/** A member named `name` on an expression — `x.name`, `x?.name`, `x['name']`,
+    `x?.["name"]` — as a RegExp source; the match starts at the dot or the
+    bracket, and the receiver is any expression that ends in a name, `)` or
+    `]` (`e.target`, `el`, `ref.current`, `rows[0]`, `get()`). */
+const memberOf = (name) => String.raw`(?<=[\w$\])])\s*(?:\??\.\s*${name}(?![\w$])|\??\.?\s*\[\s*(?:'${name}'|"${name}"|\`${name}\`)\s*\])`
+/** An expression's `.style`, in either spelling (review round two, R2-02:
+    `el['style'].color = …` passed). */
+const STYLE_OF = memberOf('style')
+/** The Typed OM's inline style (`el.attributeStyleMap`), which writes the
+    same `style` attribute (R2-02). */
+const STYLE_MAP_OF = memberOf('attributeStyleMap')
+/** An assignment operator, plain or compound (`=`, `+=`, `??=`, …), never
+    `==` / `===`. */
+const ASSIGN = String.raw`(?:\*\*|<<|>>>?|&&|\|\||\?\?|[-+*/%&|^])?=(?!=)`
+/** A call, plain or optional: `(` or `?.(`. */
+const CALL = String.raw`\s*(?:\?\.\s*)?\(`
+/** Where a bare name is read as a value, not written as a word: after an
+    operator or punctuator that takes an expression, or a keyword that does
+    (`= confirm`, `(confirm`, `, confirm`, `{ confirm`, `? confirm`,
+    `return confirm`, a line's start). A word in JSX text after a letter
+    (`Please confirm`) is not in one. */
+const VALUE_AT = String.raw`(?<=(?:^|[=(,[{:?!&|;]|=>|\b(?:return|await|typeof|void|yield))\s*)`
+/** An object pattern, one level of nesting inside it, then `=` (not `==`,
+    `===`, `=>`): a destructure (`const { a, b: c } = x`). */
+const PATTERN_ASSIGNED = /\{(?:[^{}]|\{[^{}]*\})*\}\s*=(?![=>])/g
 /** Every place a source writes an element's style from script, and every
-    `window.confirm`, read on the code (comments out) and labelled by kind:
-      · `style write`: a style property assigned, on any receiver — an
-        event's target, an alias, a ref — `x.style.color = …`,
-        `x.style['color'] = …`, `x.style.cssText = …`, a compound `+=`; a
-        writing method, `x.style.setProperty(…)` / `removeProperty(…)`; and
-        `setAttribute('style', …)`;
-      · `style handed on`: the style object itself aliased
-        (`const s = el.style`), replaced (`el.style = …`) or passed
-        (`Object.assign(el.style, …)`) — a write through it is out of sight;
-      · `confirm`: `window.confirm` (or `globalThis.` / `self.`), called or
-        not, in any spelling, and a bare `confirm(…)` call.
+    `confirm` it reaches, read on the code (comments out) and labelled by
+    kind. Exactly these, no more (review round two, R2-02: round one's
+    comment said "any spelling", and six style spellings and six confirm
+    spellings passed it):
+      · `style write`: on any receiver — an event's target, an alias, a ref,
+        a call's result — and `.style` or `['style']` alike: a style
+        property assigned (`x.style.color = …`, `x.style['color'] = …`,
+        `x['style'].color = …`, `x.style.cssText = …`, a compound `+=`); a
+        writing method, called or optionally called
+        (`x.style.setProperty(…)`, `x.style.setProperty?.(…)`,
+        `removeProperty`); the Typed OM's writers
+        (`x.attributeStyleMap.set(…)`, `append`, `delete`, `clear`); the
+        attribute (`x.setAttribute('style', …)`,
+        `x.setAttributeNS(ns, 'style', …)`); and a bare `style.color = …`,
+        the write through a destructured `style`;
+      · `style handed on`: the style object (or the Typed OM's map) itself
+        aliased (`const s = el.style`), replaced (`el.style = …`) or passed
+        (`Object.assign(el.style, …)`), and a destructure that takes
+        `style` out of anything (`const { style } = el`,
+        `const { style: s } = e.target`, one level deep) — a write through
+        it is out of sight;
+      · `confirm`: any `.confirm` / `['confirm']` member, called or not, on
+        any receiver (`window.confirm`, `window.top.confirm(…)`,
+        `window.parent.confirm(…)`, `document.defaultView.confirm(…)`,
+        `w.confirm` for `const w = window`); a bare `confirm(…)` call; and
+        a bare `confirm` where a value starts (VALUE_AT: after
+        `= ( , [ { : ? ! & | ;`, `=>`, `return`, `await`, `typeof`, `void`,
+        `yield` or at a line's start — `const ask = confirm`,
+        `[].map(confirm)`, `const { confirm: ask } = window`).
+    Not caught, deliberately: a name built at run time (`el[key]`,
+    `window[name]`, `setAttribute(attr, …)`, `Reflect.get(window,
+    'confirm')`), a destructure nested two levels deep, a bare `confirm`
+    after any other token (`export default confirm`), and a `confirm` in a
+    string. A destructure of `style` from props (`({ style } = {})`) and a
+    `confirm` object key ARE caught — neither is in either lane.
     A read is not a write: `rule.style?.getPropertyValue(…)` (ClientViewTab's
-    font rules), `el.style.width` in an expression, a JSX `style={{ … }}`.
+    font rules), `doc.styleSheets`, `el.style.width` in an expression,
+    `el.attributeStyleMap.get(…)`, a JSX `style={{ … }}`, an options key
+    (`{ style: 'currency' }`). Nor is a name that only contains the word:
+    `width="confirm"`, `onConfirm`, `confirmBulk` / `setConfirmBulk`,
+    `ConfirmDialog`, `handleConfirm`, `'.ui-dialog[data-width="confirm"]'`.
     `allowed` lists the exact matches (as reported, less the kind) a file
     may keep — a measured geometry written from script — each with its
     reason where the caller lists it. */
@@ -915,14 +964,79 @@ export function scriptedLeaks(src, allowed = []) {
     const t = text.replace(/\s+/g, ' ').trim()
     if (!allowed.includes(t)) out.push(`${kind}: ${t}`)
   }
-  const assigned = new RegExp(`${STYLE_OF}\\s*(?:\\.\\s*[\\w$]+|\\[[^\\]]*\\])\\s*(?:\\*\\*|<<|>>>?|&&|\\|\\||\\?\\?|[-+*/%&|^])?=(?!=)`, 'g')
-  const method = new RegExp(`${STYLE_OF}\\s*\\??\\.\\s*(?:setProperty|removeProperty)\\s*\\(`, 'g')
-  const whole = new RegExp(`${STYLE_OF}\\b(?!\\s*(?:\\??\\.|\\[))`, 'g')
-  for (const m of code.matchAll(assigned)) add('style write', m[0])
-  for (const m of code.matchAll(method)) add('style write', m[0])
-  for (const m of code.matchAll(/\.\s*setAttribute\s*\(\s*(['"`])style\1/g)) add('style write', m[0])
-  for (const m of code.matchAll(whole)) add('style handed on', m[0])
-  for (const m of code.matchAll(/(?<![\w$.])(?:window|globalThis|self)\s*(?:\??\.\s*confirm\b|\[\s*(['"`])confirm\1\s*\])/g)) add('confirm', m[0])
-  for (const m of code.matchAll(/(?<![\w$.])confirm\s*\(/g)) add('confirm', m[0])
+  const each = (re, kind) => { for (const m of code.matchAll(re)) add(kind, m[0]) }
+  // ── style writes ──
+  each(new RegExp(`${STYLE_OF}\\s*(?:\\??\\.\\s*[\\w$]+|\\[[^\\]]*\\])\\s*${ASSIGN}`, 'g'), 'style write')
+  each(new RegExp(`${STYLE_OF}\\s*\\??\\.\\s*(?:setProperty|removeProperty)${CALL}`, 'g'), 'style write')
+  each(new RegExp(`${STYLE_MAP_OF}\\s*\\??\\.\\s*(?:set|append|delete|clear)${CALL}`, 'g'), 'style write')
+  each(new RegExp(`\\.\\s*setAttribute${CALL}\\s*(['"\`])style\\1`, 'g'), 'style write')
+  each(new RegExp(`\\.\\s*setAttributeNS${CALL}[^,()]*,\\s*(['"\`])style\\1`, 'g'), 'style write')
+  each(new RegExp(`(?<![\\w$.'"\`-])style\\s*(?:\\??\\.\\s*[\\w$]+|\\[[^\\]]*\\])\\s*${ASSIGN}`, 'g'), 'style write')
+  // ── the style object handed on ──
+  each(new RegExp(`${STYLE_OF}(?!\\s*(?:\\??\\.|\\[))`, 'g'), 'style handed on')
+  each(new RegExp(`${STYLE_MAP_OF}(?!\\s*(?:\\??\\.|\\[))`, 'g'), 'style handed on')
+  for (const m of code.matchAll(PATTERN_ASSIGNED)) {
+    if (/(?<![\w$.'"`-])style\s*(?::\s*[\w$]+\s*)?[,}]/.test(m[0])) add('style handed on', m[0])
+  }
+  // ── confirm ──
+  each(/(?:[\w$]+\s*)?\??\.\s*confirm(?![\w$-])|(?:[\w$]+\s*)?\??\.?\s*\[\s*(['"`])confirm\1\s*\]/g, 'confirm')
+  each(/(?<![\w$.])confirm\s*\(/g, 'confirm')
+  each(new RegExp(`${VALUE_AT}confirm(?![\\w$'"\`-])(?!\\s*\\()`, 'gm'), 'confirm')
   return out
+}
+
+/* ══ lanes B5 and B5b, review round two (2026-09-27) ════════════════════════
+   R2-07. Round one's inset rings (R1-06, R1-07) and its "+ takes" lift
+   (R1-12), and round two's scroll-padding (R2-03) and inset rings (R2-04),
+   are CSS no mounted test can see: jsdom lays nothing out, and reverting
+   any one of them passed every test. Both lanes read them off their sheets
+   with these, each with a CONTROL that the reading fails without the rule.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** What a sheet gives `sel` — one selector of a rule's list, whitespace
+    aside — for `prop`: the last declaration in source order (a lane sheet is
+    one layer, so source order is the cascade among its own rules), or null. */
+export function declaredValue(css, sel, prop) {
+  const want = sel.replace(/\s+/g, ' ').trim()
+  let value = null
+  for (const { sel: s, body } of rulesOf(css)) {
+    if (!selectorsOf(s).some((one) => one.replace(/\s+/g, ' ') === want)) continue
+    for (const m of body.matchAll(new RegExp(`(?:^|;)\\s*${escapeRe(prop)}\\s*:\\s*([^;]*?)\\s*(?=;|$)`, 'g'))) value = m[1]
+  }
+  return value
+}
+/** A sheet (comments out) with `prop` set to `value` in every rule for `sel`,
+    or taken out (`value` null): a CONTROL's mutant. */
+export function withDeclaration(css, sel, prop, value) {
+  const want = sel.replace(/\s+/g, ' ').trim()
+  return cssCode(css).replace(/([^{}]+)\{([^{}]*)\}/g, (all, s, body) => {
+    if (!selectorsOf(s.trim()).some((one) => one.replace(/\s+/g, ' ') === want)) return all
+    const decl = new RegExp(`(^|;)(\\s*)${escapeRe(prop)}\\s*:[^;]*(;|$)`, 'g')
+    return `${s}{${body.replace(decl, value == null ? '$1' : `$1$2${prop}: ${value}$3`)}}`
+  })
+}
+/** The kit's one focus ring (index.css `:focus-visible`): its width and its
+    offset in px, and how far past the box it reaches (their sum). */
+export function kitRing(kit = indexCss) {
+  const body = rulesOf(kit).find(({ sel }) => sel === ':focus-visible')?.body || ''
+  const width = Number((body.match(/(?:^|;)\s*outline\s*:\s*(\d+(?:\.\d+)?)px/) || [])[1])
+  const offset = Number((body.match(/(?:^|;)\s*outline-offset\s*:\s*(-?\d+(?:\.\d+)?)px/) || [])[1])
+  return { width, offset, reach: width + offset }
+}
+/** Is `sel`'s ring drawn inside its box: an `outline-offset` that takes the
+    kit ring's whole width in? */
+export function ringInset(css, sel, kit = indexCss) {
+  const v = declaredValue(css, sel, 'outline-offset')
+  return v != null && /^-?\d+(?:\.\d+)?px$/.test(v) && parseFloat(v) + kitRing(kit).width <= 0
+}
+/** The kit rules that set `outline-offset` on a focused element of `cls`:
+    the bare `:focus-visible`, and any whose last compound names `cls`. A
+    lane rule that insets that element's ring is written heavier than all of
+    them (the header's specificity rule). */
+export function kitOffsetRules(cls, kit = indexCss) {
+  const named = new RegExp(`\\.${escapeRe(cls)}(?![\\w-])`)
+  return rulesOf(kit)
+    .filter(({ body }) => /(?:^|;)\s*outline-offset\s*:/.test(body))
+    .flatMap(({ sel }) => selectorsOf(sel))
+    .filter((one) => lastCompound(one) === ':focus-visible' || named.test(lastCompound(one)))
 }

@@ -1763,11 +1763,16 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
   // while a delete or reset question is up (review round one, R1-08):
   // window.confirm, which two of the three were, blocked every key behind
   // it, and the kit Dialog does not. Only a question: with the expense popup
-  // open they work as they did (C1).
+  // open they work as they did (C1). Not only this tab's three (review round
+  // two, R2-01): any kit Dialog at the confirm width on screen, whoever
+  // opened it — the Save current view name, a question the app raises over
+  // the page — as the Scenes page's handler does. The kit writes the width
+  // token on its surface (`data-width="confirm"`, Dialog.jsx); the expense
+  // popup is the kit Dialog at the form width, so the keys still undo there.
   const questionOpen = deleteConfirmId != null || confirmBulkDelete || confirmResetMc
   useEffect(() => {
     function onKey(e) {
-      if (questionOpen) return
+      if (questionOpen || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
       const t = e.target
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
       const mod = e.ctrlKey || e.metaKey

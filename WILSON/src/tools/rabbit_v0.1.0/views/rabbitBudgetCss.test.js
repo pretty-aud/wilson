@@ -25,7 +25,7 @@ import {
   unreachableAttributeValues, utilityConflicts, weakAgainstKit, kitFights,
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
-  scriptedLeaks,
+  scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset, kitOffsetRules, specificity, gt,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -312,7 +312,8 @@ describe('no state is decided in a style or a className', () => {
     write none; ClientViewTab's one `.style` READS its font rules
     (`rule.style?.getPropertyValue`), which is not a write. */
 const SCRIPTED = {}
-/** Each spelling R1-09 names, and what the predicate reports for it. */
+/** Each spelling R1-09 and R2-02 name, and what the predicate reports for it
+    (a list where one spelling is two catches). */
 const PLANTED = [
   // R3-26's own hover writers, on an event's target and its current target.
   ["onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}", 'style write: .style.borderColor ='],
@@ -328,26 +329,118 @@ const PLANTED = [
   // W9: window.confirm, and a bare confirm( call.
   ["if (!window.confirm('Delete 2 expenses?')) return", 'confirm: window.confirm'],
   ["if (!confirm('Delete 2 expenses?')) return", 'confirm: confirm('],
+  // Review round two, R2-02: the spellings round one's claim of "any
+  // spelling" let through. The style object destructured, and written
+  // through; the bracket; the optional call; the Typed OM; the namespaced
+  // attribute.
+  ["const { style } = el; style.color = 'red'", ['style write: style.color =', 'style handed on: { style } =']],
+  ['const { style: s } = e.target', 'style handed on: { style: s } ='],
+  ["el['style'].color = 'red'", "style write: ['style'].color ="],
+  ["el.style.setProperty?.('--rb-pop-x', 1)", 'style write: .style.setProperty?.('],
+  ["el.attributeStyleMap.set('color', 'red')", 'style write: .attributeStyleMap.set('],
+  ["el.setAttributeNS(null, 'style', 'color: red')", "style write: .setAttributeNS(null, 'style'"],
+  // …and confirm on another window's name, aliased, passed and destructured.
+  ["window.top.confirm('Delete 2 expenses?')", 'confirm: top.confirm'],
+  ["window.parent.confirm('Delete 2 expenses?')", 'confirm: parent.confirm'],
+  ["document.defaultView.confirm('Delete 2 expenses?')", 'confirm: defaultView.confirm'],
+  ['const ask = confirm', 'confirm: confirm'],
+  ['[].map(confirm)', 'confirm: confirm'],
+  ['const { confirm: ask } = window', 'confirm: confirm'],
 ]
-/** Reads, which are not writes: each planted, nothing is caught. */
-const READS = ["rule.style?.getPropertyValue('font-family')", 'const w = el.style.width', '<Dialog width="confirm" onConfirm={onConfirm} />']
+/** Reads, which are not writes, and names that only contain the word: each
+    planted, nothing is caught (R2-02: the lanes' own near misses). */
+const READS = [
+  "rule.style?.getPropertyValue('font-family')", 'const w = el.style.width', 'const m = el.attributeStyleMap.get(\'color\')',
+  'for (const sheet of doc.styleSheets) {}', "new Intl.NumberFormat('en-US', { style: 'currency', currency })",
+  '<Dialog width="confirm" onConfirm={onConfirm} />', 'const [confirmBulk, setConfirmBulk] = useState(null)',
+  "setConfirmBulk('shots')", '<ConfirmDialog onConfirm={handleConfirm} />', 'function handleConfirm() { onConfirm() }',
+  "document.querySelector('.ui-dialog[data-width=\"confirm\"]')", 'const { canWrite: canWriteProject } = useProjectAccess()',
+]
+/** The near misses each real file holds, in its code: a clean scan of the
+    file (below) is a clean scan of these. */
+const NEAR_MISSES = {
+  money: ["style: 'currency'"],
+  budget: ['width="confirm"', 'setConfirmBulkDelete(', 'setConfirmResetMc(', 'className="rb-budget-confirm"', 'data-width="confirm"'],
+  client: ["rule.style?.getPropertyValue('font-family')", 'doc.styleSheets', '<style>'],
+  pop: ["style={{ '--rb-pop-w': width"],
+  marginCont: [],
+  crew: ['width="confirm"', 'setConfirmResetMc(', "style={{ '--rb-crew-cols': periods }}"],
+  talent: ['width="confirm"', 'setConfirmResetMc(', "style={{ '--rb-talent-cols': periods }}"],
+  inv: [],
+}
 
-describe('R1-09: nothing writes a style from script and nothing asks window.confirm, in any spelling', () => {
+describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
   for (const [key, { file }] of Object.entries(FILES)) {
-    it(`${file}: none anywhere in the file`, () => {
+    it(`${file}: none anywhere in the file — and the file's own near misses are in its code`, () => {
       expect(scriptedLeaks(read(file), SCRIPTED[key])).toEqual([])
+      for (const near of NEAR_MISSES[key]) expect(jsCode(read(file)), `${file}: ${near}`).toContain(near)
     })
   }
-  it('CONTROL: in every file, each spelling planted at its first lane class is caught, and is the one thing caught; a read is not', () => {
+  it('CONTROL: in every file, each spelling planted at its first lane class is caught, and is the one thing caught; a read or a near miss is not', () => {
     for (const [key, { file }] of Object.entries(FILES)) {
       // In code, so the first lane class is never one a comment names.
       const whole = jsCode(read(file))
       const at = whole.search(/className=(?:"|\{`)rb-/)
       expect(at, file).toBeGreaterThan(0)
       const plant = (text) => `${whole.slice(0, at)}${text} ${whole.slice(at)}`
-      for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught])
+      for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught].flat())
       for (const text of READS) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([])
     }
+  })
+})
+
+/* ── 7c. the rings and the scroll-padding, on the sheet ───────────────────
+   Review round two, R2-07: round one's inset tab ring (R1-06) and this
+   round's inset rings (R2-04: the Expenses sortable headers, the panel as
+   a Tab stop) and the panel's scroll-padding (R2-03) are CSS the mounted
+   tests cannot see — reverting R1-06 passed every test. Each is read off the
+   sheet by rabbitCssGuards.js's `declaredValue`, with a CONTROL that the
+   reading fails on the sheet without it (`withDeclaration`'s mutant). */
+describe('R2-07: the inset rings and the panel\'s scroll-padding are on the sheet', () => {
+  const ring = kitRing()
+  /** Each ring the lane insets, and the kit class on the element it rings. */
+  const INSET = [
+    // R1-06: the strip scrolls sideways and clips at the tabs' height.
+    ['.rb-budget-tabs .ui-tab:focus-visible', 'ui-tab'],
+    // R2-04: a sortable header, at the top edge of the table's scroller.
+    ['.rb-budget-exp .ui-th-btn:focus-visible', 'ui-th-btn'],
+    // R2-04: the panel as Chromium's Tab stop, inside the view that clips it.
+    ['.rb-budget-panel:focus-visible', null],
+  ]
+  it('the kit ring they are measured against: 2px, 1px out — it reaches 3px past a box', () => {
+    expect(ring).toEqual({ width: 2, offset: 1, reach: 3 })
+  })
+  it('R1-06 / R2-04: the tabs\', the sortable headers\' and the panel\'s rings are drawn inside the box, each rule heavier than every kit rule that sets the element\'s offset', () => {
+    for (const [sel, kitCls] of INSET) {
+      expect(ringInset(sheet, sel), sel).toBe(true)
+      const kit = kitOffsetRules(kitCls || 'rb-budget-panel')
+      expect(kit, sel).toContain(':focus-visible')
+      for (const k of kit) expect(gt(specificity(sel), specificity(k)), `${sel} over ${k}`).toBeGreaterThan(0)
+    }
+    // The header's button is the kit Th's sort button, the one the rule rings.
+    expect(read('../../../ui/Table.jsx')).toMatch(/<button type="button" className="ui-th-btn" onClick=\{onSort\}>/)
+    expect(code.budget).toMatch(/<Table\s+className="rb-budget-exp"/)
+  })
+  it('CONTROL: with the offset taken out, back at the kit\'s 1px, or only -1px in, no ring is inset; and a selector no heavier than the kit\'s loses', () => {
+    for (const [sel] of INSET) {
+      expect(ringInset(withDeclaration(sheet, sel, 'outline-offset', null), sel), sel).toBe(false)
+      expect(ringInset(withDeclaration(sheet, sel, 'outline-offset', '1px'), sel), sel).toBe(false)
+      expect(ringInset(withDeclaration(sheet, sel, 'outline-offset', '-1px'), sel), sel).toBe(false)
+    }
+    expect(gt(specificity('.rb-budget-panel'), specificity(':focus-visible'))).toBe(0)
+  })
+
+  // R2-03: the panel is the Budget's one scroller; Tab brings a control to
+  // its edge, and the ring reaches 3px past it.
+  const scrollPad = (css) => declaredValue(css, '.rb-budget-panel', 'scroll-padding-block')
+  it('R2-03: the panel keeps the ring\'s reach in view at its top and bottom', () => {
+    expect(scrollPad(sheet)).toMatch(/^\d+(?:\.\d+)?px$/)
+    expect(parseFloat(scrollPad(sheet))).toBeGreaterThanOrEqual(ring.reach)
+    expect(declaredValue(sheet, '.rb-budget-panel', 'overflow')).toBe('auto')
+  })
+  it('CONTROL: taken out, or short of the ring, it fails', () => {
+    expect(scrollPad(withDeclaration(sheet, '.rb-budget-panel', 'scroll-padding-block', null))).toBe(null)
+    expect(parseFloat(scrollPad(withDeclaration(sheet, '.rb-budget-panel', 'scroll-padding-block', '2px')))).toBeLessThan(ring.reach)
   })
 })
 
