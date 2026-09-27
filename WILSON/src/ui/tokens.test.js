@@ -205,6 +205,29 @@ const PAIRS = [
   ['ink-light on well-light (the light Kbd cap, the light disabled button)', T.INK_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT), 4.5],
 ]
 
+// P1's §7 caller audit (2026-09-27). Two things the audit deleted must stay
+// deleted: the shortcut bar's height (Q10 ruled "no shortcut bar anywhere";
+// the token outlived the bar with no consumer), and the four LIGHT_TABLE_*
+// objects no table reads since Team Members, Users and Logs moved onto the
+// kit Table (V1-15). The check is a function so its control can run it on a
+// planted copy; a guard that only ever sees the clean tree proves nothing.
+function retiredTokens(names, themeVars) {
+  const found = []
+  for (const n of names) if (/^SHORTCUT_BAR$|^LIGHT_TABLE_/i.test(n)) found.push(n)
+  for (const v of themeVars) if (/^shortcut-bar$/i.test(v)) found.push(`--${v}`)
+  return found
+}
+
+describe('retired tokens stay retired (P1 §7 audit)', () => {
+  it('tokens.js exports no SHORTCUT_BAR or LIGHT_TABLE_*, and neither @theme nor THEME carries --shortcut-bar', () => {
+    expect(retiredTokens(Object.keys(T), [...Object.keys(theme), ...Object.keys(THEME)])).toEqual([])
+  })
+  it('CONTROL: the check names each planted leftover', () => {
+    expect(retiredTokens(['LIGHT_TABLE_FRAME', 'SHORTCUT_BAR', 'ROW'], ['shortcut-bar', 'row']))
+      .toEqual(['LIGHT_TABLE_FRAME', 'SHORTCUT_BAR', '--shortcut-bar'])
+  })
+})
+
 describe('every ink/ground pair clears its ratio', () => {
   for (const [label, ink, ground, min] of PAIRS) {
     it(`${label}: ≥ ${min}:1`, () => {

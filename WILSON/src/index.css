@@ -152,7 +152,6 @@
   --toolbar: 44px;
   --page-header: 56px;
   --panel-header: 32px;
-  --shortcut-bar: 34px;
   --titlebar: 32px;
   --icon-sm: 14px;
   --icon-md: 16px;
@@ -1917,6 +1916,11 @@ select option {
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
+  /* A4-KR-10 / P1-71: the head is 32px and its 28px close button's ring
+     (2px at a 1px offset) reached 3px past it, so where the drawer opens at
+     the window's top edge the ring's top pixel was cut. Drawn inside the
+     control instead, as the sortable table head's is. */
+  .ui-drawer-head :focus-visible { outline-offset: -2px; }
   .ui-drawer[data-surface="light"] .ui-drawer-head { border-bottom-color: var(--color-rule-light); }
   .ui-drawer-title {
     font-size: var(--text-label);

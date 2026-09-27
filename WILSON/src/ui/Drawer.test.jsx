@@ -130,3 +130,26 @@ describe('Drawer', () => {
     expect(el.getAttribute('style')).toBeNull()
   })
 })
+
+describe('Drawer head focus ring (A4-KR-10, P1-71)', () => {
+  // The head's controls draw their ring inside themselves: a 28px button in
+  // a 32px head with the app's 2px ring at a 1px offset reaches 3px past the
+  // button, and the drawer opens flush with the window's top edge in a plain
+  // browser, so the ring's top pixel was cut.
+  const ruleFor = (sheet, selector) => {
+    const at = sheet.indexOf(`\n  ${selector} {`)
+    return at < 0 ? null : sheet.slice(at, sheet.indexOf('}', at))
+  }
+  it('is inset in every drawer head', () => {
+    const rule = ruleFor(css, '.ui-drawer-head :focus-visible')
+    expect(rule, 'no .ui-drawer-head :focus-visible rule in the kit').not.toBeNull()
+    expect(rule).toMatch(/outline-offset:\s*-2px/)
+  })
+  it('CONTROL: the geometry that cut it is still there, and a sheet without the rule is caught', () => {
+    expect(ruleFor(css, '.ui-drawer-head')).toMatch(/height:\s*var\(--panel-header\)/)
+    expect(css).toMatch(/--panel-header:\s*32px/)
+    expect(ruleFor(css, ':focus-visible')).toMatch(/outline:\s*2px solid[^;]*;\s*outline-offset:\s*1px/)
+    const planted = css.replace(/\n {2}\.ui-drawer-head :focus-visible \{[^}]*\}/, '')
+    expect(ruleFor(planted, '.ui-drawer-head :focus-visible')).toBeNull()
+  })
+})

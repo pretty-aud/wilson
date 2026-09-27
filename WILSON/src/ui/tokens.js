@@ -117,7 +117,6 @@ export const THEME = Object.freeze({
   'toolbar': '44px',
   'page-header': '56px',
   'panel-header': '32px',
-  'shortcut-bar': '34px',
   'titlebar': '32px',
   'icon-sm': '14px',
   'icon-md': '16px',
@@ -269,7 +268,6 @@ export const TABLE_HEAD = px('table-head')
 export const TOOLBAR = px('toolbar')
 export const PAGE_HEADER = px('page-header')
 export const PANEL_HEADER = px('panel-header')
-export const SHORTCUT_BAR = px('shortcut-bar')
 export const TITLEBAR = px('titlebar')
 export const ICON = Object.freeze({ sm: px('icon-sm'), md: px('icon-md'), lg: px('icon-lg') })
 export const PANEL = Object.freeze({ sm: px('panel-sm'), md: px('panel-md'), lg: px('panel-lg'), xl: px('panel-xl') })
@@ -298,16 +296,14 @@ export const EASE_RESPONSE = THEME['ease-response']
 // saw it — `src/ui/` is outside the audit's scope — so V1 (2026-09-23) moved
 // it to 600, the only emphasis weight §3.1 has. It was a no-op either way:
 // both faces are declared 400-600, so a 700 has always rendered as 600, and
-// V1 found NONE of the four LIGHT_TABLE_* objects below has a caller left
-// (Team Members, Users and Logs are on the kit's Table now). Their deletion
-// is filed for P1's §7 caller audit rather than done here.
+// V1 found NONE of the four LIGHT_TABLE_* objects that stood here had a
+// caller left (Team Members, Users and Logs are on the kit's Table now), and
+// P1's §7 caller audit (2026-09-27) deleted them: their only reader was
+// lightSurface.test.js, which pinned a treatment nothing drew. The kit Table
+// is the one table treatment; `src/ui/tokens.test.js` pins that they stay gone.
 // =============================================================================
 export const LIGHT_INK = INK_LIGHT
 export const LIGHT_RULE = RULE_LIGHT
 export const LIGHT_WELL = WELL_LIGHT
 export const LIGHT_ACCENT = SIGNAL
 export const LIGHT_SURFACE_SOLID = SURFACE_LIGHT_SOLID
-export const LIGHT_TABLE_FRAME = Object.freeze({ border: `1px solid ${LIGHT_RULE}` })
-export const LIGHT_TABLE_HEAD_ROW = Object.freeze({ backgroundColor: LIGHT_WELL })
-export const LIGHT_TABLE_HEAD_CELL = Object.freeze({ color: LIGHT_INK, fontWeight: 600 })
-export const LIGHT_TABLE_ROW_DIVIDER = Object.freeze({ borderBottom: `1px solid ${LIGHT_RULE}` })
