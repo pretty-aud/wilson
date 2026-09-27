@@ -13,6 +13,9 @@
 import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
@@ -598,5 +601,32 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     expect(screen.getByRole('dialog', { name: 'Mara' })).toBeTruthy()
     escape()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+// V2, the second visual QA pass (2026-09-27), B4c §4.2 item 8: an asset's
+// type printed its raw code ("script", "vfx") where the file tables' kinds
+// read in sentence case ("Script"). The words change; the codes do not.
+describe('V2: an asset type reads in sentence case, its acronyms in capitals', () => {
+  it('the label for every type, and the codes kept', async () => {
+    const { assetTypeLabel, ASSET_TYPES } = await import('./ProjectAssetsView')
+    expect(['script', 'vfx', 'vo', 'ui', 'concept', 'other', undefined].map(assetTypeLabel))
+      .toEqual(['Script', 'VFX', 'VO', 'UI', 'Concept', 'Other', 'Other'])
+    for (const t of ASSET_TYPES) {
+      const l = assetTypeLabel(t)
+      expect(l, t).toMatch(/^[A-Z]/)
+      expect(l.slice(1), t).toBe(['vfx', 'vo', 'ui'].includes(t) ? t.slice(1).toUpperCase() : t.slice(1).replace(/_/g, ' '))
+    }
+    expect(ASSET_TYPES).toContain('script')
+  })
+  it('every place the view prints a type goes through it — the pickers, the groups, the filter, the bulk bar, the card', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'ProjectAssetsView.jsx'), 'utf8').replace(/\r\n/g, '\n')
+    expect(src).toMatch(/const TYPE_OPTIONS = ASSET_TYPES\.map\(t => \(\{ value: t, label: TYPE_LABELS\[t\] \}\)\)/)
+    expect(src).toMatch(/if \(field === 'type'\) return assetTypeLabel\(key\)/)
+    expect(src).toMatch(/def\.value === 'type' \? TYPE_LABELS\[o\]/)
+    expect(src).toMatch(/<AssetBulkSelect label="Type" options=\{ASSET_TYPES\} labels=\{TYPE_LABELS\}/)
+    expect(src).toMatch(/<span>\{assetTypeLabel\(asset\.type\)\}<\/span>/)
+    expect(src).toMatch(/<option key=\{t\} value=\{t\}>\{TYPE_LABELS\[t\]\}<\/option>/)
+    expect(src).not.toMatch(/fmt\((asset\.)?t(ype)?( \|\| 'other')?\)/)
   })
 })

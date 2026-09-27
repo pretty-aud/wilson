@@ -657,7 +657,7 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
           </select>
         </span>
       ) : (
-        <span className="rb-task-none">Global</span>
+        <span className="rb-tpl-scope-global">Global</span>
       )}
     </div>
   )

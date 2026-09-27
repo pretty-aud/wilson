@@ -71,10 +71,12 @@ export function formatTenths(value, { signed = false } = {}) {
   }).format(tenths)
 }
 
+// It takes no class (V2, B5b §4.2 item 11): no caller passed one once the
+// size and the ink came from the cell (R3-34), and a pass-through is a door
+// a colour could come back through.
 export default function CurrencyDisplay({
   value,
   currency,
-  className = '',
   fractionDigits = 0,
   signed = false,
   fallback = '—',
@@ -83,7 +85,7 @@ export default function CurrencyDisplay({
   const code = currency || ctx?.project?.budget_currency || 'USD'
   const missing = value == null || Number.isNaN(Number(value))
   return (
-    <span className={`rb-money-figure ${className}`.trim()}>
+    <span className="rb-money-figure">
       {missing ? fallback : formatMoney(value, code, { fractionDigits, sign: signed ? 'exceptZero' : 'auto' })}
     </span>
   )

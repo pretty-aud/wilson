@@ -11,7 +11,7 @@ import { render, cleanup, within, screen, fireEvent, act } from '@testing-librar
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 // Review round two, R2-01: a question the app raises over a tab.
 import { Dialog } from '../../../ui/Dialog'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -93,9 +93,12 @@ describe('CurrencyDisplay: the figure', () => {
     rerender(<CurrencyDisplay value={Number.NaN} currency="USD" fallback="n/a" />)
     expect(container.textContent).toBe('n/a')
   })
-  it('a caller\'s class joins the figure\'s', () => {
+  // V2 (B5b §4.2 item 11): the pass-through is gone — no caller used it, and
+  // it was a door a colour could come back through. A class handed in is
+  // ignored, and no caller in src/ hands one.
+  it('takes no class: the figure\'s is its own', () => {
     const { container } = render(<CurrencyDisplay value={1} currency="USD" className="rb-budget-x" />)
-    expect(container.querySelector('span').className).toBe('rb-money-figure rb-budget-x')
+    expect(container.querySelector('span').className).toBe('rb-money-figure')
   })
 })
 
@@ -1360,5 +1363,89 @@ describe('review round one, R1-11: every tab rounds days as toFixed(1) did', () 
     }
     expect(read('./budget/CrewTeamTab.jsx')).toMatch(/\bformatTenths\(row\.bidDays\)/)
     expect(read('./BudgetView.jsx')).toMatch(/import CurrencyDisplay, \{[^}]*\bformatTenths\b[^}]*\} from '\.\.\/components\/CurrencyDisplay'/)
+  })
+})
+
+/* ── V2, the second visual QA pass (2026-09-27): B5b §4.2 items 3, 4, 10 ──── */
+describe('V2: the Budget items B5b left for the second visual pass', () => {
+  afterEach(() => { cleanup(); _resetOverlaysForTests() })
+
+  it('item 3: nothing in the tool builds a currency formatter but CurrencyDisplay — the project Summary\'s own, in the viewer\'s locale, is gone', () => {
+    const tool = join(here, '..')
+    const own = readdirSync(tool, { recursive: true })
+      .map((f) => String(f).replace(/\\/g, '/'))
+      .filter((f) => /^(views|components)\/.+\.jsx?$/.test(f) && !/\.test\./.test(f) && f !== 'components/CurrencyDisplay.jsx')
+      .filter((f) => /Intl\.NumberFormat\([\s\S]{0,160}?style:\s*'currency'|function fmtMoney\(/.test(readFileSync(join(tool, f), 'utf8')))
+    expect(own).toEqual([])
+    // The sweep reads what it claims to: the Summary is in it, and a planted copy is caught.
+    expect(readdirSync(join(tool, 'views')).includes('ProjectSummaryView.jsx')).toBe(true)
+    expect(/Intl\.NumberFormat\([\s\S]{0,160}?style:\s*'currency'/.test("new Intl.NumberFormat(undefined, {\n  style: 'currency',")).toBe(true)
+    // The Summary calls the one formatter, and keeps its dash for an amount
+    // it does not have (the old copy printed '—' for null and NaN).
+    const summary = read('./ProjectSummaryView.jsx')
+    expect(summary).toMatch(/import \{ formatMoney \} from '\.\.\/components\/CurrencyDisplay'/)
+    expect(summary).toMatch(/value=\{moneyOrDash\(budget\.total, budget\.currency\)\}/)
+    expect(summary).toMatch(/function moneyOrDash\(n, currency\) \{\n\s+return n == null \|\| Number\.isNaN\(Number\(n\)\) \? '—' : formatMoney\(n, currency\)\n\}/)
+  })
+
+  it('item 4: an expense\'s title and description, each cut with an ellipsis at 1280, carry their whole text as a tooltip', () => {
+    const h = {
+      expenses: [
+        { id: 'e1', title: 'Camera package hire', description: 'Two-week hire', estimated_cost: 16800, actual_cost: 16800, purchase_date: '2026-09-08' },
+        { id: 'e3', title: '', estimated_cost: 260, actual_cost: 284, purchase_date: '' },
+      ],
+      loading: false, addExpense: vi.fn(), updateExpense: vi.fn(), deleteExpense: vi.fn(), undo: vi.fn(), redo: vi.fn(), canUndo: false, canRedo: false,
+    }
+    const { container } = render(
+      <ExpensesTab ctx={{ getAdapter: () => ({}) }} project={{ id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />,
+    )
+    const rows = [...container.querySelectorAll('table.rb-budget-exp tbody tr.rb-budget-exp-row')]
+    const hire = rows.find((r) => r.textContent.includes('Camera package hire'))
+    expect(hire.querySelector('.rb-budget-exp-title').getAttribute('title')).toBe('Camera package hire')
+    expect(hire.querySelector('.rb-budget-exp-desc').getAttribute('title')).toBe('Two-week hire')
+    // "Untitled" is the app's word, not the expense's: no tooltip repeats it.
+    const untitled = rows.find((r) => r.textContent.includes('Untitled'))
+    expect(untitled.querySelector('.rb-budget-exp-title').hasAttribute('title')).toBe(false)
+  })
+
+  it('item 5: a report\'s first section draws no hairline of its own, 24px under the tab bar\'s (a double rule); the sections after it keep theirs', () => {
+    const phases = [{ id: 'ph1', name: 'Pre-production', sort_order: 0 }]
+    const assets = [{ id: 'a1', name: 'Hero', phase_id: 'ph1' }]
+    const tasks = [{ id: 't1', asset_id: 'a1', assigned_role_slug: 'anim', bid_days: 4, logged_days: 5, status: 'in_progress' }]
+    const budget = { total: 2000, byRole: {}, currency: 'USD' }
+    const { container: byPhase } = render(<ByPhaseTab phases={phases} assets={assets} tasks={tasks} budget={budget} roleRates={{ anim: 500 }} />)
+    const phaseSections = [...byPhase.querySelectorAll('.ui-section')]
+    expect(phaseSections).toHaveLength(1)
+    expect(phaseSections[0].hasAttribute('data-rule')).toBe(false)
+    cleanup()
+    try { localStorage.clear() } catch { /* ignore */ }
+    const { container: custom } = render(
+      <CustomTab project={{ id: 'p1' }} phases={phases} assets={assets} tasks={tasks}
+        scenes={[]} shots={[]} levels={[]} experiences={[]} budget={budget} roleRates={{ anim: 500 }} />,
+    )
+    const customSections = [...custom.querySelectorAll('.ui-section')]
+    expect(customSections.map((s) => s.getAttribute('data-rule'))).toEqual([null, 'true'])
+    // The five reports the file does not export: each one's only section is
+    // told the same, in the source.
+    const src = read('./BudgetView.jsx')
+    for (const fn of ['ByRoleTab', 'ByAssetTab', 'BySceneTab', 'ByShotTab', 'ByLevelTab', 'ByExperienceTab']) {
+      const body = src.slice(src.indexOf(`function ${fn}(`), src.indexOf('\n}\n', src.indexOf(`function ${fn}(`)))
+      expect(body.match(/<Card\b[^>]*>/g), fn).toEqual([expect.stringMatching(/\brule=\{false\}/)])
+    }
+  })
+
+  it('item 10: while it fetches, the open-invoice button shows the kit spinner, and the folder again when it is done', async () => {
+    let finish
+    const adapter = { listFiles: vi.fn(() => new Promise((r) => { finish = r })), downloadFile: vi.fn() }
+    render(<InvoiceAttachment getAdapter={() => adapter} projectId="p1" lineId="l1" name="inv.pdf" path="file:f1" onChange={() => {}} />)
+    const open = screen.getByRole('button', { name: 'Open invoice' })
+    expect(open.querySelector('.ui-spinner')).toBeNull()
+    await act(async () => { fireEvent.click(open) })
+    expect(open.getAttribute('aria-busy')).toBe('true')
+    expect(open.querySelector('.ui-spinner')).not.toBeNull()
+    // No such row: the error path ends the fetch, as a finished one does.
+    await act(async () => { finish([]) })
+    expect(open.hasAttribute('aria-busy')).toBe(false)
+    expect(open.querySelector('.ui-spinner')).toBeNull()
   })
 })

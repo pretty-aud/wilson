@@ -323,3 +323,20 @@ describe('Tasks completed keeps its tone through Stat\'s valueTone (K1)', () => 
     expect(toneLiterals(toned[0])).toEqual(['success'])
   })
 })
+
+// V2, the second visual QA pass (2026-09-27): a template's scope "Global" wore
+// `.rb-task-none` (an empty cell's third ink) and measured 3.85:1 on the
+// edited template's row, the kit's signal tint over the dialog's raised paper.
+describe('V2: a template\'s "Global" is a value on the second ink', () => {
+  it('its own class, on the second ink, which clears the paper, the tint and the wash; the third ink does not', async () => {
+    const { contrast, over } = await import('../../../ui/contrast.js')
+    const { PAPER_RAISED, INK_2, INK_3, SIGNAL_TINT, HOVER } = await import('../../../ui/tokens.js')
+    const tint = over(SIGNAL_TINT, PAPER_RAISED)
+    expect(contrast(INK_3, tint)).toBeLessThan(4.5)
+    for (const g of [PAPER_RAISED, tint, over(HOVER, PAPER_RAISED)]) expect(contrast(INK_2, g), g).toBeGreaterThanOrEqual(4.5)
+    expect(normal(sheet)).toMatch(/\.rb-tpl-scope-global \{ color: var\(--color-ink-2\); \}/)
+    const mgr = readFileSync(resolve(here, '../../../components/TaskTemplates/TaskTemplateManager.jsx'), 'utf8')
+    expect(mgr).toMatch(/<span className="rb-tpl-scope-global">Global<\/span>/)
+    expect(mgr).not.toMatch(/className="rb-task-none">Global</)
+  })
+})

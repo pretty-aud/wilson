@@ -602,9 +602,10 @@ describe('the list\'s header: every sortable button its whole cell, every arrow 
 // The list header's colour change is B4c's (surface 8), and it ends instantly
 // under `prefers-reduced-motion: reduce`: its own selector, `transition: none`
 // and nothing else, in one block inside the layer and after its twin — as
-// rabbitFilesCss.test.js pins that sheet. B6's four fades predate the bundle
-// and are recorded, not changed: they are LISTED, so a transition added
-// without its twin still fails here.
+// rabbitFilesCss.test.js pins that sheet. B6's four fades predated the bundle
+// and were recorded here as the only uncovered ones; V2 (2026-09-27, B4c §4.2
+// item 14) stopped them in the same block, so nothing is uncovered now and a
+// transition added without its twin fails.
 const B6_FADES = ['.bn-tree-row', '.bn-trow', '.bn-tile', '.bn-pick-row']
 /** Every selector the sheet gives a transition, against the reduced-motion
     blocks: `uncovered` has no twin in one, `late` is declared after its twin
@@ -645,14 +646,15 @@ function motionCoverage(css) {
 }
 
 describe('reduced motion (plan §3.4): the list header\'s colour change stops in the one block', () => {
-  it('one block, inside the layer; each rule in it only `transition: none`, never a blanket selector; the header button\'s twin there, after it; the rest B6\'s recorded four', () => {
+  it('one block, inside the layer; each rule in it only `transition: none`, never a blanket selector; every moving selector\'s twin there, after it — B6\'s four fades included (V2)', () => {
     const cov = motionCoverage(css)
     expect(cov.blocks).toHaveLength(1)
     expect(afterLayer(code).trim()).toBe('')
     expect(cov.moving).toContain('.bn-th .ui-th-btn')
+    for (const f of B6_FADES) expect(cov.moving, `${f} no longer moves: the list is stale`).toContain(f)
     expect(cov.loud).toEqual([])
     expect(cov.late).toEqual([])
-    expect([...cov.uncovered].sort()).toEqual([...B6_FADES].sort())
+    expect(cov.uncovered).toEqual([])
     // C5: never a `*` — the pet's keyframes must keep playing.
     for (const b of cov.blocks) expect(b.text).not.toMatch(/(^|[\s,])\*(\s|,|\{|$)/)
   })

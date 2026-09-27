@@ -156,7 +156,22 @@ function topoSort(tasks) {
 // (R4-05).
 const STATUS_LABELS = Object.fromEntries(ASSET_STATUSES.map(s => [s, statusMeta(s).label]))
 const STATUS_OPTIONS = ASSET_STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] }))
-const TYPE_OPTIONS = ASSET_TYPES.map(t => ({ value: t, label: fmt(t) }))
+
+// ── Type words ──
+// V2 (2026-09-27), B4c §4.2 item 8: a type printed its raw code ("script",
+// "vfx") in the table, the popups and the pickers, where the file tables'
+// kinds read in sentence case ("Script"). It reads in sentence case now, and
+// its three acronyms in capitals. The CODE is unchanged everywhere: only the
+// words on screen are.
+const TYPE_ACRONYMS = { vfx: 'VFX', vo: 'VO', ui: 'UI' }
+export function assetTypeLabel(type) {
+  const t = type || 'other'
+  if (TYPE_ACRONYMS[t]) return TYPE_ACRONYMS[t]
+  const words = t.replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+const TYPE_LABELS = Object.fromEntries(ASSET_TYPES.map(t => [t, assetTypeLabel(t)]))
+const TYPE_OPTIONS = ASSET_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }))
 
 // (The file's second status-colour language — `statusColor`, and the popup's
 // `statusTone` / `toneColors` that drew the same approved in another green —
@@ -327,6 +342,7 @@ export default function ProjectAssetsView() {
     if (key === '__none__') return 'No phase'
     if (field === 'phase') return phaseById[key]?.name || key
     if (field === 'status') return STATUS_LABELS[key] || fmt(key)
+    if (field === 'type') return assetTypeLabel(key)
     return fmt(key)
   }
   // (The group's accent colour, computed here per status, is gone: a status
@@ -663,7 +679,7 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
     const def = ASSET_FILTER_FIELDS.find(ff => ff.value === f.field)
     if (!def) return []
     if (def.dynamic === 'phases') return phases.map(p => ({ value: p.id, label: p.name || 'Untitled' }))
-    return (def.options || []).map(o => ({ value: o, label: def.value === 'status' ? STATUS_LABELS[o] : fmt(o) }))
+    return (def.options || []).map(o => ({ value: o, label: def.value === 'status' ? STATUS_LABELS[o] : def.value === 'type' ? TYPE_LABELS[o] : fmt(o) }))
   }
   function getType(f) {
     return ASSET_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text'
@@ -872,7 +888,7 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
           <GatedAction allowed={canWrite} className="rb-asset-bulk-gate">
             <span className="rb-asset-divider" aria-hidden="true" />
             <AssetBulkSelect label="Status" options={ASSET_STATUSES} labels={STATUS_LABELS} onPick={v => bulkUpdate({ status: v })} />
-            <AssetBulkSelect label="Type" options={ASSET_TYPES} onPick={v => bulkUpdate({ type: v })} />
+            <AssetBulkSelect label="Type" options={ASSET_TYPES} labels={TYPE_LABELS} onPick={v => bulkUpdate({ type: v })} />
             <AssetBulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
             <span className="rb-asset-divider" aria-hidden="true" />
             <Button size="sm" variant="danger" Icon={Trash2} onClick={bulkDelete}>
@@ -1322,7 +1338,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           />
         </div>
         <div className="rb-asset-card-meta text-label uppercase">
-          <span>{fmt(asset.type || 'other')}</span>
+          <span>{assetTypeLabel(asset.type)}</span>
           {phaseLabel && <span className="rb-asset-card-phase">{'·'} {phaseLabel}</span>}
         </div>
       </div>
@@ -1520,7 +1536,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
           <Field label="Type">
             <select value={draft.type} onChange={e => patch({ type: e.target.value })}
               className="ui-input">
-              {ASSET_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+              {ASSET_TYPES.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
             </select>
           </Field>
           <Field label="Status">

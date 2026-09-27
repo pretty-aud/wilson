@@ -46,8 +46,14 @@
 
 import { useRef, useState } from 'react'
 import { Paperclip, FolderOpen, X, AlertCircle } from 'lucide-react'
-import { Button, IconButton } from '../../ui'
+import { Button, IconButton, Spinner } from '../../ui'
 import '../../tools/rabbit_v0.1.0/views/rabbitBudget.css'
+
+// The open button's glyph while it fetches: the kit Spinner at the sm
+// icon's 14px, the size of the folder it stands in for (V2).
+function BusyGlyph({ 'aria-hidden': hidden }) {
+  return <Spinner size="sm" aria-hidden={hidden} />
+}
 
 export const FILE_REF_PREFIX = 'file:'
 
@@ -142,7 +148,11 @@ export default function InvoiceAttachment({
           <span className="rb-inv-name" title={name}>{name}</span>
           {(isCloudRef(path) || canOpenLegacy) && (
             <IconButton
-              Icon={FolderOpen}
+              // V2 (B5b §4.2 item 10): busy said so only to a screen
+              // reader; the kit Spinner in the glyph's place says it to
+              // everyone (O.T.T.E.R.'s trash and share editor do the same,
+              // A4-KR-6 until the kit IconButton takes `loading`).
+              Icon={busy ? BusyGlyph : FolderOpen}
               size="sm"
               onClick={handleOpen}
               disabled={busy}

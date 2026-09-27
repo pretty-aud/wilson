@@ -760,6 +760,11 @@
   /* The templates list: a 28px button in each row; 3px above and below makes
      the kit's 36px row (it was 45; review round one). */
   .rb-tpl-body .ui-table.rb-tpl-table .ui-td { padding-top: 3px; padding-bottom: 3px; }
+  /* V2 (2026-09-27): a template's scope "Global" is a value, not an empty
+     cell, so it is not `.rb-task-none`'s third ink: on the edited template's
+     row (the kit's signal tint) that measured 3.85:1 in the V2 probe. The
+     second ink clears the paper, the tint and the hover wash alike. */
+  .rb-tpl-scope-global { color: var(--color-ink-2); }
   /* Days: the number spinner's reserved 15px, as on the Tasks table's Bid.
      Third column; the kit's `numeric` prop sets its attribute out of the
      scanner's sight. */
@@ -822,5 +827,16 @@
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--color-ink);
+  }
+
+  /* ── Reduced motion (plan §3.4) ─────────────────────────────────────────
+     V2 (2026-09-27, B4c §4.2 item 14): this sheet's ten state transitions
+     had no reduced-motion end at all. Each ends instantly by its own
+     selector — never a blanket rule (C5: the pet's keyframes must play) —
+     LAST in the layer, so it wins its twin above on source order. */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-task-menu-item, .rb-task-check, .rb-task-cell-text, .rb-task-cell-select,
+    .rb-task-cell-editor::after, .rb-task-add, .rb-task-col, .rb-task-card,
+    .rb-task-textblock, .rb-task-section-head { transition: none; }
   }
 }

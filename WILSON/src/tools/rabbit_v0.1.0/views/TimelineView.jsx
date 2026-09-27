@@ -4137,7 +4137,10 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
             type="button"
             onClick={onExtendPhase}
             className="px-3 py-1.5 text-dense rounded-control transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+            // V2 (C6): cream #fff7ed on the signal #ea580c is 3.35:1. The
+            // kit primary's own pair — white on signal-fill, 5.18:1 — until
+            // this dialog's chrome is decided (B3d question 6).
+            style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}
           >
             Extend phase
           </button>
@@ -4360,13 +4363,18 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
       style={{ backgroundColor: 'rgba(28, 25, 23, 0.75)' }}
       onClick={() => !saving && onClose()}
     >
+      {/* V2 (2026-09-27): the kit Dialog's cap, 88vh, and the body scrolls
+          between a head and a foot that stay. Uncapped, "New task" measured
+          815px at 1280x700 with its title 57px above the window and nothing
+          to scroll (B3d §4.2: 950px at 900). The chrome itself waits on
+          question 6. */}
       <div
         onClick={(e) => e.stopPropagation()}
         className="rounded-control flex flex-col w-full max-w-md"
-        style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
+        style={{ backgroundColor: '#292524', border: '1px solid #44403c', maxHeight: '88vh' }}
       >
         <div
-          className="flex items-center gap-2 px-3 py-2"
+          className="flex items-center gap-2 px-3 py-2 shrink-0"
           style={{ borderBottom: '1px solid #44403c', backgroundColor: '#44403c' }}
         >
           {isMilestone
@@ -4389,14 +4397,16 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
             onClick={() => !saving && onClose()}
             className="ml-auto p-0.5 rounded-control hover:bg-stone-700"
             style={{ color: '#a8a29e' }}
+            aria-label="Close"
+            title="Close"
           >
-            <X className="w-3 h-3" />
+            <X className="w-3 h-3" aria-hidden="true" />
           </button>
         </div>
 
         {!canWrite && writeReason && (
           <div
-            className="flex items-start gap-2 px-4 py-2.5 text-dense leading-relaxed"
+            className="flex items-start gap-2 px-4 py-2.5 text-dense leading-relaxed shrink-0"
             style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
           >
             <Lock className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#78716c' }} />
@@ -4407,7 +4417,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
           </div>
         )}
 
-        <div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>
+        <div className="px-4 py-4 flex flex-col gap-3 min-h-0 overflow-y-auto scroll-py-1" inert={!canWrite ? true : undefined}>
           {isMilestone ? (
             <>
               <Field label="Title">
@@ -4844,7 +4854,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         </div>
 
         <div
-          className="flex items-center gap-2 px-4 py-3"
+          className="flex items-center gap-2 px-4 py-3 shrink-0"
           style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
         >
           {isEditingExisting && (
@@ -4877,7 +4887,9 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 onClick={handleSave}
                 disabled={saving}
                 className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                // V2 (C6): cream on the signal was 3.35:1; the kit primary's
+                // pair, white on signal-fill (5.18:1), until question 6.
+                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}
               >
                 <Save className="w-3 h-3" />
                 {saving ? 'Saving…' : 'Save'}

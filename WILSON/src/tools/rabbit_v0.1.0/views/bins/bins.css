@@ -380,9 +380,10 @@
      selector — never a blanket rule (C5: the pet's keyframes must play) —
      LAST in the layer, so it wins its twin above on source order at the same
      specificity; binsCss.test.js pins it as rabbitFilesCss.test.js pins that
-     sheet's. B6's four row and tile fades above predate the bundle and are
-     recorded for V2, not changed here. */
+     sheet's. B6's four row and tile fades above predated the bundle; V2
+     (2026-09-27, B4c §4.2 item 14) stops them here too. */
   @media (prefers-reduced-motion: reduce) {
     .bn-th .ui-th-btn { transition: none; }
+    .bn-tree-row, .bn-trow, .bn-tile, .bn-pick-row { transition: none; }
   }
 }

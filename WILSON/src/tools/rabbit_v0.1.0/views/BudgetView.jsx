@@ -1253,7 +1253,7 @@ function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No tasks yet" body="Nothing to roll up." />
 
   return (
-    <Card title="Phases">
+    <Card title="Phases" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Phase" countHeader="Tasks" />
     </Card>
   )
@@ -1279,7 +1279,7 @@ function ByRoleTab({ tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No roles assigned yet" />
 
   return (
-    <Card title="Roles">
+    <Card title="Roles" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Role" countHeader="Tasks" />
     </Card>
   )
@@ -1305,7 +1305,7 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No assets carry any task hours yet" />
 
   return (
-    <Card title="Assets">
+    <Card title="Assets" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Asset" countHeader="Tasks" />
     </Card>
   )
@@ -1333,7 +1333,7 @@ function BySceneTab({ scenes, tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No tasks linked to scenes yet" />
 
   return (
-    <Card title="Scenes">
+    <Card title="Scenes" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Scene" countHeader="Tasks" />
     </Card>
   )
@@ -1367,7 +1367,7 @@ function ByShotTab({ shots, scenes, tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No tasks linked to shots yet" />
 
   return (
-    <Card title="Shots">
+    <Card title="Shots" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Shot" countHeader="Tasks" />
     </Card>
   )
@@ -1395,7 +1395,7 @@ function ByLevelTab({ levels, tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No tasks linked to levels yet" />
 
   return (
-    <Card title="Levels">
+    <Card title="Levels" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Level" countHeader="Tasks" />
     </Card>
   )
@@ -1423,7 +1423,7 @@ function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
   if (rows.length === 0) return <Empty title="No tasks linked to experiences yet" />
 
   return (
-    <Card title="Experiences">
+    <Card title="Experiences" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Experience" countHeader="Tasks" />
     </Card>
   )
@@ -1505,7 +1505,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
 
   return (
     <div className="rb-budget-page">
-      <Card title="Custom view">
+      <Card title="Custom view" rule={false}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field label="Group by">
             <Select
@@ -1996,10 +1996,13 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           </button>
         </Td>
         <Td>
-          <span className="rb-budget-exp-title" data-empty={exp.title ? undefined : 'true'}>
+          {/* V2 (B5b §4.2 item 4): both lines ellipsise at 1280, so each
+              carries its whole text as a tooltip. "Untitled" is the app's
+              word, not the expense's, and gets none. */}
+          <span className="rb-budget-exp-title" data-empty={exp.title ? undefined : 'true'} title={exp.title || undefined}>
             {exp.title || 'Untitled'}
           </span>
-          {exp.description && <span className="rb-budget-exp-desc">{exp.description}</span>}
+          {exp.description && <span className="rb-budget-exp-desc" title={exp.description}>{exp.description}</span>}
         </Td>
         <Td numeric className="rb-budget-quiet">
           <span className="rb-budget-dash" data-empty={est ? undefined : 'true'}>
@@ -2860,10 +2863,13 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
 // A section of a Budget tab: the kit SectionTitle (H2, sentence case, a
 // hairline above) over its content, with no box and no fill (R3-30). The
 // parent's gap is the only rhythm between sections (rabbitBudget.css).
-function Card({ title, children }) {
+// `rule={false}` for a report's FIRST section (V2, B5b §4.2 item 5): it sits
+// 24px under the tab strip's own hairline, and two rules read as one border
+// drawn twice. The sections after it keep theirs.
+function Card({ title, children, rule = true }) {
   return (
     <section className="rb-budget-section">
-      {title && <SectionTitle>{title}</SectionTitle>}
+      {title && <SectionTitle rule={rule}>{title}</SectionTitle>}
       {children}
     </section>
   )

@@ -237,3 +237,18 @@ describe('the state extraction holds in every B1 file', () => {
     for (const q of quiet) expect(inlineStateTernaries(q), q).toEqual([])
   })
 })
+
+// V2, the second visual QA pass (2026-09-27): the Control Panel's way back to
+// the Summary was a hand-drawn button (inline ground, ink and edge, a
+// brightness hover, a 12px glyph) beside the kit's buttons; it is the kit's
+// secondary Button (C8).
+describe('V2: the Control Panel\'s "Dashboard" is the kit Button', () => {
+  it('the kit secondary sm Button with its glyph, and no hand-drawn button left on the bar', () => {
+    const src = read('views/ProjectSummaryView.jsx')
+    const bar = src.slice(src.indexOf('{/* ── Back to dashboard bar ── */}'), src.indexOf('<ProjectSettingsPanel'))
+    expect(bar.length, 'the bar moved').toBeGreaterThan(200)
+    expect(bar).toMatch(/<Button variant="secondary" size="sm" Icon=\{LayoutDashboard\} onClick=\{\(\) => setShowSettings\(false\)\}>\s*Dashboard\s*<\/Button>/)
+    expect(bar).not.toMatch(/<button\b/)
+    expect(bar).not.toMatch(/hover:brightness|style=\{\{ backgroundColor/)
+  })
+})

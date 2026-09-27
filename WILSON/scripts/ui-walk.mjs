@@ -172,6 +172,14 @@ const REGISTRY = [
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
   P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: 'Lock the shooting script' } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),
+  // V2 (2026-09-27): the Timeline's task editor, which V1 named as not walked.
+  // Its + Task opens it and creates nothing until its own Save. The V2 probe
+  // found three defects the walk could not see: a C6 Save (cream on the
+  // signal, 3.35:1), an unnamed close button, and 815px of editor at 1280x700
+  // with its title above the window. This line gates all three (C6, anon,
+  // dialog fit). Its chrome is B3d's question 6. Proven by the editor's own
+  // title element: the words "New task" are on the Timeline before it opens.
+  P('rabbit-timeline-task-new', '/rabbit', { steps: ['@proj', 'Timeline', 'Task'], expect: { selector: '.rb-tl-ed-title' } }),
   // B2: the rest of the Tasks view the walk could not see — the board, and
   // the two small dialogs off its toolbar (Phase creates nothing until its
   // own Create; Save view writes nothing until its own Save).
@@ -260,7 +268,10 @@ const REGISTRY = [
   P('rabbit-shot-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots', '@in:The door::View details'], expect: { dialog: 'The door' } }),
 
   // Settings' seven tabs (General is the page itself) and its one dialog.
-  ...['Profile', 'Models', 'Storage', 'Teams', 'Agent', 'Agent Skills'].map((t) =>
+  // V2: "Agent skills" in sentence case (Q2). The proof is the EXACT label,
+  // so a tab put back in Title Case no longer proves open (the walk line is
+  // its guard); the key is unchanged.
+  ...['Profile', 'Models', 'Storage', 'Teams', 'Agent', 'Agent skills'].map((t) =>
     P(`settings-${t.toLowerCase().replace(/\s+/g, '-')}`, '/settings', { steps: [t], expect: { active: t } })),
   P('settings-reset-dialog', '/settings', { steps: ['Reset history'], expect: { dialog: 'Reset pet history' } }),
   // B2: the task template manager (Settings' "Storage" tab is the old

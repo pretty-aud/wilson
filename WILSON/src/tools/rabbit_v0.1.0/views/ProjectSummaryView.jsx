@@ -34,6 +34,7 @@ import GatedAction from '../../../permissions/GatedAction'
 import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import ProjectFilesTable from '../components/ProjectFilesTable'
+import { formatMoney } from '../components/CurrencyDisplay'
 import RelinkDialog from '../components/RelinkDialog'
 import FileAuditDrawer from '../components/FileAuditDrawer'
 
@@ -278,14 +279,14 @@ export default function ProjectSummaryView() {
                 Project Control Panel
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings(false)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-control text-dense transition-colors hover:brightness-110"
-              style={{ backgroundColor: 'var(--color-paper-raised)', color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}
-            >
-              <LayoutDashboard className="w-3 h-3" /> Dashboard
-            </button>
+            {/* V2 (2026-09-27): the kit's secondary Button (C8). It was a
+                hand-drawn one — inline ground, ink and edge, a brightness
+                hover, a 12px glyph off the icon scale — that sat 32px tall
+                and in the regular weight beside the header row's kit
+                buttons. */}
+            <Button variant="secondary" size="sm" Icon={LayoutDashboard} onClick={() => setShowSettings(false)}>
+              Dashboard
+            </Button>
           </div>
           <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} canSeeMoney={canSeeMoney} />
         </>) : (<>
@@ -418,7 +419,7 @@ export default function ProjectSummaryView() {
             <Stat className="rb-stat-tile" label="Phases" value={phases.length} />
             <Stat className="rb-stat-tile" label="Assets" value={assets.length} />
             <Stat className="rb-stat-tile" label="Tasks" value={tasks.length} />
-            <Stat className="rb-stat-tile" label="Budget" value={fmtMoney(budget.total, budget.currency)} />
+            <Stat className="rb-stat-tile" label="Budget" value={moneyOrDash(budget.total, budget.currency)} />
           </div>
           {/* Project folder path */}
           <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--color-rule)' }}>
@@ -602,7 +603,7 @@ export default function ProjectSummaryView() {
                   >
                     <span style={{ color: 'var(--color-ink)' }}>{row.role}</span>
                     <span style={{ color: 'var(--color-ink-2)' }}>
-                      {row.days} d · {fmtMoney(row.cost, budget.currency)}
+                      {row.days} d · {moneyOrDash(row.cost, budget.currency)}
                     </span>
                   </div>
                 ))}
@@ -809,10 +810,12 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
       {/* ── Toggleable database modules (row of 3) ── */}
       <div className="grid grid-cols-3 gap-4">
 
-        {/* Scenes & Shots */}
-        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.scenes_enabled ? 'true' : undefined} style={{
-          transition: 'opacity 150ms ease, border-color 150ms ease',
-        }}>
+        {/* Scenes & Shots. V2 (B4c §4.2 item 14): the three cards carried an
+            inline `opacity 150ms, border-color 150ms` transition that ran
+            under reduced motion, off the three durations, animating two
+            properties the card no longer changes (R22: off reads through
+            the Switch and the title's ink). It is gone, not moved. */}
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.scenes_enabled ? 'true' : undefined}>
           <div className="rb-module-head flex items-center gap-2 px-4 py-3">
             <Film className="rb-module-accent w-3.5 h-3.5" />
             <span className="rb-module-accent text-label uppercase font-semibold flex-1">
@@ -872,9 +875,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         </div>
 
         {/* Levels */}
-        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.levels_enabled ? 'true' : undefined} style={{
-          transition: 'opacity 150ms ease, border-color 150ms ease',
-        }}>
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.levels_enabled ? 'true' : undefined}>
           <div className="rb-module-head flex items-center gap-2 px-4 py-3">
             <Gamepad2 className="rb-module-accent w-3.5 h-3.5" />
             <span className="rb-module-accent text-label uppercase font-semibold flex-1">
@@ -931,9 +932,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         </div>
 
         {/* Experiences */}
-        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.experiences_enabled ? 'true' : undefined} style={{
-          transition: 'opacity 150ms ease, border-color 150ms ease',
-        }}>
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.experiences_enabled ? 'true' : undefined}>
           <div className="rb-module-head flex items-center gap-2 px-4 py-3">
             <Sparkles className="rb-module-accent w-3.5 h-3.5" />
             <span className="rb-module-accent text-label uppercase font-semibold flex-1">
@@ -1357,15 +1356,11 @@ function Empty({ children }) {
 // B1 wrote at the two call sites above has nothing left to do. KIND stays "—"
 // for cloud rows on purpose — a data gap, recorded in ProjectFilesTable.
 
-function fmtMoney(n, currency) {
-  if (n == null || isNaN(n)) return '—'
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency: currency || 'USD',
-      maximumFractionDigits: 0,
-    }).format(n)
-  } catch {
-    return `${currency || ''} ${Math.round(n)}`
-  }
+// V2 (2026-09-27), B5b §4.2 item 3: this file kept its own formatter in the
+// VIEWER's locale while every Budget amount went through CurrencyDisplay's
+// `formatMoney` in one locale (R3-01), so the Summary's Budget tile could
+// print one amount two ways from the Budget tab. It is the one formatter now;
+// a missing amount keeps the dash this file always printed for it.
+function moneyOrDash(n, currency) {
+  return n == null || Number.isNaN(Number(n)) ? '—' : formatMoney(n, currency)
 }
