@@ -1919,8 +1919,12 @@ select option {
   /* A4-KR-10 / P1-71: the head is 32px and its 28px close button's ring
      (2px at a 1px offset) reached 3px past it, so where the drawer opens at
      the window's top edge the ring's top pixel was cut. Drawn inside the
-     control instead, as the sortable table head's is. */
-  .ui-drawer-head :focus-visible { outline-offset: -2px; }
+     control instead, as the sortable table head's is. The subject names the
+     kit's buttons — every drawer head holds IconButtons only (D.O.G.,
+     O.T.T.E.R., the Timeline, the two history drawers) — so the rule never
+     reads as a bare `:focus-visible` offset to a lane that insets its own. */
+  .ui-drawer-head .ui-iconbtn:focus-visible,
+  .ui-drawer-head .ui-btn:focus-visible { outline-offset: -2px; }
   .ui-drawer[data-surface="light"] .ui-drawer-head { border-bottom-color: var(--color-rule-light); }
   .ui-drawer-title {
     font-size: var(--text-label);

@@ -189,8 +189,12 @@
      a 1px offset, 3px outside the control — lost 2px top and bottom in the
      2px / 1px this cell leaves (B4c review round one, measured). The
      description field beside them draws its ring inside for the same reason
-     (`outline-offset: -2px`, above); the kit's CellSelect does too. */
-  .rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn { outline-offset: -2px; }
+     (`outline-offset: -2px`, above); the kit's CellSelect does too.
+     Keyed on `:focus-visible` as the kit writes its own insets (P1): an
+     offset only shows with the ring, and without the state this rule read
+     to `kitFights` as a lane rule fighting the kit's focus treatment for
+     an IconButton in a drawer head, which it never meets. */
+  .rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn:focus-visible { outline-offset: -2px; }
 
   /* ═══ FileManager ═════════════════════════════════════════════════════════
      The asset popup's, the task popup's and the scene popup's file section.

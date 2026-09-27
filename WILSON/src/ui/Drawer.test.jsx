@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Drawer } from './Drawer'
 import { Dialog } from './Dialog'
+import { allRules, decls, splitTop } from '../../scripts/ui-css-rules.mjs'
 
 afterEach(cleanup)
 
@@ -140,16 +141,66 @@ describe('Drawer head focus ring (A4-KR-10, P1-71)', () => {
     const at = sheet.indexOf(`\n  ${selector} {`)
     return at < 0 ? null : sheet.slice(at, sheet.indexOf('}', at))
   }
-  it('is inset in every drawer head', () => {
-    const rule = ruleFor(css, '.ui-drawer-head :focus-visible')
-    expect(rule, 'no .ui-drawer-head :focus-visible rule in the kit').not.toBeNull()
-    expect(rule).toMatch(/outline-offset:\s*-2px/)
+  // The offsets the kit declares for a control in a drawer head, by selector.
+  const headOffsets = (sheet) => {
+    const out = {}
+    for (const r of allRules(sheet)) {
+      const offset = decls(r.body).find(([p]) => p === 'outline-offset')?.[1]
+      if (!offset) continue
+      for (const sel of splitTop(r.sel)) if (/^\.ui-drawer-head\b/.test(sel)) out[sel] = offset
+    }
+    return out
+  }
+  it('is inset on the kit\'s buttons in every drawer head, and never as a bare :focus-visible', () => {
+    expect(headOffsets(css)).toEqual({
+      '.ui-drawer-head .ui-iconbtn:focus-visible': '-2px',
+      '.ui-drawer-head .ui-btn:focus-visible': '-2px',
+    })
+    // A bare `:focus-visible` subject would read, to rabbitBudgetCss's
+    // kitOffsetRules, as a kit offset on every element — the lane's inset
+    // rings would then have to outweigh it (integration, P1).
+    for (const sel of Object.keys(headOffsets(css))) expect(sel.split(/\s+/).pop()).not.toBe(':focus-visible')
   })
-  it('CONTROL: the geometry that cut it is still there, and a sheet without the rule is caught', () => {
+  it('every drawer head holds kit IconButtons only, which is what the rule names', () => {
+    const callers = ['../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx', '../tools/otter_v0.3.1/Otter.jsx',
+      '../tools/rabbit_v0.1.0/components/EditHistoryDrawer.jsx', '../tools/rabbit_v0.1.0/components/FileAuditDrawer.jsx',
+      '../tools/rabbit_v0.1.0/views/TimelineView.jsx']
+    // The `actions={…}` expression of the file's <Drawer>, braces balanced.
+    const actionsOf = (src) => {
+      const at = src.indexOf('actions=', src.indexOf('<Drawer'))
+      const open = src.indexOf('{', at)
+      if (at < 0 || open < 0) return null
+      let depth = 0
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === '{') depth++
+        else if (src[i] === '}' && --depth === 0) return src.slice(open, i + 1)
+      }
+      return null
+    }
+    // Every IconButton, with whatever icon it wraps, taken out; what is left
+    // must hold no element at all.
+    // Paired first, then self-closing; `[\s\S]*?` because props hold arrows.
+    const withoutIconButtons = (expr) => expr
+      .replace(/<IconButton\b(?:(?!\/>)[\s\S])*?<\/IconButton>/g, '')
+      .replace(/<IconButton\b[\s\S]*?\/>/g, '')
+    const tagsIn = (expr) => [...expr.matchAll(/<([A-Za-z][\w.]*)/g)].map((m) => m[1])
+    for (const f of callers) {
+      const actions = actionsOf(readFileSync(resolve(here, f), 'utf8'))
+      expect(actions, f).not.toBeNull()
+      expect(tagsIn(actions), f).toContain('IconButton')
+      expect(tagsIn(withoutIconButtons(actions)), f).toEqual([])
+    }
+    // CONTROL: a head holding anything else is named.
+    expect(tagsIn(withoutIconButtons(actionsOf('<Drawer title="x" actions={<><Select /><IconButton icon={X} /></>}>')))).toEqual(['Select'])
+  })
+  it('CONTROL: the geometry that cut it is still there, and a sheet without the rule, or with a bare subject, is caught', () => {
     expect(ruleFor(css, '.ui-drawer-head')).toMatch(/height:\s*var\(--panel-header\)/)
     expect(css).toMatch(/--panel-header:\s*32px/)
     expect(ruleFor(css, ':focus-visible')).toMatch(/outline:\s*2px solid[^;]*;\s*outline-offset:\s*1px/)
-    const planted = css.replace(/\n {2}\.ui-drawer-head :focus-visible \{[^}]*\}/, '')
-    expect(ruleFor(planted, '.ui-drawer-head :focus-visible')).toBeNull()
+    const removed = css.replace(/\n {2}\.ui-drawer-head \.ui-iconbtn:focus-visible,\r?\n {2}\.ui-drawer-head \.ui-btn:focus-visible \{[^}]*\}/, '')
+    expect(removed).not.toBe(css)
+    expect(headOffsets(removed)).toEqual({})
+    const bare = `${css}\n  .ui-drawer-head :focus-visible { outline-offset: -2px; }`
+    expect(Object.keys(headOffsets(bare))).toContain('.ui-drawer-head :focus-visible')
   })
 })

@@ -500,7 +500,8 @@ describe('B4c review round one: the geometry the fixtures and jsdom cannot show,
   it('every ring a clipping cell or label cut is drawn inside its control: ProjectFilesTable\'s icon buttons, FileManager\'s play tile, both pages\' "Select every …", the Assets row\'s "Set thumbnail for …"', () => {
     for (const sel of [
       // 2px above and 1px below in the kit's clipping `.ui-td`: 2px cut top and bottom.
-      '.rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn',
+      // Keyed on :focus-visible since P1, as the kit writes its own insets.
+      '.rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn:focus-visible',
       '.rb-fm-play',
       // The kit's `.ui-th-label` clips at the button's own box: 3px cut every side.
       '.rb-asset-check',
