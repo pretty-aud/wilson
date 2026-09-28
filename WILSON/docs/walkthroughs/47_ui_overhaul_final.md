@@ -779,8 +779,9 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 ## 3. Where the pet sits over the page
 
-Measured by P1's final walk (every screen, 116 of them, at each window size,
-on the overhaul's last code). The pet stays exactly where you had it (C5:
+Measured by P1's final walk (every screen, 118 of them, at each window size,
+on the overhaul's last code, after both review rounds; the lists did not
+change from the walk before them). The pet stays exactly where you had it (C5:
 fixed at the bottom right, moving with the bars), so this is a list for your
 question 35 ("move it?"), not something any session changed. Where a dialog
 or drawer is open the pet is drawn **behind** the panel, so those screens
