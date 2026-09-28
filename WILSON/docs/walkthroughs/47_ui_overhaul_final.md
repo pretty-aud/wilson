@@ -261,7 +261,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
    Look at: Delete something in Bins, then right-click near the bottom centre while the Undo toast shows. Choices: Keep? yes / no; no recommendation. (WT45 Q32)
 
 35. **At 1280 wide the pet covers some table figures (the Topsheet's grand-total variance, the Scenes runtime column): move it?**
-   Look at: Budget → Topsheet at 1280x700 (WT46 §5 lists every screen). Choices: Move it / leave it; the pets are Audrey's to change. The measured list, screen by screen, is the next section. (WT45 Q33)
+   Look at: Budget → Topsheet at 1280x700 (WT46 §5 lists every screen). Choices: Move it / leave it; the pets are Audrey's to change. The measured list, screen by screen, is section 3. (WT45 Q33)
 
 36. **The standard chip is set in small capitals because the component plan says chips use the label style, while the sentence-case ruling (Q2) names chips among the things that go to sentence case: which should win?**
    Look at: O.T.T.E.R.'s course-list filter chips ("ALL", "MADE FOR ME") and the Admin Terminal's filters. Choices: The component plan (label-style capitals) / plan Q2 (sentence case); no recommendation. (WT46 Q1, WT41 Q4)
@@ -779,7 +779,52 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 ## 3. Where the pet sits over the page
 
-_(filled in from the final walk)_
+Measured by P1's final walk (every screen, 116 of them, at each window size,
+on the overhaul's last code). The pet stays exactly where you had it (C5:
+fixed at the bottom right, moving with the bars), so this is a list for your
+question 35 ("move it?"), not something any session changed. Where a dialog
+or drawer is open the pet is drawn **behind** the panel, so those screens
+are listed apart: nothing is hidden there.
+
+**At 1280x700, over the open page (13 screens):**
+
+| screen | what it covers |
+|---|---|
+| D.O.G. | the brief box's placeholder ("Example: I need a page l…") |
+| the nav strip, open over D.O.G. | the "Full deck" switch's label |
+| Rate card | the table's right-hand cells ("—", "Overhead") |
+| Dashboard | a due date ("Sep 18, 2026") |
+| R.A.B.B.I.T. Intake | the "Run intake" button's words |
+| R.A.B.B.I.T. Tasks, board | the "Add a task to Needs revisions" line |
+| R.A.B.B.I.T. Assets, gallery | a card's phase ("Pre-production") |
+| R.A.B.B.I.T. Scenes, shots | a shot's timecode ("00:00:12:00") and its "Scene details" button |
+| Budget, Topsheet | the grand total's variance ("+$13,826") |
+| Budget, By role | a total ("$1,728") |
+| Budget, By asset | two totals ("$4,992", "$3,744") |
+| Budget, Custom | the total ("$92,172") |
+| Budget, Client view | two figures ("$15,360", "$9,240") |
+
+Behind a panel at 1280x700 (11): D.O.G.'s History and Settings, O.T.T.E.R.'s
+Settings, Help and Clear, R.A.B.B.I.T.'s Settings, Edit history, File
+activity and a shot's popup, the Rate card's Google Sheet dialog, and the
+Dashboard's task popup.
+
+**At 1440x900, over the open page (6 screens):**
+
+| screen | what it covers |
+|---|---|
+| R.A.B.B.I.T. Intake | the "Run intake" button's words |
+| R.A.B.B.I.T. Summary | two dates ("Aug 21, 2026", "Aug 11, 2026") |
+| R.A.B.B.I.T. Scenes, shots | four fields (Frames and Start date for "Two-shot" and "Her side") |
+| Budget, By asset | two totals ("$1,872", "$1,440") |
+| Budget, Crew/team | an empty period's mark ("·") |
+| Budget, Client view | two figures ("$12,942", "$142,364") |
+
+Behind a panel at 1440x900 (10): D.O.G.'s Settings, O.T.T.E.R.'s Settings,
+Help and Clear, R.A.B.B.I.T.'s Settings, Help, Edit history, File activity
+and a shot's popup, and Crew/team's actuals popover.
+
+V2 measured 13 and 5 over the open page at the same two sizes.
 
 ## Appendix A. Already ruled or already answered (do not re-answer)
 
