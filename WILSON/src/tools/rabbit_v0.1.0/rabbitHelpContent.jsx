@@ -366,7 +366,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Click the gear icon in the timeline header (or the settings
               entry on the WILSON nav strip) to open the slide-out. It has
               two tabs: <span className={T.listBold}>Settings</span> for
-              persistent toggles and <span className={T.listBold}>System Prompts</span>
+              persistent toggles and <span className={T.listBold}>System prompts</span>
               {' '}for editing the LLM prompts that drive the scheduler /
               recommender / phase generator.
             </p>

@@ -18,6 +18,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, relative, sep } from 'node:path'
 import { blankJsComments } from '../../scripts/ui-audit.mjs'
+import { enclosingRunRaw } from '../../scripts/ui-type-inventory.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SRC = join(here, '..')
@@ -78,5 +79,45 @@ describe('one elevation (§3.3) and one disabled treatment (§3.1)', () => {
     expect(count(TW_SHADOW, 'rounded-float shadow-float')).toBe(0)
     expect(count(OPACITY_DISABLED, 'hover:bg-green-600 transition-colors disabled:opacity-50')).toBe(1)
     expect(count(OPACITY_DISABLED, 'opacity-50')).toBe(0)
+  })
+})
+
+// Review round two, R2-04: review round one (R1-05) moved the agent toast
+// and the diff overlay from the control radius to the floating one, and
+// reverting it failed nothing. A class string that draws the float shadow
+// draws the float radius too (Q5: 3px for controls, 6px for what floats).
+// The token file is skipped: its `'shadow-float'` is the token's name.
+const FLOAT_SHADOW = /(?<![\w-])shadow-float(?:-light)?(?![\w-])/g
+const FLOAT_RADIUS = /(?<![\w-])rounded(?:-(?:t|b|l|r|tl|tr|bl|br))?-float(?![\w-])/
+function floatsWithoutRadius() {
+  const bad = []
+  let seen = 0
+  for (const f of files(SRC)) {
+    if (UNTOUCHABLE.test(f) || OUT_OF_SCOPE.test(f) || /[\\/]ui[\\/]tokens\.js$/.test(f)) continue
+    const code = blankJsComments(readFileSync(f, 'utf8'))
+    const rel = relative(SRC, f).split(sep).join('/')
+    for (const m of code.matchAll(FLOAT_SHADOW)) {
+      seen++
+      if (!FLOAT_RADIUS.test(enclosingRunRaw(code, m.index))) bad.push(`${rel}:${code.slice(0, m.index).split('\n').length}`)
+    }
+  }
+  return { seen, bad }
+}
+
+describe('what floats is drawn one way: the float shadow with the float radius (Q5, R2-04)', () => {
+  it('every class string with the float shadow carries the float radius', () => {
+    const { seen, bad } = floatsWithoutRadius()
+    // Seven today: the agent toast and diff overlay, the ingestion and undo
+    // toasts, the Bins selection bar and Team's two popovers.
+    expect(seen).toBeGreaterThanOrEqual(7)
+    expect(bad).toEqual([])
+  })
+  it('CONTROL: the two class strings as they stood before R1-05 fail; the float radius, whole or on one side, passes', () => {
+    const lacks = (cls) => !FLOAT_RADIUS.test(enclosingRunRaw(`className="${cls}"`, 12))
+    expect(lacks('fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-control text-dense shadow-float animate-fade-in-up')).toBe(true)
+    expect(lacks('bg-stone-900 border border-orange-500 rounded-control shadow-float flex flex-col')).toBe(true)
+    expect(lacks('rounded-float shadow-float')).toBe(false)
+    expect(lacks('rounded-t-float shadow-float-light')).toBe(false)
+    expect(lacks('rounded-floaty shadow-float')).toBe(true)
   })
 })

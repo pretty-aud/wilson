@@ -10,6 +10,11 @@
 // dark help used the stone ramp and orange-400 where R.A.B.B.I.T.'s had moved
 // onto the kit's tokens (B6). Every assertion below has a control that shows
 // it can fail.
+//
+// Review round two widened three of these guards after finding each narrower
+// than its title: the ink check read the first inked ancestor, not the
+// nearest ink (R2-01); the case check read colon labels only (R2-02); and
+// neither rendered the Help page's own Projects and Wilson pages (R2-03).
 // =============================================================================
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup, fireEvent } from '@testing-library/react'
@@ -41,13 +46,41 @@ const SURFACES = [
   ['R.A.B.B.I.T.', RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent, ['light', 'dark']],
 ]
 
+// No sidebar item reaches a tool's fallback, so the guards render it by name.
+const NO_PAGE = 'no-such-page'
+
+// The Help page as a reader meets it: open every tool section and every page
+// it lists, and call `visit(where, pane, container)` on each. `pane` is the
+// content pane (the prose cap's parent). R1-03's traversal, shared by the
+// name, case and ink checks (review round two, R2-02 and R2-03).
+function eachHelpPage(visit) {
+  const { container } = render(<HelpPage />)
+  const nav = container.querySelector('nav')
+  const cap = [...container.querySelectorAll('[style]')].find((e) => e.getAttribute('style').includes('--measure-prose-max'))
+  const pane = cap.parentElement
+  let pages = 0
+  for (const section of [...nav.querySelectorAll('button[aria-expanded]')]) {
+    if (section.getAttribute('aria-expanded') !== 'true') fireEvent.click(section)
+    const panel = container.querySelector(`#${section.getAttribute('aria-controls')}`)
+    for (const item of [...(panel?.querySelectorAll('button') || [])]) {
+      fireEvent.click(item)
+      pages++
+      visit(`Help ${section.getAttribute('aria-controls')} "${item.textContent.trim()}"`, pane, container)
+    }
+  }
+  cleanup()
+  return pages
+}
+
+const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
+
 describe('the help content is on the tokens, on both surfaces (P1-35)', () => {
   for (const [tool, items, Content, themes] of SURFACES) {
     for (const theme of themes) {
-      it(`${tool} ${theme || 'dialog (default)'}: no palette class, no inline hex, no override sheet, on every page`, () => {
+      it(`${tool} ${theme || 'dialog (default)'}: no palette class, no inline hex, no override sheet, on every page and the fallback`, () => {
         const bad = []
         let drawn = 0
-        for (const { id } of items) {
+        for (const id of [...items.map((i) => i.id), NO_PAGE]) {
           const { container } = render(<Content helpPage={id} theme={theme} />)
           if (container.textContent.trim()) drawn++
           bad.push(...offTokens(container).map((b) => `${id}: ${b}`))
@@ -69,25 +102,57 @@ describe('the help content is on the tokens, on both surfaces (P1-35)', () => {
       '<style>',
     ])
   })
+  it('CONTROL: the fallback is really drawn (review round two: O.T.T.E.R.\'s kept the stone ramp, unrendered)', () => {
+    expect(render(<OtterHelpContent helpPage={NO_PAGE} />).container.textContent).toMatch(/Select a topic/)
+    cleanup()
+    expect(render(<RabbitHelpContent helpPage={NO_PAGE} theme="dark" />).container.textContent).toMatch(/Pick a topic/)
+  })
 })
 
 // Sentence case (Q2): the first word keeps its capital; after it, only proper
-// nouns and acronyms do.
+// nouns, acronyms and other products' own names do.
 const PROPER = new Set(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Wilson', 'Slides', 'Google', 'AI', 'Nodes',
-  'Midjourney', 'Flux', 'GPT', 'DALL-E', 'Tamagotchi'])
-// A tool's spelled-out name, and a product's two-word name, are proper nouns.
-const PROPER_PHRASES = ['Deck Outline Generator', 'Nano Banana', 'Chat GPT']
+  'Midjourney', 'Flux', 'GPT', 'DALL-E', 'Tamagotchi', 'Markdown', 'Windows', 'Mac',
+  // key legends
+  'Enter', 'Up/Down',
+  // the pet breeds, as src/components/sprites/index.jsx labels them (C5)
+  'Otter', 'Bird', 'Octopus', 'Blob', 'Rabbit', 'Pig', 'Monkey'])
+// A tool's spelled-out name, a product's two-word name, a page's name as the
+// nav writes it, D.O.G.'s layout names as its constants.js writes them, the
+// name Help tells the reader to give their Apps Script project, and a name
+// another app writes its own way (the Slides extension's two mode buttons,
+// in public/extensions/Sidebar.html, which is not ours to edit) are proper.
+const PROPER_PHRASES = ['Deck Outline Generator', 'Nano Banana', 'Chat GPT', 'Google Drive', 'Apps Script', 'App settings',
+  'Section Header w/Gradient', 'Title Page w/Gradient', 'D.O.G. Bridge', 'Full Deck or Single Page']
 function titleCased(label) {
   let text = label
   for (const p of PROPER_PHRASES) text = text.split(p).join('name')
   // A list's own number ("1. Upload documents:") is not the first word.
-  const words = text.replace(/[()]/g, ' ').split(/\s+/).filter(Boolean).filter((w, i) => !(i === 0 && /^\d+[.)]$/.test(w)))
-  const rest = words.slice(1).filter((w) => /^[A-Z][a-z]/.test(w) && !PROPER.has(w.replace(/[:,?]$/, '')))
-  // the word after a colon starts a label again ("Step 1: Sign in")
-  return rest.filter((w, i) => !/:$/.test(words[words.indexOf(w) - 1] || ''))
+  const words = text.split(/\s+/).filter(Boolean).filter((w, i) => !(i === 0 && /^\d+[.)]$/.test(w)))
+  return words.filter((w, i) => {
+    if (i === 0) return false
+    // The word after a colon starts a label again ("Step 1: Sign in"), so
+    // does each step of a menu path ("Edit menu → Export all", the item as
+    // the menu writes it), and so does a parenthesis ("O.T.T.E.R. (Training
+    // & education)", the nav's own subtitle; "Difficulty (Low/Medium/High)",
+    // the options' names).
+    if (/:$/.test(words[i - 1]) || words[i - 1] === '→' || w.startsWith('(')) return false
+    const bare = w.replace(/\)+$/, '').replace(/[:,?.]+$/, '')
+    return /^[A-Z][a-z]/.test(bare) && !PROPER.has(bare)
+  })
 }
 
-describe('the help nav is in sentence case (Q2, P1-35)', () => {
+// Every heading, and every run-in: an element set in the semibold weight
+// that holds text of its own. Review round two (R2-02): the first reader took
+// only colon labels with no child element, so the "Term — explanation"
+// run-ins every help also uses were never read, nor were HelpPage's pages.
+function caseReads(root) {
+  const els = [...root.querySelectorAll('h3, h4'),
+    ...[...root.querySelectorAll('*')].filter((e) => /(?:^|\s)font-semibold(?:\s|$)/.test(e.getAttribute('class') || '') && ownText(e))]
+  return [...new Set(els)].map((e) => e.textContent.trim()).filter(Boolean)
+}
+
+describe('the help is in sentence case (Q2, P1-35)', () => {
   it('every sidebar label across D.O.G., O.T.T.E.R. and R.A.B.B.I.T.', () => {
     const bad = [...DOG_HELP_SIDEBAR_ITEMS, ...OTTER_HELP_SIDEBAR_ITEMS, ...RABBIT_HELP_SIDEBAR_ITEMS]
       .filter(({ label }) => titleCased(label).length)
@@ -100,20 +165,15 @@ describe('the help nav is in sentence case (Q2, P1-35)', () => {
     expect(texts.length).toBeGreaterThan(4)
     expect(texts.filter((t) => titleCased(t).length)).toEqual([])
   })
-  // Review round one, R1-02: the run-in labels ("Safe to modify:") are not
-  // the Label step (13px/600), so Q2 holds for them; the first pass read only
-  // headings. Every page of every help, on both surfaces.
-  it('every heading and run-in label on every page of every help, both surfaces', () => {
+  // Review round one, R1-02, widened by round two, R2-02.
+  it('every heading and run-in on every page of every help, both surfaces', () => {
     const bad = []
     let read = 0
     for (const [tool, items, Content, themes] of SURFACES) {
       for (const theme of themes) {
         for (const { id } of items) {
           const { container } = render(<Content helpPage={id} theme={theme} />)
-          const runIns = [...container.querySelectorAll('h3, h4, p, span, div')]
-            .filter((e) => /\bfont-semibold\b/.test(e.getAttribute('class') || '') && /:$/.test(e.textContent.trim()) && e.children.length === 0)
-          for (const e of [...container.querySelectorAll('h3, h4'), ...runIns]) {
-            const t = e.textContent.trim()
+          for (const t of caseReads(container)) {
             read++
             if (titleCased(t).length) bad.push(`${tool} ${theme || 'dialog'} ${id}: "${t}"`)
           }
@@ -121,47 +181,79 @@ describe('the help nav is in sentence case (Q2, P1-35)', () => {
         }
       }
     }
-    expect(read).toBeGreaterThan(100)
+    // Colon labels alone came to about 100 reads; every run-in is several times that.
+    expect(read).toBeGreaterThan(400)
+    expect([...new Set(bad)]).toEqual([])
+  })
+  it('every heading and run-in on every page the Help page shows, its own Projects and Wilson pages included', () => {
+    const bad = []
+    let read = 0
+    const pages = eachHelpPage((where, pane) => {
+      for (const t of caseReads(pane)) {
+        read++
+        if (titleCased(t).length) bad.push(`${where}: "${t}"`)
+      }
+    })
+    expect(pages).toBeGreaterThan(25)
+    expect(read).toBeGreaterThan(200)
     expect([...new Set(bad)]).toEqual([])
   })
 
-  it('CONTROL: the check catches the labels the pass changed', () => {
-    for (const was of ['Basic Workflow', 'Tips & Best Practices', 'Keyboard Shortcuts (Software Type)', '8 Pet Breeds']) {
+  it('CONTROL: the check catches the labels the passes changed', () => {
+    for (const was of ['Basic Workflow', 'Tips & Best Practices', 'Keyboard Shortcuts (Software Type)', '8 Pet Breeds',
+      'Regenerate Page', 'Edit menu → Export All', 'O.T.T.E.R. (Training & Education)', 'Full Deck or Single Page Mode']) {
       expect(titleCased(was).length, was).toBeGreaterThan(0)
     }
-    for (const ok of ['Download the Slides extension', 'Step 1: Sign in', 'What is the Nodes page?', 'AI features', 'D.O.G. overview']) {
+    for (const ok of ['Download the Slides extension', 'Step 1: Sign in', 'What is the Nodes page?', 'AI features', 'D.O.G. overview',
+      'Full Deck or Single Page mode', 'Edit menu → Export all', 'Toggle in App settings', 'O.T.T.E.R. (Training & education)']) {
       expect(titleCased(ok), ok).toEqual([])
     }
+  })
+  it('CONTROL: the reader takes a run-in with no colon and one with a child element, and skips unweighted prose', () => {
+    const host = document.createElement('div')
+    host.innerHTML = '<ul><li>• <span class="text-ink font-semibold">Revision Prompt</span> — Type specific instructions</li></ul>'
+      + '<p class="font-semibold">Edit menu → <em>Export All</em></p><p>Plain Prose Is Not Read</p><h4>Key Features</h4>'
+    expect(caseReads(host)).toEqual(['Key Features', 'Revision Prompt', 'Edit menu → Export All'])
+    expect(caseReads(host).filter((t) => titleCased(t).length)).toHaveLength(3)
   })
 })
 
 // Review round one, R1-01: on the light Help page a role that only adds
 // weight (em, accent, label, glyph, download) names no ink, and outside a
-// list it inherited the app's white — 19 runs at 2.53:1 on the orange. On a
-// light surface every text must sit under the one ink: `text-ink-light` on
-// itself or on an ancestor inside the rendered help.
-function inklessText(container) {
+// list it inherited the app's white: 19 runs at 2.53:1 on the orange.
+// Review round two, R2-01: the first guard stopped at the first
+// `text-ink-light` (or any `ui-*`) ancestor, so once D.O.G.'s root carried
+// the ink, a NEARER wrong ink passed: the dark surface's `text-ink`, white, a
+// grey. The rule now: the nearest resting text colour, on the element or an
+// ancestor, is the one ink; and a kit part counts only on its light surface
+// (a Kbd left dark is the chip its own comment calls a bug).
+const NOT_COLOUR = /^text-(?:h1|h2|h3|body|dense|caption|label|left|center|right|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip)$/
+function inkOf(el) {
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    const cls = (n.getAttribute('class') || '').split(/\s+/).filter(Boolean)
+    const kit = cls.find((c) => c.startsWith('ui-'))
+    if (kit) return n.matches('.ui-kbd[data-surface="light"]') ? 'ui-kbd light' : `${kit}, not on its light surface`
+    const ink = cls.find((c) => c.startsWith('text-') && !NOT_COLOUR.test(c))
+    if (ink) return ink
+  }
+  return 'no ink'
+}
+function inklessText(root) {
   const found = []
-  for (const el of container.querySelectorAll('*')) {
-    const ownText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
-    if (!ownText) continue
-    let inked = false
-    for (let n = el; n && n !== container.parentElement; n = n.parentElement) {
-      const cls = n.getAttribute?.('class') || ''
-      // The one ink, or a kit part (`ui-*`: Kbd, Badge…), whose own sheet
-      // sets its ink per surface.
-      if (/(?:^|\s)(?:text-ink-light|ui-[a-z-]+)(?:\s|$)/.test(cls)) { inked = true; break }
-    }
-    if (!inked) found.push(`${el.tagName.toLowerCase()} "${el.textContent.trim().slice(0, 40)}"`)
+  for (const el of root.querySelectorAll('*')) {
+    if (!ownText(el)) continue
+    const ink = inkOf(el)
+    if (ink !== 'text-ink-light' && ink !== 'ui-kbd light') found.push(`${el.tagName.toLowerCase()} "${el.textContent.trim().slice(0, 40)}" (${ink})`)
   }
   return found
 }
+const INK = /(?:^|\s)text-ink-light(?:\s|$)/
 
-describe('on the light surface every text sits under the one ink (R1-01, C6)', () => {
+describe('on the light surface every text takes the one ink (R1-01, R2-01, C6)', () => {
   for (const [tool, items, Content] of SURFACES) {
-    it(`${tool} light: every page`, () => {
+    it(`${tool} light: every page and the fallback`, () => {
       const bad = []
-      for (const { id } of items) {
+      for (const id of [...items.map((i) => i.id), NO_PAGE]) {
         const { container } = render(<Content helpPage={id} theme="light" />)
         bad.push(...inklessText(container).map((b) => `${id}: ${b}`))
         cleanup()
@@ -169,12 +261,35 @@ describe('on the light surface every text sits under the one ink (R1-01, C6)', (
       expect(bad).toEqual([])
     })
   }
-  it('CONTROL: a weight-only role in a card with no ink is caught; the same under an inked root passes', () => {
+  // Review round two, R2-03: the Help page's own pages set no root ink, so
+  // each text leaned on its role, R1-01's trap. The content pane carries the
+  // one ink now, and every page Help can show keeps it.
+  it('the Help page: the content pane carries the one ink, and no page it shows sets another', () => {
+    const bad = []
+    let paneInked = true
+    const pages = eachHelpPage((where, pane) => {
+      paneInked &&= INK.test(pane.getAttribute('class') || '')
+      bad.push(...inklessText(pane).map((b) => `${where}: ${b}`))
+    })
+    expect(pages).toBeGreaterThan(25)
+    expect(paneInked).toBe(true)
+    expect(bad).toEqual([])
+  })
+  it('CONTROL: no ink, a nearer wrong ink, and a kit part left dark are each caught; the one ink and a light Kbd pass', () => {
     const host = document.createElement('div')
     host.innerHTML = '<div><div class="bg-well-light border rounded-control p-3"><p class="text-dense font-semibold">Safe to modify:</p></div></div>'
-    expect(inklessText(host)).toEqual(['p "Safe to modify:"'])
+    expect(inklessText(host)).toEqual(['p "Safe to modify:" (no ink)'])
     host.firstChild.setAttribute('class', 'text-ink-light')
     expect(inklessText(host)).toEqual([])
+    // Round two's plant: the root keeps the ink, three roles name a nearer one.
+    host.innerHTML = '<div class="text-ink-light"><p class="text-dense text-ink font-semibold">a</p>'
+      + '<p class="text-dense text-white font-semibold mb-1">b</p><span class="text-ink-3 text-dense">c</span><p class="text-dense">d</p></div>'
+    expect(inklessText(host)).toEqual(['p "a" (text-ink)', 'p "b" (text-white)', 'span "c" (text-ink-3)'])
+    host.innerHTML = '<div class="text-ink-light"><kbd class="ui-kbd" data-surface="dark">Ctrl</kbd><kbd class="ui-kbd" data-surface="light">K</kbd></div>'
+    expect(inklessText(host)).toEqual(['kbd "Ctrl" (ui-kbd, not on its light surface)'])
+    // …and the pane check sees a pane without the ink.
+    expect(INK.test('flex-1 overflow-y-auto p-6 bg-ground-light')).toBe(false)
+    expect(INK.test('flex-1 overflow-y-auto p-6 bg-ground-light text-ink-light')).toBe(true)
   })
 })
 
@@ -183,17 +298,8 @@ describe('on the light surface every text sits under the one ink (R1-01, C6)', (
 // tool section and every page, and proves it reached the Wilson pages.
 describe('the Help page names things as the app does, on every page it can show (Q7, R1-03)', () => {
   it('no "System Settings", "Project Manager" or "Pet Mode ON/OFF" anywhere in Help', () => {
-    const { container } = render(<HelpPage />)
     const seen = []
-    const nav = container.querySelector('nav')
-    for (const section of [...nav.querySelectorAll('button[aria-expanded]')]) {
-      if (section.getAttribute('aria-expanded') !== 'true') fireEvent.click(section)
-      const panel = container.querySelector(`#${section.getAttribute('aria-controls')}`)
-      for (const item of [...(panel?.querySelectorAll('button') || [])]) {
-        fireEvent.click(item)
-        seen.push(container.textContent)
-      }
-    }
+    eachHelpPage((where, pane, container) => seen.push(container.textContent))
     const all = seen.join('\n')
     // CONTROL: the traversal really reached the Wilson section's pages.
     expect(all).toMatch(/Pet lifecycle/)
@@ -207,14 +313,24 @@ describe('one measure for every Help section (P1-35), and no 2px edge in its nav
     for (let n = el; n; n = n.parentElement) if ((n.getAttribute?.('style') || '').includes('--measure-prose-max')) return n
     return null
   }
-  it('D.O.G.\'s content (the page Help opens on) sits inside the prose cap', () => {
+  // Review round two, R2-04: R1-04 put the Body step on the cap, so its 72ch
+  // resolve at 14px (668px) rather than the inherited 16px (764px); removing
+  // the class failed nothing.
+  const onBodyStep = (cap) => /(?:^|\s)text-body(?:\s|$)/.test(cap?.getAttribute('class') || '')
+  it('D.O.G.\'s content (the page Help opens on) sits inside the prose cap, and the cap is on the Body step', () => {
     const { container } = render(<HelpPage />)
     const heading = [...container.querySelectorAll('h3')].find((h) => /overview/i.test(h.textContent))
     expect(heading, 'D.O.G. overview heading not drawn').toBeTruthy()
     expect(capOf(heading)).not.toBeNull()
+    expect(onBodyStep(capOf(heading))).toBe(true)
     // CONTROL: the nav, outside the content area, is not capped — the check
     // discriminates rather than finding the cap on every element.
     expect(capOf(container.querySelector('nav'))).toBeNull()
+  })
+  it('CONTROL: a cap that inherits its size is caught', () => {
+    const host = document.createElement('div')
+    host.innerHTML = '<div style="max-width: var(--measure-prose-max)"><h3>x</h3></div>'
+    expect(onBodyStep(capOf(host.querySelector('h3')))).toBe(false)
   })
   it('the current nav item is marked with the inset ink, not a 2px border', () => {
     const { container } = render(<HelpPage />)

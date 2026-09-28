@@ -85,12 +85,17 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
   it('D.O.G.\'s Help and the Help page quote each control as the interface writes it', () => {
     const help = read('../../data/dogHelpContent.jsx')
     const page = read('../../components/HelpPage.jsx')
-    const OLD = /"(Theme Generator|Use Uploaded Assets|Use Project Assets|Generate Image Prompts)"/
+    // Review round two (R2-02) added the mode Switch, "Full deck". The Slides
+    // extension's own "Full Deck" button is named unquoted, as it writes it.
+    const OLD = /"(Theme Generator|Use Uploaded Assets|Use Project Assets|Generate Image Prompts|Full Deck)"/
     expect(help).not.toMatch(OLD)
     expect(page).not.toMatch(OLD)
-    for (const q of ['"Theme generator"', '"Use uploaded assets"', '"Use project assets"', '"Generate image prompts"']) expect(help, q).toContain(q)
-    // CONTROL: the export dialog's own label is the one Help quotes.
+    for (const q of ['"Theme generator"', '"Use uploaded assets"', '"Use project assets"', '"Generate image prompts"', '"Full deck"']) expect(help, q).toContain(q)
+    // CONTROL: the export dialog's own label is the one Help quotes, and so
+    // is the mode Switch's.
     expect(read('./modals/HistoryModal.jsx')).toContain("'Generate image prompts'")
+    expect(read('./DeckOutlineGenerator.jsx')).toContain('label="Full deck"')
+    expect('Toggle "Full Deck" to generate').toMatch(OLD)
   })
 })
 

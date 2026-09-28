@@ -1279,7 +1279,7 @@ export default function App() {
       context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
       context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
       context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard's AI features are included with the workspace sign-in — no API key setup needed.`;
-      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → System Settings → RABBIT tab.`;
+      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → App settings → Storage tab.`;
       context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
     }
 

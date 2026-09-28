@@ -101,8 +101,10 @@ export default function IngestionToast({ onJumpToReview }) {
           </div>
         )}
 
-        {/* Status line */}
-        <div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
+        {/* Status line. P1 review R2-07: a progress readout that is often a
+            sentence ("Extracting 3 files…", an error), so the sans with
+            tabular figures, as IntakeProgress's status line (Q4). */}
+        <div className="flex items-center justify-between text-dense tabular-nums" style={{ color: '#a8a29e' }}>
           <span className="truncate">
             {phase === 'running' && (chunksTotal > 0
               ? `${chunksDone}/${chunksTotal} chunks · ${pct}%`

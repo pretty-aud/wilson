@@ -1313,9 +1313,27 @@ describe('the Admin Terminal has two measures and one load-error treatment (P1-4
   // nested in an at-rule (review round one, R1-06: a first-rule reader could
   // not tell "no max-width" from "no rule found") — and the max-widths they
   // declare. `rules` counts them, so a class that vanished is not a pass.
+  // Review round two (R2-05): reading only a selector that IS the class let a
+  // cap written `.at-content .at-models`, `.at-models.at-wide` or
+  // `:is(.at-models)` through. The widths now come from every selector whose
+  // SUBJECT compound (after its last combinator outside brackets) names the
+  // class; `rules` still counts the bare selector, the rule that must exist.
+  const subjectOf = (sel) => {
+    const s = sel.trim()
+    let depth = 0
+    for (let i = s.length - 1; i >= 0; i--) {
+      if (s[i] === ')' || s[i] === ']') depth++
+      else if (s[i] === '(' || s[i] === '[') depth--
+      else if (depth === 0 && /[\s>+~]/.test(s[i])) return s.slice(i + 1)
+    }
+    return s
+  }
+  const names = (compound, cls) => new RegExp(`${cls.replace(/\./g, '\\.')}(?![\\w-])`).test(compound)
   const widthsOf = (sheet, cls) => {
-    const hits = allRules(sheet).filter((r) => !r.sel.startsWith('@') && splitTop(r.sel).some((s) => s.trim() === cls))
-    return { rules: hits.length, maxWidths: hits.flatMap((r) => decls(r.body).filter(([p]) => p === 'max-width').map(([, v]) => v)) }
+    const rules = allRules(sheet).filter((r) => !r.sel.startsWith('@'))
+    const exact = rules.filter((r) => splitTop(r.sel).some((s) => s.trim() === cls))
+    const subject = rules.filter((r) => splitTop(r.sel).some((s) => names(subjectOf(s), cls)))
+    return { rules: exact.length, maxWidths: subject.flatMap((r) => decls(r.body).filter(([p]) => p === 'max-width').map(([, v]) => v)) }
   }
   const widths = (sheet) => ({
     narrow: widthsOf(sheet, '.at-section-narrow'),
@@ -1356,6 +1374,17 @@ describe('the Admin Terminal has two measures and one load-error treatment (P1-4
       '.at-models { max-width: 900px; }',
       '@media (min-width: 1px) { .at-models { max-width: 900px; } }',
     ]) expect(widths(`${cssCode}\n  ${plant}`).models.maxWidths, plant).toContain('900px')
+    // Review round two's five, which the bare-selector reader passed: the cap
+    // on Models as a descendant, a child, a compound, a :not() and an :is().
+    for (const plant of [
+      '.at-content .at-models { max-width: 900px; }',
+      '.at-body > .at-models { max-width: 900px; }',
+      '.at-models.at-wide { max-width: 900px; }',
+      '.at-models:not(.x .y) { max-width: 900px; }',
+      ':is(.at-models) { max-width: 900px; }',
+    ]) expect(widths(`${cssCode}\n  ${plant}`).models.maxWidths, plant).toContain('900px')
+    // A width on something INSIDE Models is not a cap on Models.
+    expect(widths(`${cssCode}\n  .at-models .at-model-row { max-width: 900px; }`).models.maxWidths).toEqual([])
     // And a sheet that lost the rule is not read as "no cap".
     expect(widths('.at-other { max-width: 1px; }').models.rules).toBe(0)
     expect(loadErrorInBanner(`{loadError && (

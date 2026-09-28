@@ -1261,6 +1261,57 @@ describe('mono is for data, sans for everything else (§3.1)', () => {
   });
 });
 
+// UI overhaul P1, review round two (R2-07): the audit's "mono outside data:
+// 0" did not hold. Two status sentences sat in the mono, and two Bins rows of
+// file names (data, mono) carried status phrases that inherited it. Each is
+// pinned by its own words to the opening tag that holds it: the sentence's
+// element sets no mono, and a phrase inside a mono row sets the sans back. A
+// site that is no longer found fails too, so a rewrite has to come here.
+describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', () => {
+  const SITES = [
+    ['src/tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx',
+      /<span className="([^"]*)"[^>]*>\s*\{missingCount\} file\{/, 'no-mono'],
+    ['src/tools/rabbit_v0.1.0/components/IngestionToast.jsx',
+      /<div className="([^"]*)"[^>]*>\s*<span className="truncate">\s*\{phase === 'running'/, 'no-mono'],
+    ['src/tools/rabbit_v0.1.0/views/bins/RelinkBinsDialog.jsx',
+      /<span className="([^"]*)"[^>]*>\{amb\.candidates\.length\} files with this name:/, 'sans'],
+    ['src/tools/rabbit_v0.1.0/views/bins/RelinkBinsDialog.jsx',
+      /<div className="([^"]*)"[^>]*>not found in that folder/, 'sans'],
+    ['src/tools/rabbit_v0.1.0/views/bins/AddFilesDialog.jsx',
+      /<span className="([^"]*)"[^>]*> · missing on disk/, 'sans'],
+    ['src/tools/rabbit_v0.1.0/views/bins/AddFilesDialog.jsx',
+      /<span className="([^"]*)"[^>]*>\{` · already in /, 'sans'],
+  ];
+  const judge = (src, re, want) => {
+    const m = re.exec(src);
+    if (!m) return 'site not found';
+    const cls = m[1].split(/\s+/);
+    if (want === 'no-mono') return cls.includes('font-mono') ? `mono: "${m[1]}"` : 'ok';
+    return cls.includes('font-sans') ? 'ok' : `no sans: "${m[1]}"`;
+  };
+  for (const [file, re, want] of SITES) {
+    it(`${file.split('/').pop()}: ${String(re).slice(1, 60)}…`, () => {
+      expect(judge(readFileSync(file, 'utf8'), re, want)).toBe('ok');
+    });
+  }
+  it('CONTROL: the lines as they stood before the fix fail', () => {
+    const summary = `<span className="flex-1 text-dense font-mono tabular-nums" style={{ color: 'var(--color-warning)' }}>
+            {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk`;
+    expect(judge(summary, SITES[0][1], 'no-mono')).toBe('mono: "flex-1 text-dense font-mono tabular-nums"');
+    const toast = `<div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
+          <span className="truncate">
+            {phase === 'running' && (chunksTotal > 0`;
+    expect(judge(toast, SITES[1][1], 'no-mono')).toMatch(/^mono: /);
+    // The Bins phrases had no element of their own: the anchor is not found.
+    expect(judge(`<span style={{ color: C.amber }}>{amb.candidates.length} files with this name:</span>`, SITES[2][1], 'sans'))
+      .toBe('site not found');
+    expect(judge(`{disabled && ' · missing on disk'}`, SITES[4][1], 'sans')).toBe('site not found');
+    // …and a phrase given an element but left in the row's mono is caught.
+    expect(judge('<div className="pl-4" style={{ color: C.dimmer }}>not found in that folder</div>', SITES[3][1], 'sans'))
+      .toBe('no sans: "pl-4"');
+  });
+});
+
 describe('surface tokens (§3.3, §3.4, C9)', () => {
   it('has one border width: the 1px hairline', () => {
     // 38 single-side 2px rules are LEFT on purpose: §3.2 gives the signal "a

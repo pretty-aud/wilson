@@ -118,11 +118,13 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
                   {prop && <div className="truncate pl-4" style={{ color: C.green }} title={absFor(prop.newPath)}>→ {absFor(prop.newPath)}</div>}
                   {amb && (
                     <div className="pl-4 mt-1 flex items-center gap-2">
-                      <span style={{ color: C.amber }}>{amb.candidates.length} files with this name:</span>
+                      <span className="font-sans" style={{ color: C.amber }}>{amb.candidates.length} files with this name:</span>
                       <Select value={choices[r.id] || ''} placeholder="— leave offline —" options={amb.candidates.map(c => ({ value: c.relPath, label: c.relPath }))} onChange={v => setChoices(ch => ({ ...ch, [r.id]: v }))} />
                     </div>
                   )}
-                  {match && !prop && !amb && <div className="pl-4" style={{ color: C.dimmer }}>not found in that folder</div>}
+                  {/* P1 review R2-07: the row is file names and paths (data,
+                      mono); its two status phrases are words, so the sans. */}
+                  {match && !prop && !amb && <div className="pl-4 font-sans" style={{ color: C.dimmer }}>not found in that folder</div>}
                 </div>
               )
             })}

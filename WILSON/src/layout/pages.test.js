@@ -36,6 +36,7 @@ import {
   getPage, navPages, validatePage,
 } from './pages'
 import { TM_COLUMN_WIDTHS } from '../components/TeamMembers/TeamMembersPage'
+import { sourceFiles, blankJsComments } from '../../scripts/ui-audit.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appSrc = readFileSync(resolve(here, '../App.jsx'), 'utf8')
@@ -134,6 +135,36 @@ describe('nav columns', () => {
     expect(appSrc).toContain("label: 'Tool settings'")
     expect(appSrc).not.toContain("label: 'SYSTEM SETTINGS'")
     expect(appSrc).not.toContain("label: 'SETTINGS'")
+  })
+
+  // UI overhaul P1, review round two (R2-06): the rename reached the nav and
+  // Help, but an empty state still sent people to "System settings → RABBIT"
+  // and both companion prompts named "System Settings" and "PROJECT
+  // MANAGER". No string the app draws, or tells a companion, names a page or
+  // tab by its retired name. Comments may keep the history; the dev fixtures
+  // are exempt because their course quotes DaVinci Resolve's own "Project
+  // Manager" menu.
+  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab/
+  const retiredIn = (src) => blankJsComments(src).split('\n').filter((line) => RETIRED.test(line))
+  it('no string the app draws or tells a companion names a retired page or tab (Q7)', () => {
+    const files = sourceFiles().filter((f) => !f.startsWith('src/dev/'))
+    expect(files.length).toBeGreaterThan(200)
+    const hits = files.flatMap((f) => retiredIn(readFileSync(f, 'utf8')).map((line) => `${f}: ${line.trim().slice(0, 80)}`))
+    expect(hits).toEqual([])
+  })
+  it('CONTROL: the reader sees a retired name in a string, a template and JSX text, and skips a comment', () => {
+    const planted = [
+      "const a = 'App settings' // was System Settings",
+      '/* the old RABBIT tab */',
+      "const b = 'Open System settings → RABBIT'",
+      'context += `- PROJECT MANAGER: documents`',
+      '<p>Change it in System Settings.</p>',
+    ].join('\n')
+    expect(retiredIn(planted)).toEqual([
+      "const b = 'Open System settings → RABBIT'",
+      'context += `- PROJECT MANAGER: documents`',
+      '<p>Change it in System Settings.</p>',
+    ])
   })
 })
 

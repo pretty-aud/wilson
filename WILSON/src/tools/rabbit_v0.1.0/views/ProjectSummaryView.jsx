@@ -1120,7 +1120,9 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         <div className="flex items-center gap-2 px-3 py-2 rounded-control"
           style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 14%, transparent)', border: '1px solid var(--color-rule)' }}>
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-warning)' }} />
-          <span className="flex-1 text-dense font-mono tabular-nums" style={{ color: 'var(--color-warning)' }}>
+          {/* P1 review R2-07: a sentence, so the sans (Q4: mono is for data);
+              the count keeps its tabular figures. */}
+          <span className="flex-1 text-dense tabular-nums" style={{ color: 'var(--color-warning)' }}>
             {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
           </span>
           <button type="button" onClick={() => setRelinkOpen(true)}

@@ -217,9 +217,9 @@ export function OtterHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Quiz types</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Multiple Choice</span> — Answer questions with 4 options, get immediate feedback and explanations</li>
-              <li>• <span className={T.listBold}>Code Identification</span> — Identify what code does or find errors in code snippets</li>
-              <li>• <span className={T.listBold}>Code Writing</span> — Write code solutions in an integrated Monaco editor with hints and solutions</li>
+              <li>• <span className={T.listBold}>Multiple choice</span> — Answer questions with 4 options, get immediate feedback and explanations</li>
+              <li>• <span className={T.listBold}>Code identification</span> — Identify what code does or find errors in code snippets</li>
+              <li>• <span className={T.listBold}>Code writing</span> — Write code solutions in an integrated Monaco editor with hints and solutions</li>
             </ul>
           </div>
           <div className={T.card}>
@@ -334,8 +334,8 @@ export function OtterHelpContent({ helpPage, theme }) {
             <h4 className={T.cardTitle}>Pet mode</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Toggle in App settings</span> under the Companion section</li>
-              <li>• <span className={T.listBold}>When ON:</span> Full Tamagotchi experience with hunger, sleep, and mood</li>
-              <li>• <span className={T.listBold}>When OFF:</span> Helper-only chatbot — no mechanics, just a study assistant</li>
+              <li>• <span className={T.listBold}>When on:</span> Full Tamagotchi experience with hunger, sleep, and mood</li>
+              <li>• <span className={T.listBold}>When off:</span> Helper-only chatbot — no mechanics, just a study assistant</li>
             </ul>
           </div>
         </div>
@@ -351,7 +351,7 @@ export function OtterHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Exporting</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Edit menu → Export All</span> — Downloads a JSON file with all courses, subjects, progress, hotkeys, functions, and nodes</li>
+              <li>• <span className={T.listBold}>Edit menu → Export all</span> — Downloads a JSON file with all courses, subjects, progress, hotkeys, functions, and nodes</li>
               <li>• <span className={T.listBold}>Export format</span> is versioned (v2.0) for forward compatibility</li>
               <li>• <span className={T.listBold}>Use for backups</span> or transferring between devices</li>
             </ul>
@@ -359,7 +359,7 @@ export function OtterHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Importing</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Edit menu → Import Subjects</span> — Load a previously exported JSON file</li>
+              <li>• <span className={T.listBold}>Edit menu → Import subjects</span> — Load a previously exported JSON file</li>
               <li>• <span className={T.listBold}>Supports both v2.0 format</span> and legacy single lesson plan exports</li>
               <li>• <span className={T.listBold}>Imported courses are merged</span> into your existing library</li>
             </ul>
@@ -403,8 +403,11 @@ export function OtterHelpContent({ helpPage, theme }) {
     </div>
   )
 
+  // P1 review round two: the fallback kept the stone ramp P1-35 retired
+  // (no test rendered an unknown page); it takes the body role, as
+  // R.A.B.B.I.T.'s does.
   return (
-    <div className="text-center py-8 text-stone-600 text-body">
+    <div className={`${T.bodyText} text-center py-8`}>
       Select a topic from the sidebar
     </div>
   )

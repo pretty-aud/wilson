@@ -21,7 +21,7 @@ Shots, before → after, in `docs/sessions/handoffs/img/`: `ui-f3-colorscheme-be
 - The nav strip is grouped and in sentence case; the two settings items are "App settings" and "Tool settings" (F2, Q7).
 - The sign-in screens are sentence case with one filled primary, aligned fields and thinner bars on a short window (D2, W7); V2 measured every stage at both window sizes.
 - The "Close WILSON" box is sentence case, with an outlined Cancel and a darker orange Close (T3).
-- P1: the title bar's three window buttons have names and tooltips (Minimize, Maximize, Close).
+- P1: the title bar's three window buttons have names and tooltips (Minimize, Maximize or restore, Close).
 
 Shots, before → after, in `docs/sessions/handoffs/img/`: `t3-before-close-dialog-1280x700.png` → `t3-after-close-dialog-1280x700.png`.
 
@@ -231,7 +231,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
    Look at: Any secondary button: its faint outline. Choices: Stronger / as it is. No recommendation. P1 also measured the kit field's edge (`.ui-input`, P1-68) at 1.48:1 on the raised paper, where WCAG asks 3:1 of a control's only boundary: one answer can cover both. (WT35 §5, WT32 Q2)
 
 25. **May a session download Geist's full release to see whether it draws → ← ✓ ✕ ● ○ ▸ and the like, and ship them if it does?**
-   Look at: O.T.T.E.R.'s new-course form, whose round ●/○ option buttons are drawn as text (v1-otter-new-course-1280x700.png); also "Run Intake →" and "Copied ✓". Choices: Yes: download it (free, the same licence as now) and ship the glyphs if Geist draws them; if it does not, the app's own ~40 uses get icons and generated lessons keep Segoe UI for those characters. Or no. Since V2 the same holds for "₩" in the currency pickers. (WT43 Q16, WT41 Q11, WT40 Q8d, WT36 Q6, WT35 Q1)
+   Look at: O.T.T.E.R.'s new-course form, whose round ●/○ option buttons are drawn as text (v1-otter-new-course-1280x700.png); also "Run Intake →" and "Copied ✓". Choices: Yes: download it (free, the same licence as now) and ship the glyphs if Geist draws them; if it does not, the app's own ~40 uses get icons and generated lessons keep Segoe UI for those characters. Or no. Since V2 the same holds for "₩" in the currency pickers, and since P1 for D.O.G.'s ▸ output markers on Help → D.O.G. → System prompts (drawn in Cambria Math). (WT43 Q16, WT41 Q11, WT40 Q8d, WT36 Q6, WT35 Q1)
 
 26. **Will you run `gh auth login` once, in a terminal in this repo, so sessions can read build results without being rate-limited?**
    Look at: A terminal in the repo; nothing in the app. Choices: None: a one-time action, now owed by eight sessions. (WT35 Q6, WT33 §6, WT32 Q3)
@@ -407,7 +407,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
    Look at: O.T.T.E.R.'s lesson pane: the prose against the orange-bordered cards below it (t1-after-otter-lesson-1280x700.png). Choices: Live with it until A3 (recommended: 'the reading win is worth more than the alignment cost'), or pull it forward. (WT33 Q2)
 
 75. **Keep lesson lines at about 63 measured letters, or follow the plan's '60 to 66ch' to the letter, which in the app's font gives 86–95 letters?**
-   Look at: O.T.T.E.R.: a long lesson (course → subject → lesson) at 1440x900. Choices: About 63 letters (current), or the plan's 60–66ch; it is one number. (WT41 Q1)
+   Look at: O.T.T.E.R.: a long lesson (course → subject → lesson) at 1440x900; and Help → D.O.G. → Slide layouts, whose 13px lists run up to 113 letters a line under Help's 668px cap (P1 review round two). Choices: About 63 letters (current), or the plan's 60–66ch; it is one number, and it would set Help's measure too. (WT41 Q1)
 
 76. **Keep lesson text at 14px, or make it 16px for reading?**
    Look at: O.T.T.E.R.: a lesson's body text. Choices: 14px (current, the September type pass), or 16px (one line). (WT41 Q2, WT33 Q1)

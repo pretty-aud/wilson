@@ -207,7 +207,9 @@ export default function HelpPage() {
         </nav>
 
         {/* ===== CONTENT AREA ===== */}
-        <div className="flex-1 overflow-y-auto p-6 bg-ground-light">
+        {/* P1 review R2-03: the pane sets the light page's one ink, so no
+            text on it can fall back to the app's white (R1-01's trap). */}
+        <div className="flex-1 overflow-y-auto p-6 bg-ground-light text-ink-light">
           {/* HELP-01: one measure cap for every section's prose. Cards and
               lists inherit it; none sets its own. P1-35: D.O.G. and O.T.T.E.R.
               used to render at the pane's full width (1255px beside the
@@ -216,8 +218,9 @@ export default function HelpPage() {
               holds two short columns at 72ch. P1 review R1-04: `ch` resolves
               at the element's own size, and this div inherited 16px, so the
               cap was 764px of 14px prose (113–121 characters a line). The
-              Body step here puts 72ch at the prose's own size; every text
-              inside still sets its own step. */}
+              Body step here measures 72ch at 14px (668px); every text inside
+              still sets its own step, so the 13px Dense lists run about 77
+              of their characters (review round two). */}
           <div className="text-body" style={{ maxWidth: 'var(--measure-prose-max)' }}>
           {/* D.O.G. Help Content — light theme */}
           {expandedTool === 'dog' && (
@@ -235,7 +238,7 @@ export default function HelpPage() {
               <section>
                 <h3 className={L.sectionTitle}>Projects overview</h3>
                 <p className={`${L.bodyText} mb-4`}>
-                  Projects lets you organize your presentation work into discrete projects.
+                  The Projects page organizes your presentation work into separate projects.
                   Each project stores its own documents, visual assets, dates, and descriptions — keeping everything organized across multiple concurrent presentations.
                 </p>
                 <div className="space-y-3">
@@ -323,7 +326,7 @@ export default function HelpPage() {
                     <h4 className={L.cardTitle}>Included tools</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>D.O.G. (Deck Outline Generator)</span> — AI-powered slide outline generation with theme colors, image prompts, and a live visualizer</li>
-                      <li><span className={L.listBold}>O.T.T.E.R. (Training & Education)</span> — AI-powered learning platform for software, shortcuts, and coding languages</li>
+                      <li><span className={L.listBold}>O.T.T.E.R. (Training & education)</span> — AI-powered learning platform for software, shortcuts, and coding languages</li>
                       <li><span className={L.listBold}>Projects</span> — Organize documents, visual assets, and metadata for multiple projects</li>
                     </ul>
                   </div>
@@ -358,7 +361,7 @@ export default function HelpPage() {
                     <h4 className={L.cardTitle}>Navigation menu</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Hamburger menu</span> — Available on all non-home pages via the icon in the top-right</li>
-                      <li><span className={L.listBold}>Quick access</span> to HOME, other tools, and App settings from any page</li>
+                      <li><span className={L.listBold}>Quick access</span> to Home, other tools, and App settings from any page</li>
                       <li><span className={L.listBold}>Click outside</span> the nav strip to dismiss it</li>
                     </ul>
                   </div>
@@ -398,7 +401,7 @@ export default function HelpPage() {
                       <li><span className={L.listBold}>Egg</span> — Your pet starts as an egg. Pet it 2-4 times to hatch</li>
                       <li><span className={L.listBold}>Baby</span> — Hatches with a random breed and gender. Smaller sprite. Evolves over time</li>
                       <li><span className={L.listBold}>Adult</span> — Fully grown. Needs regular feeding and attention to stay happy</li>
-                      <li><span className={L.listBold}>Corpse → Ghost</span> — If hunger reaches 0, the pet dies. A ghost appears</li>
+                      <li><span className={L.listBold}>Corpse → ghost</span> — If hunger reaches 0, the pet dies. A ghost appears</li>
                       <li><span className={L.listBold}>New egg</span> — When your pet is a ghost, you can create a new egg from App settings</li>
                     </ul>
                   </div>

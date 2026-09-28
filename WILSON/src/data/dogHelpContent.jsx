@@ -157,7 +157,7 @@ export function DogHelpContent({ helpPage, theme }) {
         <div className={T.bodyList2}>
           <p><span className={T.accentStrong}>1. Upload documents:</span> Add up to 5 source files (PDFs, markdown, text, or images) that contain your project information.</p>
           <p><span className={T.accentStrong}>2. Set deck context:</span> Provide guidelines about the overall tone, style, and objectives for your presentation.</p>
-          <p><span className={T.accentStrong}>3. Choose mode:</span> Toggle "Full Deck" to generate an entire presentation, or leave it off to generate individual slides.</p>
+          <p><span className={T.accentStrong}>3. Choose mode:</span> Toggle "Full deck" to generate an entire presentation, or leave it off to generate individual slides.</p>
           <p><span className={T.accentStrong}>4. For single pages:</span> Select a layout type, optionally set a page number, and describe what content you want on the slide.</p>
           <p><span className={T.accentStrong}>5. Generate & review:</span> Generated outlines appear in the output panel. Use the visualizer to preview layouts with theme colors, or edit the raw markdown.</p>
           <p><span className={T.accentStrong}>6. Refine output:</span> Use the Edit Output bar to regenerate pages with revision notes, change layouts, and undo/redo changes.</p>
@@ -232,7 +232,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className={T.em}>Set the visual tone</span> — "Dark, cinematic aesthetic with noir influences" or "Clean, minimal, modern SaaS style"</li>
               <li>• <span className={T.em}>Specify the purpose</span> — "Sales pitch to close a $2M deal" vs "Internal team kickoff for Q3 initiative"</li>
               <li>• <span className={T.em}>Mention brand guidelines</span> — "Use formal language, avoid slang, always refer to product as 'Platform' not 'app'"</li>
-              <li>• <span className={T.em}>Include page count for Full Deck</span> — "Create a 12-slide presentation with a clear narrative arc"</li>
+              <li>• <span className={T.em}>Include page count for full deck</span> — "Create a 12-slide presentation with a clear narrative arc"</li>
             </ul>
             <div className="mt-3">
               <p className={T.labelTight}>Example — strong deck context:</p>
@@ -283,9 +283,9 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Edit output bar controls</h4>
             <ul className={T.listLoose}>
-              <li>• <span className={T.em}>Revision Prompt</span> — Type specific instructions for how the slide should change (e.g., "make the title punchier" or "add a bullet about timeline")</li>
-              <li>• <span className={T.em}>Layout Dropdown</span> — Switch to a different layout type during regeneration. Select "Keep layout" to preserve the current one</li>
-              <li>• <span className={T.em}>Regenerate Page</span> — Sends the current slide content + your revision notes back to the AI for a new version</li>
+              <li>• <span className={T.em}>Revision prompt</span> — Type specific instructions for how the slide should change (e.g., "make the title punchier" or "add a bullet about timeline")</li>
+              <li>• <span className={T.em}>Layout dropdown</span> — Switch to a different layout type during regeneration. Select "Keep layout" to preserve the current one</li>
+              <li>• <span className={T.em}>Regenerate page</span> — Sends the current slide content + your revision notes back to the AI for a new version</li>
               <li>• <span className={T.em}>Undo (&#8630;)</span> — Reverts to the previous version before the last regeneration</li>
               <li>• <span className={T.em}>Redo (&#8631;)</span> — Re-applies a version you just undid</li>
             </ul>
@@ -321,7 +321,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className={T.em}>Custom:</span> Type your own rewrite instruction for full control</li>
             </ul>
             <p className={T.hint}>
-              Rewrite prompts can be customized in Settings &rarr; Prompts tab &rarr; "AI Rewrite Prompts" section.
+              Rewrite prompts can be customized in Settings &rarr; Prompts tab &rarr; "AI rewrite prompts" section.
             </p>
           </div>
           <div className={T.card}>
@@ -431,7 +431,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <div>
                 <p className={T.label}>Example customization:</p>
                 <p className={T.exampleTight}>
-                  Change: "max 4 sentences per section" &rarr; "max 2 sentences per section, use punchy language"
+                  Change "max 4 sentences per section" to "max 2 sentences per section, use punchy language"
                   <br/>Add: "8. Always suggest a specific stock photo description in REQUIRED ASSETS"
                 </p>
               </div>
@@ -445,7 +445,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <ol className={T.hintList2}>
               <li>1. <span className={T.em}>API system message</span> is sent as the AI's system instruction</li>
               <li>2. Your <span className={T.em}>uploaded documents</span> are included as context</li>
-              <li>3. Your <span className={T.em}>deck context & guidelines</span> from the main interface is added</li>
+              <li>3. Your <span className={T.em}>deck context and guidelines</span> from the main interface are added</li>
               <li>4. The selected <span className={T.em}>layout type</span> and <span className={T.em}>page request</span> are specified</li>
               <li>5. <span className={T.em}>Generation rules</span> with the output format template are appended</li>
               <li>6. The AI generates content following all these instructions</li>
@@ -559,7 +559,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Theme prompt customization</h4>
             <p className={T.para}>
-              The Haiku prompt used for theme generation can be customized in Settings &rarr; Prompts tab &rarr; "Theme Color Generation".
+              The Haiku prompt used for theme generation can be customized in Settings &rarr; Prompts tab &rarr; "Theme color generation".
               This controls how the AI interprets your content and generates color palettes. Requires unlocking the prompts tab.
             </p>
           </div>
@@ -621,9 +621,9 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Customizing image prompts</h4>
             <p className={T.para}>
-              Image prompt system prompts can be customized in Settings &rarr; Prompts tab &rarr; "Visual Assets System Prompt" section.
+              Image prompt system prompts can be customized in Settings &rarr; Prompts tab &rarr; "Visual assets system prompt" section.
               You can edit the shared rules (applied to all models), individual model-specific prompts, and the API system message.
-              The output format template is editable in Settings &rarr; Format tab &rarr; "Image Prompt Export Schema".
+              The output format template is editable in Settings &rarr; Format tab &rarr; "Image prompt export schema".
             </p>
           </div>
         </div>
@@ -832,7 +832,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <li>• <span className={T.accent}>For full decks</span>, include desired page count in your deck context (e.g., "Create a 10-slide presentation...").</li>
           <li>• <span className={T.accent}>Lock settings</span> after configuring to prevent accidental changes during your session.</li>
           <li>• <span className={T.accent}>Collapse settings sections</span> you don't need to keep the panel tidy.</li>
-          <li>• <span className={T.accent}>Use AI Rewrite</span> to quickly adjust tone — select text, right-click, and choose a rewrite mode.</li>
+          <li>• <span className={T.accent}>Use AI rewrite</span> to quickly adjust tone — select text, right-click, and choose a rewrite mode.</li>
           <li>• <span className={T.accent}>Generate image prompts</span> at export time to get model-specific prompts for all visual assets in your deck.</li>
           <li>• <span className={T.accent}>Column layouts support up to 4 images</span> — Two, three, and four column layouts can display up to 4 visual assets above the text columns. Images are dynamically sized based on text length.</li>
           <li>• <span className={T.accent}>Use --- separators</span> in column layouts — The AI separates column content with --- dividers. Each section becomes one column.</li>
@@ -891,7 +891,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <ol className={T.listLoose}>
               <li><span className={T.accentStrong}>1.</span> Download both files below (<span className={T.em}>Code.gs</span> and <span className={T.em}>Sidebar.html</span>)</li>
               <li><span className={T.accentStrong}>2.</span> Open a Google Slides presentation</li>
-              <li><span className={T.accentStrong}>3.</span> Go to <span className={T.em}>Extensions &rarr; Apps Script</span></li>
+              <li><span className={T.accentStrong}>3.</span> Go to <span className={T.em}>Extensions</span>, then <span className={T.em}>Apps Script</span></li>
               <li><span className={T.accentStrong}>4.</span> Replace the default Code.gs content with the downloaded <span className={T.em}>Code.gs</span> file</li>
               <li><span className={T.accentStrong}>5.</span> Click the <span className={T.em}>+</span> next to Files, select <span className={T.em}>HTML</span>, name it <span className={T.em}>Sidebar</span>, and paste the <span className={T.em}>Sidebar.html</span> content</li>
               <li><span className={T.accentStrong}>6.</span> Save and close the Apps Script editor</li>

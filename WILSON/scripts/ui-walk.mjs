@@ -317,40 +317,45 @@ const REGISTRY = [
    of those it found, so any one of them is new. */
 const KNOWN = {
   /* V1-01 — glyphs fontsource's Latin subset of Geist does not ship, drawn
-     by Windows in Segoe UI instead. Matched on the element's own text. */
+     by Windows in Segoe UI instead. Matched on the element's own text, the
+     face that drew it (`used`) and a ceiling on its glyphs (`n`). P1 review
+     round two (R2-08): Chrome's platform-font report for an element counts
+     its inline children's glyphs too, so a filed parent <li> excused any
+     fallback glyph anywhere inside it; now one glyph more, or another face,
+     fails. The counts are the walk's own (P1, 2026-09-27, both sizes). */
   face: [
-    { key: 'otter-lesson', text: 'Project Settings → M' },
-    { key: 'otter-lesson', text: 'The is fixed the mom' },
-    { key: 'otter-new-course', text: '○ Add subject' },
-    { key: 'otter-new-course', text: '○ Share with the com' },
-    { key: 'otter-new-course', text: '● Just for me' },
-    { key: 'otter-new-course', text: '● New course' },
+    { key: 'otter-lesson', text: 'Project Settings → M', used: 'Segoe UI', n: 1 },
+    { key: 'otter-lesson', text: 'The is fixed the mom', used: 'Segoe UI', n: 1 },
+    { key: 'otter-new-course', text: '○ Add subject', used: 'Segoe UI Semibold', n: 1 },
+    { key: 'otter-new-course', text: '○ Share with the com', used: 'Segoe UI Semibold', n: 1 },
+    { key: 'otter-new-course', text: '● Just for me', used: 'Segoe UI Semibold', n: 1 },
+    { key: 'otter-new-course', text: '● New course', used: 'Segoe UI Semibold', n: 1 },
     // A4: the share dialog's tier cards draw the prompt form's ●/○ — the same
     // glyphs, the same open question (A3 §6 question 11), walked from A4 on.
-    { key: 'otter-share', text: '○Just for me' },
-    { key: 'otter-share', text: '○Share with the company' },
-    { key: 'otter-share', text: '●Company standard' },
+    { key: 'otter-share', text: '○Just for me', used: 'Segoe UI Semibold', n: 1 },
+    { key: 'otter-share', text: '○Share with the company', used: 'Segoe UI Semibold', n: 1 },
+    { key: 'otter-share', text: '●Company standard', used: 'Segoe UI Semibold', n: 1 },
     // P1 (review round one): D.O.G.'s help past its overview, walked from P1 on,
-    // draws D.O.G.'s ▸ output markers and → in fallback faces (Cambria Math,
-    // Segoe UI) — V1-01's gap in the same subset, P1-53, Audrey's Geist question.
-    { key: 'help-dog-prompts', text: 'Rule to use ▸ markers' },
-    { key: 'help-dog-prompts', text: 'The main headline for the slide' },
-    { key: 'help-dog-prompts', text: '▸ TITLE:' },
-    { key: 'help-dog-prompts', text: 'Supporting text beneath the title' },
-    { key: 'help-dog-prompts', text: '▸ SUBTITLE:' },
-    { key: 'help-dog-prompts', text: 'How content is arranged visually' },
-    { key: 'help-dog-prompts', text: '▸ LAYOUT STRUCTURE:' },
-    { key: 'help-dog-prompts', text: 'The actual body text and bullet points' },
-    { key: 'help-dog-prompts', text: '▸ COPY/TEXT CONTENT:' },
-    { key: 'help-dog-prompts', text: 'Mood, texture, atmosphere' },
-    { key: 'help-dog-prompts', text: '▸ VISUAL STYLING:' },
-    { key: 'help-dog-prompts', text: 'Typed assets: [Image]' },
-    { key: 'help-dog-prompts', text: '▸ REQUIRED ASSETS:' },
-    { key: 'help-dog-prompts', text: 'JSON code block with x/y/width/height' },
-    { key: 'help-dog-prompts', text: '▸ COMPONENT GEOMETRY:' },
-    { key: 'help-dog-prompts', text: 'max 4 sentences per section' },
-    { key: 'help-dog-download', text: 'Go to' },
-    { key: 'help-dog-download', text: 'Extensions → Apps Script' },
+    // draws D.O.G.'s ▸ output markers in Cambria Math — V1-01's gap in the same
+    // subset, P1-53, Audrey's Geist question. Each marker <span> is filed, and
+    // its <li> for the one ▸ the span puts inside it. (Review round two's copy
+    // fixes took the download page's two → and the prompts page's third out
+    // of the prose, and their three lines with them.)
+    { key: 'help-dog-prompts', text: 'Rule to use ▸ markers', used: 'Cambria Math', n: 3 },
+    { key: 'help-dog-prompts', text: 'The main headline for the slide', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ TITLE:', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: 'Supporting text beneath the title', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ SUBTITLE:', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: 'How content is arranged visually', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ LAYOUT STRUCTURE:', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: 'The actual body text and bullet points', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ COPY/TEXT CONTENT:', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: 'Mood, texture, atmosphere', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ VISUAL STYLING:', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: 'Typed assets: [Image]', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ REQUIRED ASSETS:', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: 'JSON code block with x/y/width/height', used: 'Cambria Math', n: 1 },
+    { key: 'help-dog-prompts', text: '▸ COMPONENT GEOMETRY:', used: 'Cambria Math', n: 1 },
   ],
   weight: [],
   upper: [],
@@ -440,7 +445,8 @@ const KNOWN = {
     // named for its shot — so rabbit-scene-detail reads anon=0 at 1440x900
     // and 1280x700 (rabbit-shot-detail too), and its two lines are deleted.
     // P1-77 (2026-09-27): the Electron title bar's three window controls are
-    // named (Minimize, Maximize, Close, each with its tooltip), so shell-quit
+    // named (Minimize, Maximize or restore, Close, each with its tooltip, the
+    // middle one's name after review round one: it toggles), so shell-quit
     // reads anon=0 at 1280x700 and its line is deleted.
   ],
 };
@@ -461,6 +467,16 @@ const isKnown = (kind, key, text) => KNOWN[kind].some((k) => {
   const hit = k.key === key && typeof k.text === 'string' && (text || '').includes(k.text);
   if (hit) MATCHED.add(k);
   return hit;
+});
+/* A fallback-face row: known only if a filing for this screen names its own
+   text, the face that drew it, and a ceiling its glyph count is within (R2-08).
+   A filing with no `used` or no `n` excuses nothing. */
+const isKnownFace = (key, row) => KNOWN.face.some((k) => {
+  if (k.key !== key || typeof k.text !== 'string' || !(row.text || '').includes(k.text)) return false;
+  if (k.used !== row.used) return false;
+  MATCHED.add(k);
+  seenAtMost(k, row.glyphs);
+  return typeof k.n === 'number' && row.glyphs <= k.n;
 });
 /* Unnamed controls, per icon: known only if the EXACT icon is listed for this
    screen and the count has not grown. Returns the ones that are new. */
@@ -694,7 +710,7 @@ async function visit(ctx, entry) {
   if (nestedEntry && nested > 0) { MATCHED.add(nestedEntry); seenAtMost(nestedEntry, nested); }
   const nestedKnown = nestedEntry?.n ?? 0;
   const news = {
-    face: faces.off.filter((r) => !isKnown('face', k, r.text)),
+    face: faces.off.filter((r) => !isKnownFace(k, r)),
     weight: rules.weight.filter((r) => !isKnown('weight', k, r.text)),
     upper: rules.upper.filter((r) => !isKnown('upper', k, r.text)),
     tracking: rules.tracking.filter((r) => !isKnown('tracking', k, r.text)),

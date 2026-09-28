@@ -139,9 +139,15 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                   <TextInput value={it.display_name} onChange={v => set(idx, { display_name: v })} disabled={disabled} className="!py-0.5" />
                   <div className="bn-add-meta truncate text-dense font-mono tabular-nums mt-0.5 flex items-center gap-1" data-duplicate={it.duplicate ? 'true' : undefined} title={it.source_path}>
                     {it.kind === 'sequence' && <Layers className="w-2.5 h-2.5" />}
-                    {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
-                    {disabled && ' · missing on disk'}
-                    {it.duplicate && ` · already in ${it.duplicate.existing_bin_name ? `"${it.duplicate.existing_bin_name}"` : 'the project'}${it.duplicate.reason === 'same_name_size' ? ' (same name and size)' : ''}`}
+                    {/* P1 review R2-07: the name and the sequence counts are
+                        data (mono); the two status phrases are words, so the
+                        sans. One span holds the run so the flex row keeps its
+                        two items (icon, text) and the gap does not move. */}
+                    <span>
+                      {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
+                      {disabled && <span className="font-sans"> · missing on disk</span>}
+                      {it.duplicate && <span className="font-sans">{` · already in ${it.duplicate.existing_bin_name ? `"${it.duplicate.existing_bin_name}"` : 'the project'}${it.duplicate.reason === 'same_name_size' ? ' (same name and size)' : ''}`}</span>}
+                    </span>
                   </div>
                 </div>
                 <div className="px-1">

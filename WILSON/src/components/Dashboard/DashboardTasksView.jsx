@@ -245,7 +245,7 @@ export default function DashboardTasksView() {
         <EmptyState
           Icon={CloudOff}
           title="Dashboard needs the cloud"
-          body="Your cross-project tasks live on the central workspace. Sign in and switch R.A.B.B.I.T. to the Supabase adapter (System settings → RABBIT) to see them here."
+          body="Your cross-project tasks live on the central workspace. Sign in and switch R.A.B.B.I.T. to the Supabase adapter (App settings → Storage) to see them here."
         />
       </div>
     )
