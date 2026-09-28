@@ -112,7 +112,11 @@ export function DogHelpContent({ helpPage, theme }) {
   const T = theme === 'light' ? L : D;
   return (
     <>
-      <div>
+      {/* P1 review R1-01: the light surface sets its one ink HERE. The light
+          roles that only add weight (em, accent, label, glyph, download) name
+          no ink of their own, and outside a list they inherited the app's
+          white: 19 runs at 2.53:1 on the orange well (C6). */}
+      <div className={theme === 'light' ? 'text-ink-light' : undefined}>
       {/* ═══ OVERVIEW ═══ */}
       {helpPage === 'overview' && (
       <div className="space-y-5">
@@ -151,15 +155,15 @@ export function DogHelpContent({ helpPage, theme }) {
       <section>
         <h3 className={T.sectionTitle}>Basic workflow</h3>
         <div className={T.bodyList2}>
-          <p><span className={T.accentStrong}>1. Upload Documents:</span> Add up to 5 source files (PDFs, markdown, text, or images) that contain your project information.</p>
-          <p><span className={T.accentStrong}>2. Set Deck Context:</span> Provide guidelines about the overall tone, style, and objectives for your presentation.</p>
-          <p><span className={T.accentStrong}>3. Choose Mode:</span> Toggle "Full Deck" to generate an entire presentation, or leave it off to generate individual slides.</p>
-          <p><span className={T.accentStrong}>4. For Single Pages:</span> Select a layout type, optionally set a page number, and describe what content you want on the slide.</p>
-          <p><span className={T.accentStrong}>5. Generate & Review:</span> Generated outlines appear in the output panel. Use the visualizer to preview layouts with theme colors, or edit the raw markdown.</p>
-          <p><span className={T.accentStrong}>6. Refine Output:</span> Use the Edit Output bar to regenerate pages with revision notes, change layouts, and undo/redo changes.</p>
-          <p><span className={T.accentStrong}>7. Theme Colors:</span> Enable "Theme generator" to auto-generate AI color palettes. Cycle through themes with arrow buttons. Refresh for new options.</p>
+          <p><span className={T.accentStrong}>1. Upload documents:</span> Add up to 5 source files (PDFs, markdown, text, or images) that contain your project information.</p>
+          <p><span className={T.accentStrong}>2. Set deck context:</span> Provide guidelines about the overall tone, style, and objectives for your presentation.</p>
+          <p><span className={T.accentStrong}>3. Choose mode:</span> Toggle "Full Deck" to generate an entire presentation, or leave it off to generate individual slides.</p>
+          <p><span className={T.accentStrong}>4. For single pages:</span> Select a layout type, optionally set a page number, and describe what content you want on the slide.</p>
+          <p><span className={T.accentStrong}>5. Generate & review:</span> Generated outlines appear in the output panel. Use the visualizer to preview layouts with theme colors, or edit the raw markdown.</p>
+          <p><span className={T.accentStrong}>6. Refine output:</span> Use the Edit Output bar to regenerate pages with revision notes, change layouts, and undo/redo changes.</p>
+          <p><span className={T.accentStrong}>7. Theme colors:</span> Enable "Theme generator" to auto-generate AI color palettes. Cycle through themes with arrow buttons. Refresh for new options.</p>
           <p><span className={T.accentStrong}>8. Export:</span> Download as DECKOUTLINE.md, or check "Include theme colors" for VIS_DECKOUTLINE.md with theme data and visual descriptions.</p>
-          <p><span className={T.accentStrong}>9. Image Prompts (Optional):</span> Enable "Generate image prompts" in the export modal to create AI image prompts for all visual assets. Select your target model (Midjourney, Flux, Nano Banana, or ChatGPT) and download alongside your outline.</p>
+          <p><span className={T.accentStrong}>9. Image prompts (optional):</span> Enable "Generate image prompts" in the export modal to create AI image prompts for all visual assets. Select your target model (Midjourney, Flux, Nano Banana, or ChatGPT) and download alongside your outline.</p>
         </div>
       </section>
       </div>
@@ -231,13 +235,13 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className={T.em}>Include page count for Full Deck</span> — "Create a 12-slide presentation with a clear narrative arc"</li>
             </ul>
             <div className="mt-3">
-              <p className={T.labelTight}>Example — Strong Deck Context:</p>
+              <p className={T.labelTight}>Example — strong deck context:</p>
               <p className={T.example}>
                 "Create a 10-slide pitch deck for ZeroSpace's holographic display technology. Target audience: brand marketing directors at luxury fashion houses. Tone: premium, forward-thinking, slightly provocative. Emphasize ROI and experiential impact. Use data from the uploaded case studies. Visual style: dark backgrounds, gold/amber accents, large hero imagery."
               </p>
             </div>
             <div className="mt-2">
-              <p className={T.labelTight}>Example — Weak Deck Context:</p>
+              <p className={T.labelTight}>Example — weak deck context:</p>
               <p className={T.example}>
                 "Make a nice presentation about our company."
               </p>
@@ -256,7 +260,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>• <span className={T.em}>Describe the visual you want</span> — "Hero image of the holographic display on the left, key specs on the right"</li>
             </ul>
             <div className="mt-3">
-              <p className={T.labelTight}>Example — Strong Page Request:</p>
+              <p className={T.labelTight}>Example — strong page request:</p>
               <p className={T.example}>
                 "Create a 'Title and two columns' slide comparing traditional LED activations vs ZeroSpace holographic experiences. Left column: limitations of LED (flat, static, high setup cost). Right column: benefits of holographic (3D, interactive, modular). Pull specific metrics from the uploaded ROI document."
               </p>
@@ -328,8 +332,8 @@ export function DogHelpContent({ helpPage, theme }) {
             <ul className={T.list}>
               <li>• <span className={T.em}>Bold (B):</span> Wraps selected text in **bold** markers</li>
               <li>• <span className={T.em}>Italic (I):</span> Wraps selected text in *italic* markers</li>
-              <li>• <span className={T.em}>Bullet List:</span> Converts lines to bulleted list items</li>
-              <li>• <span className={T.em}>Numbered List:</span> Converts lines to numbered list items with auto-increment</li>
+              <li>• <span className={T.em}>Bullet list:</span> Converts lines to bulleted list items</li>
+              <li>• <span className={T.em}>Numbered list:</span> Converts lines to numbered list items with auto-increment</li>
               <li>• <span className={T.em}>Heading:</span> Adds heading markers to selected text</li>
             </ul>
             <p className={T.hint}>
@@ -359,7 +363,7 @@ export function DogHelpContent({ helpPage, theme }) {
             </p>
             <div className="mt-3 space-y-2">
               <div>
-                <p className={T.label}>Required Elements (DO NOT REMOVE):</p>
+                <p className={T.label}>Required elements (do not remove):</p>
                 <ul className={T.hintList}>
                   <li>• Instruction to generate "presentation slide outlines"</li>
                   <li>• Rule to start output with "SLIDE #" (no preamble text)</li>
@@ -370,7 +374,7 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className={T.label}>Safe to Modify:</p>
+                <p className={T.label}>Safe to modify:</p>
                 <ul className={T.hintList}>
                   <li>• Tone instructions (e.g., "Be concise" vs "Be detailed")</li>
                   <li>• Creativity level (e.g., "Be creative with titles" or "Use straightforward language")</li>
@@ -380,7 +384,7 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className={T.label}>Example Customization:</p>
+                <p className={T.label}>Example customization:</p>
                 <p className={T.exampleTight}>
                   Add: "Use professional business language suitable for executive presentations. Avoid jargon and keep bullet points to 10 words or fewer."
                 </p>
@@ -395,7 +399,7 @@ export function DogHelpContent({ helpPage, theme }) {
             </p>
             <div className="mt-3 space-y-2">
               <div>
-                <p className={T.label}>Required Sections (Must Keep All 7):</p>
+                <p className={T.label}>Required sections (must keep all 7):</p>
                 <ul className={T.hintList}>
                   <li>• <span className={T.accentSoft}>&#9656; TITLE:</span> The main headline for the slide</li>
                   <li>• <span className={T.accentSoft}>&#9656; SUBTITLE:</span> Supporting text beneath the title</li>
@@ -407,7 +411,7 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className={T.label}>Safe to Modify:</p>
+                <p className={T.label}>Safe to modify:</p>
                 <ul className={T.hintList}>
                   <li>• Content length limits (e.g., "max 3 bullet points per section")</li>
                   <li>• Which layouts should have body text vs. title-only</li>
@@ -418,14 +422,14 @@ export function DogHelpContent({ helpPage, theme }) {
                 </ul>
               </div>
               <div>
-                <p className={T.label}>Layout-Specific Rules:</p>
+                <p className={T.label}>Layout-specific rules:</p>
                 <p className={T.hintTight}>
                   The default rules specify that certain layouts (Title slide, Section header, Title Page w/Gradient, Title only, Big number) should only have title and subtitle with no body text.
                   You can modify which layouts follow this rule by editing the list in rule #7.
                 </p>
               </div>
               <div>
-                <p className={T.label}>Example Customization:</p>
+                <p className={T.label}>Example customization:</p>
                 <p className={T.exampleTight}>
                   Change: "max 4 sentences per section" &rarr; "max 2 sentences per section, use punchy language"
                   <br/>Add: "8. Always suggest a specific stock photo description in REQUIRED ASSETS"
@@ -439,24 +443,24 @@ export function DogHelpContent({ helpPage, theme }) {
               When you generate a slide, the system combines these prompts with your uploaded documents and page request:
             </p>
             <ol className={T.hintList2}>
-              <li>1. <span className={T.quiet}>API System Message</span> is sent as the AI's system instruction</li>
-              <li>2. Your <span className={T.quiet}>uploaded documents</span> are included as context</li>
-              <li>3. Your <span className={T.quiet}>Deck Context & Guidelines</span> from the main interface is added</li>
-              <li>4. The selected <span className={T.quiet}>layout type</span> and <span className={T.quiet}>page request</span> are specified</li>
-              <li>5. <span className={T.quiet}>Generation Rules</span> with the output format template are appended</li>
+              <li>1. <span className={T.em}>API system message</span> is sent as the AI's system instruction</li>
+              <li>2. Your <span className={T.em}>uploaded documents</span> are included as context</li>
+              <li>3. Your <span className={T.em}>deck context & guidelines</span> from the main interface is added</li>
+              <li>4. The selected <span className={T.em}>layout type</span> and <span className={T.em}>page request</span> are specified</li>
+              <li>5. <span className={T.em}>Generation rules</span> with the output format template are appended</li>
               <li>6. The AI generates content following all these instructions</li>
             </ol>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Visual assets system prompt</h4>
             <ul className={T.list}>
-              <li>• <span className={T.em}>Theme Color Generation:</span> Haiku prompt for AI theme color palette generation</li>
-              <li>• <span className={T.em}>Shared Rules (All Models):</span> Common formatting and data completeness rules for all image models</li>
-              <li>• <span className={T.em}>Midjourney Prompt:</span> Model-specific rules for Midjourney v6 syntax</li>
-              <li>• <span className={T.em}>Flux Prompt:</span> Model-specific rules for Flux image generation</li>
-              <li>• <span className={T.em}>Nano Banana Prompt:</span> Model-specific rules for Nano Banana</li>
-              <li>• <span className={T.em}>Chat GPT / DALL-E Prompt:</span> Model-specific rules for ChatGPT/DALL-E 3</li>
-              <li>• <span className={T.em}>Image Prompt - API System Message:</span> Core instruction for the Claude API call that generates image prompts</li>
+              <li>• <span className={T.em}>Theme color generation:</span> Haiku prompt for AI theme color palette generation</li>
+              <li>• <span className={T.em}>Shared rules (all models):</span> Common formatting and data completeness rules for all image models</li>
+              <li>• <span className={T.em}>Midjourney prompt:</span> Model-specific rules for Midjourney v6 syntax</li>
+              <li>• <span className={T.em}>Flux prompt:</span> Model-specific rules for Flux image generation</li>
+              <li>• <span className={T.em}>Nano Banana prompt:</span> Model-specific rules for Nano Banana</li>
+              <li>• <span className={T.em}>Chat GPT / DALL-E prompt:</span> Model-specific rules for ChatGPT/DALL-E 3</li>
+              <li>• <span className={T.em}>Image prompt - API system message:</span> Core instruction for the Claude API call that generates image prompts</li>
             </ul>
           </div>
         </div>
@@ -667,7 +671,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <ul className={T.listLoose}>
               <li>• <span className={T.em}>Preserved on regeneration:</span> When you regenerate a page, placed asset markers are preserved automatically. The AI is instructed to keep existing {"<<filename>>"} entries verbatim</li>
               <li>• <span className={T.em}>Request specific placements:</span> Use the revision prompt to direct the AI, e.g., "use hero_shot.jpg for the main image" or "remove the team photo from this slide"</li>
-              <li>• <span className={T.em}>Full Deck mode:</span> Each asset is placed once across the entire deck — the AI distributes your uploads across slides where they contextually fit best</li>
+              <li>• <span className={T.em}>Full deck mode:</span> Each asset is placed once across the entire deck — the AI distributes your uploads across slides where they contextually fit best</li>
               <li>• <span className={T.em}>Manual editing:</span> You can edit the raw markdown to add, remove, or change {"<<filename>>"} markers directly in text view</li>
             </ul>
           </div>
@@ -675,8 +679,8 @@ export function DogHelpContent({ helpPage, theme }) {
             <h4 className={T.cardTitle}>Exporting with placed assets</h4>
             <ul className={T.listLoose}>
               <li>• <span className={T.em}>DECKOUTLINE.md / VIS_DECKOUTLINE.md:</span> The {"<<filename>>"} markers remain in the exported markdown for reference</li>
-              <li>• <span className={T.em}>Export Placed Visual Assets:</span> Check this option in the export modal to download all placed image/video files as individually numbered files (e.g., PROJECTNAME_VIS_ASSETS_01_hero.jpg)</li>
-              <li>• <span className={T.em}>Image Prompts:</span> When generating image prompts at export, frames with placed assets are automatically skipped — prompts are only generated for unplaced frames</li>
+              <li>• <span className={T.em}>Export placed visual assets:</span> Check this option in the export modal to download all placed image/video files as individually numbered files (e.g., PROJECTNAME_VIS_ASSETS_01_hero.jpg)</li>
+              <li>• <span className={T.em}>Image prompts:</span> When generating image prompts at export, frames with placed assets are automatically skipped — prompts are only generated for unplaced frames</li>
               <li>• <span className={T.em}>Export folder:</span> Use the Browse button in the export modal to select a custom output folder. The selected folder is remembered between sessions</li>
             </ul>
           </div>
@@ -782,29 +786,29 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Prompts tab</h4>
             <ul className={T.list}>
-              <li>• <span className={T.em}>Single Page - API System Message:</span> Core system instruction for single page generation</li>
-              <li>• <span className={T.em}>Single Page - Generation Rules:</span> Formatting rules and constraints for single page output</li>
-              <li>• <span className={T.em}>Full Deck - API System Message:</span> Core system instruction for full deck generation</li>
-              <li>• <span className={T.em}>Full Deck - Generation Rules:</span> Formatting rules and constraints for full deck output</li>
-              <li>• <span className={T.em}>Theme Color Generation:</span> System prompt for AI theme color generation</li>
-              <li>• <span className={T.em}>AI Rewrite Prompts:</span> Customize the 5 rewrite modes (Relaxed, Formal, Extend, Shorten, Custom Editor)</li>
+              <li>• <span className={T.em}>Single page - API system message:</span> Core system instruction for single page generation</li>
+              <li>• <span className={T.em}>Single page - generation rules:</span> Formatting rules and constraints for single page output</li>
+              <li>• <span className={T.em}>Full deck - API system message:</span> Core system instruction for full deck generation</li>
+              <li>• <span className={T.em}>Full deck - generation rules:</span> Formatting rules and constraints for full deck output</li>
+              <li>• <span className={T.em}>Theme color generation:</span> System prompt for AI theme color generation</li>
+              <li>• <span className={T.em}>AI rewrite prompts:</span> Customize the 5 rewrite modes (Relaxed, Formal, Extend, Shorten, Custom Editor)</li>
             </ul>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Visual assets system prompt</h4>
             <ul className={T.list}>
-              <li>• <span className={T.em}>Shared Rules (All Models):</span> Common formatting rules for all image models</li>
+              <li>• <span className={T.em}>Shared rules (all models):</span> Common formatting rules for all image models</li>
               <li>• <span className={T.em}>Midjourney / Flux / Nano Banana / Chat GPT:</span> Model-specific prompt rules</li>
-              <li>• <span className={T.em}>Image Prompt - API System Message:</span> Core instruction for the image prompt generation API call</li>
+              <li>• <span className={T.em}>Image prompt - API system message:</span> Core instruction for the image prompt generation API call</li>
             </ul>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Format tab</h4>
             <ul className={T.list}>
-              <li>• <span className={T.em}>Single Page Export Schema:</span> Markdown structure for individual slide exports</li>
-              <li>• <span className={T.em}>Full Deck Export Schema:</span> Markdown structure for complete deck exports</li>
-              <li>• <span className={T.em}>Visual Deck Export Schema:</span> Read-only schema showing the VIS_DECKOUTLINE format structure</li>
-              <li>• <span className={T.em}>Image Prompt Export Schema:</span> Markdown structure for AI image prompt exports</li>
+              <li>• <span className={T.em}>Single page export schema:</span> Markdown structure for individual slide exports</li>
+              <li>• <span className={T.em}>Full deck export schema:</span> Markdown structure for complete deck exports</li>
+              <li>• <span className={T.em}>Visual deck export schema:</span> Read-only schema showing the VIS_DECKOUTLINE format structure</li>
+              <li>• <span className={T.em}>Image prompt export schema:</span> Markdown structure for AI image prompt exports</li>
             </ul>
           </div>
         </div>

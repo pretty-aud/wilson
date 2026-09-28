@@ -37,6 +37,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { allRules, decls, splitTop } from '../../../scripts/ui-css-rules.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(join(here, 'adminTerminal.css'), 'utf8')
@@ -1308,17 +1309,25 @@ describe('status tones come from the kit (P1-39)', () => {
 
 // P1-48: two content widths, the plan's two (§3.3), and one error treatment.
 describe('the Admin Terminal has two measures and one load-error treatment (P1-48)', () => {
-  const rule = (sheet, sel) => {
-    const at = sheet.indexOf(`\n  ${sel} {`)
-    return at < 0 ? null : sheet.slice(at, sheet.indexOf('}', at))
+  // Every rule whose selector list names the class — grouped, repeated or
+  // nested in an at-rule (review round one, R1-06: a first-rule reader could
+  // not tell "no max-width" from "no rule found") — and the max-widths they
+  // declare. `rules` counts them, so a class that vanished is not a pass.
+  const widthsOf = (sheet, cls) => {
+    const hits = allRules(sheet).filter((r) => !r.sel.startsWith('@') && splitTop(r.sel).some((s) => s.trim() === cls))
+    return { rules: hits.length, maxWidths: hits.flatMap((r) => decls(r.body).filter(([p]) => p === 'max-width').map(([, v]) => v)) }
   }
   const widths = (sheet) => ({
-    narrow: (rule(sheet, '.at-section-narrow') || '').match(/max-width:\s*([^;]+);/)?.[1] ?? null,
-    storage: (rule(sheet, '.at-storage') || '').match(/max-width:\s*([^;]+);/)?.[1] ?? null,
-    models: (rule(sheet, '.at-models') || '').match(/max-width:\s*([^;]+);/)?.[1] ?? null,
+    narrow: widthsOf(sheet, '.at-section-narrow'),
+    storage: widthsOf(sheet, '.at-storage'),
+    models: widthsOf(sheet, '.at-models'),
   })
   it('Company, Diagnostics and Storage take the reading measure; Models the data cap with the tables', () => {
-    expect(widths(cssCode)).toEqual({ narrow: 'var(--width-reading)', storage: 'var(--width-reading)', models: null })
+    expect(widths(cssCode)).toEqual({
+      narrow: { rules: 1, maxWidths: ['var(--width-reading)'] },
+      storage: { rules: 1, maxWidths: ['var(--width-reading)'] },
+      models: { rules: 1, maxWidths: [] },
+    })
   })
   // NESTING, not order (V2 trap 15): from `{loadError && (` to the message,
   // a danger Banner must have opened and not closed, with no hand-drawn tint.
@@ -1337,7 +1346,18 @@ describe('the Admin Terminal has two measures and one load-error treatment (P1-4
   })
   it('CONTROL: the four widths, the hand-drawn box, and a Banner closed before the message are caught', () => {
     const before = '\n  .at-section-narrow {\n    max-width: 640px;\n  }\n  .at-models { overflow-y: auto; max-width: 900px; padding-bottom: 24px; }\n  .at-storage { max-width: 720px; height: auto; }'
-    expect(widths(before)).toEqual({ narrow: '640px', storage: '720px', models: '900px' })
+    expect(widths(before)).toEqual({
+      narrow: { rules: 1, maxWidths: ['640px'] }, storage: { rules: 1, maxWidths: ['720px'] }, models: { rules: 1, maxWidths: ['900px'] },
+    })
+    // R1-06's three plants: a 900px cap back on Models as a grouped selector,
+    // as a second rule, inside a media block — each is seen.
+    for (const plant of [
+      '.at-models, .at-model-group { max-width: 900px; }',
+      '.at-models { max-width: 900px; }',
+      '@media (min-width: 1px) { .at-models { max-width: 900px; } }',
+    ]) expect(widths(`${cssCode}\n  ${plant}`).models.maxWidths, plant).toContain('900px')
+    // And a sheet that lost the rule is not read as "no cap".
+    expect(widths('.at-other { max-width: 1px; }').models.rules).toBe(0)
     expect(loadErrorInBanner(`{loadError && (
         <div className="p-3 rounded-control mb-3"
              style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 12%, transparent)' }}>

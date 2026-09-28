@@ -56,11 +56,12 @@ export default function TitleBar() {
         </svg>
       </button>
 
-      {/* Maximize / Restore */}
+      {/* Maximize / Restore: main.cjs toggles (isMaximized ? unmaximize :
+          maximize), so the name says both (P1 review R1-09). */}
       <button
         type="button"
-        aria-label="Maximize"
-        title="Maximize"
+        aria-label="Maximize or restore"
+        title="Maximize or restore"
         style={btnBase}
         onClick={() => window.electronAPI.maximize()}
         onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}

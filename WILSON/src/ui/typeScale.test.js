@@ -494,11 +494,12 @@ const LESSON_SELECTORS = ['h1', 'h2', 'h3', ' p ', 'li', 'code', 'pre', 'blockqu
  *  §3.1 gives every step one leading; 156 sites override it anyway. */
 const LEADING_OVERRIDE = /\bleading-(?:tight|snug|normal|relaxed|loose|none|\[[^\]]*\])\b/;
 /** Measured 2026-09-22: 19 in T1's lane, 38 in T2's, 99 in the rest.
- *  Ratcheted to 45 by P1 (2026-09-27): D.O.G.'s help (P1-35) names each
- *  class string ONCE in its role objects instead of on every paragraph, which
- *  took 111 of the class-string sites out; the leadings they carry are the
- *  same few, now counted once each. */
-const STEP_LEADING_RESIDUE = 45;
+ *  Ratcheted by P1 (2026-09-27) to the count measured on its tree: D.O.G.'s
+ *  help (P1-35) names each class string ONCE in its role objects instead of
+ *  on every paragraph. That is a fall in SITES, not in rendered overrides —
+ *  the paragraphs carry the same `leading-relaxed` they did (review round
+ *  one, R1-08). */
+const STEP_LEADING_RESIDUE = 44;
 const WHITE_GROUND = /\bbg-white(?:\/\d+)?\b/g;
 const OFF_SPACING = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y)-\[[\d.]+(?:px|rem|em)\]/g;
 /* The INVARIANT ("no vh in any padding"), not the shape of today's ternary:
@@ -816,11 +817,13 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     const hits = sweep(SCALE_STEP, ({ run }) => LEADING_OVERRIDE.test(run));
     expect(hits.length, `a scale step with a hand-set leading:\n${hits.slice(0, 20).join('\n')}`)
       .toBeLessThanOrEqual(STEP_LEADING_RESIDUE);
-    // The denominator: this really is a live, non-empty pattern, not a regex
-    // that stopped matching. (50 until P1's ratchet to 45; the floor keeps the
-    // same distance below the residue.)
-    expect(hits.length, 'LEADING_OVERRIDE matches nothing — it has stopped working')
-      .toBeGreaterThan(30);
+    // The denominator: this really is a live pattern, not a regex that
+    // stopped matching — proved on a planted class list rather than by a
+    // count floor on the tree (review round one, R1-08: a floor under the
+    // residue would fail the very lane that did what the ratchet asks).
+    expect(hits.length, 'LEADING_OVERRIDE matches nothing on the tree').toBeGreaterThan(0);
+    expect(LEADING_OVERRIDE.test('text-dense text-ink-2 leading-relaxed mb-4')).toBe(true);
+    expect(LEADING_OVERRIDE.test('text-dense text-ink-2 mb-4')).toBe(false);
   });
 
   it('the measure is on the PROSE rule, and the token is in §3.1s band', () => {

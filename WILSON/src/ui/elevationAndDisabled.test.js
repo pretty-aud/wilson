@@ -47,16 +47,28 @@ function sweep(re) {
   return hits
 }
 
+// The handler of the <button> a hit's class sits on: the nearest `onClick=`
+// between the button's opening `<button` and the hit (review round one,
+// R1-07: counting hits per file let a new site replace a fixed one).
+function handlerAt(rel, line) {
+  const lines = readFileSync(join(SRC, rel), 'utf8').split(/\r?\n/)
+  const upTo = lines.slice(0, line).join('\n')
+  const open = upTo.lastIndexOf('<button')
+  const m = open < 0 ? null : upTo.slice(open).match(/onClick=\{([^}]*)\}/)
+  return m ? m[1].replace(/\s+/g, ' ').trim() : null
+}
+
 describe('one elevation (§3.3) and one disabled treatment (§3.1)', () => {
   it('no Tailwind shadow scale outside the untouchables', () => {
     expect(sweep(TW_SHADOW)).toEqual([])
   })
-  it('opacity as a disabled state only on the three task-editor buttons that wait on P1-31', () => {
+  it('opacity as a disabled state only on the three task-editor buttons that wait on P1-31, each named by its handler', () => {
     const hits = sweep(OPACITY_DISABLED)
-    expect(hits.map((h) => h.split(':')[0])).toEqual([
-      'tools/rabbit_v0.1.0/views/TimelineView.jsx',
-      'tools/rabbit_v0.1.0/views/TimelineView.jsx',
-      'tools/rabbit_v0.1.0/views/TimelineView.jsx',
+    const named = hits.map((h) => { const [rel, line] = h.split(':'); return [rel, handlerAt(rel, +line)] })
+    expect(named).toEqual([
+      ['tools/rabbit_v0.1.0/views/TimelineView.jsx', 'handleDelete'],
+      ['tools/rabbit_v0.1.0/views/TimelineView.jsx', '() => !saving && onClose()'],
+      ['tools/rabbit_v0.1.0/views/TimelineView.jsx', 'handleSave'],
     ])
   })
   it('CONTROL: both patterns see their old spellings and pass the token', () => {

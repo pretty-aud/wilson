@@ -19,7 +19,7 @@ describe('TitleBar window controls (P1-77)', () => {
     const { container } = render(<TitleBar />)
     const buttons = [...container.querySelectorAll('button')]
     expect(buttons.map((b) => [b.getAttribute('aria-label'), b.getAttribute('title')])).toEqual([
-      ['Minimize', 'Minimize'], ['Maximize', 'Maximize'], ['Close', 'Close'],
+      ['Minimize', 'Minimize'], ['Maximize or restore', 'Maximize or restore'], ['Close', 'Close'],
     ])
     expect(unnamed(container)).toEqual([])
     for (const svg of container.querySelectorAll('button svg')) expect(svg.getAttribute('aria-hidden')).toBe('true')

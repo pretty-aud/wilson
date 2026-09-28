@@ -333,7 +333,7 @@ export function OtterHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Pet mode</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Toggle in System Settings</span> under the Companion section</li>
+              <li>• <span className={T.listBold}>Toggle in App settings</span> under the Companion section</li>
               <li>• <span className={T.listBold}>When ON:</span> Full Tamagotchi experience with hunger, sleep, and mood</li>
               <li>• <span className={T.listBold}>When OFF:</span> Helper-only chatbot — no mechanics, just a study assistant</li>
             </ul>

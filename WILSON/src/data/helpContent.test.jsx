@@ -12,7 +12,7 @@
 // it can fail.
 // =============================================================================
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, fireEvent } from '@testing-library/react'
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from './dogHelpContent'
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from './otterHelpContent'
 import { RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent } from '../tools/rabbit_v0.1.0/rabbitHelpContent'
@@ -73,13 +73,15 @@ describe('the help content is on the tokens, on both surfaces (P1-35)', () => {
 
 // Sentence case (Q2): the first word keeps its capital; after it, only proper
 // nouns and acronyms do.
-const PROPER = new Set(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Wilson', 'Slides', 'Google', 'AI', 'Nodes'])
-// A tool's spelled-out name is a proper noun (the nav's subtitle under "D.O.G.").
-const PROPER_PHRASES = ['Deck Outline Generator']
+const PROPER = new Set(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Wilson', 'Slides', 'Google', 'AI', 'Nodes',
+  'Midjourney', 'Flux', 'GPT', 'DALL-E', 'Tamagotchi'])
+// A tool's spelled-out name, and a product's two-word name, are proper nouns.
+const PROPER_PHRASES = ['Deck Outline Generator', 'Nano Banana', 'Chat GPT']
 function titleCased(label) {
   let text = label
-  for (const p of PROPER_PHRASES) text = text.replace(p, 'Name')
-  const words = text.replace(/[()]/g, ' ').split(/\s+/).filter(Boolean)
+  for (const p of PROPER_PHRASES) text = text.split(p).join('name')
+  // A list's own number ("1. Upload documents:") is not the first word.
+  const words = text.replace(/[()]/g, ' ').split(/\s+/).filter(Boolean).filter((w, i) => !(i === 0 && /^\d+[.)]$/.test(w)))
   const rest = words.slice(1).filter((w) => /^[A-Z][a-z]/.test(w) && !PROPER.has(w.replace(/[:,?]$/, '')))
   // the word after a colon starts a label again ("Step 1: Sign in")
   return rest.filter((w, i) => !/:$/.test(words[words.indexOf(w) - 1] || ''))
@@ -97,9 +99,32 @@ describe('the help nav is in sentence case (Q2, P1-35)', () => {
     const texts = [...container.querySelectorAll('h3, h4, nav button')].map((e) => e.textContent.trim()).filter(Boolean)
     expect(texts.length).toBeGreaterThan(4)
     expect(texts.filter((t) => titleCased(t).length)).toEqual([])
-    // Q7: the App settings section is called that here too.
-    expect(container.textContent).not.toMatch(/System Settings/)
   })
+  // Review round one, R1-02: the run-in labels ("Safe to modify:") are not
+  // the Label step (13px/600), so Q2 holds for them; the first pass read only
+  // headings. Every page of every help, on both surfaces.
+  it('every heading and run-in label on every page of every help, both surfaces', () => {
+    const bad = []
+    let read = 0
+    for (const [tool, items, Content, themes] of SURFACES) {
+      for (const theme of themes) {
+        for (const { id } of items) {
+          const { container } = render(<Content helpPage={id} theme={theme} />)
+          const runIns = [...container.querySelectorAll('h3, h4, p, span, div')]
+            .filter((e) => /\bfont-semibold\b/.test(e.getAttribute('class') || '') && /:$/.test(e.textContent.trim()) && e.children.length === 0)
+          for (const e of [...container.querySelectorAll('h3, h4'), ...runIns]) {
+            const t = e.textContent.trim()
+            read++
+            if (titleCased(t).length) bad.push(`${tool} ${theme || 'dialog'} ${id}: "${t}"`)
+          }
+          cleanup()
+        }
+      }
+    }
+    expect(read).toBeGreaterThan(100)
+    expect([...new Set(bad)]).toEqual([])
+  })
+
   it('CONTROL: the check catches the labels the pass changed', () => {
     for (const was of ['Basic Workflow', 'Tips & Best Practices', 'Keyboard Shortcuts (Software Type)', '8 Pet Breeds']) {
       expect(titleCased(was).length, was).toBeGreaterThan(0)
@@ -107,6 +132,73 @@ describe('the help nav is in sentence case (Q2, P1-35)', () => {
     for (const ok of ['Download the Slides extension', 'Step 1: Sign in', 'What is the Nodes page?', 'AI features', 'D.O.G. overview']) {
       expect(titleCased(ok), ok).toEqual([])
     }
+  })
+})
+
+// Review round one, R1-01: on the light Help page a role that only adds
+// weight (em, accent, label, glyph, download) names no ink, and outside a
+// list it inherited the app's white — 19 runs at 2.53:1 on the orange. On a
+// light surface every text must sit under the one ink: `text-ink-light` on
+// itself or on an ancestor inside the rendered help.
+function inklessText(container) {
+  const found = []
+  for (const el of container.querySelectorAll('*')) {
+    const ownText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
+    if (!ownText) continue
+    let inked = false
+    for (let n = el; n && n !== container.parentElement; n = n.parentElement) {
+      const cls = n.getAttribute?.('class') || ''
+      // The one ink, or a kit part (`ui-*`: Kbd, Badge…), whose own sheet
+      // sets its ink per surface.
+      if (/(?:^|\s)(?:text-ink-light|ui-[a-z-]+)(?:\s|$)/.test(cls)) { inked = true; break }
+    }
+    if (!inked) found.push(`${el.tagName.toLowerCase()} "${el.textContent.trim().slice(0, 40)}"`)
+  }
+  return found
+}
+
+describe('on the light surface every text sits under the one ink (R1-01, C6)', () => {
+  for (const [tool, items, Content] of SURFACES) {
+    it(`${tool} light: every page`, () => {
+      const bad = []
+      for (const { id } of items) {
+        const { container } = render(<Content helpPage={id} theme="light" />)
+        bad.push(...inklessText(container).map((b) => `${id}: ${b}`))
+        cleanup()
+      }
+      expect(bad).toEqual([])
+    })
+  }
+  it('CONTROL: a weight-only role in a card with no ink is caught; the same under an inked root passes', () => {
+    const host = document.createElement('div')
+    host.innerHTML = '<div><div class="bg-well-light border rounded-control p-3"><p class="text-dense font-semibold">Safe to modify:</p></div></div>'
+    expect(inklessText(host)).toEqual(['p "Safe to modify:"'])
+    host.firstChild.setAttribute('class', 'text-ink-light')
+    expect(inklessText(host)).toEqual([])
+  })
+})
+
+// Review round one, R1-03: the old guard read only the page Help opens on,
+// so the names it looked for could not have been there. This one opens every
+// tool section and every page, and proves it reached the Wilson pages.
+describe('the Help page names things as the app does, on every page it can show (Q7, R1-03)', () => {
+  it('no "System Settings", "Project Manager" or "Pet Mode ON/OFF" anywhere in Help', () => {
+    const { container } = render(<HelpPage />)
+    const seen = []
+    const nav = container.querySelector('nav')
+    for (const section of [...nav.querySelectorAll('button[aria-expanded]')]) {
+      if (section.getAttribute('aria-expanded') !== 'true') fireEvent.click(section)
+      const panel = container.querySelector(`#${section.getAttribute('aria-controls')}`)
+      for (const item of [...(panel?.querySelectorAll('button') || [])]) {
+        fireEvent.click(item)
+        seen.push(container.textContent)
+      }
+    }
+    const all = seen.join('\n')
+    // CONTROL: the traversal really reached the Wilson section's pages.
+    expect(all).toMatch(/Pet lifecycle/)
+    expect(all).toMatch(/About Wilson/)
+    for (const old of [/System Settings/, /Project Manager/, /Pet Mode (?:ON|OFF)/]) expect(all).not.toMatch(old)
   })
 })
 

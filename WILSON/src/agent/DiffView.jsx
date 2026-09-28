@@ -43,9 +43,9 @@ export default function DiffView({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-      <div className="bg-stone-900 border border-orange-500 rounded-control shadow-float flex flex-col" style={{ width: '85%', maxWidth: '1000px', maxHeight: '80vh' }}>
+      <div className="bg-stone-900 border border-orange-500 rounded-float shadow-float flex flex-col" style={{ width: '85%', maxWidth: '1000px', maxHeight: '80vh' }}>
         {/* Header */}
-        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0 rounded-t-control">
+        <div className="bg-stone-800 px-4 py-3 flex items-center justify-between border-b border-stone-600 shrink-0 rounded-t-float">
           <div className="flex items-center gap-3">
             <span className="text-label font-semibold text-orange-400 uppercase">
               {isBulk ? `Change ${bulkIndex + 1} of ${bulkTotal}` : 'Proposed Changes'}

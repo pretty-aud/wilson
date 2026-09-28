@@ -297,6 +297,12 @@ const REGISTRY = [
   // Manager"); the screen keeps its key so its filings still find it.
   ...[['O.T.T.E.R.', 'otter'], ['Projects', 'projectmanager'], ['Wilson', 'wilson']].map(([t, k]) =>
     P(`help-${k}`, '/help', { steps: [t], expect: { expandedText: t } })),
+  // P1 review round one (R1-01): the Help screen measured only the page Help
+  // opens on (D.O.G. overview), so white text on two later D.O.G. pages
+  // passed the contrast census. Two pages that carry the run-in labels and
+  // the download rows.
+  P('help-dog-prompts', '/help', { steps: ['System prompts'], expect: { active: 'System prompts' } }),
+  P('help-dog-download', '/help', { steps: ['Download the Slides extension'], expect: { active: 'Download the Slides extension' } }),
 ];
 
 /* ─────────────────────────── known, filed findings ─────────────────────────
@@ -324,6 +330,27 @@ const KNOWN = {
     { key: 'otter-share', text: '○Just for me' },
     { key: 'otter-share', text: '○Share with the company' },
     { key: 'otter-share', text: '●Company standard' },
+    // P1 (review round one): D.O.G.'s help past its overview, walked from P1 on,
+    // draws D.O.G.'s ▸ output markers and → in fallback faces (Cambria Math,
+    // Segoe UI) — V1-01's gap in the same subset, P1-53, Audrey's Geist question.
+    { key: 'help-dog-prompts', text: 'Rule to use ▸ markers' },
+    { key: 'help-dog-prompts', text: 'The main headline for the slide' },
+    { key: 'help-dog-prompts', text: '▸ TITLE:' },
+    { key: 'help-dog-prompts', text: 'Supporting text beneath the title' },
+    { key: 'help-dog-prompts', text: '▸ SUBTITLE:' },
+    { key: 'help-dog-prompts', text: 'How content is arranged visually' },
+    { key: 'help-dog-prompts', text: '▸ LAYOUT STRUCTURE:' },
+    { key: 'help-dog-prompts', text: 'The actual body text and bullet points' },
+    { key: 'help-dog-prompts', text: '▸ COPY/TEXT CONTENT:' },
+    { key: 'help-dog-prompts', text: 'Mood, texture, atmosphere' },
+    { key: 'help-dog-prompts', text: '▸ VISUAL STYLING:' },
+    { key: 'help-dog-prompts', text: 'Typed assets: [Image]' },
+    { key: 'help-dog-prompts', text: '▸ REQUIRED ASSETS:' },
+    { key: 'help-dog-prompts', text: 'JSON code block with x/y/width/height' },
+    { key: 'help-dog-prompts', text: '▸ COMPONENT GEOMETRY:' },
+    { key: 'help-dog-prompts', text: 'max 4 sentences per section' },
+    { key: 'help-dog-download', text: 'Go to' },
+    { key: 'help-dog-download', text: 'Extensions → Apps Script' },
   ],
   weight: [],
   upper: [],
