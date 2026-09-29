@@ -28,6 +28,18 @@ import {
 
 const PRIMARY = 'primary'
 
+// Key dates in the order both real adapters return them: by date, undated
+// last, ties on id (state/milestoneOrder.js's byMilestoneDate — restated here
+// because devFixtures.test.js allow-lists what src/dev may import).
+function byMilestoneDate(a, b) {
+  const ta = a.date ? Date.parse(a.date) : NaN
+  const tb = b.date ? Date.parse(b.date) : NaN
+  if (Number.isNaN(ta) && Number.isNaN(tb)) return String(a.id).localeCompare(String(b.id))
+  if (Number.isNaN(ta)) return 1
+  if (Number.isNaN(tb)) return -1
+  return (ta - tb) || String(a.id).localeCompare(String(b.id))
+}
+
 export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
   const by = userId
   const stampBy = (row) => ({ ...row, updated_by: by, last_updated_by: by, last_updated_at: now() })
@@ -114,7 +126,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         })),
         managedFiles: [],
         projectTeam: [],
-        milestones: inProject(store.milestones),
+        // Trashed key dates stay out of the bundle, as both real adapters keep
+        // them (0067's milestones_select; localServerAdapter's filter).
+        milestones: live(inProject(store.milestones)).sort(byMilestoneDate),
         bins: inProject(store.bins),
         binFiles: binFilesWithOnline().filter(f => f.project_id === projectId),
         binRoots: inProject(store.binRoots),
@@ -378,9 +392,28 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async writeProjectRates(projectId, mirror) { store.ratesMirror[projectId] = clone(mirror); return { ok: true } },
     async deleteFolder(id) { remove(store.folders, id) },
 
-    // ── Milestones (the bundle key exists; the cloud has no table yet) ───────
+    // ── Milestones (0067 + 0077 — Track A A2, merged 2026-09-29) ─────────────
+    // The cloud shape, method for method: list(projectId) is the live rows by
+    // date; delete(id, projectId) is SOFT (ruling 38: trash + undo) and
+    // restore answers the RPC's boolean (false = already live); destroy is the
+    // HARD delete RabbitProvider uses for the undo of a CREATE; the trash list
+    // is newest first and carries purges_at for the panel's 30-day countdown
+    // (0014 §4). patch is the per-field write the provider prefers when it
+    // exists (0077's last-field-wins).
+    async listMilestones(projectId) {
+      return clone(live(store.milestones.filter(m => m.project_id === projectId)).sort(byMilestoneDate))
+    },
     async upsertMilestone(row) { return clone(upsert(store.milestones, row)) },
-    async deleteMilestone(id) { remove(store.milestones, id) },
+    async patchMilestone(id, fields) { return clone(patch(store.milestones, id, fields)) },
+    async deleteMilestone(id, _projectId) { softDelete(store.milestones, id, by) },
+    async destroyMilestone(id, _projectId) { remove(store.milestones, id) },
+    async restoreMilestone(id, _projectId) { return restore(store.milestones, id) },
+    async listTrashedMilestones(projectId) {
+      return clone(store.milestones
+        .filter(m => m.project_id === projectId && m.deleted_at)
+        .sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)))
+        .map(m => ({ ...m, purges_at: new Date(Date.parse(m.deleted_at) + 30 * 86400000).toISOString() })))
+    },
 
     // ── Realtime: nothing to subscribe to; report a joined channel ───────────
     // The provider reads Supabase channel statuses ('SUBSCRIBED' → live), and

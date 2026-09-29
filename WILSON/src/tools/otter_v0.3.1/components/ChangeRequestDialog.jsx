@@ -44,7 +44,7 @@ import { Dialog, Button, Banner, Loading } from '../../../ui'
 
 const SUMMARY_MAX = 4000   // otter_cr_summary_chk
 
-export default function ChangeRequestDialog({ course, standardName, onClose }) {
+export default function ChangeRequestDialog({ course, standardName, sourceIsStandard = false, onClose }) {
   const [existing, setExisting] = useState(null)
   const [summary, setSummary]   = useState('')
   const [loading, setLoading]   = useState(true)
@@ -54,6 +54,21 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
   const targetId = course?.source_course_id ?? null
   const isDeclined = existing?.status === 'changes_requested'
+
+  // MAY A REQUEST BE FILED OR RESUBMITTED AGAINST THIS TARGET?
+  //
+  // Being a fork is necessary but not sufficient. otter_cr_insert (0025) also
+  // requires the target to be company_standard RIGHT NOW, and a standard can be
+  // demoted underneath an existing fork — by hand via ShareCourseDialog's
+  // confirmDrop, or automatically whenever a nomination is approved (0064).
+  // Until this gate existed the whole submit form rendered in that state and the
+  // user only learned at POST time, having written the summary.
+  //
+  // This is deliberately NOT the whole dialog. otter_cr_update gates on WHO the
+  // caller is and never on the target's visibility, so withdrawing an open
+  // request and accepting a decline both still work after a demotion — hiding
+  // them would strand a proposer with a request they cannot close.
+  const canPropose = !!targetId && sourceIsStandard
 
   // Is there already a LIVE request from this fork? Open means refine or
   // withdraw; changes_requested means the admin answered and it is the
@@ -196,7 +211,10 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
       dismissOnBackdrop
       onClose={onClose}
       className="otter-cr"
-      footer={targetId && !loading ? (
+      // `canPropose || existing`, not `targetId` (Track A A4): after a
+      // demotion there is nothing to propose but a live request still has to
+      // be closable.
+      footer={(canPropose || existing) && !loading && (
         <>
           {existing && !isDeclined && (
             <Button icon={Undo2} onClick={withdraw} disabled={busy}>Withdraw</Button>
@@ -206,22 +224,44 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
           )}
           <span className="otter-cr-spacer" aria-hidden="true" />
           <Button onClick={onClose} disabled={busy}>Close</Button>
-          <Button variant="primary" icon={Send} onClick={submit} disabled={!summary.trim() || tooLong} loading={busy}>
-            {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}
-          </Button>
+          {canPropose && (
+            <Button variant="primary" icon={Send} onClick={submit} disabled={!summary.trim() || tooLong} loading={busy}>
+              {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}
+            </Button>
+          )}
         </>
-      ) : null}
+      )}
     >
       <div className="otter-cr-body">
-        {!targetId && (
-          <p className="otter-cr-note">
-            This course wasn&apos;t copied from a company standard, so there is nothing to
-            suggest a change to. Start from a company standard course and you can send your
-            improvements back.
-          </p>
+        {/* Widened from `!targetId` (Track A A4). There are two ways to have
+            no target — never forked from a standard, and forked from one that
+            has since stood down — and the second is the common one now that
+            approving a nomination demotes the incumbent. Naming which it is
+            matters: the first is a fact about the user's course, the second is
+            a thing that happened TO it, and telling someone their course
+            "wasn't copied from a company standard" when it demonstrably was
+            reads as a bug. */}
+        {!canPropose && (
+          <>
+            {!targetId ? (
+              <p className="otter-cr-note">
+                This course wasn&apos;t copied from a company standard, so there is nothing to
+                suggest a change to. Start from a company standard course and you can send your
+                improvements back.
+              </p>
+            ) : (
+              <p className="otter-cr-note">
+                {standardName ? `“${standardName}”` : 'The course this was copied from'} is no
+                longer the company standard, so there is nothing to suggest a change to. Your
+                copy is unaffected — it is still yours, and nothing in it has changed. If
+                another course has taken its place as the standard, take a copy of that one
+                and you can suggest changes there.
+              </p>
+            )}
+          </>
         )}
 
-        {targetId && (
+        {(canPropose || existing) && (
           <>
             {loading ? (
               <Loading label="Loading…" />
@@ -255,36 +295,47 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                   </div>
                 )}
 
-                <div>
-                  <label id="otter-cr-summary-label" className="ui-field-label otter-form-label">
-                    What did you change, and why?
-                  </label>
-                  <textarea
-                    value={summary}
-                    onChange={e => setSummary(e.target.value)}
-                    disabled={busy}
-                    aria-labelledby="otter-cr-summary-label"
-                    placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
-                    className="ui-input otter-cr-textarea"
-                    data-surface="dark"
-                  />
-                  <div className="otter-cr-meta">
-                    <span>This is what the reviewer reads first.</span>
-                    <span className="otter-cr-count" data-over={tooLong}>
-                      {summary.length} / {SUMMARY_MAX}
-                    </span>
-                  </div>
-                </div>
+                {/* The write half, and ONLY the write half, is gated. The two
+                    banners above stay visible after a demotion because a
+                    proposer with a live request still needs to see its state
+                    to withdraw it or accept the decline. */}
+                {canPropose && (
+                  <>
+                    <div>
+                      <label id="otter-cr-summary-label" className="ui-field-label otter-form-label">
+                        What did you change, and why?
+                      </label>
+                      <textarea
+                        value={summary}
+                        onChange={e => setSummary(e.target.value)}
+                        disabled={busy}
+                        aria-labelledby="otter-cr-summary-label"
+                        placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
+                        className="ui-input otter-cr-textarea"
+                        data-surface="dark"
+                      />
+                      <div className="otter-cr-meta">
+                        <span>This is what the reviewer reads first.</span>
+                        <span className="otter-cr-count" data-over={tooLong}>
+                          {summary.length} / {SUMMARY_MAX}
+                        </span>
+                      </div>
+                    </div>
 
-                {/* The review window, stated once (Session 13 — the "also
-                    share my copy" checkbox is gone because this replaced it). */}
-                <p className="otter-cr-note">
-                  Submitting lets reviewers open your copy of this course, read-only, while
-                  the request is under review. That access ends when the request is decided.
-                  If it is approved, your changes are added to the standard course — nothing
-                  is ever deleted from it, and its hotkey/function/node references stay as
-                  they are.
-                </p>
+                    {/* The review window, stated once (Session 13 — the "also
+                        share my copy" checkbox is gone because this replaced it).
+                        A4 / decision 37: four reference documents move on
+                        approval too; corrections stay with the copy. */}
+                    <p className="otter-cr-note">
+                      Submitting lets reviewers open your copy of this course, read-only, while
+                      the request is under review. That access ends when the request is decided.
+                      If it is approved, your changes are added to the standard course — nothing
+                      is ever deleted from it. Your hotkeys, functions, nodes and reference links
+                      are added to it too, alongside whatever it already has. Your corrections
+                      are not: those stay with your copy.
+                    </p>
+                  </>
+                )}
               </>
             )}
           </>

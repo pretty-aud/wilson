@@ -57,6 +57,7 @@ import {
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
 import { Button, IconButton, SectionTitle, Banner, Loading, Spinner, StatusBadge, statusMeta } from '../../../ui'
+import { DOC_LABELS } from '../adapters/otterRoutes.js'
 
 // A4 (review O24): a request's status is the kit's StatusBadge, its tone and
 // word from the kit's one STATUS map (open, changes requested, approved,
@@ -203,6 +204,17 @@ export default function RequestsView({
         name: r.target_name ?? 'the standard course',
         adds: diff?.adds ?? null,
         updates: diff?.updates ?? null,
+        // 🚨 A4: THIS SURFACE IS WHERE THE FAILURE ACTUALLY HAPPENS.
+        // `canDecide` here is `isAdmin || ownTargets.has(...)`, so the OWNER of a
+        // company-standard course decides whatever their tier — and a plain member
+        // can own one, because approving a nomination promotes a course owned by
+        // whoever proposed it. otter_cr_apply admits that person, but
+        // otter_courses_update's WITH CHECK requires admin to write a
+        // company_standard row, so their four document writes are all refused.
+        // Dropping `documents` here would show them a plain green 'Applied' and
+        // defeat the .select('id') guard at the only surface that reaches it.
+        docsFailed: data?.documents?.failed ?? [],
+        docsMerged: data?.documents?.merged ?? [],
       })
       setDecide(null)
       setDiff(null)
@@ -434,7 +446,24 @@ export default function RequestsView({
             {applied.updates != null
               ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added`
               : ''}.
-            A pre-change archive was kept in your library.
+            {/* Positive evidence only. `failed.length === 0` is also true when the
+                server sent no `documents` key at all — an older client, a 501, a
+                future shape change — and printing "merged in as well" from missing
+                data is the same defect the adapter refuses two files away. */}
+            {/* THREE states, not two. `failed.length === 0` is ALSO true when the
+                server sent no `documents` key at all (an older client, a 501, a
+                future shape change), and both an affirmative claim and a
+                'could NOT be updated ' + nothing are wrong for that case. Say
+                something only when there is evidence either way.
+                The reason is taken from the failure itself: since the null-row
+                guards there is more than one way a document write can fail, and
+                naming only the permission one would be wrong for the others. */}
+            {(applied.docsMerged?.length ?? 0) === 4
+              ? ' Their hotkeys, functions, nodes and reference links were merged in as well.'
+              : (applied.docsFailed?.length ?? 0) > 0
+                ? ` Their subjects moved, but ${applied.docsFailed.map(d => DOC_LABELS[d.doc] ?? d.doc).join(', ')} could NOT be updated (${applied.docsFailed[0].message}).`
+                : ''}
+            {' '}A pre-change archive was kept in your library.
           </Banner>
         )}
 
@@ -524,9 +553,11 @@ export default function RequestsView({
                                       “{r.target_name ?? 'the standard'}”: <strong>{diff?.updates ?? 0} subject{(diff?.updates ?? 0) === 1 ? '' : 's'} updated,
                                       {' '}{diff?.adds ?? 0} added</strong>.</>
                                     )}{' '}
-                                    Nothing is deleted, and reference documents (hotkeys, functions,
-                                    nodes) are untouched. A snapshot of the current standard is kept
-                                    first, as a private archive owned by you.
+                                    Nothing is deleted. Their hotkeys, functions, nodes and reference
+                                    links are merged in as well — additively, so anything only the
+                                    standard has is kept. Corrections stay with them: those are agent
+                                    memory, not content. A snapshot of the standard as it is now,
+                                    documents included, is kept first as a private archive owned by you.
                                   </p>
                                   <div className="otter-req-actions">
                                     <Button size="sm" onClick={() => { setDecide(null); setDiff(null) }} disabled={busy}>Cancel</Button>

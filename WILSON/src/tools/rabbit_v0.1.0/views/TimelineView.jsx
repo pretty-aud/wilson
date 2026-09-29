@@ -72,6 +72,12 @@ import { useProjectAccess } from '../state/useProjectAccess'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from '../components/FileManager'
 import TaskDetailPopup from '../components/TaskDetailPopup'
+// Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
+// editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
+import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
+import DependencyRewireModal from '../components/DependencyRewireModal'
+import MilestoneTrashModal from '../components/MilestoneTrashModal'
+import { resolveRewireDrop, describeRewire } from './dependencyRewire'
 import { RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent } from '../rabbitHelpContent.jsx'
 import TaskTemplateManager from '../../../components/TaskTemplates/TaskTemplateManager'
 import {
@@ -334,6 +340,8 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
 
   // ── editor ───────────────────────────────────────────────
   const [editor, setEditor] = useState(null)
+  // Ruling 38's "Recently deleted" panel for key dates.
+  const [trashOpen, setTrashOpen] = useState(false)
   const closeEditor = () => setEditor(null)
 
   // Shared task-detail popup (same component used in Tasks tab)
@@ -804,6 +812,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         onNewPhase={() => openNewPhase()}
         onNewTask={() => openNewTask()}
         onNewMilestone={() => openNewMilestone()}
+        onOpenMilestoneTrash={() => setTrashOpen(true)}
         canWrite={canWrite}
         writeReason={writeReason}
         groupBy={groupBy}
@@ -935,6 +944,22 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           writeReason={writeReason}
         />
       )}
+
+      {/* ── Recently deleted key dates (ruling 38) ── */}
+      <MilestoneTrashModal
+        open={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        onList={ctx?.listTrashedMilestones}
+        onRestore={ctx?.restoreMilestone}
+        canWrite={canWrite}
+        writeReason={writeReason}
+        // The 30-day countdown is a cloud fact: purge_soft_deleted runs on a
+        // pg_cron job there (0014 §4) and nothing purges on the desktop, so
+        // the panel must not promise a deadline the Local Server will never
+        // meet.
+        purgeScheduled={ctx?.adapterMode !== 'local_server'}
+        adapterMode={ctx?.adapterMode}
+      />
 
       {/* ── Shared task detail popup (same component as Tasks tab) ── */}
       {detailTaskId && (
@@ -2043,6 +2068,25 @@ function DetailPane({
   const [depRewire, setDepRewire] = useState(null)
   // { depId, kind, predId, origSuccId, curX, curY }
 
+  // Audrey's ruling 7 (2026-09-04): a re-wire is confirmed before it writes.
+  // { depId, kind, predId, oldSuccId, newSuccId } while the modal is open.
+  const [pendingRewire, setPendingRewire] = useState(null)
+  const taskById = useMemo(() => {
+    const m = {}
+    rows.forEach(r => { if (r.kind === 'task' && r.task) m[r.task.id] = r.task })
+    return m
+  }, [rows])
+  function commitRewire(p) {
+    // The two halves are NOT atomic — the unlink commits, then the link may
+    // be refused (commonest: the target edge already exists) — and the modal
+    // says so. docs/OUTSTANDING.md keeps the atomicity entry; the confirm
+    // makes the gesture deliberate, it does not make it safe.
+    onUnlinkDependency?.(p.depId)
+    if (p.kind === 'task')  onLinkTasks?.(p.predId, p.newSuccId)
+    if (p.kind === 'phase') onLinkPhases?.(p.predId, p.newSuccId)
+    setPendingRewire(null)
+  }
+
   function beginDependencyRewire({ dep, kind, predId, origSuccId }) {
     // Session 29 — rewiring UNLINKS the old dependency and LINKS a new one, so
     // it is a write on both halves. Dropping it on empty space deletes the
@@ -2078,26 +2122,16 @@ function DetailPane({
         }
         node = node.parentNode
       }
-      let rewired = false
-      if (targetKey) {
-        const [tKind, tId] = targetKey.split(':')
-        if (tKind === kind && tId) {
-          if (tId === origSuccId) {
-            // Dropped back on original successor — treat as cancel.
-            rewired = true
-          } else if (tId !== predId) {
-            // Valid rewire — unlink the old dep, create a new one.
-            onUnlinkDependency?.(dep.id)
-            if (kind === 'task')  onLinkTasks?.(predId, tId)
-            if (kind === 'phase') onLinkPhases?.(predId, tId)
-            rewired = true
-          }
-        }
-      }
-      if (!rewired) {
-        // Dropped on empty space / self / wrong kind → disconnect.
+      const drop = resolveRewireDrop({ targetKey, kind, predId, origSuccId })
+      if (drop.action === 'rewire') {
+        // Valid rewire — ask first (ruling 7). commitRewire does the
+        // unlink-then-link after "Replace link"; "Keep old link" writes nothing.
+        setPendingRewire({ depId: dep.id, kind, predId, oldSuccId: origSuccId, newSuccId: drop.newSuccId })
+      } else if (drop.action === 'disconnect') {
+        // Dropped on empty space / self / wrong kind → disconnect, unchanged.
         onUnlinkDependency?.(dep.id)
       }
+      // 'cancel': dropped back on the original successor — nothing to do.
       setDepRewire(null)
     }
     window.addEventListener('mousemove', onMove)
@@ -3058,6 +3092,13 @@ function DetailPane({
               phaseDragPreview={phaseDragPreview}
               phaseDragAffectedIds={phaseDragAffectedIds}
             />
+            {pendingRewire && (
+              <DependencyRewireModal
+                description={describeRewire({ ...pendingRewire, taskById, phaseById: phasesById })}
+                onConfirm={() => commitRewire(pendingRewire)}
+                onCancel={() => setPendingRewire(null)}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -4165,6 +4206,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
 // nobody can save has nothing to read.
 function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, writeReason = null }) {
   const [draft, setDraft] = useState(editor.draft)
+  const guard = useDependencyStatusGuard(ctx)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -4216,7 +4258,23 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     setDraft(d => ({ ...d, [field]: value }))
   }
 
+  // Phase 7 (Track A A2): warn before a phase or task is saved INTO a
+  // completion status over unfinished predecessors, then save if asked. This phase
+  // editor is the ONLY phase-status surface in the product. Existing tasks
+  // open TaskDetailPopup instead of this form (openEditTask), so the task arm
+  // here meets a create — no predecessors yet — and stays for the day that
+  // changes. The form's own validation still runs inside performSave, and a
+  // "Go back" leaves the form open with the draft intact.
   async function handleSave() {
+    const target =
+      editor.mode === 'phase' && editor.phaseId ? { kind: 'phase', id: editor.phaseId } :
+      editor.mode === 'task'  && editor.taskId  ? { kind: 'task',  id: editor.taskId }  :
+      null
+    if (!target) return performSave()
+    return guard.update({ kind: target.kind, ids: target.id, patch: { status: draft.status }, write: performSave })
+  }
+
+  async function performSave() {
     // Defence in depth. The button above is inert when !canWrite, so this is
     // unreachable by mouse — but it is also the single funnel every mode's
     // write goes through, and a future affordance that forgets the gate should
@@ -4364,6 +4422,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
       style={{ backgroundColor: 'rgba(28, 25, 23, 0.75)' }}
       onClick={() => !saving && onClose()}
     >
+      {guard.modal}
       {/* V2 (2026-09-27): the kit Dialog's cap, 88vh, and the body scrolls
           between a head and a foot that stay. Uncapped, "New task" measured
           815px at 1280x700 with its title 57px above the window and nothing
@@ -5081,7 +5140,7 @@ function DetailZoomToolbar({
   zoomId, onChange, onCenterToday,
   sortOrder = 'asc', onSortOrderChange,
   canUndo = false, canRedo = false, onUndo, onRedo,
-  onNewPhase, onNewTask, onNewMilestone,
+  onNewPhase, onNewTask, onNewMilestone, onOpenMilestoneTrash,
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
 }) {
@@ -5119,6 +5178,14 @@ function DetailZoomToolbar({
               Key date
             </Button>
           </GatedAction>
+          {/* Ruling 38 (Track A A2): the slow path back from a deleted key
+              date. The undo toast covers the moment after a delete; this
+              covers yesterday, another session, and someone else's delete.
+              Not gated — reading the trash is a read, and the Restore button
+              inside it carries its own gate. */}
+          <Button size="sm" variant="ghost" icon={Trash2} onClick={onOpenMilestoneTrash} title="Recently deleted key dates">
+            Deleted
+          </Button>
           <GatedAction allowed={canWrite} reason={writeReason}>
             <Button size="sm" variant="primary" icon={Plus} onClick={onNewTask}>
               Task

@@ -41,7 +41,12 @@ import { canOnProject, projectActionDeniedReason } from '../../../permissions/pr
 import GatedAction, { WriteReasonProvider, useWriteReason } from '../../../permissions/GatedAction'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import NewTaskPopup from '../components/NewTaskPopup'
+// Phase 7 (Track A A2, 2026-09-06): every task-status write on this tab —
+// the inline dropdown, the bulk select, and both drop targets — warns about
+// unfinished predecessors and then continues if asked. Never blocks.
+import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
+import MilestoneTrashModal from '../components/MilestoneTrashModal'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
@@ -213,6 +218,20 @@ export default function ProjectTasksView() {
   const { can, role, ready: permsReady } = usePermissions()
   const canViewHistory = can('rabbit.history.view')
   const [historyTaskId, setHistoryTaskId] = useState(null)
+
+  // Ruling 38's "Recently deleted" panel for key dates, SECOND mount.
+  // Audrey, 2026-09-07: "the Recently Deleted panel for key dates appears on
+  // the Tasks tab as well as the Timeline". A2 session 2 put it only on the
+  // Timeline and its walkthrough asked her whether she wanted it here too.
+  // She does.
+  //
+  // A second mount rather than a lift into the shell: the two views are
+  // siblings under the same RabbitProvider, the panel owns all of its own
+  // state (it re-lists on every open, with a sequence guard), and hoisting it
+  // would mean threading `open` through the project shell for one button. The
+  // component is the shared thing; the mount is per surface, the same shape
+  // TaskDetailPopup already has here and in TimelineView.
+  const [trashOpen, setTrashOpen] = useState(false)
 
   // Entity writes (Session 6) — DB-side RLS is the real gate; this only
   // hides write affordances for staffed-project reviewers.
@@ -595,6 +614,22 @@ export default function ProjectTasksView() {
               </Button>
             </GatedAction>
 
+            {/* Ruling 38 on the Tasks tab (Audrey, 2026-09-07). Next to the
+                create button it pairs with, not next to Export.
+
+                🚨 THE LABEL IS NOT THE TIMELINE'S. There the toolbar is all key
+                dates and phases, so `Deleted` can only mean one thing; here the
+                screen is TASKS, and a bare `Deleted` would read as "deleted
+                tasks" — which this panel does not show and nothing else does
+                either. Tasks have their own undo toast and no trash panel, so
+                the ambiguity would be a promise the product cannot keep.
+
+                Not gated, exactly as on the Timeline: reading the trash is a
+                read, and the Restore button inside carries its own gate. */}
+            <Button size="sm" variant="ghost" Icon={Trash2} onClick={() => setTrashOpen(true)} title="Recently deleted key dates">
+              Deleted key dates
+            </Button>
+
             <GatedAction allowed={canWrite}>
               <Button size="sm" variant="primary" Icon={Plus} onClick={() => handleAddTask()}>
                 New task
@@ -816,6 +851,24 @@ export default function ProjectTasksView() {
           onClose={() => setHistoryTaskId(null)}
         />
       )}
+
+      {/* ── Recently deleted key dates (ruling 38; Audrey, 2026-09-07) ──
+          Every prop is the Timeline's, deliberately: the two mounts must
+          answer identically or the same key date would restore from one
+          screen and not the other. `purgeScheduled` is a CLOUD fact —
+          purge_soft_deleted runs on pg_cron there (0014 §4) and nothing
+          purges on Local Server, so the panel must not promise a deadline
+          the desktop will never meet. */}
+      <MilestoneTrashModal
+        open={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        onList={ctx?.listTrashedMilestones}
+        onRestore={ctx?.restoreMilestone}
+        canWrite={canWrite}
+        writeReason={writeReason}
+        purgeScheduled={ctx?.adapterMode !== 'local_server'}
+        adapterMode={ctx?.adapterMode}
+      />
     </div>
     </WriteReasonProvider>
   )
@@ -963,7 +1016,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
   // ── Multi-select state ──
   const [selected, setSelected] = useState(new Set())
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
-  const [confirmMilestone, setConfirmMilestone] = useState(null)
+  const guard = useDependencyStatusGuard(ctx)
   const allTaskIds = useMemo(() => {
     if (groups) return groups.flatMap(g => g.tasks.map(t => t.id))
     return tasks.map(t => t.id)
@@ -979,9 +1032,19 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
     else setSelected(new Set(allTaskIds))
   }
   function clearSelection() { setSelected(new Set()) }
+  // A bulk status change gets ONE warning naming every selected task with an
+  // unfinished predecessor, then continues if asked. The selection is cleared
+  // only when the write goes ahead, so "Go back" leaves the person exactly
+  // where they were.
   function bulkUpdate(patch) {
-    for (const id of selected) ctx?.updateTask?.(id, patch)
-    clearSelection()
+    const ids = [...selected]
+    guard.update({
+      ids, patch,
+      write: () => {
+        for (const id of ids) ctx?.updateTask?.(id, patch)
+        clearSelection()
+      },
+    })
   }
   // Bulk keeps its confirm (large blast radius); single rows rely on undo.
   // W9: the confirm is the kit's Dialog now, not window.confirm.
@@ -1025,7 +1088,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
   )
   const milestoneRow = (ms) => (
     <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} canWrite={canWrite}
-      ctx={ctx} onRequestDelete={() => setConfirmMilestone(ms)} />
+      ctx={ctx} />
   )
 
   // Milestone rows + task rows. When sorting by a date field, milestones are
@@ -1079,6 +1142,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
 
   return (
     <div className="rb-task-table-wrap">
+      {guard.modal}
       {/* ── Bulk-action bar (overlays the header, right of the checkbox
           column: the controls appear where the selection was made). ── */}
       {someSelected && (
@@ -1150,27 +1214,12 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
         </Dialog>
       )}
 
-      {/* Milestones are hard-deleted with no undo path (local entity, not one
-          of the 7 soft-delete tables) — the confirm stays until they get one.
-          W9: the kit's Dialog, not window.confirm; raised here rather than
-          in the row, because a table cell's nowrap would leak into it. */}
-      {confirmMilestone && (
-        <Dialog
-          width="confirm"
-          title={`Delete milestone "${confirmMilestone.title || 'Untitled'}"?`}
-          onClose={() => setConfirmMilestone(null)}
-          footer={(
-            <>
-              <Button autoFocus onClick={() => setConfirmMilestone(null)}>Cancel</Button>
-              <Button variant="danger" onClick={() => { const id = confirmMilestone.id; setConfirmMilestone(null); ctx?.deleteMilestone?.(id) }}>
-                Delete
-              </Button>
-            </>
-          )}
-        >
-          It comes off the Timeline as well.
-        </Dialog>
-      )}
+      {/* The milestone delete confirm that W9 had put on the kit Dialog is
+          GONE (Track A A2 session 2, ruling 38): 0067 made milestones the
+          eighth soft-delete table, the shell-level undo toast covers the
+          moment after a delete, and "Recently deleted key dates" (the
+          toolbar button above) covers everything after that. A modal AND a
+          toast for one gesture would have been the contradiction R1 found. */}
     </div>
   )
 }
@@ -1210,6 +1259,7 @@ function buildGroupPatch(groupBy, targetKey) {
 // several elements instead of one wrapper).
 function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, canWrite, onAddTask, renderTask }) {
   const [dragOver, setDragOver] = useState(false)
+  const guard = useDependencyStatusGuard(ctx)
   const dragCountRef = useRef(0)
 
   function groupDefaults() {
@@ -1235,7 +1285,8 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
     if (!canWrite) return
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(groupBy, group.key)
-    ctx.updateTask(taskId, patch)
+    // Phase 7: a drop into a done-status group warns first, then lands.
+    guard.update({ ids: taskId, patch, write: () => ctx.updateTask(taskId, patch) })
   }
   // Every row of the group carries the handlers and the one flag.
   const drop = {
@@ -1249,6 +1300,7 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
 
   return (
     <>
+      {guard.modal}
       <Row className="rb-task-group-row" {...drop.handlers}
         data-drag-over={dragOver ? 'true' : 'false'}>
         <Td colSpan={span} className="rb-task-group-cell">
@@ -1361,29 +1413,101 @@ function PhaseInlineEdit({ value, onCommit, readOnly = false }) {
 
 
 // ── Milestone (key date) row: its diamond carries the key date's colour ──
-function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
+function MilestoneRow({ milestone, columns, ctx, canWrite }) {
   const [editTitle, setEditTitle] = useState(false)
   const [localTitle, setLocalTitle] = useState(milestone.title)
   const [editDate, setEditDate] = useState(false)
   const [localDate, setLocalDate] = useState(milestone.date || '')
   const isProjectBound = milestone.isProjectBound
 
+  // 🚨 RE-SEED FROM PROPS, AND 0077 IS WHY IT IS NOW LOAD-BEARING.
+  //
+  // These two held their first value for the life of the row: useState's
+  // argument is an INITIAL value, the row is keyed `ms-<id>` so its instance
+  // survives every bundle update, and nothing re-seeded them. CellInlineText,
+  // twenty lines below, has had `useEffect(() => setDraft(value), [value])`
+  // since it was written; this row was simply missing it.
+  //
+  // Before key dates were broadcast the stale value could only be reached
+  // through undo/redo, which is rare. Live sync makes it routine and turns it
+  // into a WRITE: window A renames "Alpha" to "Beta"; the broadcast lands in
+  // window B and the row now displays "Beta"; someone in B clicks the title
+  // and clicks away; commitTitle compares its stale 'Alpha' with 'Beta',
+  // finds them different, and SAVES 'Alpha' over A's rename — no typing, no
+  // Save, no warning, and then re-broadcast to everyone. R1 found it.
+  //
+  // Guarded on the edit flags so an incoming event cannot yank text out from
+  // under someone who is actually typing: while a field is open its draft is
+  // theirs, and the merge layer's own pending-field protection covers the
+  // in-flight write (see updateMilestone in RabbitProvider).
+  useEffect(() => { if (!editTitle) setLocalTitle(milestone.title) }, [milestone.title, editTitle])
+  useEffect(() => { if (!editDate) setLocalDate(milestone.date || '') }, [milestone.date, editDate])
+
+  // 🚨 ...AND THE RE-SEED ALONE ONLY NARROWS THE WINDOW; THESE CLOSE IT (R2).
+  //
+  // The effects above are guarded on the edit flags so an incoming event
+  // cannot yank text out from under a live typist — which means that while a
+  // field IS open the draft still goes stale, and the original defect walks
+  // straight back in: click the title, a collaborator's rename lands, click
+  // away, and commit compares its stale draft with the new prop, finds them
+  // different, and writes the stale one over the rename. Narrower than
+  // "forever", but the same bug.
+  //
+  // So commit on what the PERSON did, not on what happens to differ from the
+  // current prop: the baseline is captured when the field opens, and a draft
+  // the person never touched writes nothing no matter what arrived meanwhile.
+  // A draft they DID touch still wins, which is correct — they typed it.
+  const titleBaseRef = useRef(milestone.title)
+  const dateBaseRef  = useRef(milestone.date || '')
+
+  function openTitleEditor() {
+    if (isProjectBound) return
+    titleBaseRef.current = milestone.title
+    setLocalTitle(milestone.title)
+    setEditTitle(true)
+  }
+  function openDateEditor() {
+    if (isProjectBound) return
+    dateBaseRef.current = milestone.date || ''
+    setLocalDate(milestone.date || '')
+    setEditDate(true)
+  }
+
+  // Against the BASELINE (what the field held when it opened), not against the
+  // live prop — see the refs above. Untouched draft, no write.
   function commitTitle() {
-    if (localTitle !== milestone.title && !isProjectBound) {
+    if (localTitle !== titleBaseRef.current && !isProjectBound) {
       ctx?.updateMilestone?.(milestone.id, { title: localTitle })
     }
     setEditTitle(false)
   }
   function commitDate() {
-    if (localDate !== milestone.date && !isProjectBound) {
+    if (localDate !== dateBaseRef.current && !isProjectBound) {
       ctx?.updateMilestone?.(milestone.id, { date: localDate })
     }
     setEditDate(false)
   }
-  // The confirm (TaskTable's Dialog) guards the hard delete.
+  // Soft delete — no confirm; the shell-level undo toast covers it.
+  //
+  // 🚨 THE CONFIRM IS GONE, AND ITS REMOVAL IS THE POINT. This function used to
+  // carry a `window.confirm` under a comment reading "milestones are
+  // hard-deleted with no undo path (local entity, not one of the 7 soft-delete
+  // tables) — the confirm stays until they get one". Both halves stopped being
+  // true in A2 session 2: 0067 made milestones the EIGHTH soft-delete table and
+  // put them on 0014's trash RPCs, and ruling 38 gave them an undo toast and a
+  // "Recently deleted key dates" panel. Leaving the confirm would have meant a
+  // modal AND a toast for one gesture on this tab while the Timeline had only
+  // the toast, and MASTER_PLAN §6 #10 — struck as CLOSED partly on this
+  // function's account — still naming a dialog that was in the tree. R1 of this
+  // session found the contradiction.
+  //
+  // The "Recently deleted key dates" panel is reachable from THIS toolbar too,
+  // as `Deleted Key Dates` (Audrey, 2026-09-07). It used to be on the Timeline
+  // only and this comment used to say so; R1 caught it still saying so, 743
+  // lines below the button the same commit added to this file.
   function handleDelete() {
     if (isProjectBound) return
-    onRequestDelete?.()
+    ctx?.deleteMilestone?.(milestone.id)
   }
 
   return (
@@ -1417,7 +1541,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
                     <button type="button"
                       className="rb-task-ms-name"
                       data-empty={milestone.title ? 'false' : 'true'}
-                      onClick={() => setEditTitle(true)}
+                      onClick={openTitleEditor}
                       title={milestone.description || milestone.title}
                     >
                       {milestone.title || 'Untitled key date'}
@@ -1446,7 +1570,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
                   isProjectBound ? (
                     <span className="rb-task-ms-date">{showDate(milestone.date)}</span>
                   ) : (
-                    <button type="button" className="rb-task-ms-date" onClick={() => setEditDate(true)}>
+                    <button type="button" className="rb-task-ms-date" onClick={openDateEditor}>
                       {showDate(milestone.date)}
                     </button>
                   )
@@ -1481,6 +1605,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite, onRequestDelete }) {
 
 // ── Single task row ──
 function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
+  const guard = useDependencyStatusGuard(ctx)
   const writeReason = useWriteReason()
 
   // 🚨 Session 29 — this funnel was UNGATED, and it is not a create affordance
@@ -1495,7 +1620,9 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   // would leave nine editable-looking cells that silently discard input.
   function handleUpdate(patch) {
     if (!canWrite) return
-    ctx?.updateTask?.(task.id, patch)
+    // Phase 7: a status move into done over an unfinished predecessor warns
+    // first; any other cell commits straight through.
+    guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
   }
   // Soft delete — no confirm; the shell-level undo toast covers it.
   function handleDelete() {
@@ -1622,6 +1749,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       title={canWrite ? undefined : (writeReason || undefined)}
       {...(drop?.handlers || {})}
     >
+      {guard.modal}
       {/* Checkbox */}
       <Td className="rb-task-check-cell">
         <button type="button" onClick={e => { e.stopPropagation(); onToggleSelect?.() }}
@@ -1687,6 +1815,7 @@ function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, 
 
 function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   const [addTitle, setAddTitle] = useState('')
+  const guard = useDependencyStatusGuard(ctx)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef(null)
   const dragCountRef = useRef(0)
@@ -1721,13 +1850,15 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
     if (!canWrite) return
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(kanbanGroup, group.key)
-    ctx.updateTask(taskId, patch)
+    // Phase 7: a card dropped into a done-status column warns first, then lands.
+    guard.update({ ids: taskId, patch, write: () => ctx.updateTask(taskId, patch) })
   }
 
   return (
     <div className="rb-task-col"
       data-drag-over={dragOver ? 'true' : 'false'}
       onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      {guard.modal}
 
       {/* ── Column header ── */}
       <div className="rb-task-col-head">

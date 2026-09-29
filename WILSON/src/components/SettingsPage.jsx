@@ -67,6 +67,17 @@ export default function SettingsPage({
   // well as failure. It is not `petSaveError`, which multiplexes four unrelated
   // conditions and is cleared by any later successful save.
   newPetStatus = null, newPetPending = false,
+  // A3 (2026-09-07): the pet's cross-device notices — today, "Your pet changed
+  // on another device — refreshed" after migration 0068 refuses this window's
+  // stale copy.
+  //
+  // 🚨 R1 of A3: this is App's STICKY notice, a different state from the one
+  // the <PetNotice> toast renders. They were one state, so dismissing the
+  // toast erased this at the same instant and the claim that "the toast goes
+  // away, this does not" was false. App clears this one on sign-out and on a
+  // later successful save, and nowhere else.
+  // null | { kind: 'info' | 'error', message }
+  petNotice = null,
   // Agent settings (passed via SettingsPageWithAgent wrapper)
   agentEnabled, onAgentEnabledChange,
   autoApprove, onAutoApproveChange,
@@ -438,6 +449,30 @@ export default function SettingsPage({
                 needed. Access is managed by your workspace admins.
               </Note>
 
+              {/* 🚨 R1 of A3 (Track A, 2026-09-07): THE NOTICE IS ABOVE THE
+                  `petData` GATE, AND THAT IS THE WHOLE POINT OF IT.
+
+                  It was inside the Companion section, which is
+                  `{petData && (…)}`. So on the one condition this surface was
+                  credited with closing — a failed pet LOAD, where `petData`
+                  stays null and the companion is never mounted — it rendered
+                  nothing, and the OUTSTANDING entry would have been closed by
+                  a surface that is absent in exactly its own case.
+
+                  On the overhaul's chrome it is the settings feedback strip
+                  (one ink, the semantics carried on the left edge), the same
+                  element the new-egg status block below uses. */}
+              {petNotice && (
+                <p
+                  className="s-feedback mb-4"
+                  data-tone={petNotice.kind === 'error' ? 'error' : undefined}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {petNotice.message}
+                </p>
+              )}
+
               {/* Companion Section. Q20: the CARD is Settings chrome and is
                   in scope — its name label, its two numeric readouts, its
                   progress bars and its status word. The pet itself is not:
@@ -448,6 +483,19 @@ export default function SettingsPage({
                   title="Companion"
                   description="Your AI pet companion appears on every page. Manage pet mode, difficulty, and more."
                 >
+                  {/* 🚨 A3: CLOUD-ONLY, SAID OUT LOUD. The pet is one row per
+                      person in your account (migration 0046) and every save
+                      goes there — `savePetData`'s local branch is only reached
+                      when nobody is signed in. The Phase 3 brief claimed the
+                      pet "works on desktop in local mode"; it does not, and
+                      until now nothing on screen said so. Somebody whose egg
+                      failed to hatch on a bad connection had no way to tell
+                      that from the feature being broken. */}
+                  <Note>
+                    Your pet lives in your account, so it follows you between computers —
+                    and it needs a connection. There is no offline copy: if the connection
+                    drops, changes to your pet are not saved until it comes back.
+                  </Note>
                   {/* Pet info card. S6: the name and both numeric readouts
                       were #f4a261 — the page's own ground used as ink — on the
                       0.55 well, measuring 2.10:1. That is within rounding of

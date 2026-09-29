@@ -57,7 +57,24 @@ function handlerBlock() {
 
 /** Every `error: 'code'` the send_setup_link handler can return. */
 function codesFromHandler() {
-  return [...handlerBlock().matchAll(/error:\s*'([a-z_]+)'/g)].map((m) => m[1])
+  return codesFromBlock(handlerBlock())
+}
+
+function codesFromBlock(block) {
+  return [...block.matchAll(/error:\s*'([a-z_]+)'/g)].map((m) => m[1])
+}
+
+/**
+ * The admin_contact handler ONLY — the read the typed confirmation depends on.
+ * Same scoping and the same found-it guard as handlerBlock(); it is a separate
+ * function rather than a parameter so a moved anchor names which handler moved.
+ */
+function adminContactBlock() {
+  const start = fnCode.indexOf("if (action === 'admin_contact')")
+  expect(start, 'admin_contact handler not found').toBeGreaterThan(-1)
+  const rest = fnCode.slice(start + 10)
+  const end = rest.indexOf("if (action === ")
+  return end === -1 ? rest : rest.slice(0, end)
 }
 
 function friendlyKeys() {
@@ -186,6 +203,49 @@ describe('every code the handler returns has a FRIENDLY string', () => {
     const friendly = friendlyKeys()
     expect(friendly.size).toBeGreaterThan(10)
     expect(friendly.has('unauthorized')).toBe(true)
+  })
+})
+
+describe('admin_contact — the read the confirmation depends on (R2, Track A bundle A1)', () => {
+  it('🚨 is in the ACTIONS set — a handler missing from the closed enum never runs', () => {
+    const setBlock = fnCode.slice(fnCode.indexOf('const ACTIONS = new Set(['))
+    expect(setBlock.slice(0, 200)).toMatch(/'admin_contact'/)
+  })
+
+  it('🚨 CATCHES the shared lookup — it THROWS, and an uncaught throw is a bare 500 the browser will not hand over', () => {
+    // R1 made loadFoundingAdmin throw so that both actions share one query, and
+    // caught it in send_setup_link only. Deno.serve has no error handler around
+    // this function, so the uncaught throw in admin_contact was a 500 with no
+    // CORS headers and no JSON body — which callOperatorFn's fetch reports as
+    // "Network error — check your connection." over a database hiccup.
+    const block = adminContactBlock()
+    expect(block).toMatch(/try\s*\{[\s\S]*?loadFoundingAdmin\(/)
+    expect(codesFromBlock(block)).toContain('admin_lookup_failed')
+  })
+
+  it('shares ONE lookup with send_setup_link — the address shown and the address demanded cannot diverge', () => {
+    expect(adminContactBlock()).toMatch(/loadFoundingAdmin\(/)
+    expect(handlerBlock()).toMatch(/loadFoundingAdmin\(/)
+    // Neither handler carries its own copy of the query: two copies is the
+    // drift that made the confirmation unsatisfiable in the first place.
+    expect(adminContactBlock()).not.toMatch(/from\('workspace_members'\)/)
+    expect(handlerBlock()).not.toMatch(/from\('workspace_members'\)/)
+  })
+
+  it('reports deliverability through the SAME suffix test the send enforces', () => {
+    expect(adminContactBlock()).toMatch(/deliverable:\s*!isSynthesizedAddress\(/)
+    expect(handlerBlock()).toMatch(/isSynthesizedAddress\(adminEmail\)/)
+  })
+
+  it('🚨 every code it returns has a FRIENDLY string', () => {
+    const friendly = friendlyKeys()
+    const missing = codesFromBlock(adminContactBlock()).filter((c) => !friendly.has(c))
+    expect(missing).toEqual([])
+  })
+
+  // ── FAILING CONTROL ───────────────────────────────────────────────────────
+  it('CONTROL: the parser found real codes in the admin_contact block', () => {
+    expect(codesFromBlock(adminContactBlock()).length).toBeGreaterThanOrEqual(2)
   })
 })
 

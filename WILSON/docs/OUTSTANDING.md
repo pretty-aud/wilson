@@ -63,18 +63,16 @@ what is deployed.**
 `operator-workspaces`' `create` behind `requirePlatformOperator`, and hands
 back a show-once password.
 
-📌 **The emailed setup link Audrey asked for is BUILT and NOT USABLE YET** —
-S43b, `186fa63` + `df257d0`, migration 0066. Measured 2026-09-04: 0066 is
-applied on dev and staging (the `platform_audit` action CHECK carries
-`workspace.invite_sent` on both; prod is at 0063 and does not), but
-`operator-workspaces` has not been redeployed on any project since 2026-08-08
-(dev v11, staging v9, prod v9), so the console's send button calls a function
-that does not know the action and fails. What is owed is one deploy per
-environment — `supabase functions deploy operator-workspaces --project-ref
-<ref>` — and 0066 must precede it (already true on dev and staging; on prod,
-0064 and 0066 first). In the wrong order the send reports success and writes no
-certificate. A deploy step, not a defect; the S43b commit messages' "applied to
-NO environment yet" is out of date.
+✅ **The emailed setup link is DEPLOYED and testable** — S43b (`186fa63` +
+`df257d0`), second-reviewed and shipped by Track A bundle A1 (`5dcff98`,
+2026-09-06): `operator-workspaces` v10 on staging and v12 on dev, both
+hash-verified against the source from a scratch download; migration 0066 was
+already on both by query. Prod has neither 0064, 0066 nor the function — the
+release session does prod, in that order. The R2 round found one defect inside
+the corrections (the read-only `admin_contact` action did not catch the shared
+lookup's throw, so a database hiccup read as "Network error") and fixed it.
+Walkthrough `docs/walkthroughs/02_setup_link.md` is hers; the bundle merges
+after her report.
 
 ---
 
@@ -201,120 +199,68 @@ Deliberate for now: agent mode is a different feature with its own prompt, its o
 it retrieval is a design question rather than a port. Recorded because the
 behaviour changes under a toggle with no explanation on screen.
 
-### The pet does not sync live between machines, and a second open window writes its stale copy back
+### A failed pet sync is never retried until WILSON is relaunched
 
-**INFERRED (2026-08-12, Phase 3).** The account pet is read once, by an effect
-keyed `[perms.ready, perms.userId]`. There is no subscription and no refetch, so
-a computer left open never learns that the pet changed elsewhere — and the moment
-anything touches the pet there (a decay tick reaching death, a difficulty change,
-petting), `savePet` writes that machine's stale copy over the account row.
+**MEASURED by the A3 review rounds (2026-09-07).** When `resolveUserPet` throws
+— a transient Supabase blip on sign-in — `petUserIdRef` is deliberately left
+null so the failure cannot re-point writes at the account (that is the fix for
+the entry this replaced). Nothing then installs it: the identity effect is keyed
+`[perms.ready, perms.userId]`, both primitives, and `usePermissions` re-renders
+on `TOKEN_REFRESHED` without changing `userId`, so the effect never runs again
+for that session. Every subsequent pet save fails for the life of the process.
 
-Phase 3 makes this visible in a new place: create an egg on PC A while PC B is
-open on the old ghost, and B can put the ghost back. The Create Egg path itself
-is now correct on both machines; what is missing is propagation.
+It is not silent — the save reports *"Your pet could not be reached in your
+account, so this change was not saved. Reopen WILSON to try again."*, and the
+copy names the relaunch precisely because nothing retries. The pet on screen is
+this account's cached one, so nothing is lost or shown wrongly.
 
-Practical mitigation until it is fixed: close WILSON on the other computer before
-creating an egg. This is the same class as the known two-tab clobber recorded
-against `localData.js`, but it now spans machines rather than tabs.
+Would fix it: a nonce ref bumped on a failed resolve and included in the
+effect's dependencies, driven by a bounded backoff or by `navigator.onLine`.
+Small. Not scheduled — it needs a decision about how hard to retry against a
+service that may be refusing on purpose.
 
-### The pet requires Supabase even on the Local Server adapter
+### The pet does not sync live between machines
 
-**INFERRED (2026-08-12, Phase 3).** `savePet` routes on `petUserIdRef.current`,
-which is correct — the pet follows the person. But the app is behind a mandatory
-sign-in, so that ref is effectively never null in normal use, and the
-`savePetData` → `POST /api/pet` branch is reachable only in the sub-second window
-before permissions resolve.
+**INFERRED (2026-08-12, Phase 3); NARROWED by Track A bundle A3 (2026-09-07,
+`5add1d4` + `700588e` + `7322e12`).** The account pet is read once, by an effect keyed
+`[perms.ready, perms.userId]`. There is no subscription and no refetch, so a
+computer left open never learns that the pet changed elsewhere.
 
-The consequence for the Phase 3 brief's "works on desktop in **local** mode":
-with the Local Server adapter selected but no network, Create Egg fails, now
-reports the failure on Settings, and the ghost returns on reload. The egg is
-never written to `pet.json` as a fallback, because `mirrorPetToCache` runs only
-after `saveCloudPet` succeeds.
+🚨 **The second half of this entry — "and writes its stale copy back" — is
+CLOSED.** Audrey's ruling 4 (2026-09-07) chose refusal over live sync:
+migration 0068 is a BEFORE UPDATE trigger on `public.user_pets` raising
+SQLSTATE `WP001` when `NEW.last_updated_at` is older than the stored row's, and
+the client no longer stamps a fresh anchor on every save, so the anchor a
+window sends is the one it is holding. On the refusal it does not retry — it
+re-reads the account and shows *"Your pet changed on another device —
+refreshed."*
 
-This is S31's design rather than a Phase 3 regression — one pet per person cannot
-also be a per-device file — but the "local mode" line in the brief is not
-satisfied on its own terms and no one has recorded the reinterpretation. Decide
-whether an offline pet is meant to exist at all.
+⚠️ **What is still open, precisely.** Two timestamps cannot order two writers
+that have both legitimately moved forward. A second window showing a LIVE pet
+with Pet Mode ON advances its own anchor every thirty seconds from its own
+decay tick, so its copy is genuinely newer and its write is accepted.
 
-### A pet saved as a `corpse` never becomes a ghost
+A first version of this paragraph claimed every window showing an egg, a
+corpse, a ghost or Pet Mode off was protected. **That is too strong, and it was
+corrected by the bundle's own review round.** A write is refused only when its
+anchor is OLDER than the stored one, which needs the *winning* writer to have
+advanced the anchor. Two windows both sitting on a non-decaying pet hold the
+SAME anchor, equal is allowed by design, and the second still overwrites the
+first. So: protected when the other machine has moved the pet on — creating an
+egg, feeding, petting a *hatched* pet, hatching, waking, a decay tick, or the
+second save of a Pet Mode resume. Not protected when neither has. (Petting an
+egg that does not hatch does not move the anchor; the egg's own mint did.) Audrey's reported case (create an egg on PC A
+while PC B sits on the old ghost) is protected, because minting an egg stamps a
+fresh anchor.
 
-**INFERRED (2026-08-12, Phase 3).** The live decay tick sets `form = 'corpse'`
-(`App.jsx`, death check) and only a **10-second `setTimeout` inside that same
-tick** promotes it to `'ghost'`. `form` is part of `petMaterialSignature`, so the
-corpse is persisted the moment it happens — to the account row, not just the
-cache. Close the app, reload or sign out inside those 10 seconds and the corpse
-is the stored state forever: `applyOfflineDecay`'s guard excludes `'corpse'`, and
-the decay interval's first line excludes it too, so nothing ever moves it again.
+⚠️ It is also **clock-sensitive**, because the anchor is client-supplied: a
+machine whose clock runs fast always wins, and one whose clock runs slow is
+refused, re-reads, adopts the account's anchor and can then write. A skewed
+clock degrades the guard rather than trapping anybody, but it does so
+silently.
 
-Phase 3 made this **recoverable** — `canCreateNewEgg` accepts `corpse` as well as
-`ghost` (`src/lib/petLifecycle.js`), so the Create Egg button works from that
-state instead of being visible-but-refusing. The state machine itself is
-unchanged: the pet still renders as a corpse indefinitely, and a user who does
-not press Create Egg has no way forward.
-
-Would settle it: kill the app within 10s of a death, reopen, and read
-`form` from `user_pets`. Fixing it means completing the transition on load
-(promote a `corpse` whose `diedAt` is more than 10s old), which is a change to
-the death rules and was explicitly out of scope for Phase 3.
-
-### Turning Pet Mode OFF does not protect the pet while the app is closed
-
-**INFERRED (2026-08-12, Phase 3).** The live decay tick short-circuits on
-`if (!prev.petMode) return prev`, but `applyOfflineDecay` never reads `petMode`
-at all — it decays from the `lastUpdatedAt` anchor regardless. So switching Pet
-Mode off does not pause starvation, it defers the whole elapsed interval to the
-next launch, and the pet can be found dead on reopening. The same function also
-ends no sleep and performs no evolution, so a pet asleep at close is immortal
-offline and a baby cannot grow while the app is shut.
-
-Would settle it: set `petMode` false, set `lastUpdatedAt` back several hours in
-`user_pets`, reload, and read the resulting `hunger`/`form`.
-
-### The per-device pet cache is keyed to the machine, not the account
-
-**INFERRED (2026-08-12, Phase 3).** `getDataDir()` in `electron/main.cjs` has no
-user segment, and `PET_KEY` in `src/lib/localData.js` is one `localStorage` key
-per origin. Nothing anywhere removes either on sign-out — `SessionSection`
-records that the disk copy survives deliberately, on the grounds that the React
-state leak was closed. But `resolveUserPet` still **reads that uncleaned copy**
-to make its adoption decision, so on a shared computer person A's pet can be
-lifted into person B's account when B has no pet row of their own. Suite 56
-proves an admin cannot read a member's pet through RLS; this hands one person's
-pet to another underneath RLS, through the filesystem.
-
-Phase 3 narrowed the blast radius — adoption now happens only when the account
-has **no** row at all — but did not close it.
-
-Would settle it: sign out on the desktop, sign in as a second account with no
-`user_pets` row, and read that row afterwards.
-
-### A failed cloud pet read leaves the stale device pet routed to the account
-
-**INFERRED (2026-08-12, Phase 3).** In the sign-in effect `petUserIdRef.current`
-is set unconditionally, *before* the async block. If `resolveUserPet()` then
-throws, the catch deliberately does not clear or replace `petData` — so the app
-keeps rendering the **stale device pet** while `savePet` now routes writes to the
-**account**. Any interaction, or the decay tick reaching death, writes that stale
-pet over the account row, with no adoption decision and no staleness check. A
-transient Supabase blip on the second computer is enough to overwrite the first
-computer's pet. The S34 storage-root effect two blocks below refuses to act on a
-failed read for exactly this reason; the pet effect does the opposite.
-
-### The `user_pets.feedback` size cap is untested, and Create Egg is the statement most likely to trip it
-
-**INFERRED (2026-08-12, Phase 3).** `0046` carries
-`CHECK (pg_column_size(feedback) <= 262144)` and claims in comments that it sits
-far above anything a conversation can produce. Nothing tests that claim. Feedback
-entries store the assistant reply **untruncated** (the 2000-char truncation
-applies only to what is sent to the model), replies run at `max_tokens: 1024`,
-and the array keeps the last 50 — the same order of magnitude as the cap.
-
-Create Egg carries the entire feedback array into the new pet by design, so it is
-the write most likely to hit the ceiling. A violation throws inside
-`saveCloudPet`; Phase 3 now surfaces that on the Settings page rather than
-silently, but the egg would still fail to persist. Suite 56 probes `feedback`
-for array-ness only and has **no probe of the size cap, and no accepting control**
-proving a maximal legitimate payload is allowed.
+Closing the rest needs a revision counter or the live sync ruling 4 declined.
+A second window still needs a reload to SEE a change.
 
 ### ~~Migration 0061 is written and NOT applied to any environment~~ — APPLIED on all three (re-verified 2026-09-04)
 Deleted per the rule for this file. `public.phase_dependencies` exists and
@@ -351,6 +297,16 @@ gesture atomic. The honest fix is to await the unlink and only then link, or to
 wrap both in `runBatch`. Not attempted this phase because it changes undo
 semantics and deserves its own test.
 
+**Narrowed by Track A bundle A2 (`643b5ca`, 2026-09-06), Audrey's ruling 7.** The
+gesture now asks first: releasing the arrow on another bar parks the rewire, and
+`DependencyRewireModal` names the edge being replaced ("A → B becomes A → C") and
+says the old link is removed before the new one is saved. "Replace link" runs
+unlink-then-link (`commitRewire`); "Keep old link" writes nothing; the mouseup
+itself no longer links (pinned by `dependencyRewire.test.js`). She accepted the
+confirm knowing it does not fix the loss. What remains is exactly the atomicity
+above — neither write awaited, no `runBatch`, the stale-snapshot rollback, the
+split undo — and it is all this entry now claims.
+
 ### The cloud dependency loader is workspace-scoped, not project-scoped
 
 **INFERRED (2026-08-11, code reading).** `listDependenciesWith` filters on a
@@ -375,29 +331,24 @@ product, and it ends in `.catch(() => [])`. Getting it wrong empties every Gantt
 silently. → Fix it in its own change, and settle the syntax first with one
 authenticated GET against staging before pushing anything.
 
-### Deleting a task or a phase leaves orphaned dependency rows on the desktop
+### The Dashboard writes task statuses without the Phase 7 dependency warning
 
-**INFERRED (2026-08-11, code reading).** `electron/main.cjs` backs both deletes
-with the generic `rabbitSubentityRoutes` DELETE, which splices only the target
-collection — there is no cascade and no dependency sweep, so edges referencing
-the deleted row stay in `project.json` and are re-mirrored into
-`{Slug}_DATABASES/tasks.json` and `timeline.json` on every write. `RabbitProvider`
-prunes the CLIENT bundle, which masks it for the session; they return on reload.
-Cloud is unaffected (0061's `ON DELETE CASCADE` on a hard delete; a soft-deleted
-parent keeps its edges deliberately so they return on restore).
-
-Harmless to render — every consumer skips edges with unknown endpoints — but the
-two backends diverge, and the orphans accumulate.
-
-### A desktop→cloud migration silently drops the whole dependency graph
-
-**INFERRED (2026-08-11, code reading).** `src/cloud/migrate/runMigration.js`
-inserts projects, phases, assets, tasks and files. The word `dependencies`
-appears in it exactly once, inside a comment describing
-`localServerAdapter.loadProject`'s return shape. There is no write to
-`task_dependencies` and none to `phase_dependencies`. A user who migrates a
-desktop project to the cloud arrives with an empty Gantt link set, no error, and
-no indication anything was lost.
+**INFERRED (2026-09-06, code reading).** Phase 7 (`643b5ca`) warns, naming the
+unfinished predecessors, on every R.A.B.B.I.T. task- and phase-status write and
+lets the person continue. The Dashboard is the one surface it does not reach:
+`DashboardTasksView.jsx`'s status select and its kanban drop write through
+`useMyTasks.patchTask`, and the cross-project task model (`useMyTasks`) loads
+tasks, phases and the roster but no `task_dependencies` rows. `TaskDetailPopup`
+carries the guard, but the `ctx` the Dashboard hands it has no `dependencies`
+array, and `statusWarning` answers null for "cannot check", never "clean". So a
+task marked Final from the Dashboard over an unfinished predecessor gets no
+warning, while the same task on the Tasks tab does. The Phase 7 brief's own
+warning applies: a check that fires on six screens and not the seventh trains
+the reader to trust silence.
+→ `useMyTasks` loads the edges for its tasks (one `task_dependencies` query on
+`successor_id in (…)`, cloud-only like the rest of the hook), passes
+`dependencies` in the ctx it gives the popup, and its own two writers call
+`useDependencyStatusGuard`. Not scheduled.
 
 ### ~~Migration 0059 dropped two columns from `workspace_directory()`~~ — FIXED by 0060, APPLIED on all three (re-verified 2026-09-04)
 Deleted per the rule for this file. `workspace_directory()`'s `RETURNS TABLE`
@@ -915,35 +866,70 @@ What remains is not this file's kind of entry, and is tracked elsewhere:
 - **A human walkthrough is owed:** submit as a plain member, approve as a
   manager, confirm the incumbent stood down, confirm the read window opens AND
   closes. `docs/RELEASE_TESTING.md`.
-- ⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
+- ~~⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
   approving a nomination DEMOTES the incumbent standard, so every fork of it
   immediately starts showing a "Suggest a change…" item whose POST cannot
-  succeed.
+  succeed.~~ — FIXED (2026-08-13, `b051e20`), merged onto `track-a-product` in
+  bundle A4. Being made routine by 0064 is what turned this from a corner case
+  into the thing worth fixing.
 
-### A manager can approve their own nomination
-**MEASURED in code (2026-08-12, Phase 5); decision owed by Audrey.** The
-nomination RPC checks the caller's role, not authorship, and the UI only hides
-the decide controls on your own row — the route is open. So a manager can
-nominate their own course and approve it in one sitting: an unreviewed
-self-promotion path. Deliberate for now, because a manager already holds the
-authority to promote by hand, and **Audrey has not ruled on it.** Split out of
-the closed entry above on 2026-09-04 so it does not sit under a FIXED heading.
-→ If she wants it closed: refuse in the RPC when the nominator is the caller,
-with a pgTAP probe and a breaker.
+### ~~A manager can approve their own nomination~~ — FIXED (2026-09-07, `93c199e`)
+Audrey ruled on it (decision 36): **allowed, and recorded.** A manager can already
+promote a course by hand, so refusing in the RPC would move the work rather than
+prevent it. Migration **0069** re-creates `otter_nomination_apply` and writes an
+`app_events` row with the new code **`WIL-4108`** when the nominator is the caller —
+in the SAME transaction as the promotion, and allowed to raise, so an unrecorded
+self-promotion rolls back with it. Suite 70 (36 → 48) proves it with the CONTROL
+first: approving someone else’s nomination writes no line. Three function mutants
+red on dev. ⚠️ **Applied on dev only** — see the staging note in the hand-off.
 
-### "Suggest a change…" is offered on forks of a demoted standard, where it cannot work
-**MEASURED at code level (2026-08-12, Phase 5); NOT observed at runtime.**
-`CourseRowMenu`'s `maySuggest` gates only on `!!course?.source_course_id` — it
-never re-checks that the source is *still* `company_standard`. If an admin demotes
-a standard (the `confirmDrop` path in `ShareCourseDialog`), every existing fork
-keeps showing the menu item, `ChangeRequestDialog` renders its full submit form,
-and only the POST fails, at RLS, with *"Change requests can only be raised against
-a company standard course."* The user is offered a control that cannot succeed.
+### ~~"Suggest a change…" is offered on forks of a demoted standard, where it cannot work~~ — FIXED (2026-08-13, `b051e20`)
+Kept struck rather than deleted because the brief's suggested fix was half of
+one, and the missing half is the part worth remembering.
 
-Not fixed in Phase 5 because the check needs the caller to resolve
-`source_course_id` against `softwareList` (`CourseRowMenu` only receives one
-course), and "source not in my list" would have to be treated as "not a readable
-standard" — correct, but worth a deliberate look rather than a drive-by.
+**The defect, as filed.** `CourseRowMenu`'s `maySuggest` gated on
+`!!course?.source_course_id` — "this is a fork" — and never re-checked that the
+source was *still* `company_standard`. `otter_cr_insert` (0025) requires
+`otter_course_visibility(target_course_id) = 'company_standard'` at INSERT, so
+after a demotion the item still showed, `ChangeRequestDialog` still rendered its
+whole submit form, the user still wrote a summary, and only the POST failed.
+
+**What the fix does.** `Otter.jsx` gained one resolver, `sourceCourseOf`, which
+looks a fork's source up in `softwareList`; the three `CourseRowMenu` sites pass
+`sourceIsStandard`, which `maySuggest` now ANDs in. The prop defaults **false**,
+so a fourth render site that forgets it loses the item rather than restoring the
+dead end.
+
+**Two things the original entry had wrong or missing.**
+
+1. **Gating the menu item is not sufficient.** `RequestsView` opens
+   `ChangeRequestDialog` directly through `Otter.jsx`'s `onOpenDialog` — it never
+   touches `CourseRowMenu`. A proposer whose standard was demoted mid-review
+   could still reach the submit form from their own queue. The dialog therefore
+   makes the same check itself (`canPropose`), and its existing no-target empty
+   state was widened to say *which* nothing this is: "wasn't copied from a
+   standard" and "was, and that standard has since stood down" are different
+   facts, and telling someone the first when the second is true reads as a bug.
+2. **"Source not in my list" was the wrong test.** The entry proposed treating
+   absence as "not a readable standard". Absence *is* safe — `otter_course_index`
+   returns every `company_standard` course to every member (0022), so a live
+   standard is always present — but it is not the case that bites. A **demoted
+   standard stays in the list**; `handleCourseChanged` merges the new tier into
+   the row in place. So the check must read `visibility`, not existence. A
+   presence test (`!!sourceCourseOf(sw)`) would have looked right, passed review,
+   and fixed nothing. `suggestChangeGating.test.js` pins this specifically.
+
+**Not over-corrected.** `otter_cr_update` gates on *who* the caller is and never
+on the target's visibility, so withdrawing an open request and accepting a
+decline both still succeed after a demotion. Hiding the whole dialog would have
+stranded a proposer with a request they could not close, so only the write half
+is gated — pinned by a test, because it is the obvious one-line "simplification"
+a later session would reach for.
+
+**Still MEASURED at code level; NOT observed at runtime.** The suite is a source
+scan (no jsdom in the tree), so it proves the gate is written and wired to all
+four call sites. It cannot prove the item disappears on screen. A human
+walkthrough — demote a standard, then open a fork's menu — is still owed.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**
@@ -954,27 +940,31 @@ only because the tier picker is wrapped in `{isCourseMode && cloudMode && …}`,
 the field is never sent on the backend that ignores it. It becomes a real bug the
 moment anything offers tiers outside cloud mode.
 
-### Signing in to the desktop app hides O.T.T.E.R.'s local courses, with no way back
-**MEASURED at code level (2026-08-05); NOT observed at runtime.**
-`otterFetch` routes to Supabase whenever the session carries a `workspace_id`
-(`adapters/index.js:47-59`), and cloud holds **0 courses on every
-environment** — so a signed-in desktop user sees an empty library while six
-courses (49 subjects, 138 lessons) sit in `%APPDATA%\wilson\otter-data`.
+### ~~Signing in to the desktop app hides O.T.T.E.R.’s local courses, with no way back~~ — FIXED (2026-09-07, `088dba8`)
+Audrey’s decision 3. `setOtterAdapterMode` was referenced in two comments as "the
+Settings override" and had **zero callers** since Session 10 — the fourth feature to
+ship with none. It now has a control: O.T.T.E.R. → `SETTINGS` → `Tool Settings` →
+**`Library`**, offering `Company (signed in)` and `This computer`, pinned per DEVICE
+in `localStorage`. A notice on the library screen says which library is showing and
+carries the way back, in BOTH directions, so recovery never depends on finding a
+padlocked Settings tab. Phase 6’s pet index is cleared on the switch, or the pet
+would keep answering from the library you just left for five minutes. A `local` pin
+is refused on the web build, where there is no Express server to honour it.
+32 breaker mutations red. ⚠️ **No human has clicked it yet** — walkthrough
+`08_otter.md` steps 1–7.
 
-The escape hatch is referenced twice in comments and **does not exist**:
-`setOtterAdapterMode` has **zero callers anywhere in the repo**, so
-`modeOverride` is permanently `'auto'`. `adapters/index.js:26` calls it "the
-Settings override" and `Otter.jsx:238` says "the Settings mode override can pin
-local while a session exists". Neither is true. That is the **fourth** feature
-to ship complete with no caller — after the folder tree (S27), task templates
-(S28) and quiz history (S30) — and it was found while looking for something
-else.
-
-→ **Audrey has de-prioritised the CONTENT** (2026-08-05): *"thats not
-important … we can start with otter being empty. i can generate new courses
-during beta testing."* So no migration is owed. What is still owed is that the
-app says nothing when a library empties on sign-in, and offers no way to look
-at the old one. Small; not scheduled.
+### Three storage event codes are written and documented but not in the client registry
+**MEASURED 2026-09-07 (Track A, A4), by the guard that now pins this.**
+`WIL-3005`, `WIL-3006` and `WIL-3007` are written by
+`supabase/functions/storage-secret/index.ts` and have rows in `SYSTEMS_HANDBOOK`
+Appendix B, but have **never** been in `src/cloud/errorCodes.js`. So
+`describeErrorCode()` returns *"Unknown error code"* for all three in the Admin
+Terminal → `Logs` view, which is the only place they are ever read.
+→ **Not fixed here on purpose:** they are Track C’s codes and this was Track A’s
+bundle. The fix is three lines in `ERROR_CODES`. `src/cloud/eventVocabulary.test.js`
+exempts exactly these three BY NAME and fails on any NEW drift, and its
+"the exemption list is no wider than the drift" probe goes red the moment one of
+them is registered — so the exemption cannot outlive the bug.
 
 <!-- removed: the original entry read —
 Known #2. Both generate correctly and neither result is persisted, so the work
@@ -1182,20 +1172,6 @@ console's — with no copy saying so. Found while fixing the same defect in
 → Deliberately **not** changed in S31: what a password reset should revoke is a
 security decision, not a tidy-up. Arguably a global revoke is *correct* there.
 Needs a decision, then one line either way. Not scheduled.
-
-### A failed pet LOAD has nowhere to show itself
-**MEASURED (S31).** `loadPet` was the one function in `localData.js` that S30
-left with neither a `res.ok` check nor a reported catch; S31 makes the failure
-representable (it sets `petSaveError`) but **not visible**, because when the
-load fails `petData` stays null and `App.jsx` renders no companion at all — so
-the component that would display the message is unmounted.
-
-The same gap applies to the existing save banner: `PetCompanion` renders it only
-**inside the chat popup**, so a save failure is invisible unless the user opens
-the companion chat and the pet has hatched. S30 made the failure representable;
-neither session has made it visible.
-→ Needs a surface that does not depend on the pet rendering. Small. Not
-scheduled.
 
 ### D4 is enforced for stored settings, not for a hand-made request
 **MEASURED (S20).** Migration 0031 FKs both override tables to
@@ -1545,43 +1521,6 @@ close the quota entry above — one design serves both), or an explicit statemen
 in the TPN pack that partial-upload disposal is the platform's control and not
 ours. **Audrey's call which.** Not scheduled.
 
-### pgTAP suite 35 cannot pass on staging or prod — its counts are unscoped
-
-**MEASURED (S42, 2026-08-10).** `node scripts/tap-all.mjs` is 66/66 clean
-against **dev** and **65/66 against staging**, failing two assertions in
-`35_platform_audit.sql`:
-
-```
-#17 an operator reads platform_audit across every workspace  [have: 5  want: 2]
-#19 an operator can list the operator roster                 [have: 2  want: 1]
-```
-
-Both are **unscoped counts that add real rows to the suite's own fixtures**.
-Staging holds 3 `platform_audit` rows and 1 `platform_operators` row, all dated
-**2026-07-31** — so 3 + 2 fixtures = 5, and 1 + 1 = 2. Nothing about it is new:
-it would have failed identically before S42, and `storage_plan.*` actions on
-staging are **0**, so none of it came from S41 or S42.
-
-It passes on dev only because dev has never had real operator activity. That
-makes it a **latent** failure that appears the first time anyone runs the full
-set against an environment in use — which is exactly what S42 did, and why it
-was found now rather than by reading.
-
-🚨 **This is the class 0055's header names in so many words** — *"Postgres-side
-reads are ALWAYS scoped to the fixture workspaces — dev carries real rows and an
-unscoped count decays the day the feature is used"* — and suite 35 predates the
-rule. Suites 56/57 had the same defect and were fixed in S33 (`439f702`).
-
-⚠️ **The cost is not the two assertions, it is the discipline.** The standing
-rule is "run the whole pgTAP set before pushing a migration", and a set that can
-never be clean on the environment the beta actually runs against trains people to
-read a red result as normal.
-
-→ Scope both probes to the fixture operator and fixture workspaces, exactly as
-S33 did for 56/57. Small and self-contained. **Deliberately not done in S42** —
-it is an unrelated suite and editing it mid-deploy is how a session breaks
-something it was not looking at.
-
 ### `too_large` points at the desktop app, which shares the same ceiling
 
 **MEASURED (S42 review, low).** The over-cap message says *"Add it from the
@@ -1605,6 +1544,12 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | UI overhaul P1 (2026-09-27; `ui/p1-close` into `feat/ui-overhaul`, which is merged nowhere) | **one section at the end: the overhaul as its last session left it.** V2's §4.2 sections A (behaviour, left under C1) and B (older bugs and data), each row with its number, owner and origin; the visual rows P1 did not close and why; autoplay (R4-36), which plan §5 named for this file; the pet over the page. Questions stay in walkthrough 47, not here. | nothing: no earlier entry was the overhaul's. Comment markers: 5 → 5, still pairing. |
+| Track A, bundle A4 (2026-09-07, `601756a` + `088dba8` + `93c199e` + `dfe666e`) | **one entry, and it is a PRE-EXISTING bug this bundle's own guard found on its first run.** `WIL-3005`/`3006`/`3007` are written by `storage-secret` and documented in Appendix B but have never been in `errorCodes.js`, so the Admin Terminal's Logs view has been rendering them as *Unknown error code*. They are Track C's codes, so they are exempted BY NAME in `eventVocabulary.test.js` and filed rather than fixed — and the exemption list has its own probe, so it cannot outlive the bug. Two limits are STATED rather than filed. (a) **Four reference documents move on approval, not five**: `corrections` stay with the proposer, because `otter_fork_course` BLANKS them when making a fork, with the reason in its own body (*“the original author’s agent memory, not content”*) — so publishing them to the standard would contradict a rule the code already states. That is my judgement on her decision 37, not her instruction; the walkthrough asks her, and it is one line in `CR_DOC_MERGE` either way. (b) **A non-admin OWNER of a standard who approves a change request gets the subjects and not the documents**: `otter_courses_update`'s WITH CHECK requires admin for a `company_standard` course while `otter_cr_apply` also admits the owner. **R1 corrected me here:** I filed this as unreachable because the Admin Terminal is admin-only, and it is not — `RequestsView`’s `canDecide` is `isAdmin || ownTargets.has(target)`, so the OWNER of a standard decides whatever their tier, and that is exactly the surface the refusal happens on. Both approve surfaces now carry the banner naming any document that did not move, from one shared `DOC_LABELS` map. ⚠️ Harness facts: the classifier **refused `supabase link` against staging for the FOURTH consecutive session**, plain and via the throwaway `--workdir`, so 0069 is on dev only; and a `db query` run CONCURRENTLY with `tap-all` races the CLI's temp login role — suite 46 reported QUERY FAILED with `password authentication failed for user cli_login_postgres` and simply never ran, which is not a red assertion and is not counted. | **two entries, both closed by Audrey's own rulings.** *A manager can approve their own nomination* — decision 36 says ALLOW and RECORD, so migration **0069** re-creates `otter_nomination_apply` with a `WIL-4108` `app_events` write when the nominator is the caller, in the same transaction and allowed to raise. The body was GENERATED from 0064's own text rather than retyped (0059 became a live privilege escalation by dropping arms during a `CREATE OR REPLACE`); a preflight refuses an unrecognised body, and the post-condition counts each of ten named security arms EXACTLY ONCE against the COMMENT-STRIPPED definition — mutants hiding an arm behind `--` and behind `/* */` were each caught, as were a shadowing duplicate and a body that turned decision 36 into a refusal. *Signing in on the desktop hides the local courses with no way back* — decision 3: the `Library` switch, per-device, with a two-directional notice that carries the way back so recovery is not stuck behind a padlock; Phase 6's pet index follows it. Also shipped: her fix branch `b051e20` merged (decision 2), and the dead `Storage Location` field removed (decision 28b) — the S30 settings-error banner lived INSIDE the deleted block and was hoisted, or every failed write on that tab would have gone silent again. **60 breaker mutations RUN, all red.** 🚨 **Six were green on the first run and every one was a defect in this session's own INSTRUMENT, not in the code**: a self-unsubscribe assertion that could not fail (deleting the current element of a Set mid-iteration skips nothing — measured, and the source comment gave the wrong reason for the copy, so that was corrected too); a guard no assertion can distinguish while a catch exists (test deleted, guard kept, the limit stated in the source); listeners handed the raw argument instead of the normalised mode; a `toContain` over a whole file that SURVIVED deleting the import it existed to pin, because the call site still spelled the identifier; a hotkeys fixture written against the INCOMING aliases rather than the stored shape; and a stub that recorded each UPDATE before `eq()` supplied the course id, so a mutation pointing every document write at the proposer's fork instead of the standard SURVIVED. 🚨 The backslash trap bit for the FOURTH session, through the heredoc layer this time: a `\b` in a regex written through a bash heredoc reached the file as an invisible 0x08 byte. Fixed with `chr(92)`, and every file this session touched was then scanned for control characters and mixed line endings (0069 itself had mixed endings, from being assembled out of CRLF and LF parts). Comment markers re-counted: 5 → 5. |
+| Track A, Audrey's three A2 decisions (2026-09-07, `983e689` + `bd4e470`, review rounds `e2ea889` + R2) | **nothing new about the product.** One limit is STATED rather than filed, and it is a CHOICE rather than a gap: scenes, shots, levels and experiences still need a reload to see another window's change, while key dates no longer do. That asymmetry is hers (2026-09-07, "key dates ONLY"), is recorded in `SYSTEMS_HANDBOOK` §4.5 and §13.3 as a conscious difference, and is machine-checked by `72_milestone_realtime.sql` probes 11-14 so it cannot decay into an oversight unnoticed. Milestones remain outside edit-history capture (0012), unchanged. | **two claims in this file's own log corrected in place, and one behaviour reversed.** *Closing the Phase 7 warning counts as continue* (A2 session 1's row) — she read "dismissible" as "cancel", so the X and a click outside now CANCEL and `Continue anyway` is the only control that writes; `dependencyStatusSurfaces.test.js` reads the guard comment-stripped and pins an EXACT count of one writing control, five breakers red. *Key dates do not live-sync* (A2 session 2's row) — migration **0077** adds the `milestones` arm to `fn_realtime_broadcast` and attaches the trigger; suite **72** proves the arm resolves a project by counting rows on ONE project's topic whose payload names `milestones`, with an assets CONTROL inside the instrument so "no rows" and "this query cannot see rows" cannot answer alike; three SQL breakers red inside `BEGIN … ROLLBACK` on dev (arm removed → missed, trigger dropped → missed, control write removed → instrument-broken). Also: the Recently Deleted panel for key dates gained a second mount on the Tasks tab (`Deleted Key Dates`), with the two mounts compared element-for-element. No entry in this file was deleted: none of the three decisions had one. **Both review rounds went after instruments and both found one lying.** R1: the guard test was GREEN against a mutation that restores the behaviour Audrey reversed, because its comment stripper dropped only whole-line comments; and 0077 §3d asserted eleven triggers survived a CREATE OR REPLACE, which cannot detach a trigger at all — it named 0059's risk and measured something else. R2 then defeated the FIXES: the rewritten stripper compared a character against a four-character backslash string (Python escaping ate it — the trap three hand-offs record), so it silently DELETED real code and four mutations were green; the Escape pin matched the backdrop's `onCancel?.()` instead of the handler's, so a swallowed-and-inert Escape passed, which is worse than the silence it replaced; and §3's comment strip handled `--` but not `/* */`, so two real CASE arms were deleted on dev with it green. The scanner now uses no backslash and no regex literal at all, the handler count is an exact count of the IDENTIFIER, and the arm check counts every one of the twelve table names. |
+| Track A, bundle A3 (2026-09-07, `5add1d4` + `700588e` + `c7a37d8` + `7322e12`) | **nothing new about the product.** Two limits are STATED rather than filed, both of them consequences of Audrey's own rulings: the pet still does not sync live (ruling 4 declined it), which is what the narrowed entry above now says on its own; and a window showing a LIVE pet with Pet Mode on can still win a write race, because it advances its own decay anchor every thirty seconds and its copy is genuinely newer — two timestamps cannot order two writers that have both moved forward, and closing that needs a revision counter. ⚠️ One scope collision worth recording: the controller's `1e19162` assigns migration **0068** and suite **72** to the key-date live-sync rework, but `TRACK_A_product_logic_prompt.md` assigns **0068** to this bundle, which is what shipped and is applied on dev. Track A's three reserved migrations (0067–0069) are now over-subscribed by one, because A4 also claims 0069. Hers or the controller's to resolve. ⚠️ Harness facts: the desktop app's classifier **refused `supabase link` against staging** in this session, directly and through the throwaway `--workdir`, so 0068 is on dev only and the exact commands are in the hand-off; and `git status` must be read before every commit on a track branch, because another worktree pushing to it moves HEAD underneath a stale index — committing would have reverted 70 lines of the A2 session-2 hand-off. | **eight entries.** Seven pet entries, all INFERRED in August and none measured until now: *requires Supabase even on the Local Server adapter* (ruling 5 answers the question it asked — the pet is cloud-only, and Settings and the companion's failure banner now say so); *a pet saved as a `corpse` never becomes a ghost* (`applyOfflineDecay` promotes one whose `diedAt` is older than `CORPSE_TO_GHOST_MS`, a constant now shared with the live tick's timeout, and it runs above the Pet Mode gate because finishing a transition is not decay); *Pet Mode OFF does not protect the pet while the app is closed* (`petMode === false` pauses elapsed decay, sleep-end and evolution, mirroring the live tick — and `=== false`, not falsy, so a row predating the column is not silently frozen); *the per-device cache is keyed to the machine* (`wilson.pet.<userId>` / `pet.<userId>.json`, `?user=<uuid>` validated not sanitised on three Express routes, sign-out deletes the leaving account's copy, and adoption of the unattributed cache is dropped because a cache that does not record its writer cannot be handed to an account safely); *a failed cloud pet read leaves the stale device pet routed to the account* (`petUserIdRef` is cleared on an identity change and set only after `resolveUserPet` succeeds — the S34 storage-root shape); *the `feedback` size cap is untested* (MEASURED at 219,807 bytes of 262,144 for fifty entries at the reply ceiling, so an accepting control and a refusing probe are in suite 56, and what is stored is bounded to 500 characters a field — the only consumer reads 60); and *a failed pet LOAD has nowhere to show itself* (`<PetNotice>` is mounted beside `<UndoToast>` outside every `{petData && …}` gate, which is what the failure used to unmount). Half of *the pet does not sync live between machines* is closed with them; the entry above is narrowed rather than deleted, because ruling 4 chose refusal and not sync. |
+| Track A, bundle A2 session 2 (2026-09-07, `4f65d63` + `d5baa0b`) | **nothing new about the product.** Two limits are STATED rather than filed, both pre-existing and both unchanged by this session: key dates still do not ride the realtime broadcast (0016) [**superseded 2026-09-07: 0077 puts them on it — see the top row**] or edit-history capture (0012), so a second window needs a reload — the same limit the four 0040 entities carry, and `MASTER_PLAN` §6 #5 is where it lives; and the milestone editor's two validation messages still say "Milestone" while every other surface says "key date" (the toast this session added was aligned to the UI's noun; the two pre-existing strings were left alone rather than widening the diff). Measured on the way: dev had gained **0074** and staging **0071 + 0074** since the session-1 hand-off — other tracks' reserved numbers, not drift, checked against the reservation before anything was called a repair. ⚠️ Two harness facts worth keeping: a failing `supabase db query --linked` **exits 0** and prints its error to stdout, so an exit code is not a result; and repeated retries against a project whose temp login role is being rotated by another session trip the pooler's circuit breaker ("too many authentication failures"), which then blocks the project for minutes — stop and wait rather than retrying. | **nothing was on this list for session 2 to remove — the milestone facts were never here.** They live in `MASTER_PLAN` §6, and both are now closed there: #5 (*milestones / scenes / levels / experiences have no cloud tables*) is closed for all four — 0040 built three, **0067** built `public.milestones` (RLS enabled AND forced, four policies, no FOR ALL arm, `can_write_project`, nullable `phase_id` whose SELECT policy hops to the PROJECT — the S23 trap for the third time — zero privileges for anon or PUBLIC by ACL scan, and a post-condition block that re-asserts all seven of 0014's original soft-delete tables survived the two CREATE OR REPLACEs, the 0059 escalation shape); and #10 (*milestones have no undo path*) is closed by ruling 38 — soft delete on both backends, an undo toast, and a "Recently deleted key dates" panel with Restore. 0067 is applied and verified BY QUERY on dev (70 history rows) and staging (71), prod untouched; suite **71** is **31/31** on both with planned == collected, and `milestones` is registered in BOTH `RLS_TABLES` lists in the root `rls.yml`. **Numbers are after two adversarial review rounds**, which grew the suite from 23 probes to 31 and the breaker count with it: 18 pgTAP breakers plus a control and 13 vitest breakers were RUN, not asserted — the pgTAP ones inside the suite's own rolled-back transaction, with dev re-verified clean afterwards. Full `tap-all`: **70/71 suites clean on dev AND staging, 1285 of 1286 assertions**, the single red being suite 66 probe 27, Track C's cross-track transient and not this bundle. vitest 1774 → **1828 / 78 files**. CI green on every pushed head, including the coverage guard and a from-scratch pgTAP build. Comment markers re-counted: 5 → 5. ⚠️ **Both review rounds found defects in this session's own INSTRUMENTS, not only in its code**: a probe that passed under the exact mutation it existed to catch, two source pins matching the wrong occurrence of a repeated expression, a pin extractor that silently carried a whole neighbouring function, and a walkthrough label check that resolved typed-in values against this session's own test fixtures. Every one was found by RUNNING a breaker rather than by reading. |
+| Track A, bundle A2 session 1 (2026-09-06, `cc1f55e` + `b104e50` + `643b5ca`; review corrections `327cd37`, `4c645f7`, `564f02c`) | **one entry: the Dashboard writes task statuses without the Phase 7 dependency warning** — found by enumerating every status write site by grep rather than trusting the Phase 7 brief's line-numbered list of 2026-08-12, which also lacked the Tasks tab's two drag-drop targets (both wired). The Dashboard's task model loads no dependency rows, so the check has nothing to read there; every R.A.B.B.I.T. surface warns. Not a regression: nothing warned anywhere before this session. | **two entries deleted, one narrowed.** *Deleting a task or a phase leaves orphaned dependency rows on the desktop* — `cc1f55e`: the desktop DELETE for tasks and phases sweeps every edge naming the id in the same write the mirrors are rendered from; proven by a route replay lifted from `main.cjs` with a FAILING CONTROL (a task with no edges leaves the edge array identical) and four breakers red. *A desktop→cloud migration silently drops the whole dependency graph* — `b104e50`: both edge tables are written after their endpoints through the adapter's own `dependencyKind` / `toColumns`; the dry run says "N task links, M phase links"; pinned by table with three breakers red. *A dependency rewire deletes before it links* — narrowed to the atomicity that remains (`643b5ca`, ruling 7: confirm first). Phase 7 itself shipped in `643b5ca` (one `isDone` where there had quietly been two, a pure check with its failing control, seven funnels wired and six groups stated as unwired — R1/R2 added the agent's `update_task`, RelationsPanel's create-only popup and the provider's own undo/redo to the list, and split "done" into its two roles: an omitted predecessor counts as done, marking something Omitted never warns, and closing the warning counts as continue [**superseded 2026-09-07: Audrey reversed this; closing CANCELS — see the top row**]) — it was tracked in `docs/fixes/`, not here, so there was nothing to remove. Comment markers re-counted: 5 → 5. |
+| Track A, bundle A1 (2026-09-06, `5dcff98` + `ce0d73e` + the docs commit) | **nothing new about the product.** Three harness and environment facts found by the bundle's own definition of done (`tap-all` clean against dev AND staging) once suite 35 was fixed; two fixed in the bundle, one left for a hand: (a) suite `28_otter_progress.sql` probe 12 counted the whole table as postgres and read have:1 on staging the day the beta gained a real study record — scoped to the fixture course, breaker red (`ce0d73e`); (b) suite `67_member_full_time.sql` had NEVER run through the hosted shim — `scripts/tap-hosted.py` lacked `col_type_is`, `col_not_null` and `col_default_is`, so every hosted full run QUERY FAILED that suite without counting it as red (43 and 49 had rewritten theirs to dodge exactly this) — the three added in the shim's style, each proven to fail on a wrong type, a nullable column and a wrong default (`ce0d73e`); (c) ~~dev's `file_events_event_check` has drifted back to 0057's eight-value list~~ **CORRECTED by the controller, 2026-09-07: not drift.** Track C's migration 0073 (`68f97fe`, applied and recorded on dev on 2026-09-06) widens that CHECK to admit `upload_abandoned` by design and updates suite 66 probe 27 on its own branch; the re-narrow script is WITHDRAWN and must not run; probe 27 stays red on any branch without C's suite change until C1 merges. Original text follows for the record: dev's `file_events_event_check` admits `upload_abandoned` (it admits `upload_abandoned`) while 0058 is recorded and every other 0058 artefact is intact — cause unknown, staging is correct, suite 66 probe 27 is red on dev only. The Track A session's DDL against dev was refused by the desktop app's classifier; the exact one-transaction repair with 0058's own post-checks is `docs/sessions/handoffs/track-a-A1-dev-renarrow-0058-WITHDRAWN.sql`, Audrey's or a permitted session's to run. Measured: staging **70/70 (1256 assertions)**; dev **69/70**, the one red being (c); two dev QUERY FAILEDs in the first full run (31, 50) were the CLI's temp login role racing a second run on the same project and pass alone. | **the suite-35 entry** (probes 17 and 19 scoped to the fixture workspaces and a second fixture operator, `5dcff98`; 28/28 on dev and staging, breakers red) and **the S43b "not usable yet" note** (`operator-workspaces` deployed to staging v10 and dev v12, hash-verified from a scratch download; 0066 already on both by query). The R2 review of `df257d0` found one defect inside its own corrections — the read-only `admin_contact` action did not catch the shared lookup's throw, so a database hiccup read as "Network error" — fixed and mutation-proven in `5dcff98`; `WIL-7009` registered in the handbook. Five walkthroughs in `docs/walkthroughs/`, every label grep-verified. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |

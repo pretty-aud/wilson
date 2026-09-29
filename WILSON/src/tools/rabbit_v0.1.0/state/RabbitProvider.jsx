@@ -49,6 +49,7 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
+import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
 import { devFixtures } from '../../../dev/devFixtures';
@@ -1275,14 +1276,15 @@ export function RabbitProvider({ children }) {
     // capture them for undo. Before 0061 phase edges could not exist in cloud
     // at all, so nothing pruned them.
     //
-    // ⚠️ THIS PRUNES THE CLIENT BUNDLE ONLY. In local/desktop mode the Express
-    // route is the generic rabbitSubentityRoutes('phases','phases') DELETE,
-    // which splices bundle.phases and nothing else — so the orphaned edges are
-    // still written back to project.json and return on the next load. Cloud
-    // does not need a server-side prune (0061's ON DELETE CASCADE covers a hard
-    // delete, and a soft-deleted phase deliberately KEEPS its edges so they
-    // come back on restore); desktop does, and does not have one. deleteTask
-    // has the identical gap and always has. Recorded in docs/OUTSTANDING.md.
+    // This prunes the CLIENT bundle. The backends differ:
+    // Cloud: 0061's ON DELETE CASCADE covers a hard delete, and a soft-deleted
+    // phase deliberately KEEPS its edges so they come back on restore. Desktop:
+    // since Track A A2 (2026-09-06) the generic rabbitSubentityRoutes DELETE for
+    // phases and tasks sweeps the edges in the same write (sweepDependencyEdges
+    // in electron/main.cjs, replay-tested by desktopDeleteSweep.test.js), so
+    // the orphans that used to return from project.json on the next load no
+    // longer exist. The client prune stays: it is what the screen shows
+    // between the click and the reload, and what undo restores from.
     //
     // Matching on id alone (not on kind) mirrors deleteTask exactly. The ids
     // are uuids, so a task edge cannot collide with a phase id.
@@ -1819,13 +1821,53 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertMilestone(row);
     const finalRow = created || row;
-    setBundle(prev => ({ ...prev, milestones: [...prev.milestones, finalRow] }));
+    // Dedupe rather than append blind: a refetch can land between an undo and
+    // the redo that replays this, and two rows with one id break every
+    // keyed render downstream.
+    // Sorted, not appended. Both adapters load key dates ORDER BY date, id and
+    // the merge layer splices incoming ones into that order — but THIS is the
+    // path that runs on Local Server, where there is no broadcast at all, so
+    // without it a new key date sat at the bottom of the Tasks tab's key-date
+    // block until the next reload. In cloud it merely looked right, because
+    // the author's own broadcast echo re-sorted it a moment later — an
+    // accidental dependency on live sync, not a design. R1.
+    setBundle(prev => ({
+      ...prev,
+      milestones: [...prev.milestones.filter(m => m.id !== finalRow.id), finalRow]
+        .sort(byMilestoneDate),
+    }));
+    // 🚨 UNDOING A CREATE DESTROYS; DELETING AN EXISTING ROW TRASHES. R1 of
+    // this session caught the difference being lost.
+    //
+    // deleteMilestone is now a SOFT delete on both backends (0067 in cloud,
+    // the softDelete opt on the desktop). Reusing it here broke undo/redo in
+    // two ways at once. (1) Redo: `addMilestone(finalRow)` upserted an id that
+    // still existed with deleted_at set — `deleted_at` is deliberately not in
+    // MILESTONE_COLUMNS, so the stamp survived the upsert, the RETURNING read
+    // was then filtered out by milestones_select, `.single()` answered
+    // PGRST116, and `redo` SWALLOWS errors, so pressing Redo did nothing at
+    // all, silently. On the desktop the row came back on screen carrying its
+    // stamp and vanished on the next reload. (2) The trash: undoing a create
+    // filed the row under "Recently deleted" as something the user had chosen
+    // to delete, and on Local Server nothing purges, so every undone create
+    // accumulated there forever with no way to remove it.
+    //
+    // So the undo of a create uses `destroyMilestone` — a hard delete — which
+    // makes the redo's plain insert correct again and leaves no trash entry.
+    // An adapter without it (a future one) falls back to the soft delete,
+    // which is worse but not broken.
+    const canDestroy = typeof adapterRef.current?.destroyMilestone === 'function';
     pushHistory({
-      undoOps: [() => mutationsRef.current.deleteMilestone(finalRow.id)],
+      undoOps: [() => optimistic(
+        prev => ({ ...prev, milestones: prev.milestones.filter(m => m.id !== finalRow.id) }),
+        () => (canDestroy
+          ? adapterRef.current.destroyMilestone(finalRow.id, activeProjectId)
+          : adapterRef.current.deleteMilestone(finalRow.id, activeProjectId)),
+      )],
       redoOps: [() => mutationsRef.current.addMilestone(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, optimistic]);
 
   const updateMilestone = useCallback(async (id, patch) => {
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
@@ -1833,10 +1875,40 @@ export function RabbitProvider({ children }) {
     if (oldMilestone) {
       for (const k of Object.keys(patch)) oldValues[k] = oldMilestone[k];
     }
-    const result = await optimistic(
-      prev => ({ ...prev, milestones: prev.milestones.map(m => m.id === id ? { ...m, ...patch } : m) }),
-      () => adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id }),
-    );
+    // LWW per field — see updatePhase. 🚨 ADDED WITH 0077 AND REQUIRED BY IT.
+    // Before key dates were broadcast, milestones were the one table where
+    // this was dead weight: no remote event for them could ever arrive. Now
+    // one can, and without this the window between the optimistic apply and
+    // the server's answer is a window in which a collaborator's broadcast
+    // overwrites what this person just changed. It also means realtimeMerge's
+    // pending-field probe tests something production actually reaches — R1
+    // found it testing a mechanism that never engaged.
+    const fields = Object.keys(patch);
+    notePendingFields('milestones', id, fields);
+    let result;
+    try {
+      result = await optimistic(
+        // Re-sorted, because a date is not a name: moving a key date's date
+        // moves its row, and on Local Server nothing else would ever do it.
+        prev => ({
+          ...prev,
+          milestones: prev.milestones
+            .map(m => m.id === id ? { ...m, ...patch } : m)
+            .sort(byMilestoneDate),
+        }),
+        // patchMilestone when the adapter has one (cloud), so two people
+        // editing different fields of the same key date do not overwrite each
+        // other — the same preference updateTask expresses for patchTask.
+        () => (typeof adapterRef.current.patchMilestone === 'function'
+          ? adapterRef.current.patchMilestone(id, patch)
+          : adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id })),
+      );
+    } finally {
+      // try/finally, copied from updateTask: a throwing adapter must not leave
+      // the field pinned, or that row stops accepting remote updates for the
+      // rest of the session.
+      clearPendingFields('milestones', id, fields);
+    }
     if (oldMilestone) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateMilestone(id, oldValues)],
@@ -1844,22 +1916,96 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deleteMilestone = useCallback(async (id) => {
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
+    // A2 session 2, rulings 26 and 38. Both backends now TRASH a milestone
+    // rather than destroying it — cloud through 0014's soft_delete_row (0067
+    // put milestones on its allowlist), desktop through main.cjs's softDelete
+    // opt — so undo RESTORES the row it deleted instead of inserting a new
+    // one. Re-inserting would work on neither backend now: the id still
+    // exists, trashed, and an upsert would resurrect it with deleted_at
+    // intact on the desktop and be refused by milestones_update in cloud.
+    //
+    // The capability check mirrors deletePhase's: an adapter without a
+    // restore method (a future one, or a stub) keeps the old re-insert path
+    // rather than losing undo altogether.
+    const canRestore = typeof adapterRef.current?.restoreMilestone === 'function';
     const result = await optimistic(
       prev => ({ ...prev, milestones: prev.milestones.filter(m => m.id !== id) }),
       () => adapterRef.current.deleteMilestone(id, activeProjectId),
     );
     if (oldMilestone) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.addMilestone(oldMilestone)],
+      const token = pushHistory({
+        undoOps: canRestore
+          ? [async () => {
+              await adapterRef.current.restoreMilestone(id, activeProjectId);
+              // Dedupe, and reinstate rather than append. The adapter answers
+              // false when the row was already live — someone else restored it
+              // first, or a refetch landed between the delete and this click —
+              // and a blind append would then put TWO rows with one id in the
+              // bundle until the next load.
+              setBundle(prev => ({
+                ...prev,
+                milestones: [...prev.milestones.filter(m => m.id !== id), oldMilestone]
+                  .sort(byMilestoneDate),
+              }));
+            }]
+          : [() => mutationsRef.current.addMilestone(oldMilestone)],
         redoOps: [() => mutationsRef.current.deleteMilestone(id)],
       });
+      // Ruling 38's undo toast. Assets have had one since S6 (OWED_AUDREY §3)
+      // and phases since A2 session 1; a milestone delete used to be final
+      // with nothing but a confirm dialog in front of it (MASTER_PLAN §6 #10).
+      if (token != null) {
+        showUndoToast(
+          `Deleted key date "${oldMilestone.title || 'Untitled'}"`,
+          () => undoHistoryEntry(token),
+        );
+      }
     }
     return result;
-  }, [optimistic, activeProjectId]);
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  // "Recently deleted" for the timeline's trash panel. Reads the adapter
+  // directly rather than the bundle: in cloud the trashed rows are invisible
+  // to every table read by design (milestones_select filters deleted_at), so
+  // they can only come from 0067's SECURITY DEFINER index.
+  // 🚨 null means "this storage backend does not keep deleted key dates", and
+  // [] means "the trash is empty". Returning [] for both is the mistake
+  // unwrapOptionalTable's own comment condemns and that useRosterMembers makes,
+  // where a broken read and an empty result are indistinguishable at every call
+  // site — R1 of this session found the same shape here. googleDriveAdapter is
+  // read-only and implements none of the milestone methods, so on Drive the
+  // panel would otherwise have claimed an empty trash it never looked in. The
+  // EditHistoryDrawer / FileAuditDrawer precedent is to name the adapter.
+  const listTrashedMilestones = useCallback(async () => {
+    // No project open is not the same claim as "this backend keeps no trash",
+    // and answering null for both would put a false sentence about the adapter
+    // on screen. An empty list is the honest answer when there is nothing to
+    // ask about. (Not reachable from the timeline toolbar today — no project
+    // means no TimelineView — but it is the same two-answers-one-value
+    // conflation the third state exists to remove.)
+    if (!adapterRef.current || !activeProjectId) return [];
+    if (typeof adapterRef.current.listTrashedMilestones !== 'function') return null;
+    return (await adapterRef.current.listTrashedMilestones(activeProjectId)) || [];
+  }, [activeProjectId]);
+
+  // Restore from that panel. Unlike undo this is not a history operation —
+  // the row may have been trashed in another session entirely — so it
+  // refetches rather than replaying a captured row, and answers the adapter's
+  // boolean: false means someone else restored it first.
+  const restoreMilestone = useCallback(async (id) => {
+    if (!adapterRef.current || !activeProjectId) return false;
+    if (typeof adapterRef.current.restoreMilestone !== 'function') return false;
+    const restored = await adapterRef.current.restoreMilestone(id, activeProjectId);
+    const rows = typeof adapterRef.current.listMilestones === 'function'
+      ? await adapterRef.current.listMilestones(activeProjectId)
+      : null;
+    if (rows) setBundle(prev => ({ ...prev, milestones: rows }));
+    return restored;
+  }, [activeProjectId]);
 
   const reorderAssets = useCallback((orderedIds) => optimistic(
     prev => ({
@@ -3504,6 +3650,7 @@ export function RabbitProvider({ children }) {
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
+    listTrashedMilestones, restoreMilestone,
 
     // folders (Session 26). Exposed so S27's Files view can rebuild the
     // tree for a project that predates 0041 without inventing its own
@@ -3549,6 +3696,7 @@ export function RabbitProvider({ children }) {
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
+    listTrashedMilestones, restoreMilestone,
     ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,

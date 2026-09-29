@@ -18,7 +18,7 @@ import {
   Keyboard, Loader2, Check, AlertCircle,
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
-  Lock, Unlock, Library, Braces, FolderOpen, Share2,
+  Lock, Unlock, Library, Braces, FolderOpen, Share2, Info,
   Link, ExternalLink, ShieldCheck, GitPullRequestArrow, Minus
 } from 'lucide-react';
 import {
@@ -29,7 +29,7 @@ import {
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
-import { otterFetch, otterCloudActive } from './adapters';
+import { otterFetch, otterCloudActive, getOtterAdapterMode, setOtterAdapterMode, subscribeOtterAdapterMode } from './adapters';
 import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
 import { pushSettingsToCloud } from '../../lib/userState';
@@ -319,12 +319,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // Cloud vs local. Read from the ADAPTER, not from usePermissions alone: the
   // Settings mode override can pin local while a session exists, and the
   // sharing controls must appear exactly when the backend behind them works.
+  // ── A4: which library am I looking at? (Audrey's decision 3) ──────────────
+  // The pin lives in a module variable inside the adapters, not in React state,
+  // because `otterFetch` has to route on it SYNCHRONOUSLY at ~90 call sites.
+  // Mirror it into state so this component can re-render when it moves.
+  const [libraryMode, setLibraryMode] = useState(() => getOtterAdapterMode());
+  useEffect(() => subscribeOtterAdapterMode(setLibraryMode), []);
+
+  // Desktop only. The six on-disk courses exist only where there is an in-app
+  // Express server to serve them; on the web there is no local library, so
+  // there is nothing to switch between and the control is not rendered.
+  const hasLocalLibrary = typeof window !== 'undefined' && !!window.electronAPI;
+
   const [cloudMode, setCloudMode] = useState(false);
   useEffect(() => {
     let alive = true;
     otterCloudActive().then(v => { if (alive) setCloudMode(v); }).catch(() => {});
     return () => { alive = false; };
-  }, [perms.ready, perms.workspaceId]);
+  }, [perms.ready, perms.workspaceId, libraryMode]);
 
   // ── Library filter chips (courses; subjects inherit — see CourseFilterChips) ──
   const [courseFilter, setCourseFilter] = useState('all');
@@ -527,17 +539,46 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
   }, []);
 
+  // 🚨 A4: WHICH LIBRARY DID THIS LOAD START AGAINST?
+  // loadSoftwareList is fire-and-forget and fans out seven more requests per
+  // course. Flip the Library switch while one is in flight and the OLD load's
+  // setSoftwareList can land AFTER the new one, putting the other library's
+  // courses on screen, and its detail fetches repopulate softwareCacheRef AFTER
+  // invalidateCache() has run. Bumped by the mode effect below; a load whose
+  // generation is stale installs nothing.
+  //
+  // ⚠️ SCOPE, STATED HONESTLY: this guards THIS FUNCTION ONLY. `selectSoftware`
+  // and `selectSubject` run their own fan-outs and write the same two refs
+  // unguarded, so a course opened just before a flip can still land its detail
+  // fetches afterwards. What closes the reachable path is the return value
+  // below: the four callers that `await` this and then call selectSoftware()
+  // now stop when the load was discarded, so nothing re-selects a slug from the
+  // library you just left. The residual is a same-generation overlap between
+  // two ordinary callers, which is last-writer-wins and predates all of this.
+  //
+  // 🚨 IT RETURNS WHETHER IT INSTALLED. Four callers `await` it and then call
+  // selectSoftware(slug, true) on a slug from the library they were in. Without
+  // a return value a discarded load is indistinguishable from a successful one,
+  // so the switch would leave the NEW library's list on screen with the OLD
+  // library's course selected into it — which looks plausible, and is therefore
+  // less likely to be reported than the wholly wrong screen it replaced.
+  const listGenerationRef = useRef(0);
+
   const loadSoftwareList = useCallback(async () => {
+    const generation = listGenerationRef.current;
+    const current = () => listGenerationRef.current === generation;
     try {
       const res = await otterFetch('/api/software');
-      const data = await res.json();
+      const raw = await res.json();
       // A denied or failed request answers with an error OBJECT, not a list,
       // and every consumer below calls .find / .filter / .map on this state:
       // an un-guarded set threw `softwareList.find is not a function` and
       // unmounted the whole app (measured in dev tester mode, where every
       // RLS-gated call is a 401). SettingsPage already guards the same
       // response this way.
-      setSoftwareList(Array.isArray(data) ? data : []);
+      const data = Array.isArray(raw) ? raw : [];
+      if (!current()) return false;
+      setSoftwareList(data);
       for (const sw of data) {
         if (!softwareCacheRef.current[sw.slug]) {
           Promise.all([
@@ -549,20 +590,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             otterFetch(`/api/software/${sw.slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
             otterFetch(`/api/software/${sw.slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
           ]).then(([meta, subjects, progress, hotkeys, functions, nodes, refs]) => {
+            if (!current()) return;
             softwareCacheRef.current[sw.slug] = { meta, subjects, progress, hotkeys, functions, nodes, references: refs.urls || [] };
             for (const sub of subjects) {
               const cacheKey = `${sw.slug}/${sub.slug}`;
               if (!subjectCacheRef.current[cacheKey]) {
                 otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`)
                   .then(r => r.json())
-                  .then(fullSub => { subjectCacheRef.current[cacheKey] = fullSub; })
+                  .then(fullSub => { if (current()) subjectCacheRef.current[cacheKey] = fullSub; })
                   .catch(() => {});
               }
             }
           }).catch(() => {});
         }
       }
+      return true;
     } catch { /* ignore */ }
+    return false;
   }, []);
 
   const selectSoftware = useCallback((slug, forceReload = false) => {
@@ -634,6 +678,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return () => window.removeEventListener('wilson:open-otter-course', onOpenCourse)
   }, [loadSoftwareList, selectSoftware])
 
+  // ── A4: switching library throws away everything keyed by course slug ─────
+  //
+  // 🚨 THE TWO LIBRARIES DO NOT SHARE A SLUG SPACE. On disk a course's slug is
+  // `slugify(name)`; in cloud it is the course UUID (`supabaseOtterAdapter`
+  // maps `slug: row.id`). So every entry in softwareCacheRef/subjectCacheRef is
+  // meaningless after a switch, and the course currently open almost certainly
+  // does not exist on the other side — leaving it selected would render the
+  // previous library's content under the new library's name, which is exactly
+  // the "looks correct, silently wrong" shape this area keeps producing.
+  //
+  // Keyed on the mode rather than done inside the Settings handler so that any
+  // future caller of setOtterAdapterMode gets the reset too.
+  const lastLibraryModeRef = useRef(libraryMode);
+  useEffect(() => {
+    if (lastLibraryModeRef.current === libraryMode) return;
+    lastLibraryModeRef.current = libraryMode;
+    // Bump FIRST: a load already in flight against the old library must not
+    // install its result or repopulate the caches we are about to clear.
+    listGenerationRef.current += 1;
+    invalidateCache();
+    setActiveSubjectSlug(null);
+    setActiveSoftware(null);
+    setActiveSoftwareSlug(null);
+    setCurrentView('library');
+    setCourseFilter('all');        // 'trash' is cloud-only; see the effect above
+    // 🚨 AND RE-LIST, EXPLICITLY. An earlier version of this effect only cleared
+    // activeSoftwareSlug and claimed in a comment that an effect below would
+    // re-list on that change. THERE IS NO SUCH EFFECT — every loadSoftwareList()
+    // call in this file sits inside a handler (handleCourseChanged, deleteSoftware,
+    // fork, generate) or the mount effect. Without this line the switch cleared the
+    // open course and then left the OTHER library's courses on screen, which is the
+    // whole feature appearing not to work.
+    loadSoftwareList();
+  }, [libraryMode, invalidateCache, loadSoftwareList]);
+
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
     setActiveSubjectSlug(subjectSlug);
     const cacheKey = `${softwareSlug}/${subjectSlug}`;
@@ -690,6 +769,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const visibleCourses = useMemo(
     () => softwareList.filter(sw => courseMatchesFilter(sw, courseFilter)),
     [softwareList, courseFilter],
+  );
+
+  // The course a fork was copied FROM, resolved out of the same index the forks
+  // themselves come from. Both the "Suggest a change…" gate and the change-request
+  // dialog's title need it, so it is one lookup rather than two that can drift.
+  //
+  // ABSENCE MEANS "NOT A STANDARD I CAN PROPOSE AGAINST", and that is sound:
+  // otter_course_index() returns every company_standard course to every member
+  // (0022 — `OR c.visibility IN ('shared','company_standard')`), so a live
+  // standard is always in this list. A source that is missing is therefore
+  // demoted, trashed (the index filters `deleted_at IS NULL`) or in another
+  // workspace — every one of which otter_cr_insert would refuse.
+  //
+  // NO FIRST-PAINT FLICKER. Every CourseRowMenu site renders from softwareList
+  // (the sidebar and library map visibleCourses; the header is guarded by
+  // activeCourseRow, itself a lookup in this list), and loadSoftwareList sets the
+  // whole array in ONE setSoftwareList(data). So a fork and its source arrive
+  // together — there is no paint in which the fork is on screen and its source
+  // has merely not loaded yet.
+  const sourceCourseOf = useCallback(
+    (course) => (course?.source_course_id
+      ? softwareList.find(sw => sw.slug === course.source_course_id) ?? null
+      : null),
+    [softwareList],
   );
 
   const filterCounts = useMemo(() => {
@@ -796,7 +899,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Could not copy this course');
-      await loadSoftwareList();
+      // Only follow up if the list we just loaded is the one on screen; see
+      // loadSoftwareList's header.
+      if (!(await loadSoftwareList())) return;
       selectSoftware(data.slug, true);
       setCourseFilter('all');
       setCurrentView('library');
@@ -1221,7 +1326,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       setSoftwareNameInput('');
       setReferenceUrls([]);
       invalidateCache(slug);
-      await loadSoftwareList();
+      if (!(await loadSoftwareList())) return;
       selectSoftware(slug, true);
       setCurrentView('library');
     } catch (e) {
@@ -2118,7 +2223,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       invalidateCache(slug);
-      await loadSoftwareList();
+      if (!(await loadSoftwareList())) return;
       selectSoftware(slug, true);
       setCurrentView('library');
       return slug;
@@ -3097,7 +3202,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   // mount — without this the jump lands on a library that
                   // doesn't show it (same rule as the wilson:open-otter-course
                   // handler above).
-                  await loadSoftwareList();
+                  if (!(await loadSoftwareList())) return;
                   navigateTo('library');
                   selectSoftware(slug, true);
                 }}
@@ -3232,9 +3337,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {crDialogCourse && (
         <ChangeRequestDialog
           course={crDialogCourse}
-          standardName={
-            softwareList.find(sw => sw.slug === crDialogCourse.source_course_id)?.name ?? null
-          }
+          standardName={sourceCourseOf(crDialogCourse)?.name ?? null}
+          // RequestsView opens this dialog directly (onOpenDialog below), so
+          // gating the MENU item is not enough on its own — a proposer whose
+          // standard was demoted mid-review can still reach the form from their
+          // queue. The dialog makes its own decision from the same lookup.
+          sourceIsStandard={sourceCourseOf(crDialogCourse)?.visibility === 'company_standard'}
           onClose={() => {
             setCrDialogCourse(null);
             setRequestsRefreshTick(t => t + 1);
@@ -3640,6 +3748,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                           course={sw}
                           role={appRole}
                           compact
+                          sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                           onShare={setShareDialogCourse}
                           onSuggestChange={setCrDialogCourse}
                           onFork={(c) => forkCourse(c)}
@@ -3885,6 +3994,42 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   //  LIBRARY VIEW
   // ═══════════════════════════════════════════════════════════════
+  // ── A4: say which library this is, when the other one is hidden ───────────
+  //
+  // Audrey's decision 3 asks for a notice "whenever the local library is
+  // hidden". Both directions are covered, because the switch creates the
+  // mirror-image trap the moment it exists: someone pins 'This computer',
+  // forgets, and later reads the missing company courses as data loss. The
+  // notice carries the way back, so the recovery does not depend on finding a
+  // padlocked Settings tab.
+  //
+  // Web build: nothing renders. There is no local library there to hide, and
+  // `usableMode` refuses a 'local' pin on that build for the same reason.
+  function renderLibrarySourceNotice() {
+    if (!hasLocalLibrary) return null;
+    const localHidden   = cloudMode;
+    const companyHidden = !cloudMode && libraryMode === 'local' && !!perms.workspaceId;
+    if (!localHidden && !companyHidden) return null;
+    // On the overhaul's kit: the same Banner the sharing notice above uses,
+    // the way back as the Banner's action, the Settings pointer in the text.
+    return (
+      <Banner
+        tone="info"
+        Icon={Info}
+        className="otter-banner"
+        action={(
+          <Button variant="ghost" size="sm" onClick={() => setOtterAdapterMode(localHidden ? 'local' : 'auto')}>
+            {localHidden ? 'Show the courses on this computer' : 'Show the company library'}
+          </Button>
+        )}
+      >
+        {localHidden
+          ? 'You are signed in, so this is your company library. Courses saved on this computer are hidden.'
+          : 'This is the library on this computer. Your company courses are hidden.'}
+        {' '}You can also change this in Settings under Library.
+      </Banner>
+    );
+  }
   function renderLibrary() {
     // "Recently deleted" is a FILTER STATE on this same pane, not a new view.
     if (courseFilter === 'trash') {
@@ -3928,6 +4073,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     <CourseRowMenu
                       course={activeCourseRow}
                       role={appRole}
+                      sourceIsStandard={sourceCourseOf(activeCourseRow)?.visibility === 'company_standard'}
                       onShare={setShareDialogCourse}
                       onSuggestChange={setCrDialogCourse}
                       onFork={(c) => forkCourse(c)}
@@ -4075,6 +4221,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       <div className="otter-view">
         <div className="otter-view-page" data-width="data">
           {renderSharingBanner()}
+          {renderLibrarySourceNotice()}
           <SectionTitle
             rule={false}
             className="otter-view-title"
@@ -4146,6 +4293,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       <CourseRowMenu
                         course={sw}
                         role={appRole}
+                        sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                         onShare={setShareDialogCourse}
                         onSuggestChange={setCrDialogCourse}
                         onFork={(c) => forkCourse(c)}
@@ -5443,37 +5591,70 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   }
 
   function renderToolsTab() {
+    // The two positions Audrey asked for (decision 3), each writing through
+    // the adapter seam; the pressed one's description is repeated under the
+    // pair beside the "showing now" line.
+    const libraryOptions = [
+      { mode: 'auto',  title: 'Company (signed in)', desc: 'Your company library when you are signed in, this computer when you are not.' },
+      { mode: 'local', title: 'This computer',       desc: 'Always the courses saved on this computer, even while signed in.' },
+    ];
     return (
       <div className="otter-settings-cards">
-        {/* Storage Location */}
-        <Card title="Storage location" className="otter-settings-card">
-          {/* S30: a refused settings write used to leave the field showing the
-              new value with nothing saved. Now it says so. */}
-          {settingsError && (
-            <Banner tone="danger" icon={AlertCircle} className="otter-settings-error">
-              <span className="otter-settings-error-lead">Not saved.</span> {settingsError}
-            </Banner>
-          )}
-          <div className="otter-storage-row">
-            <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
-              disabled={toolsTabLocked} aria-label="Storage location"
-              className="ui-input otter-storage-input" data-surface="dark" />
-            {/* Session 12: this button used to POST /api/browse-folder, a
-                route that never existed on ANY host — it was dead everywhere
-                (same class as S11's unreachable renderDeleteConfirm). The
-                preload rabbit bridge already ships a directory picker, so use
-                it where it exists and drop the button where it can't work. */}
-            {window.electronAPI?.rabbit?.pickDirectory && (
-              <Button icon={FolderOpen} disabled={toolsTabLocked} title="Browse for folder" onClick={async () => {
-                try {
-                  const dir = await window.electronAPI.rabbit.pickDirectory();
-                  if (dir) saveSettings({ storageLocation: dir });
-                } catch (e) { console.error('Browse folder failed:', e); }
-              }}>Browse</Button>
-            )}
-          </div>
-          <p className="otter-form-hint">Default: ./data/software/ -- All courses and subjects are stored here.</p>
-        </Card>
+        {/* S30: a refused settings write used to leave the field showing the
+            new value with nothing saved. Now it says so. A4 hoisted this out of
+            the removed "Storage Location" block — deleting it with the field
+            would have made every failed write on this tab silent again. */}
+        {settingsError && (
+          <Banner tone="danger" icon={AlertCircle} className="otter-settings-error">
+            <span className="otter-settings-error-lead">Not saved.</span> {settingsError}
+          </Banner>
+        )}
+
+        {/* ── Library, A4 / Audrey's decision 3 ─────────────────────────────
+            Replaces "Storage Location", which was removed in the same bundle
+            (decision 28b): that field wrote `settings.storageLocation` and
+            NOTHING has ever read it — courses live at
+            userData/otter-data/software/ regardless. It was listed in
+            RELEASE_TESTING.md "Known not to work" #3.
+
+            This control is the one that does something. Desktop only, because
+            the on-disk library only exists where the in-app Express server
+            does. On the overhaul's kit: a Card, the two positions as kit
+            Buttons that press (aria-pressed, the pressed one filled), the
+            explanation and the "showing now" line on the sheet's caption
+            step. */}
+        {hasLocalLibrary && (
+          <Card title="Library" className="otter-settings-card">
+            <p className="otter-form-hint otter-form-hint-above">
+              Which courses O.T.T.E.R. shows on this computer. Signing in used to hide the
+              courses saved here with no way back. This choice is remembered for this
+              computer only — it is never carried to your other machines.
+            </p>
+            <div className="otter-settings-actions">
+              {libraryOptions.map(opt => (
+                <Button
+                  key={opt.mode}
+                  variant={libraryMode === opt.mode ? 'primary' : 'secondary'}
+                  aria-pressed={libraryMode === opt.mode}
+                  title={opt.desc}
+                  onClick={() => setOtterAdapterMode(opt.mode)}
+                  disabled={toolsTabLocked}
+                  className="otter-settings-action"
+                >
+                  {opt.title}
+                </Button>
+              ))}
+            </div>
+            {/* What is ACTUALLY in front of you, which is not always what the
+                setting says: 'Company (signed in)' shows this computer's
+                courses while signed out, and that is worth stating rather than
+                leaving someone to infer it from an empty screen. */}
+            <p className="otter-form-hint">
+              {libraryOptions.find(opt => opt.mode === libraryMode)?.desc}
+              {' '}Showing now: {cloudMode ? 'your company library' : 'the courses on this computer'}.
+            </p>
+          </Card>
+        )}
 
         {/* Data management */}
         <Card title="Data management" className="otter-settings-card">

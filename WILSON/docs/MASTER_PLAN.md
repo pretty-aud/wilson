@@ -784,8 +784,13 @@ read doubles as the final audit (code findings → §6 gaps for S17).
    be recreated.
 4. Restoring a child under a trashed parent leaves trash early (error surfaced;
    parent purge cascades it anyway).
-5. Milestones / scenes / levels / experiences have no cloud tables yet (S2
-   deferral) — not broadcast, not history-captured.
+5. ~~Milestones / scenes / levels / experiences have no cloud tables yet (S2
+   deferral)~~ — **TABLES CLOSED**: scenes/shots/levels/experiences by 0040
+   (S25), milestones by **0067** (Track A A2 session 2, 2026-09-07, ruling 26;
+   applied and verified by query on dev and staging, suite 71 green on both).
+   **Still open, unchanged, for all four:** they are not broadcast (0016) and
+   not edit-history captured (0012), so a second window sees a change on its
+   next project load. ⚠️ **2026-09-07, Audrey's ruling:** `milestones` LEFT this group for broadcast — migration **0077** puts key dates on the project topic — and the four 0040 entities keep the reload limit **by her explicit choice**, recorded as a conscious difference in `SYSTEMS_HANDBOOK` §4.5 and §13.3 and pinned by `72_milestone_realtime.sql` probes 11-14. Edit-history capture is still open for all five.
 6. ~~Storage blob GC — file rows soft-delete but blobs persist~~ — **CLOSED
    S14**: trg_files_gc_enqueue + storage_gc_queue + the admin-invoked
    `storage-gc` Edge Function (queue drain, orphan scan, avatar sweep, all
@@ -796,7 +801,15 @@ read doubles as the final audit (code findings → §6 gaps for S17).
    Budget/Intake views.
 9. ~~`public.users` drop + `schema.sql` retirement~~ — **CLOSED S10** (0023;
    Audrey confirmed standalone RABBIT is no longer supported).
-10. Milestones have no undo path (kept confirm dialog).
+10. ~~Milestones have no undo path (kept confirm dialog).~~ — **CLOSED** by
+    ruling 38 (Track A A2 session 2, `4f65d63` + `d5baa0b`, and the confirm
+    dialog itself removed in `269b796` — the first two commits built the undo
+    path and left the dialog standing in ProjectTasksView, which the R1 review
+    caught): a deleted key date
+    goes to the trash on BOTH backends, an undo toast appears on delete, and a
+    "Recently deleted key dates" panel restores one later. Cloud rides 0014's
+    soft_delete_row / restore_soft_deleted, whose allowlist 0067 extends;
+    desktop rides a softDelete opt on the shared sub-entity route factory.
 11. pgTAP 20/23's realtime probes are lenient in CI by design (no realtime
     service in the CI stack); hosted coverage = live probes.
 12. **NEW (S8):** Notes have no cross-device LIVE list refresh (deliberate —
@@ -872,13 +885,28 @@ read doubles as the final audit (code findings → §6 gaps for S17).
     the proposer's course (#27), a reviewer compares two courses by eye. A real
     subject-level diff view is the obvious follow-on and is deliberately NOT in
     the S13 scope — flagged so it is a choice rather than an oversight.
-29. **NEW (S11): the apply RPC handles SUBJECTS only.** The five per-course
-    reference documents (`hotkeys`, `functions`, `nodes`, `reference_urls`,
-    `corrections`) have merge semantics that live in client JS
-    (`otterRoutes.js`'s `mergeHotkeys`/`mergeFunctions`/`mergeNodes`).
-    Reimplementing them in plpgsql would duplicate load-bearing logic, and
-    overwriting them would violate the additive-only rule. So an approval moves
-    lesson content and not hotkey tables. State it in the approve dialog.
+29. ~~**NEW (S11): the apply RPC handles SUBJECTS only.**~~ — **NARROWED
+    2026-09-07 (Track A, A4, `dfe666e`), by Audrey's decision 37.** Four of the
+    five documents now move on approval: `hotkeys`, `functions`, `nodes` and
+    `reference_urls`.
+    **This entry's OBJECTION still stands and is why the fix is shaped the way it
+    is:** the merge semantics stay in client JS and were NOT reimplemented in
+    plpgsql. `CR_DOC_MERGE` in `otterRoutes.js` adapts a STORED document into the
+    shape each existing merger wants (they were written for the generator's
+    output, and for `nodes` the two differ), and `cr.approve` reads the fork's
+    documents BEFORE the RPC — the consented review window closes on decision
+    — and writes AFTER it, so `otter_fork_course`'s snapshot keeps the OLD
+    documents. `mergeReferenceUrls` is new; there had never been one.
+    Additive-only is preserved: a document entry deleted on the fork survives on
+    the standard.
+    **`corrections` still do not move, and that is now a stated choice rather
+    than a limitation.** `otter_fork_course` blanks them when making a fork
+    (*"the original author's agent memory, not content"*), so a fork never
+    inherits them and publishing a proposer's to the company standard would
+    contradict that rule. Audrey is asked to confirm in walkthrough `08_otter.md`;
+    it is one line in `CR_DOC_MERGE` if she wants all five.
+    The approve dialog and the result banner state all of this, and the banner
+    names any document that could not be written.
 24. ~~**the S9 backup workflow could never have run**~~ — **CLOSED 2026-07-29.**
     `chore/enable-db-backups` merged to `main`; B2 configured (SSE-B2 +
     Object Lock on, 90-day lifecycle); both prod and staging jobs run green
@@ -1268,12 +1296,12 @@ undecided gap at a release is a decision nobody made.
 | 2 | **ACCEPTED** | Token-refresh-while-trashed can miss one restore event; catches up on next open. Documented in the 0016 header. |
 | 3 | **ACCEPTED** | Revert covers projects/phases/assets/tasks only. A hard-deleted project cannot be recreated at its original id, and a fresh id would orphan the whole subtree — that is a correctness limit, not an omission. |
 | 4 | **ACCEPTED** | Restoring a child under a trashed parent leaves trash early; the error is surfaced and the parent purge cascades it anyway. |
-| 5 | **RE-OWNED** | Milestones / scenes / levels / experiences have no cloud tables. This is a migration plus five adapter surfaces, not a release fix. **S17 did fix the data loss inside local mode (#47).** |
+| 5 | **CLOSED** (S25 `183b4c2` + A2s2 `4f65d63`/`d5baa0b`) | All four have cloud tables: 0040 built scenes/shots/levels/experiences, 0067 built milestones. The broadcast and edit-history gap is unchanged and still stated in §6 #5 — except for `milestones`, which gained broadcast in 0077 (2026-09-07); see the note there. **S17 had already fixed the data loss inside local mode (#47).** |
 | 6 | **CLOSED S14** | `trg_files_gc_enqueue` + `storage_gc_queue` + the admin-invoked `storage-gc` function. |
 | 7 | **ACCEPTED** | `project_members` changes are not edit-history captured. Roster changes are visible in the UI and the workspace channel; the audit gap that mattered — *workspace* privilege changes — is #42, closed below. |
 | 8 / 19 | **RE-OWNED** | Legacy `useTeamMembers` still backs six views. Migrating a live data source across Timeline / Scenes / Levels / Experiences / Budget / Intake is exactly the kind of refactor this session was told not to attempt. |
 | 9 | **CLOSED S10** | `public.users` dropped (0023). |
-| 10 | **ACCEPTED** | Milestones have no undo path; the confirm dialog stands in. |
+| 10 | **CLOSED** (A2s2 `4f65d63` + `d5baa0b` + `269b796`, ruling 38) | Milestones have trash and undo on both backends: an undo toast on delete and a "Recently deleted key dates" panel with Restore. The confirm dialog this row named as the stand-in was removed in `269b796`, after R1 found it still in the tree. |
 | 11 | **ACCEPTED** | pgTAP realtime probes are lenient in CI by design — there is no realtime service in the CI stack. Hosted coverage comes from live probes. |
 | 12 | **ACCEPTED** | Notes have no cross-device live list refresh. Deliberate: notes ride no channel, and the version guard already makes concurrent edits lossless. |
 | 13 | **CLOSED S9** | Roster liveness + assigned-projects column. |
@@ -1291,7 +1319,7 @@ undecided gap at a release is a decision nobody made.
 | 26 | **CLOSED S13** | `otter_cr_apply()` (0025). |
 | 27 | **CLOSED S13** | The consented review window. |
 | 28 | **RE-OWNED** | A reviewer still compares two courses by eye. A subject-level diff view is a feature, and it was deliberately excluded from S13's scope rather than forgotten. |
-| 29 | **ACCEPTED** | Apply moves subjects, not the five reference documents. Their merge semantics live in client JS; reimplementing them in plpgsql would duplicate load-bearing logic, and overwriting them would violate the additive-only rule. **The approve dialog says so.** |
+| 29 | **NARROWED 2026-09-07 (A4, `dfe666e`)** | Apply now moves subjects AND four of the five reference documents (hotkeys, functions, nodes, reference_urls) — Audrey's decision 37. The merge stayed in client JS, which is what this entry originally objected to protecting; `corrections` still do not move, because `otter_fork_course` blanks them as the author's agent memory. See the narrated entry in §6. **The approve dialog says so.** |
 | 30 | **ACCEPTED** | Web multi-tab last-writer-wins on the three `localStorage` stores. One-window product; same class as two Electron windows. |
 | 31 | **RE-OWNED** | D.O.G. cloud attachments. S15 closed the data-loss half; the re-homing is a migration plus five wiring changes with seven catalogued traps (see the entry above — the `isCore` polarity flip alone would change generation output). Explicitly excluded from S17 by the session brief. **In local mode attachments work end to end; in cloud mode they are refused loudly at the write layer, not silently lost.** |
 | 32 | **CLOSED S15** | The local password module deleted entire. |

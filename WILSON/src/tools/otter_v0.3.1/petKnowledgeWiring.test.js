@@ -98,7 +98,12 @@ describe('App.jsx actually reaches petKnowledge', () => {
 
   it('🚨 passes otterFetch — the ONE seam, not a bare fetch and not a forked adapter', () => {
     expect(appCode).toMatch(/retrieveOtterKnowledge\(\{[\s\S]{0,200}fetchImpl:\s*otterFetch/)
-    expect(appCode).toMatch(/import\s*\{\s*otterFetch\s*\}\s*from\s*'\.\/tools\/otter_v0\.3\.1\/adapters'/)
+    // A4 widened the CLAUSE, not the target: App.jsx now also imports
+    // subscribeOtterAdapterMode from this same module (the library switch has
+    // to invalidate the pet index). The identifier is still matched exactly,
+    // with word boundaries, so dropping otterFetch or importing it from
+    // somewhere else still fails.
+    expect(appCode).toMatch(/import\s*\{[^}]*\botterFetch\b[^}]*\}\s*from\s*'\.\/tools\/otter_v0\.3\.1\/adapters'/)
   })
 
   it('🚨 the result reaches `context` — retrieving and then dropping it is the whole bug again', () => {

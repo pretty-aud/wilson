@@ -472,15 +472,84 @@ function startLocalServer(distPath) {
     expressApp.use(express.json({ limit: '50mb' }));
 
     // ── Pet endpoints ──
+    //
+    // 🚨 A3 (2026-09-07): THE CACHE IS KEYED BY ACCOUNT.
+    //
+    // getDataDir() has no user segment, so `pet.json` was one file per INSTALL
+    // and nothing removed it on sign-out. src/lib/userState.js's resolveUserPet
+    // reads that cache to decide whether to ADOPT it into the account, so on a
+    // shared computer person A's pet could be lifted into person B's account
+    // whenever B had no pet row of their own — underneath RLS, through the
+    // filesystem. `?user=<uuid>` names the owner: `pet.<userId>.json`.
+    //
+    // ⚠️ Without the parameter these routes behave exactly as before, on the
+    // historical `pet.json`. That is the signed-out path, and nothing adopts it
+    // into an account any more.
+    //
+    // 🚨 THE UUID IS VALIDATED, NOT SANITISED. The value reaches path.join, so
+    // anything that is not exactly a UUID is REFUSED. A sanitiser is a list of
+    // the traversals somebody happened to think of; a shape check is not.
+    const PET_USER_RE =
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+    // Returns the path to write, or NULL after answering 400 — callers must
+    // check, because returning a fallback path on a bad parameter is how a
+    // rejected request quietly writes to somebody else's file.
+    function petPathFor(req, res) {
+      const user = req.query && req.query.user;
+      if (user === undefined || user === null || user === '') {
+        return path.join(getDataDir(), 'pet.json');
+      }
+      if (typeof user !== 'string' || !PET_USER_RE.test(user)) {
+        res.status(400).json({ error: 'user must be a UUID' });
+        return null;
+      }
+      return path.join(getDataDir(), 'pet.' + user + '.json');
+    }
+
     expressApp.get('/api/pet', (req, res) => {
-      const petPath = path.join(getDataDir(), 'pet.json');
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
       let pet = readJSON(petPath);
-      if (!pet) { pet = defaultPet(); writeJSON(petPath, pet); }
+      if (!pet) {
+        // 🚨 THE ACCOUNT ARM DOES NOT MINT. "This account has never been cached
+        // on this computer" is a real answer and the renderer needs to hear it:
+        // minting an egg here would hand resolveUserPet a pristine pet to
+        // reason about on every first sign-in, and would flash a blank egg on
+        // screen before the account's real pet arrives.
+        if (req.query && req.query.user) {
+          return res.status(404).json({ error: 'no cached pet for this account' });
+        }
+        pet = defaultPet(); writeJSON(petPath, pet);
+      }
       res.json(pet);
     });
 
     expressApp.post('/api/pet', (req, res) => {
-      writeJSON(path.join(getDataDir(), 'pet.json'), req.body);
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
+      writeJSON(petPath, req.body);
+      res.json({ ok: true });
+    });
+
+    // Sign-out deletes THIS ACCOUNT'S cached copy. Not the same class of action
+    // as deleting the pet: public.user_pets is the authority and is untouched,
+    // so signing back in restores everything.
+    expressApp.delete('/api/pet', (req, res) => {
+      // ⚠️ Refuses to touch the unattributed pet.json. That file is nobody's
+      // account state, nothing reads it into an account any more, and a
+      // sign-out has no business deleting a file it cannot attribute — Audrey's
+      // original Ollie lives in one of them.
+      if (!(req.query && req.query.user)) {
+        return res.status(400).json({ error: 'user is required' });
+      }
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
+      try {
+        if (fs.existsSync(petPath)) fs.unlinkSync(petPath);
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
       res.json({ ok: true });
     });
 
@@ -2007,7 +2076,38 @@ function startLocalServer(distPath) {
     // Passing it gives every row of that type its own folder on create AND
     // moves the folder when the row is renamed. Entities without it (phases,
     // tasks, comments…) are unaffected — they are not things with folders.
-    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null) {
+    // Track A bundle A2 (2026-09-06): the desktop's equivalent of 0061's
+    // ON DELETE CASCADE. A task or phase delete used to splice only its own
+    // collection, so every dependency edge naming the deleted row stayed in
+    // project.json and was re-mirrored into {Slug}_DATABASES/tasks.json and
+    // timeline.json on every write; RabbitProvider pruned its own copy, which
+    // hid the orphans for the session and brought them back on reload. The
+    // sweep runs in the SAME write that removes the entity, on the bundle the
+    // mirrors are rendered from, so they never see an orphan again. Edges are
+    // task→task or phase→phase and ids are uuids, so matching on id alone
+    // (not kind) is exact — the same rule the provider's deleteTask and
+    // deletePhase use. Replayed with a failing control by
+    // src/tools/rabbit_v0.1.0/desktopDeleteSweep.test.js.
+    function sweepDependencyEdges(bundle, id) {
+      if (!Array.isArray(bundle.dependencies)) return 0;
+      const before = bundle.dependencies.length;
+      bundle.dependencies = bundle.dependencies.filter(
+        d => d.predecessor_id !== id && d.successor_id !== id,
+      );
+      return before - bundle.dependencies.length;
+    }
+    // `opts` is a plain parameter, not `{ sweepDependencies = false } = {}`:
+    // two test files lift functions out of this file by brace matching from
+    // the name, and a brace in the parameter list is the one thing that
+    // breaks them.
+    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null, opts) {
+      const sweepDependencies = !!(opts && opts.sweepDependencies);
+      // A2 session 2, ruling 38: milestones trash instead of vanishing. The
+      // cloud got this from 0014's machinery via 0067; the desktop has no
+      // such machinery, so DELETE stamps deleted_at on the row and a restore
+      // route clears it. The bundle keeps the row either way — that is what
+      // makes "Recently deleted" and Undo work here at all.
+      const softDelete = !!(opts && opts.softDelete);
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -2048,14 +2148,55 @@ function startLocalServer(distPath) {
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
+        // `?purge=1` is the HARD delete, and it exists for exactly one caller:
+        // the renderer's undo of a CREATE. Undoing a create must leave no row
+        // and no trash entry — otherwise every undone create accumulates in
+        // "Recently deleted" forever, because nothing purges on Local Server.
+        // Deleting a row the user actually made still trashes it.
+        if (softDelete && req.query?.purge !== '1') {
+          const arr = bundle[bundleKey];
+          const idx = arr.findIndex(x => x.id === req.params.id && !x.deleted_at);
+          // !deleted_at above, matching the read path: deleting an already
+          // trashed row is a 404, not a second stamp that would move its
+          // purge countdown. Same shape as the managed-file soft delete.
+          if (idx < 0) return rabbitNotFound(res, entityName);
+          arr[idx] = { ...arr[idx], deleted_at: new Date().toISOString() };
+          writeRabbitBundle(req.params.projectId, bundle);
+          return res.json({ ok: true, swept: 0, softDeleted: true });
+        }
         const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
         if (!removed) return rabbitNotFound(res, entityName);
+        const swept = sweepDependencies ? sweepDependencyEdges(bundle, req.params.id) : 0;
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json({ ok: true });
+        res.json({ ok: true, swept });
       });
+      // RESTORE — registered only for soft-delete entities, so a hard-delete
+      // entity has no route that could half-work.
+      if (softDelete) {
+        expressApp.post(`/api/rabbit/projects/:projectId/${entityName}/:id/restore`, (req, res) => {
+          const bundle = readRabbitBundle(req.params.projectId);
+          if (!bundle) return rabbitNotFound(res);
+          if (!bundle[bundleKey]) bundle[bundleKey] = [];
+          const arr = bundle[bundleKey];
+          const idx = arr.findIndex(x => x.id === req.params.id && x.deleted_at);
+          // A row that is already live answers `restored: false` rather than
+          // 404: the cloud's restore_soft_deleted returns false in exactly
+          // that case (someone else restored it first) and the caller must
+          // read the two backends the same way.
+          if (idx < 0) {
+            const live = arr.some(x => x.id === req.params.id);
+            if (!live) return rabbitNotFound(res, entityName);
+            return res.json({ ok: true, restored: false });
+          }
+          const { deleted_at: _dropped, ...rest } = arr[idx];
+          arr[idx] = rest;
+          writeRabbitBundle(req.params.projectId, bundle);
+          res.json({ ok: true, restored: true });
+        });
+      }
     }
 
-    rabbitSubentityRoutes('phases',         'phases');
+    rabbitSubentityRoutes('phases',         'phases',         null, { sweepDependencies: true });
 
     // ── Assets: custom routes with folder lifecycle side-effects ──
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
@@ -2231,7 +2372,7 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    rabbitSubentityRoutes('tasks',          'tasks');
+    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
     rabbitSubentityRoutes('asset-versions', 'assetVersions');
@@ -2250,7 +2391,9 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('shots',           'shots',       'shot');
     rabbitSubentityRoutes('levels',          'levels',      'level');
     rabbitSubentityRoutes('experiences',     'experiences', 'experience');
-    rabbitSubentityRoutes('milestones',      'milestones');
+    // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
+    // Not a dependency endpoint, so no sweep — a milestone has no edges.
+    rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true });
 
     // ── Folder tree routes (Session 26) ───────────────────────────
     //

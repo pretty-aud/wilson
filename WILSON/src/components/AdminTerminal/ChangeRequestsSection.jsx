@@ -12,9 +12,14 @@
 //   * APPROVE APPLIES. otter_cr_apply archives the standard to a private copy
 //     owned by the approver, then copies the proposer's subjects in
 //     ADDITIVELY — update by slug, insert when absent, NEVER delete — and the
-//     five reference documents (hotkeys/functions/nodes/urls/corrections) are
-//     untouched (their merge semantics live in client JS; §6 #29). The confirm
-//     panel states all of that, with real counts, before anything writes.
+//     four reference documents (hotkeys/functions/nodes/reference URLs) are
+//     merged in too, additively, since A4 / Audrey's decision 37. That merge is
+//     still CLIENT-side (§6 #29's objection to reimplementing it in plpgsql
+//     stands) and runs AFTER the RPC, so the archive keeps the OLD documents.
+//     `corrections` stays behind on purpose: otter_fork_course blanks it when
+//     making a fork because it is the author's agent memory, not content.
+//     The confirm panel states all of that, with real counts, before anything
+//     writes, and the result banner names any document that did NOT move.
 //   * DECLINE IS A CONVERSATION. It moves the request to changes_requested
 //     with a REQUIRED note; the proposer then revises and resubmits (the
 //     request comes back to the Open tab at revision + 1) or accepts the
@@ -52,6 +57,7 @@ import {
   ExternalLink, Archive,
 } from 'lucide-react'
 import { otterFetch } from '../../tools/otter_v0.3.1/adapters'
+import { DOC_LABELS } from '../../tools/otter_v0.3.1/adapters/otterRoutes.js'
 // UI overhaul C3b — the tokens come from `@theme` through `src/ui/tokens`
 // now, not from the light-page alias module. Track A owns this file's JSX;
 // this edit is colours and the two private button copies, nothing else.
@@ -100,7 +106,7 @@ export default function ChangeRequestsSection({ isActive }) {
   // { adds, updates, loading, error } for the request whose approve panel is open.
   const [diff, setDiff]       = useState(null)
   // Peak-End: what the last approval actually did.
-  const [applied, setApplied] = useState(null)   // { name, adds, updates }
+  const [applied, setApplied] = useState(null)   // { name, adds, updates, docsFailed }
   const loadedRef = useRef(false)
 
   const load = useCallback(async () => {
@@ -171,6 +177,12 @@ export default function ChangeRequestsSection({ isActive }) {
         name: r.target_name ?? 'the standard course',
         adds: diff?.adds ?? null,
         updates: diff?.updates ?? null,
+        // A4: the RPC has already committed by the time the document merge
+        // runs, so a refused write cannot roll the approval back. Carry the
+        // failures to the banner rather than dropping them — a silent partial
+        // apply is the one outcome nobody would notice.
+        docsFailed: data?.documents?.failed ?? [],
+        docsMerged: data?.documents?.merged ?? [],
       })
       setDecide(null)
       setDiff(null)
@@ -279,7 +291,24 @@ export default function ChangeRequestsSection({ isActive }) {
           <span className="text-dense" style={{ color: SUCCESS }}>
             Applied to “{applied.name}”
             {applied.updates != null ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added` : ''}.
-            A pre-change archive was kept in your O.T.T.E.R. library.
+            {/* Positive evidence only. `failed.length === 0` is also true when the
+                server sent no `documents` key at all — an older client, a 501, a
+                future shape change — and printing "merged in as well" from missing
+                data is the same defect the adapter refuses two files away. */}
+            {/* THREE states, not two. `failed.length === 0` is ALSO true when the
+                server sent no `documents` key at all (an older client, a 501, a
+                future shape change), and both an affirmative claim and a
+                'could NOT be updated ' + nothing are wrong for that case. Say
+                something only when there is evidence either way.
+                The reason is taken from the failure itself: since the null-row
+                guards there is more than one way a document write can fail, and
+                naming only the permission one would be wrong for the others. */}
+            {(applied.docsMerged?.length ?? 0) === 4
+              ? ' Their hotkeys, functions, nodes and reference links were merged in as well.'
+              : (applied.docsFailed?.length ?? 0) > 0
+                ? ` Their subjects moved, but ${applied.docsFailed.map(d => DOC_LABELS[d.doc] ?? d.doc).join(', ')} could NOT be updated (${applied.docsFailed[0].message}).`
+                : ''}
+            {' '}A pre-change archive was kept in your O.T.T.E.R. library.
           </span>
           <button type="button" onClick={() => setApplied(null)} className="ml-auto flex-shrink-0" aria-label="Dismiss">
             <X className="w-3.5 h-3.5" style={{ color: SUCCESS }} />
@@ -402,9 +431,11 @@ export default function ChangeRequestsSection({ isActive }) {
                               “{r.target_name ?? 'the standard'}”: <strong>{diff?.updates ?? 0} subject{(diff?.updates ?? 0) === 1 ? '' : 's'} updated,
                               {' '}{diff?.adds ?? 0} added</strong>.</>
                             )}{' '}
-                            Nothing is deleted, and reference documents (hotkeys, functions, nodes)
-                            are untouched. A snapshot of the current standard is kept first, as a
-                            private archive owned by you.
+                            Nothing is deleted. Their hotkeys, functions, nodes and reference links
+                            are merged in as well — additively, so anything only the standard has is
+                            kept. Corrections stay with them: those are agent memory, not content. A
+                            snapshot of the standard as it is now, documents included, is kept first
+                            as a private archive owned by you.
                           </p>
                           <div className="flex gap-2 mt-2">
                             <Button

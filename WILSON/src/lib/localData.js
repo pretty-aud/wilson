@@ -36,6 +36,28 @@
 // disk path names a DIFFERENT folder on another computer, so carrying it points
 // at the wrong content rather than sharing content.
 //
+// 🚨 A3 (2026-09-07): THE PET CACHE IS KEYED BY ACCOUNT, NOT BY MACHINE.
+//
+// It was one key per origin (`wilson.pet`) and one file per install
+// (`otter-data/pet.json`, from a getDataDir() with no user segment), and
+// nothing removed either on sign-out. `userState.resolveUserPet` reads that
+// cache to decide whether to ADOPT it into the account — so on a shared
+// computer person A's pet could be lifted into person B's account whenever B
+// had no pet row of their own. Suite 56 proves an admin cannot read a member's
+// pet through RLS; that handed one person's pet to another underneath RLS,
+// through the filesystem.
+//
+// So the cache now names its owner: `wilson.pet.<userId>` on the web,
+// `pet.<userId>.json` on the desktop, and sign-out deletes the copy belonging
+// to the account that is leaving.
+//
+// ⚠️ AND THE UNATTRIBUTED COPY IS NO LONGER ADOPTABLE BY ANYBODY. The old
+// `wilson.pet` / `pet.json` is still read when there is no signed-in user —
+// that is the only case where it can only be one person's — but a cache that
+// does not record who wrote it cannot be handed to an account safely, and
+// there is no marker that would make it safe retrospectively. The file is left
+// on disk rather than deleted; nothing reads it into an account any more.
+//
 // READERS resolve rather than throw, so a broken store degrades to defaults
 // instead of taking a screen down.
 //
@@ -105,32 +127,95 @@ function writeLocal(key, value) {
 // keeps its own copy — it is CommonJS in the main process and cannot import
 // this module.)
 
-/** GET /api/pet semantics: always yields a pet, minting the default egg. */
-export async function loadPet() {
+/**
+ * The cache key for one account, or the unattributed one when signed out.
+ *
+ * 🚨 The desktop half is the SAME string: electron/main.cjs builds
+ * `pet.<userId>.json` from the `user` query parameter, and refuses anything
+ * that is not a UUID rather than joining it into a path. Both halves have to
+ * agree, so the shape is written down in one place and the Express route
+ * quotes this comment.
+ */
+export function petCacheKey(userId) {
+  return userId ? PET_KEY + '.' + userId : PET_KEY
+}
+
+function petCacheQuery(userId) {
+  return userId ? '?user=' + encodeURIComponent(userId) : ''
+}
+
+/**
+ * GET /api/pet semantics.
+ *
+ * 🚨 THE TWO ARMS ANSWER DIFFERENT QUESTIONS, AND THAT IS DELIBERATE.
+ *
+ *   * With a userId — the account cache. Returns NULL when this account has
+ *     never been cached on this machine, and mints nothing. Minting here would
+ *     hand `resolveUserPet` a pristine egg to reason about on every first
+ *     sign-in, and would flash a blank egg on screen before the real pet
+ *     arrives.
+ *   * Without one — the unattributed store, unchanged since Session 12: it
+ *     always yields a pet, minting the default egg. That is what a signed-out
+ *     or local-only session reads, and nothing adopts it into an account.
+ */
+export async function loadPet(userId = null) {
   if (hasLocalServer()) {
-    const res = await fetch('/api/pet')
+    const res = await fetch('/api/pet' + petCacheQuery(userId))
+    // 404 is the account arm's "nothing cached here yet". It is not an error
+    // and must not be reported as one — a first sign-in on a new computer is
+    // the ordinary case.
+    if (userId && res.status === 404) return null
+    if (!res.ok) {
+      const detail = await res.json().then(b => b?.error).catch(() => null)
+      throw new Error(detail || `The pet could not be loaded (HTTP ${res.status}).`)
+    }
     return res.json()
   }
-  let pet = readLocal(PET_KEY, null)
+  const key = petCacheKey(userId)
+  let pet = readLocal(key, null)
+  if (userId) return pet
   if (!pet) {
     pet = defaultPet()
     // Seeding the default egg is a cache write, not the user's data — a broken
     // store must not stop the app producing a pet. The next real save reports
     // the problem properly.
-    try { writeLocal(PET_KEY, pet) } catch { /* reported on first save */ }
+    try { writeLocal(key, pet) } catch { /* reported on first save */ }
   }
   return pet
 }
 
-/** POST /api/pet semantics: overwrite the stored pet. */
-export async function savePetData(pet) {
+/**
+ * Forget one account's cached pet. Called on sign-out so the next person at
+ * this computer cannot be handed the previous one's — the filesystem half of
+ * the leak `resolveUserPet` used to close nothing about.
+ *
+ * Never throws: a sign-out must not be blocked by a cache that will not
+ * cooperate. Returns whether the copy is known to be gone, so the caller can
+ * say something if it is not.
+ */
+export async function clearPetCache(userId) {
+  if (!userId) return false
+  try {
+    if (hasLocalServer()) {
+      const res = await fetch('/api/pet' + petCacheQuery(userId), { method: 'DELETE' })
+      return res.ok
+    }
+    localStorage.removeItem(petCacheKey(userId))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** POST /api/pet semantics: overwrite the stored pet for this account. */
+export async function savePetData(pet, userId = null) {
   if (hasLocalServer()) {
     // 🚨 S30: `fetch` RESOLVES for every status. This `await` used to stand
     // alone, so a 404, a 500 or an Express server that had not started yet all
     // returned normally and App.jsx's catch could never fire — three layers of
     // silence over one lost pet. Same defect the Validator's "Accept Fix" had
     // (see Validator.jsx applyFix), found the same way.
-    const res = await fetch('/api/pet', {
+    const res = await fetch('/api/pet' + petCacheQuery(userId), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pet),
     })
@@ -140,7 +225,7 @@ export async function savePetData(pet) {
     }
     return
   }
-  writeLocal(PET_KEY, pet)
+  writeLocal(petCacheKey(userId), pet)
 }
 
 // 🚨 `newPetEgg()` IS GONE — Phase 3, 2026-08-12. It decided eligibility by

@@ -15,6 +15,8 @@
 import { streamPutJson } from '../storage/localServerProvider';
 import { describeSourceFile } from '../storage/mediaMetadata';
 
+import { byMilestoneDate } from '../state/milestoneOrder';
+
 const BASE = '/api/rabbit';
 
 let lastError  = null;
@@ -61,6 +63,27 @@ async function jfetch(url, init) {
 function sortByPath(rows) {
   return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
+
+// Mirrors the supabase adapter's `.order('date').order('id')` for milestones.
+// Postgres sorts NULLs LAST on an ascending order by default, so an undated key
+// date goes to the end here too — the editor refuses to save one, but a row
+// written before that check existed can still carry a null.
+//
+// 🚨 TWO THINGS R2 MEASURED, both fixed here and in the cloud query.
+// (a) TIES. `ORDER BY date` alone leaves equal dates in an arbitrary
+//     heap order, while Array.prototype.sort is spec-stable and keeps bundle
+//     insertion order — so two key dates on the same day could render in
+//     different orders on the two backends, which is the exact symptom this
+//     sort was added to remove. Both sides now break ties on `id`.
+// (b) FORMAT. localeCompare is a string compare, and '2026-1-5' sorts AFTER
+//     '2026-01-15' where Postgres orders them Jan 5 then Jan 15. `<input
+//     type="date">` always emits padded ISO, so this needs a hand-edited or
+//     imported bundle to reach — but comparing as dates costs nothing.
+// byMilestoneDate moved to state/milestoneOrder.js when key dates gained live
+// sync (0077): realtimeMerge needs the same order, and a comparator defined in
+// two places is A2 session 1's "done was defined twice" finding waiting to
+// happen again. The tests in loadProjectBundle.test.js still drive it through
+// listMilestones, so they cover the move as well as the order.
 
 export function localServerAdapter() {
   return {
@@ -119,7 +142,18 @@ export function localServerAdapter() {
         // setActiveProject does setBundle({...EMPTY_BUNDLE, ...next}), so a
         // missing key reset the array — real data loss on every reload,
         // project switch and realtime refetch.
-        milestones:      bundle.milestones || [],
+        //
+        // A2 session 2, ruling 38: trashed milestones are FILTERED OUT here,
+        // not deleted on the server. The desktop DELETE now stamps deleted_at
+        // (main.cjs, the softDelete opt) and the row stays in the bundle so
+        // Undo and "Recently deleted" have something to restore. This filter
+        // is what keeps it off the timeline, and it is the local mirror of
+        // milestones_select's `deleted_at IS NULL` arm in 0067 — the two
+        // backends must hide the same rows or the same project looks
+        // different depending on where it is stored.
+        milestones:      (bundle.milestones || [])
+          .filter(m => !m.deleted_at)
+          .sort(byMilestoneDate),
         // The bin system (demo 2026-09-11) — same reason as every key above.
         // `binFiles` here carry no `online` flag (the bundle is read raw); the
         // provider refreshes through listBins, whose route stats every path.
@@ -559,8 +593,24 @@ export function localServerAdapter() {
       }),
 
     // ── Milestones ────────────────────────────────────────────
+    //
+    // A2 session 2, ruling 38: trash and undo, on BOTH backends. The DELETE
+    // below is unchanged as a call — the SERVER now stamps deleted_at rather
+    // than splicing (main.cjs, the softDelete opt) — and the two new methods
+    // mirror the supabase adapter's restoreMilestone / listTrashedMilestones
+    // so RabbitProvider needs no per-adapter branch beyond the capability
+    // check it already does for phases (`typeof adapter.restorePhase`).
+    // Sorted by date to match the supabase adapter's `.order('date')`. The
+    // bundle is an array and therefore in INSERTION order, so without this the
+    // two backends return the same project's key dates in different orders —
+    // invisible on the Gantt, which draws by date, but visible in
+    // ProjectTasksView's milestone rows, which render array order. R1 caught
+    // the "both adapters agree" claim being false. Same trap S25 called out
+    // for scenes and S26 for folders.
     listMilestones: async (projectId) =>
-      (await jfetch(`${BASE}/projects/${projectId}`)).milestones || [],
+      ((await jfetch(`${BASE}/projects/${projectId}`)).milestones || [])
+        .filter(m => !m.deleted_at)
+        .sort(byMilestoneDate),
     upsertMilestone: (milestone) => jfetch(`${BASE}/projects/${milestone.project_id}/milestones`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -568,6 +618,23 @@ export function localServerAdapter() {
     }),
     deleteMilestone: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/milestones/${id}`, { method: 'DELETE' }),
+    // The HARD delete — `?purge=1` on the same route. One caller: the undo of
+    // a CREATE, which must leave no row and no trash entry.
+    destroyMilestone: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/milestones/${id}?purge=1`, { method: 'DELETE' }),
+    // Answers the same boolean the cloud RPC does: false = already live.
+    restoreMilestone: async (id, projectId) =>
+      !!(await jfetch(`${BASE}/projects/${projectId}/milestones/${id}/restore`, {
+        method: 'POST',
+      })).restored,
+    // "Recently deleted", newest first — the same order 0067's
+    // milestones_trash_index returns. The trashed rows are already in the
+    // bundle here (loadProject filters them out for the timeline), so this
+    // needs no route of its own.
+    listTrashedMilestones: async (projectId) =>
+      ((await jfetch(`${BASE}/projects/${projectId}`)).milestones || [])
+        .filter(m => m.deleted_at)
+        .sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at))),
 
     // ── Task templates ──────────────────────────────────────────
     listTaskTemplates: (workspaceId) => jfetch(`${BASE}/workspaces/${workspaceId}/task-templates`),

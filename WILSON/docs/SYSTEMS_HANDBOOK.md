@@ -325,7 +325,7 @@ anything that needs it is unavailable. The detection primitive is
 |---|---|
 | R.A.B.B.I.T. storage mode | Boot **forces** `supabase`, overriding any carried-over saved preference (`RabbitProvider.jsx:303-311`) |
 | O.T.T.E.R. content | Cloud adapter when signed in; a synthetic `401`/`501` with a stated reason when not — never a silent 404 (`otter_v0.3.1/adapters/index.js:99-117`) |
-| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`) — but since **S31 (0046) these are a CACHE, not the authority**, for the pet and for the two things that follow the person (the seven edited prompts and the agent prompt overrides). `public.user_pets` / `public.user_settings` are keyed by user with no workspace, and `src/lib/userState.js` fills the cache from the account on sign-in. Machine-specific keys in the same documents (`rabbit.adapterMode`, `rabbit.activeProjectId`, `storageLocation`) deliberately stay per-device — a saved disk path names a *different* folder on another computer |
+| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet.<userId>`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`; on the desktop the pet is `otter-data/pet.<userId>.json`, reached through `GET/POST/DELETE /api/pet?user=<uuid>`) — but since **S31 (0046) these are a CACHE, not the authority**, for the pet and for the two things that follow the person (the seven edited prompts and the agent prompt overrides). `public.user_pets` / `public.user_settings` are keyed by user with no workspace, and `src/lib/userState.js` fills the cache from the account on sign-in. **A3 (2026-09-07): the pet's cache is keyed by ACCOUNT and deleted on sign-out**, because `resolveUserPet` reads it to decide adoption and an install-wide copy handed one person's pet to another underneath RLS; the old unattributed `wilson.pet` / `pet.json` is still read when nobody is signed in but is never adopted into an account again. **The pet is cloud-only** (Audrey's ruling 5): every save goes to `public.user_pets`, the local write is the cache mirror rather than a fallback, so with no connection a change is not stored anywhere — Settings' Companion section and the companion's failure banner both say so. **Migration 0068** refuses an UPDATE whose `last_updated_at` (the decay anchor, not the touch column) is older than the stored row's, raising SQLSTATE `WP001`; the client re-reads instead of retrying. Machine-specific keys in the same documents (`rabbit.adapterMode`, `rabbit.activeProjectId`, `storageLocation`) deliberately stay per-device — a saved disk path names a *different* folder on another computer |
 | PDF extraction, Google-Sheet import, URL scraping | Unavailable; each caller gates on `hasLocalServer()` independently |
 | Storage providers | Only Supabase Storage works; the Settings card marks the others unavailable (`SettingsPage.jsx:578-581`) |
 | D.O.G. | Runs off the open project's cloud context; attachments are refused at the adapter (§13.1) |
@@ -656,7 +656,7 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | Migration | 0016 | 0018 |
 | Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
 | Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
-| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
+| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the
@@ -665,6 +665,18 @@ topic-suffix cast so a hand-crafted topic string cannot error a policy.
 Deliberately **never broadcast**: `otter_*` (personal content — the workspace
 channel hands full row payloads to every subscriber) and `notes` /
 `note_subjects` (private).
+
+🚨 **`scenes`, `shots`, `levels` and `experiences` are off the channel BY
+CHOICE, not by omission.** Audrey ruled on 2026-09-07 that key dates get live
+sync "like tasks" and that those four keep the reload limit: a second window
+sees a change to them on its next project load. 0077 therefore added exactly
+one arm. The choice is machine-checked in `72_milestone_realtime.sql` probes
+11-14 (matched by FUNCTION, not by trigger name) rather than only written
+down, because "we meant to" and "we forgot" look identical in a schema. To
+change it, change the ruling, the trigger, `TABLE_TO_COLLECTION` in
+`state/realtimeMerge.js` and those probes together — the client merge standing
+ready for events the database never sends is worse than the limit, because it
+reads as working live sync.
 
 *Operational gotcha:* on a hosted project whose Realtime tenant has never been
 active, `realtime.messages` has no partitions and `realtime.send()` silently
@@ -998,7 +1010,8 @@ environment.
 
 ### 5.4 `operator-workspaces`
 
-Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
+Actions: `list`, `create`, `rename`, `admin_contact`, `send_setup_link`,
+`suspend`, `restore`, `teardown`.
 
 - `list` — paged calls to `operator_workspace_summary()`, the **single**
   cross-tenant read in the system. Returns per-company member/active/admin
@@ -1010,6 +1023,33 @@ Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
 - `rename` — name only; the slug is immutable by trigger.
 - `suspend` / `restore` — set and clear `workspaces.deleted_at`, with
   `already_suspended` / `not_suspended` conflict guards.
+- `admin_contact` (S43b, shipped by Track A bundle A1) — read-only. Returns
+  the company's founding admin — the oldest active `app_role = 'admin'`
+  membership by `created_at`, with the address read from the **auth** user —
+  plus `deliverable` (false for a synthesized address: `@wilson.invalid` from
+  `create`, or `wilson.<workspace8>.<local>@mail.petalstudios.co` from
+  `admin-create-user`) and `suspended`. It exists because `send_setup_link`
+  demands the address typed back and no other operator surface showed it:
+  `operator_workspace_summary()` returns counts, and the create-time
+  credentials dialog is show-once. Both actions read through ONE helper,
+  `loadFoundingAdmin()`, so the address displayed and the address demanded
+  cannot diverge; the helper throws on a failed lookup and both callers catch
+  it as `admin_lookup_failed` (the R2 review found the read-only caller had
+  not).
+- `send_setup_link` (S43b) — emails the founding admin a **recovery** link
+  (not an invite: the auth user already exists with `email_confirm: true`).
+  Refuses, in this order, a suspended company (`already_suspended`), a
+  synthesized address (`email_synthesized`) and a `confirm_email` that does
+  not match the address on file (`email_mismatch`, compared
+  case-insensitively); a failed send is surfaced as `send_failed` (502) and
+  never certified. On success it certificates `workspace.invite_sent`
+  (`WIL-7009`) with `context.sent_to` and `context.admin_username`. The
+  recovery TEMPLATE decides where the link points (`{{ .SiteURL }}`), not the
+  `redirectTo` hint. Limits: both actions share the operator **write** rate
+  bucket (`OPERATOR_WRITE_RPM`, 20/min), so opening the field and sending
+  spend two tokens; the console's Audit table shows the action, the message
+  and the expanded `context`, not the `WIL-` code; and re-sending is allowed —
+  nothing rate-limits a second link to the same company beyond that bucket.
 
 **Teardown — the ORDER is the design.** Reading it in sequence is the only way
 to understand why it cannot be simplified:
@@ -2603,11 +2643,47 @@ applies the proposer's live subjects **additively**: update by slug in place,
 insert when absent, **never delete**. One approval must not silently strip
 lessons from everyone's official course.
 
-**What apply does not touch: the five reference documents.** Their merge
-semantics live in client JavaScript; reimplementing them in plpgsql would
-duplicate load-bearing logic and overwriting them would violate the
-additive-only rule. So an approval moves lesson content and not hotkey tables —
-and the approve dialog says so.
+**What apply moves: subjects, and four of the five reference documents.**
+SHIPPED 2026-09-07 (Track A, A4, `dfe666e`, Audrey’s decision 37). `hotkeys`,
+`functions`, `nodes` and `reference_urls` are merged into the standard as well,
+additively — an entry deleted on the fork survives on the standard.
+
+The merge stayed in **client JavaScript**; it was NOT reimplemented in plpgsql,
+which is the objection `MASTER_PLAN` §6 #29 raised and which still stands.
+`CR_DOC_MERGE` (`otterRoutes.js`) adapts a STORED document into the shape each
+existing merger expects: they were written for the GENERATOR’s output, and for
+`nodes` the two shapes differ, so handing a stored document straight in would
+merge nothing and report success. `mergeReferenceUrls` is new — there had never
+been one.
+
+**The ORDER is load-bearing in both directions.** The fork’s documents are read
+BEFORE the RPC, because deciding closes the consented review window below and the
+approver can no longer read the source afterwards; the merge is written AFTER it,
+because `otter_fork_course` snapshots the target’s documents into the
+`(before change #n)` archive during the RPC, so the archive keeps the OLD ones.
+
+**`corrections` do NOT move, and that is a choice.** `otter_fork_course` blanks
+them when making a fork, with the reason in its own body (*“the original
+author’s agent memory, not content”*), so a fork never inherits them and
+publishing a proposer’s to the company standard would contradict that rule.
+Audrey is asked to confirm in walkthrough `08_otter.md`.
+
+**Limit, in the other direction.** `otter_courses_update`’s WITH CHECK requires
+`current_app_role() = 'admin'` to write a `company_standard` course, while
+`otter_cr_apply` also admits the standard’s OWNER. A non-admin owner approving
+therefore gets the subjects and not the documents. The RPC has already committed
+by then, so this is REPORTED rather than rolled back: the result banner names each
+document that did not move.
+
+🚨 **And that person DOES have a surface.** A4 first shipped this thinking the
+case was unreachable because the Admin Terminal is admin-only. It is not:
+`RequestsView`’s `canDecide` is `isAdmin || ownTargets.has(target)`, so the OWNER
+of a company standard decides whatever their tier — and a plain member can own one,
+because approving a nomination promotes a course owned by whoever proposed it.
+`RequestsView` is therefore *the* surface where the refusal happens, and it now
+carries the same banner and the same confirm copy as the Admin Terminal. Both read
+their document names from one shared `DOC_LABELS` map so a third surface cannot
+drift again.
 
 **The consented review window.** Submitting a request grants reviewers **read**
 access to the proposer's own source course, opening on submit and closing the
@@ -2675,8 +2751,37 @@ cloud tables**, so they now work identically on both adapters — the toggles
 that reveal them (`projects.scenes_enabled` / `levels_enabled` /
 `experiences_enabled`) became columns in the same migration, because the tabs
 gate on them and adding the flags first would have unhidden views whose every
-write threw. **`milestones` remains local-only** and its Supabase adapter
-methods still throw with a stated reason.
+write threw. **Track A bundle A2 session 2 (migration 0067) did the same for
+`milestones`** — the last entity without a cloud table — so both adapters now
+behave identically for every entity. `phase_id` is nullable and
+`milestones_select` hops to the PROJECT, never the phase: a key date drawn on
+the timeline by its date alone is a real state, and a phase hop would let the
+insert land and the read deny it (the S23 trap). **A deleted key date now goes
+to the trash on both backends** (ruling 38): cloud through 0014's
+`soft_delete_row` / `restore_soft_deleted`, whose eight-table allowlist 0067
+extends, read back through the SECURITY DEFINER `milestones_trash_index`
+because the SELECT policy hides trashed rows by design; desktop through a
+`softDelete` opt on the shared sub-entity route factory plus a restore route.
+**Live sync, and the limit that stayed (0077, 2026-09-07).** Key dates ARE
+broadcast now, on the project topic with everything else — add, retitle, move
+the date, trash and restore all reach a second window without a reload, and
+`state/realtimeMerge.js` splices the row in **in date order** rather than
+appending it, because the Tasks tab renders milestone rows in array order and
+both adapters load them `ORDER BY date, id`. The comparator lives in
+`state/milestoneOrder.js` and is the single definition the two adapters and
+the merge layer all use.
+
+The four 0040 entities (scenes, shots, levels, experiences) keep the reload
+limit — Audrey's explicit choice, a conscious difference rather than an
+oversight; see §4.5. **Still not edit-history captured** (0012): that half of
+0067's stated limit is unchanged, for milestones and for those four.
+
+**Recently deleted key dates** is mounted on the `Timeline` toolbar (button:
+`Deleted`) and, since 2026-09-07, on the `Tasks` toolbar as well (button:
+`Deleted Key Dates` — longer on purpose, because a bare "Deleted" on a screen
+full of tasks would promise a list of deleted tasks, which does not exist).
+Both mounts pass identical props and `desktopMilestoneTrash.test.js` compares
+the two elements to keep it that way.
 
 **Views**: Intake, Summary, Team, Tasks, Timeline, Budget, Assets, and the
 toggleable Scenes / Levels / Experiences — plus the shared Task Detail popup.
@@ -3303,7 +3408,9 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > passed for twenty sessions, and **nothing ever requested that URL** — the
 > whole quiz feature was plumbing with no tap. Four features have now shipped
 > in that state (the folder tree S27, task templates S28, quiz history S30,
-> and `setOtterAdapterMode`, which is still dead). A test that pins a
+> and `setOtterAdapterMode`, dead from S10 until A4 gave it the `Library`
+> control on 2026-09-07 — six weeks of two comments describing a control
+> nobody had built). A test that pins a
 > MECHANISM cannot tell you the mechanism is reached; `quizWiring.test.js`
 > asserts that `nextQuestion` actually calls the writer, and fails if the call
 > is removed while every other test stays green.
@@ -3913,14 +4020,28 @@ global Space shortcut firing from every page.
   *"just make Accept actually save."* The loss she was reporting was the
   accepted CORRECTION, which used to 404 on Local Server and report success
   anyway; that is fixed at both ends.
-- **Signing in on the desktop app empties the O.T.T.E.R. library** and there
-  is no control to switch back: `otterFetch` routes to Supabase whenever the
-  session carries a `workspace_id`, cloud holds zero courses, and
-  `setOtterAdapterMode` — described in two comments as "the Settings
-  override" — has **no callers**. Content de-prioritised by Audrey; the
-  silence is not. See `OUTSTANDING.md`.
-- Settings → Tools "Storage Location" is an editable field that has no effect;
-  `getDataDir()` hardcodes the userData path.
+- ~~**Signing in on the desktop app empties the O.T.T.E.R. library**~~ —
+  **SHIPPED 2026-09-07** (A4, `088dba8`, Audrey’s decision 3). O.T.T.E.R. →
+  `SETTINGS` → `Tool Settings` → **`Library`** offers `Company (signed in)`
+  and `This computer`, pinned per DEVICE in `localStorage` — not in
+  `otter-settings.json`, because the routing seam reads the pin SYNCHRONOUSLY at
+  ~90 call sites and `resolveUserSettings` already refuses to carry machine state
+  between computers. `setOtterAdapterMode` finally has callers: it had none from
+  Session 10 until now, the fourth feature to ship with none.
+  A notice on the library screen says which library is showing and carries the
+  way back, in BOTH directions, so recovery never depends on finding a padlocked
+  Settings tab. Phase 6’s pet index is cleared on the switch, or the pet keeps
+  answering from the library you just left for up to `INDEX_TTL_MS`.
+  **Two limits, both deliberate:** desktop only (there is no local library on the
+  web, and a `local` pin is REFUSED there because every content route would
+  answer 401 with the control that undoes it off-screen); and the switch sits
+  behind the Tools tab’s padlock, which is exactly why the on-screen notice
+  carries its own way back.
+- ~~Settings → Tools "Storage Location"~~ — **REMOVED 2026-09-07** (A4,
+  `088dba8`, decision 28b). It wrote `settings.storageLocation`, which nothing has
+  ever read; courses live under `getDataDir()` regardless. The `Library` control
+  is in its place. The project-files location in WILSON’s own General settings
+  is a different setting and is real.
 - R.A.B.B.I.T.'s agent integration is prompt-selection only — and in fact
   **unreachable**, not merely unwired: `App.jsx` hard-gates the whole agent
   surface to the O.T.T.E.R. page, so the RABBIT prompt can never reach the
@@ -4026,6 +4147,13 @@ documentation and starts being wrong answers.
 `src/cloud/errorCodes.js` is the client registry; `WIL-41xx` and the `admin`
 event type are **server-reserved** so clients cannot forge audit lines.
 
+⚠️ **`WIL-3005`, `WIL-3006` and `WIL-3007` are in this table and in
+`storage-secret/index.ts` but NOT in `errorCodes.js`** (measured 2026-09-07,
+Track A bundle A4). `describeErrorCode()` therefore returns *Unknown error
+code* for them in the Admin Terminal's Logs view. Not fixed here — they are
+Track C's codes and this was Track A's bundle; `OUTSTANDING.md` carries the
+entry. `eventVocabulary.test.js` exempts exactly those three, by name.
+
 | Range | Meaning | Stream |
 |---|---|---|
 | `WIL-1xxx` | Authentication (sign-in failed, session expired, MFA challenge failed) — declared, largely unwired | `app_events` |
@@ -4033,12 +4161,14 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-3005` / `WIL-3006` | Workspace bucket secret saved / cleared (S37; hint only, never the secret) | `app_events` |
 | `WIL-3007` | Bucket probe ran (stage + status on failure, latencies on success) | `app_events` |
 | `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
+| `WIL-4108` | **Nomination approved by its own proposer** (A4, migration 0069). Written by `otter_nomination_apply`, a DEFINER function owned by a BYPASSRLS role, in the SAME transaction as the promotion and allowed to raise — an unrecorded self-promotion rolls the promotion back with it. Self-approval is **allowed** (Audrey, 2026-09-07: a manager can already promote by hand); this is the record, not a refusal. `severity` is `warning`; `context` carries `nomination_id`, `course_id`, `course_slug`, `course_name`, `approver_app_role`, `superseded_course_id` | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |
 | `WIL-7005` | `workspace.teardown` certificate (critical) | `platform_audit` |
 | `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
 | `WIL-7007` | Teardown failure | `platform_audit` |
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
+| `WIL-7009` | `workspace.invite_sent` — a setup link was emailed to a company's founding admin (S43b); the address is in `context.sent_to` | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
 
 ---

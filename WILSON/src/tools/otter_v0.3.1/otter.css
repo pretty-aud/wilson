@@ -1637,11 +1637,15 @@
     .otter-settings-body[data-locked='true'] .otter-acc-head:hover .otter-acc-label { color: var(--color-ink-2); }
   }
 
-  /* Tool settings: two kit Cards on their own 12px (the body is edge to
-     edge for the accordions), 16px apart (mb-4). */
+  /* Tool settings: two kit Cards (Library, Data management) on their own
+     12px (the body is edge to edge for the accordions), 16px apart (mb-4).
+     Track A A4 removed the dead "Storage location" field (decision 28b) and
+     its two rules with it. */
   .otter-settings-cards { display: flex; flex-direction: column; gap: 16px; padding: 12px; }
-  /* The refused-write notice (S30) is the kit's danger Banner, inset in the
-     card as the prompt form's fork offer is. */
+  /* The refused-write notice (S30) is the kit's danger Banner, above the
+     cards since A4 hoisted it out of the removed Storage location card —
+     deleting it with the field would have made every failed write on this
+     tab silent again. */
   .ui-banner.otter-settings-error {
     margin-bottom: 8px;
     align-items: flex-start;
@@ -1650,8 +1654,6 @@
     border-radius: var(--radius-control);
   }
   .otter-settings-error-lead { font-weight: 600; }
-  .otter-storage-row { display: flex; align-items: center; gap: 8px; }
-  .ui-input.otter-storage-input { flex: 1 1 auto; }
   .otter-settings-actions { display: flex; flex-direction: column; gap: 8px; }
   /* Full width and left-aligned, icon first, as the three buttons were. */
   .ui-btn.otter-settings-action { width: 100%; justify-content: flex-start; }

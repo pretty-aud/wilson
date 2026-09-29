@@ -544,8 +544,11 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
 1. D.O.G. cloud projects have no attachment surface — the picker is replaced by explanatory
    copy. Local mode works. §6 #31.
 2. Quiz scores and Validator findings are never persisted — React state only.
-3. O.T.T.E.R. → SETTINGS → Tools → "Storage Location" — the Tools tab is padlocked by default,
-   so it reads as *disabled*; unlocked, the field still has no effect.
+3. ~~O.T.T.E.R. → SETTINGS → Tools → "Storage Location"~~ — **REMOVED** in Track A bundle A4
+   (Audrey’s decision 28b). The field wrote `settings.storageLocation` and nothing ever read it;
+   courses live at `userData/otter-data/software/` regardless. Its place on that tab is now the
+   **Library** control (Company (signed in) / This computer), which does work — walkthrough
+   `08_otter.md`. The project-files location in General settings is real and unchanged.
 4. R.A.B.B.I.T.'s agent integration is prompt-only and unreachable; the Agent Skills
    checkboxes gate nothing.
 5. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
@@ -561,7 +564,10 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
 14. `WIL-1001/1002/1003` are in the Diagnostics error-code table but nothing emits them.
 15. **The Attach button on the Crew and Talent tabs appears to do nothing** — the invoice-folder
     response's `res.ok` is never checked. §6 #63. The most findable item on this list.
-16. Approving a change request moves subjects but **not the five reference documents**. §6 #29.
+16. ~~Approving a change request moves subjects but **not the five reference documents**~~ —
+    **FIXED** in Track A bundle A4 (`dfe666e`, Audrey's decision 37): hotkeys, functions,
+    nodes and reference links now move too, additively. `corrections` deliberately do not
+    — walkthrough `08_otter.md` asks her to confirm that. §6 #29.
 17. Milestones have no undo path — deletion is immediate, no toast, no trash. §6 #10.
 
 ---

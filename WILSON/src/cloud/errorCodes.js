@@ -44,6 +44,14 @@ export const ERROR_CODES = Object.freeze({
   'WIL-4105': 'Member privileges changed',
   'WIL-4106': 'Membership created',
   'WIL-4107': 'Membership removed',
+  // A4 / migration 0069 (Audrey's decision 36): written by
+  // otter_nomination_apply, a DEFINER function owned by a BYPASSRLS role,
+  // never by a client — app_events_insert refuses the admin stream and every
+  // WIL-41xx code to `authenticated`, which is what makes this line evidence.
+  // Self-approval is ALLOWED (a manager can already promote by hand); this is
+  // the record, not a refusal. context carries nomination_id, course_id,
+  // course_slug, course_name, approver_app_role and superseded_course_id.
+  'WIL-4108': 'Nomination approved by its own proposer',
   'WIL-4201': 'Admin action failed',
   'WIL-4202': 'Last-admin protection triggered',
   'WIL-4203': 'Invite delivery failed',

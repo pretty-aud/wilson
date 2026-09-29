@@ -57,6 +57,16 @@ describe('every client-written table has an allowlist entry', () => {
       'task_templates has no COLUMN_ALLOWLIST entry').toBeDefined()
   })
 
+  it('covers milestones, added in 0067', () => {
+    // Until 0067 the two milestone methods threw outright, so there was
+    // nothing to allowlist. Now TimelineView's editor writes them on both
+    // backends and RabbitProvider.updateMilestone re-sends the WHOLE row, so
+    // a missing entry here would PGRST204 every key-date edit in cloud with
+    // no error on screen — the S23 shape exactly.
+    expect(COLUMN_ALLOWLIST.milestones,
+      'milestones has no COLUMN_ALLOWLIST entry').toBeDefined()
+  })
+
   it('covers both dependency tables — the last two writers on the raw denylist', () => {
     // upsertDependency called sanitize(dep, []) — a denylist with an EMPTY drop
     // list — right through S23, S24 and S27, which added entries for every
@@ -427,5 +437,53 @@ describe('projects — the Control Panel fields 0040 added', () => {
     // points at the pgTAP probe that explains why.
     const out = toColumns('projects', { title: 'Real', name: 'Wrong', code: 'Wrong' })
     expect(out).toEqual({ title: 'Real' })
+  })
+})
+
+
+// ── Milestones (0067) ───────────────────────────────────────────────────────
+
+describe('milestones — the editor payload from TimelineView', () => {
+  // TimelineView's editor save, mode 'milestone', builds exactly this, and
+  // RabbitProvider.addMilestone adds id + project_id.
+  const payload = {
+    id: 'm1', project_id: 'p1',
+    title: 'Lock picture', date: '2026-10-01', color: '#f59e0b',
+    description: 'the cut is frozen', phase_id: null,
+  }
+
+  it('keeps every field the editor sends', () => {
+    expect(toColumns('milestones', payload)).toEqual(payload)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('keeps a NULL phase_id rather than dropping the key', () => {
+    // Dropping the KEY and sending null are different writes: the first
+    // leaves an existing phase attached, the second detaches the milestone.
+    // The editor relies on the second — `draft.phase_id || null` — and an
+    // unparented key date is a real, displayed state (0067's S23 note).
+    expect(toColumns('milestones', { id: 'm1', phase_id: null }))
+      .toEqual({ id: 'm1', phase_id: null })
+  })
+
+  it('drops the trash columns — a client never writes them', () => {
+    // deleted_at/deleted_by are written by soft_delete_row and the stamp
+    // trigger, as definer. If a plain upsert could carry deleted_at, the write
+    // would be refused by milestones_update (the NEW row would be invisible to
+    // milestones_select) — a 42501 where the user pressed Save.
+    const out = toColumns('milestones', {
+      id: 'm1', title: 'Wrap', deleted_at: '2026-09-07T00:00:00Z', deleted_by: 'u1',
+    })
+    expect(out).toEqual({ id: 'm1', title: 'Wrap' })
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('drops isProjectBound, the synthetic marker flag', () => {
+    // TimelineView synthesizes project start/end markers with this flag and
+    // refuses to open the editor on them, so it cannot reach a write today.
+    // If a future affordance lets it, the key is dropped rather than taking
+    // the whole request with it.
+    expect(toColumns('milestones', { id: 'm1', isProjectBound: true }))
+      .toEqual({ id: 'm1' })
   })
 })
