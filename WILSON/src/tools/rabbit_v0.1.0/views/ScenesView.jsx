@@ -20,15 +20,26 @@
 // • Von Restorff Effect — status accent bars for instant recognition
 // • Cognitive Load — summary cards reduce need to calculate
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect, Fragment } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Film, Plus, Search, X, LayoutGrid, Filter,
   Layers, ChevronDown, ChevronRight, Trash2, Edit3, Eye,
-  Table as TableIcon, ArrowUpDown, AlertTriangle, Save,
+  Table as TableIcon, ArrowUpDown, Save,
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
-  Clock, Hash, Sun, FolderOpen, ImagePlus, ImageOff,
+  Sun, FolderOpen, ImagePlus, ImageOff,
 } from 'lucide-react'
+// Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
+// on the kit and rabbitScenes.css; surface 6b the two galleries, the filter
+// panel and the saved-views menu; surface 6c the two detail popups, each the
+// kit Dialog in <body>.
+import {
+  Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
+  StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+  SectionTitle,
+} from '../../../ui'
+import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
@@ -44,6 +55,19 @@ import {
   nextShotNumber as nextShotNumberFor,
   fileSlugify,
 } from '../entityNaming'
+// Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
+// Everything below is ADDED to the existing rows and popups — a chip strip
+// per shot row in both content modes, the primary take's poster standing in
+// for an EMPTY shot thumbnail (never over one Audrey set), and the ordered
+// takes list in the shot detail popup. Local Server only (ctx.supportsBins).
+import { useProjectAccess } from '../state/useProjectAccess'
+import { useNavigateTarget } from '../state/rabbitNavigate'
+import { takesByShot, primaryOf } from '../bins/shotTakeSelectors'
+import { binPathLabel } from '../bins/binSelectors'
+import ShotTakeChips from './bins/ShotTakeChips'
+import ShotTakesPanel, { ShotTakesDialog } from './bins/ShotTakesPanel'
+import TakePickerDialog from './bins/TakePickerDialog'
+import BinPoster from './bins/BinPoster'
 
 // ── Status config ──
 const SCENE_STATUSES = [
@@ -58,51 +82,56 @@ const TIME_OF_DAY_OPTIONS = [
   'evening', 'later', 'moments_later', 'continuous', 'same_time',
 ]
 
+// Sentence case (Q2): every label below is a word the user reads in a select
+// or a menu. The abbreviations stay capitals — they are codes, not words.
 const FRAMING_OPTIONS = [
-  { abbr: 'EWS',     label: 'Extreme Wide Shot' },
-  { abbr: 'WS',      label: 'Wide Shot' },
-  { abbr: 'FS',      label: 'Full Shot' },
-  { abbr: 'LS',      label: 'Long Shot' },
-  { abbr: 'MLS',     label: 'Medium Long Shot' },
-  { abbr: 'MS',      label: 'Medium Shot' },
-  { abbr: 'MCU',     label: 'Medium Close-Up' },
-  { abbr: 'CU',      label: 'Close-Up' },
-  { abbr: 'ECU',     label: 'Extreme Close-Up' },
-  { abbr: '2S',      label: 'Two-Shot' },
-  { abbr: '3S',      label: 'Three-Shot' },
-  { abbr: 'OTS',     label: 'Over-the-Shoulder' },
-  { abbr: 'POV',     label: 'Point of View' },
-  { abbr: 'INS',     label: 'Insert Shot' },
+  { abbr: 'EWS',     label: 'Extreme wide shot' },
+  { abbr: 'WS',      label: 'Wide shot' },
+  { abbr: 'FS',      label: 'Full shot' },
+  { abbr: 'LS',      label: 'Long shot' },
+  { abbr: 'MLS',     label: 'Medium long shot' },
+  { abbr: 'MS',      label: 'Medium shot' },
+  { abbr: 'MCU',     label: 'Medium close-up' },
+  { abbr: 'CU',      label: 'Close-up' },
+  { abbr: 'ECU',     label: 'Extreme close-up' },
+  { abbr: '2S',      label: 'Two-shot' },
+  { abbr: '3S',      label: 'Three-shot' },
+  { abbr: 'OTS',     label: 'Over-the-shoulder' },
+  { abbr: 'POV',     label: 'Point of view' },
+  { abbr: 'INS',     label: 'Insert shot' },
   { abbr: 'CA',      label: 'Cutaway' },
-  { abbr: 'AER',     label: 'Aerial / Bird\'s Eye' },
+  { abbr: 'AER',     label: 'Aerial / bird\'s eye' },
 ]
 
 const CAMERA_MOVEMENT_OPTIONS = [
   { abbr: 'PAN',        label: 'Pan' },
   { abbr: 'TILT',       label: 'Tilt' },
-  { abbr: 'DUTCH',      label: 'Dutch Tilt' },
+  { abbr: 'DUTCH',      label: 'Dutch tilt' },
   { abbr: 'ROLL',       label: 'Roll' },
-  { abbr: 'DOLLY IN',   label: 'Dolly In' },
-  { abbr: 'DOLLY OUT',  label: 'Dolly Out' },
-  { abbr: 'TRUCK L',    label: 'Truck Left' },
-  { abbr: 'TRUCK R',    label: 'Truck Right' },
-  { abbr: 'PED UP',     label: 'Pedestal Up' },
-  { abbr: 'PED DOWN',   label: 'Pedestal Down' },
-  { abbr: 'CRANE UP',   label: 'Crane Up' },
-  { abbr: 'CRANE DOWN', label: 'Crane Down' },
-  { abbr: 'ZOOM IN',    label: 'Zoom In' },
-  { abbr: 'ZOOM OUT',   label: 'Zoom Out' },
-  { abbr: 'DOLLY ZOOM', label: 'Dolly Zoom / Vertigo' },
+  { abbr: 'DOLLY IN',   label: 'Dolly in' },
+  { abbr: 'DOLLY OUT',  label: 'Dolly out' },
+  { abbr: 'TRUCK L',    label: 'Truck left' },
+  { abbr: 'TRUCK R',    label: 'Truck right' },
+  { abbr: 'PED UP',     label: 'Pedestal up' },
+  { abbr: 'PED DOWN',   label: 'Pedestal down' },
+  { abbr: 'CRANE UP',   label: 'Crane up' },
+  { abbr: 'CRANE DOWN', label: 'Crane down' },
+  { abbr: 'ZOOM IN',    label: 'Zoom in' },
+  { abbr: 'ZOOM OUT',   label: 'Zoom out' },
+  { abbr: 'DOLLY ZOOM', label: 'Dolly zoom / vertigo' },
   { abbr: 'HANDHELD',   label: 'Handheld' },
   { abbr: 'STEADICAM',  label: 'Steadicam' },
   { abbr: 'ARC',        label: 'Arc' },
-  { abbr: 'PUSH IN',    label: 'Push In' },
-  { abbr: 'PULL OUT',   label: 'Pull Out' },
-  { abbr: 'WHIP PAN',   label: 'Whip Pan' },
-  { abbr: 'RACK FOCUS', label: 'Rack Focus' },
+  { abbr: 'PUSH IN',    label: 'Push in' },
+  { abbr: 'PULL OUT',   label: 'Pull out' },
+  { abbr: 'WHIP PAN',   label: 'Whip pan' },
+  { abbr: 'RACK FOCUS', label: 'Rack focus' },
 ]
 
 // ── Thumbnail row heights (16:9 aspect) ──
+// rabbitScenes.css keeps the same three heights for the tables' own boxes
+// (`.rb-scene-table-wrap[data-thumb]`); these numbers are what the Bins
+// components (ShotTakeChips, BinPoster) are handed, as before.
 const BASE_ROW_H = 36
 const THUMB_SIZES = {
   sm: { h: BASE_ROW_H },
@@ -110,35 +139,38 @@ const THUMB_SIZES = {
   lg: { h: BASE_ROW_H * 2 },
 }
 function thumbW(h) { return Math.round(h * 16 / 9) }
+// The toolbar's two size triples, in their order: the thumbnails' (table)
+// and the cards' (gallery). One list, so the sheet can key each glyph.
+const SIZE_KEYS = ['sm', 'md', 'lg']
 
 // ── Sort config ──
 const SORTABLE_FIELDS = [
   { value: 'name',         label: 'Name' },
-  { value: 'scene_number', label: 'Scene Number' },
+  { value: 'scene_number', label: 'Scene number' },
   { value: 'type',         label: 'Type' },
   { value: 'status',       label: 'Status' },
-  { value: 'time_of_day',  label: 'Time of Day' },
+  { value: 'time_of_day',  label: 'Time of day' },
   { value: 'created_at',   label: 'Created' },
 ]
 
 const SHOT_SORTABLE_FIELDS = [
   { value: 'name',             label: 'Name' },
-  { value: 'shot_number',      label: 'Shot Number' },
+  { value: 'shot_number',      label: 'Shot number' },
   { value: 'type',             label: 'Type' },
   { value: 'status',           label: 'Status' },
-  { value: 'time_of_day',      label: 'Time of Day' },
+  { value: 'time_of_day',      label: 'Time of day' },
   { value: 'framing',          label: 'Framing' },
-  { value: 'camera_movement',  label: 'Camera Movement' },
-  { value: 'frame_count',      label: 'Frame Count' },
+  { value: 'camera_movement',  label: 'Camera movement' },
+  { value: 'frame_count',      label: 'Frame count' },
   { value: 'created_at',       label: 'Created' },
 ]
 
 const SHOT_FILTER_FIELDS = [
   { value: 'status',          label: 'Status',          type: 'select', options: SCENE_STATUSES },
   { value: 'type',            label: 'Type',            type: 'select', options: SCENE_TYPES },
-  { value: 'time_of_day',     label: 'Time of Day',     type: 'select', options: TIME_OF_DAY_OPTIONS },
+  { value: 'time_of_day',     label: 'Time of day',     type: 'select', options: TIME_OF_DAY_OPTIONS },
   { value: 'framing',         label: 'Framing',         type: 'select', options: FRAMING_OPTIONS.map(f => f.abbr) },
-  { value: 'camera_movement', label: 'Camera Movement', type: 'select', options: CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) },
+  { value: 'camera_movement', label: 'Camera movement', type: 'select', options: CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) },
   { value: 'name',            label: 'Name',            type: 'text' },
 ]
 
@@ -153,16 +185,16 @@ const SHOT_GROUPABLE_FIELDS = [
   { value: 'scene',          label: 'Scene' },
   { value: 'status',         label: 'Status' },
   { value: 'type',           label: 'Type' },
-  { value: 'time_of_day',    label: 'Time of Day' },
+  { value: 'time_of_day',    label: 'Time of day' },
   { value: 'framing',        label: 'Framing' },
-  { value: 'camera_movement', label: 'Camera Movement' },
+  { value: 'camera_movement', label: 'Camera movement' },
 ]
 
 // ── Filter config ──
 const SCENE_FILTER_FIELDS = [
   { value: 'status',      label: 'Status',      type: 'select', options: SCENE_STATUSES },
   { value: 'type',        label: 'Type',        type: 'select', options: SCENE_TYPES },
-  { value: 'time_of_day', label: 'Time of Day', type: 'select', options: TIME_OF_DAY_OPTIONS },
+  { value: 'time_of_day', label: 'Time of day', type: 'select', options: TIME_OF_DAY_OPTIONS },
   { value: 'name',        label: 'Name',        type: 'text' },
 ]
 
@@ -185,23 +217,6 @@ const FILTER_OPS = {
 
 const SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 
-// ── Color system ──
-function statusColor(status) {
-  switch (status) {
-    case 'in_progress':    return '#fb923c'
-    case 'pending_review': return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':       return '#4ade80'
-    case 'final':          return '#22c55e'
-    case 'blocked':        return '#ef4444'
-    case 'on_hold':        return '#fcd34d'
-    case 'omitted':        return '#57534e'
-    default:               return '#a8a29e'  // not_started
-  }
-}
-
-function fmt(s) { return (s || '').replace(/_/g, ' ') }
-
 // ── Timecode helpers ──
 function framesToTimecode(totalFrames, fps) {
   if (!totalFrames || !fps || fps <= 0) return '00:00:00:00'
@@ -220,6 +235,30 @@ function fmtNumber(n) {
   if (n == null || isNaN(n)) return '0'
   return n.toLocaleString()
 }
+
+// ── The tables' cell selects (surface 6a) ──
+// The words in sentence case: a status's from the kit's one STATUS map
+// (R3-11), the rest humanised from their value. Framing keeps its long
+// label in the list (its cell shows the code); a movement is its code.
+const STATUS_OPTIONS = SCENE_STATUSES.map(s => ({ value: s, label: statusMeta(s).label }))
+const TYPE_OPTIONS = SCENE_TYPES.map(t => ({ value: t, label: humanizeStatus(t) }))
+const TIME_OPTIONS = TIME_OF_DAY_OPTIONS.map(t => ({ value: t, label: humanizeStatus(t) }))
+const FRAMING_CHOICES = FRAMING_OPTIONS.map(f => ({ value: f.abbr, label: f.label }))
+const MOVE_CHOICES = CAMERA_MOVEMENT_OPTIONS.map(c => ({ value: c.abbr, label: c.abbr }))
+// The ids the toolbar's two tab pairs point at (the kit Tabs' `panelId`):
+// the body the content mode switches, and inside it the region the view
+// mode switches.
+const CONTENT_PANEL_ID = 'rb-scene-content'
+const VIEW_PANEL_ID = 'rb-scene-view'
+
+// ── The detail popups' width (surface 6c) ──
+// Their old max-w-4xl, 896px: a real geometry, which the kit Dialog takes as
+// a number (B4c's EntityDetailPopup's). While the task form is open it is
+// the Dialog's first column, and the Dialog is wider by the form's 400px
+// (rabbitFiles.css, `.rb-rel-task`) and the hairline after it
+// (`.rb-scene-detail-task`).
+const DETAIL_WIDTH = 896
+const DETAIL_TASK_WIDTH = 400 + 1
 
 
 
@@ -272,6 +311,102 @@ export default function ScenesView() {
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [shotPickerOpen, setShotPickerOpen] = useState(false)
   const shotPickerRef = useRef(null)
+
+  // ── Shot takes (milestone 2) ──
+  const { canWrite: canWriteProject } = useProjectAccess()
+  const supportsBins = !!ctx?.supportsBins
+  const shotTakes = ctx?.shotTakes || []
+  const binFiles = ctx?.binFiles || []
+  const bins = ctx?.bins || []
+  const takesByShotMap = useMemo(() => takesByShot(shotTakes, binFiles), [shotTakes, binFiles])
+  const [takesShotId, setTakesShotId] = useState(null)     // the takes dialog, from a row
+  const [pickerShotId, setPickerShotId] = useState(null)   // the picker, from the dialog or the popup
+  const [takesBusy, setTakesBusy] = useState(false)
+  const [takesNotice, setTakesNotice] = useState(null)
+  // posterRev: a poster the provider's browser probe posted after the chip
+  // first asked (no ffmpeg) changes the URL, so the icon becomes the frame.
+  const takeThumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, ctx?.binsInfo?.posterRev || 0) || null, [ctx])
+  const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
+  // Posters and the `online` flag come from the bins list route; load it once
+  // per project so the chips are right even if the Bins tab was never opened.
+  // 🚨 ctx through a ref: its identity changes on every provider update.
+  const ctxRef = useRef(ctx)
+  ctxRef.current = ctx
+  useEffect(() => {
+    const c = ctxRef.current
+    if (!supportsBins || !project?.id || c?.binsInfo?.loadedFor === project.id) return
+    // Named, not swallowed: without the list the chips show whatever
+    // loadProject left in state, with no posters and no online flags.
+    c?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`))
+  }, [supportsBins, project?.id])
+  const takeFail = (err, what) => { console.error(`Failed to ${what}:`, err); setTakesNotice(`Could not ${what}: ${err?.message || err}`) }
+  const handleAssignTakes = useCallback(async (shotId, fileIds, role) => {
+    if (!fileIds?.length) return
+    setTakesBusy(true); setTakesNotice(null)
+    try {
+      const res = await ctx?.assignShotTakes?.(fileIds.map(id => ({ shot_id: shotId, bin_file_id: id, ...(role ? { role } : {}) })))
+      setPickerShotId(null)
+      const n = res?.created?.length || 0; const k = res?.skipped?.length || 0
+      if (k) setTakesNotice(`${n} assigned · ${k} already on this shot`)
+    } catch (err) { takeFail(err, 'assign takes') }
+    finally { setTakesBusy(false) }
+  }, [ctx])
+  const handleUpdateTake = useCallback(async (id, patch) => {
+    try { await ctx?.updateShotTake?.(id, patch) } catch (err) { takeFail(err, 'update the take') }
+  }, [ctx])
+  const handleRemoveTakes = useCallback(async (ids) => {
+    try { await ctx?.removeShotTakes?.(ids) } catch (err) { takeFail(err, 'unassign the take') }
+  }, [ctx])
+  const handleReorderTakes = useCallback(async (shotId, ids) => {
+    try { await ctx?.reorderShotTakes?.(shotId, ids) } catch (err) { takeFail(err, 'reorder the takes') }
+  }, [ctx])
+  // Q6: frame_count is never overwritten by an assignment; this is the one click.
+  const handleUseTakeLength = useCallback(async (shotId, frames) => {
+    try { await ctx?.updateShot?.(shotId, { frame_count: frames }) } catch (err) { takeFail(err, 'set the frame count') }
+  }, [ctx])
+  const takesApi = useMemo(() => ({
+    supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canWriteProject && supportsBins,
+    open: setTakesShotId, openPicker: setPickerShotId, binPathFor, projectId: project?.id || null,
+    onUpdate: handleUpdateTake, onRemove: handleRemoveTakes, onReorder: handleReorderTakes, onUseLength: handleUseTakeLength,
+    notice: takesNotice, clearNotice: () => setTakesNotice(null),
+  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canWriteProject, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
+  // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
+  // Declined (false) until the shot is in state, so the request is retried
+  // rather than lost; a payload for another project is dropped by the hook.
+  const onNavigate = useCallback((p) => {
+    if (p?.shotId) {
+      if (!shots.some(s => s.id === p.shotId)) return false
+      setDetailShotId(p.shotId); setDetailSceneId(null)
+    } else if (p?.sceneId) {
+      if (!scenes.some(s => s.id === p.sceneId)) return false
+      setDetailSceneId(p.sceneId)
+    }
+    return true
+  }, [shots, scenes])
+  useNavigateTarget('scenes', onNavigate, project?.id || null)
+  // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
+  // them: the provider's history holds every takes mutation (and every
+  // scene and shot edit). Never while typing in a field, and never behind a
+  // question (review round one, R1-08: window.confirm, which three of the
+  // four questions were, blocked every key; the kit Dialog does not, and an
+  // edit reverted behind a bulk delete's question) — this page's own, or
+  // any other the kit puts on screen over it (round two, R2-01: a popup's
+  // FileManager "Delete file" or RelationsPanel "Create task";
+  // `questionOnScreen`, at ConfirmDialog). Only a question: with a popup
+  // open the keys undo as they always did (C1).
+  useEffect(() => {
+    if (!supportsBins) return
+    const h = (e) => {
+      if (questionOnScreen()) return
+      if (!(e.ctrlKey || e.metaKey)) return
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); if (e.shiftKey) ctxRef.current?.redo?.(); else ctxRef.current?.undo?.() }
+      else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); ctxRef.current?.redo?.() }
+    }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [supportsBins])
 
   function toggleGroup(key) {
     setCollapsedGroups(prev => {
@@ -485,17 +620,15 @@ export default function ScenesView() {
   }, [filtered, sortField, sortDir])
 
   // ── Groups ──
-  const groupAccent = useCallback((key) => {
-    if (groupBy === 'status') return statusColor(key)
-    return '#fb923c'
-  }, [groupBy])
-
+  // A group's words in sentence case (a status's are the kit's STATUS
+  // labels, which humanizeStatus spells the same). Its colour accent is gone:
+  // a status group carries the kit's StatusDot instead (R3-11).
   const groups = useMemo(() => {
     if (!groupBy) return null
     const map = {}
     for (const s of sorted) {
       const key = s[groupBy] || '__empty__'
-      if (!map[key]) map[key] = { key, label: fmt(key === '__empty__' ? 'none' : key), scenes: [] }
+      if (!map[key]) map[key] = { key, label: key === '__empty__' ? 'None' : humanizeStatus(key), scenes: [] }
       map[key].scenes.push(s)
     }
     return Object.values(map)
@@ -587,9 +720,10 @@ export default function ScenesView() {
       if (b === '__none__') return -1
       return a.localeCompare(b)
     })
+    // Sentence case; a framing or movement code keeps its capitals.
     return keys.map(key => ({
       key,
-      label: key === '__none__' ? 'Unset' : (field === 'framing' ? key : fmt(key)),
+      label: key === '__none__' ? 'Unset' : humanizeStatus(key),
       groupType: 'field',
       shots: buckets[key],
     }))
@@ -610,140 +744,181 @@ export default function ScenesView() {
   // ── Render ──
   if (!project) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[13.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
-          No project loaded
-        </span>
+      <div className="rb-scene-center">
+        <EmptyState Icon={Film} title="No project loaded" />
       </div>
     )
   }
 
-  return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+  // One of the toolbar's two size triples (the thumbnails' in the table, the
+  // cards' in the gallery — two triples still, as before; R3-25's single
+  // triple is recorded for Audrey). Three kit IconButtons in one bordered
+  // group; the chosen one is the kit's selected treatment, the signal tint
+  // and edge, never the orange fill (R3-18). Each square keeps its size.
+  const sizeGroup = (label, value, setValue, noun) => (
+    <span className="rb-scene-sizes" role="group" aria-label={label}>
+      {SIZE_KEYS.map(key => (
+        <IconButton key={key} size="sm" className="rb-scene-size" title={`${key} ${noun}`} active={value === key} onClick={() => setValue(key)}>
+          <Square className="rb-scene-size-glyph" data-thumb={key} aria-hidden="true" />
+        </IconButton>
+      ))}
+    </span>
+  )
 
-      {/* ── Summary cards (always visible) ── */}
-      <div className="flex gap-3 px-4 pt-4 pb-2 flex-wrap flex-shrink-0">
-        <BigTile icon={Clock} label="Total Runtime" value={grandTotals.runtime} />
-        <BigTile icon={Hash} label="Total Frames" value={fmtNumber(grandTotals.frames)} />
-        <BigTile icon={Film} label="Scenes" value={grandTotals.scenes} />
-        <BigTile icon={Clapperboard} label="Shots" value={grandTotals.shots} />
+  return (
+    <div className="rb-scene-page">
+
+      {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
+          the Budget's. Stat has no icon slot, so the four icons are gone. ── */}
+      <div className="rb-scene-stats">
+        <BigTile label="Total runtime" value={grandTotals.runtime} />
+        <BigTile label="Total frames" value={fmtNumber(grandTotals.frames)} />
+        <BigTile label="Scenes" value={grandTotals.scenes} />
+        <BigTile label="Shots" value={grandTotals.shots} />
       </div>
 
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
+      {/* ── Toolbar: the kit's, the same sixteen controls in the same order
+          at the 28px height (C1). One row at 1440, as it was; narrower, its
+          left slot wraps inside itself (each control to the next line, as
+          the old row did) and the create buttons keep the first line's end.
+          R3-25's regrouping (one size triple, the FPS readout in the header,
+          a row that never wraps) is recorded for Audrey, not made. ── */}
+      <Toolbar
+        className="rb-scene-toolbar"
+        right={(
+          <>
+            {/* The create button for the content mode on show is the one
+                primary, as its orange fill was; the other is secondary. */}
+            <Button size="sm" variant={contentMode === 'scenes' ? 'primary' : 'secondary'} Icon={Plus} onClick={handleNewScene}>
+              New scene
+            </Button>
 
-        {/* Content mode toggle */}
-        <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
-          {['scenes', 'shots'].map(m => (
-            <button key={m} type="button" onClick={() => setContentMode(m)}
-              className="px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
-              style={{
-                color: contentMode === m ? '#fff7ed' : '#78716c',
-                backgroundColor: contentMode === m ? '#ea580c' : 'transparent',
-              }}>
-              {m === 'scenes' ? 'Scenes' : 'Shots'}
-            </button>
-          ))}
-        </div>
+            {/* New shot, with its scene picker */}
+            <span ref={shotPickerRef} className="rb-scene-picker-anchor">
+              <Button
+                size="sm"
+                variant={contentMode === 'shots' ? 'primary' : 'secondary'}
+                Icon={Plus}
+                disabled={scenes.length === 0}
+                aria-expanded={scenes.length > 1 ? shotPickerOpen : undefined}
+                onClick={() => {
+                  if (scenes.length === 1) { handleNewShot(scenes[0].id); return }
+                  if (scenes.length > 1) setShotPickerOpen(o => !o)
+                }}
+              >
+                New shot
+                {scenes.length > 1 && <ChevronDown aria-hidden="true" />}
+              </Button>
+              {shotPickerOpen && scenes.length > 1 && (
+                <div className="rb-scene-picker">
+                  <div className="rb-scene-picker-head">Add shot to scene:</div>
+                  <div className="rb-scene-picker-list">
+                    {scenes
+                      .slice()
+                      .sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0))
+                      .map(sc => (
+                        <button key={sc.id} type="button"
+                          onClick={() => { handleNewShot(sc.id); setShotPickerOpen(false) }}
+                          className="rb-scene-picker-item">
+                          <Film className="rb-scene-picker-icon" aria-hidden="true" />
+                          <span className="rb-scene-picker-label">{sc.name || 'Untitled'}</span>
+                          <span className="rb-scene-picker-count">
+                            {(shotsByScene[sc.id] || []).length} shots
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </span>
+          </>
+        )}
+      >
+        {/* Content mode: the kit Tabs, the one active treatment (R3-18). */}
+        <Tabs
+          label="Content"
+          panelId={CONTENT_PANEL_ID}
+          items={[{ id: 'scenes', label: 'Scenes' }, { id: 'shots', label: 'Shots' }]}
+          value={contentMode}
+          onChange={setContentMode}
+        />
 
-        {/* Filter */}
-        <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
-          <Filter className="w-3 h-3" />
+        {/* Filter: the signal edge while filters apply (it was orange words) */}
+        <Button
+          size="sm"
+          Icon={Filter}
+          className="rb-scene-tool"
+          data-active={filters.length > 0 ? 'true' : 'false'}
+          aria-expanded={showFilterPanel}
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
+        >
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
-        </button>
+        </Button>
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* Sort */}
-        <div className="flex items-center gap-1">
+        {/* Sort, and its direction */}
+        <span className="rb-scene-tool-group">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
-            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 150 }}>
+            aria-label="Sort"
+            className="ui-input rb-scene-tool"
+            data-size="sm"
+            data-active={sortField ? 'true' : 'false'}>
             <option value="">Sort…</option>
             {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
-          <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-            className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
-            style={{ color: sortField ? '#fb923c' : '#57534e' }}>
-            <ArrowUpDown className="w-3.5 h-3.5" />
-          </button>
-        </div>
+          <IconButton
+            size="sm"
+            Icon={ArrowUpDown}
+            title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
+            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+          />
+        </span>
+
+        <span className="rb-scene-divider" aria-hidden="true" />
 
         {/* Group */}
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
         {contentMode === 'scenes' ? (
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
-            style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
+            aria-label="Group"
+            className="ui-input rb-scene-tool"
+            data-size="sm"
+            data-active={groupBy ? 'true' : 'false'}>
             {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         ) : (
           <select value={shotGroupBy} onChange={e => setShotGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
-            style={{ backgroundColor: '#292524', color: shotGroupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
+            aria-label="Group"
+            className="ui-input rb-scene-tool"
+            data-size="sm"
+            data-active={shotGroupBy ? 'true' : 'false'}>
             {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         )}
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* View mode toggle */}
-        <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
-          <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
-            style={{ color: viewMode === 'table' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent' }}>
-            <TableIcon className="w-3 h-3" /> Table
-          </button>
-          <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
-            style={{ color: viewMode === 'gallery' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent' }}>
-            <LayoutGrid className="w-3 h-3" /> Gallery
-          </button>
-        </div>
+        {/* View mode: the kit Tabs; each icon rides in its label. */}
+        <Tabs
+          label="View"
+          panelId={VIEW_PANEL_ID}
+          items={[
+            { id: 'table', label: <><TableIcon className="rb-scene-tab-icon" aria-hidden="true" />Table</> },
+            { id: 'gallery', label: <><LayoutGrid className="rb-scene-tab-icon" aria-hidden="true" />Gallery</> },
+          ]}
+          value={viewMode}
+          onChange={setViewMode}
+        />
 
         {/* Thumbnail size (table mode) */}
-        {viewMode === 'table' && (
-          <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
-            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
-              <button key={key} type="button" onClick={() => setThumbSize(key)}
-                className="flex items-center justify-center w-7 h-7 transition-colors"
-                title={`${key} thumbnails`}
-                style={{
-                  backgroundColor: thumbSize === key ? '#ea580c' : 'transparent',
-                  color: thumbSize === key ? '#fff7ed' : '#78716c',
-                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
-                }}>
-                <Square style={{ width: size, height: size }} />
-              </button>
-            ))}
-          </div>
-        )}
+        {viewMode === 'table' && sizeGroup('Thumbnail size', thumbSize, setThumbSize, 'thumbnails')}
 
-        {/* Gallery size (gallery mode only) */}
-        {viewMode === 'gallery' && (
-          <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
-            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
-              <button key={key} type="button" onClick={() => setGallerySize(key)}
-                className="flex items-center justify-center w-7 h-7 transition-colors"
-                title={`${key} cards`}
-                style={{
-                  backgroundColor: gallerySize === key ? '#ea580c' : 'transparent',
-                  color: gallerySize === key ? '#fff7ed' : '#78716c',
-                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
-                }}>
-                <Square style={{ width: size, height: size }} />
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Card size (gallery mode only) */}
+        {viewMode === 'gallery' && sizeGroup('Card size', gallerySize, setGallerySize, 'cards')}
 
-        {/* FPS badge */}
-        <span className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
-          style={{ color: '#fb923c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
-          {fps} fps
-        </span>
+        {/* The FPS readout, where it always was (R3-25 would move it to the
+            header: recorded) — the kit Badge, in the second ink. */}
+        <Badge className="rb-scene-fps">{fps} fps</Badge>
 
         {/* Saved views */}
         <SceneSavedViewsDropdown
@@ -753,86 +928,28 @@ export default function ScenesView() {
           onSaveRequest={() => setShowSaveDialog(true)}
         />
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* Search */}
-        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
-          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
+        {/* Search: the glyph inside the field, the clear button at its end */}
+        <span className="rb-scene-search">
+          <Search className="rb-scene-search-icon" aria-hidden="true" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
-            style={{ color: '#d6d3d1' }} />
+            aria-label="Search"
+            className="ui-input rb-scene-search-input"
+            data-size="sm" />
           {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
+            <IconButton size="sm" Icon={X} title="Clear search" className="rb-scene-search-clear" onClick={() => setSearch('')} />
           )}
-        </div>
+        </span>
 
-        {/* Count */}
-        <span className="text-[10.5px] font-mono tabular-nums flex-shrink-0" style={{ color: '#57534e' }}>
+        {/* Count: a figure in the third ink (it was #57534e, 2.3:1) */}
+        <span className="rb-scene-count">
           {contentMode === 'scenes'
             ? `${filtered.length}/${scenes.length}`
             : `${totalFilteredShots}/${shots.length}`}
         </span>
-
-        {/* Actions */}
-        <div className="ml-auto flex items-center gap-1.5">
-          <button type="button" onClick={handleNewScene}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:brightness-110"
-            style={{
-              color: contentMode === 'scenes' ? '#fff7ed' : '#78716c',
-              backgroundColor: contentMode === 'scenes' ? '#ea580c' : 'transparent',
-              border: contentMode === 'scenes' ? '1px solid #c2410c' : '1px solid #44403c',
-            }}>
-            <Plus className="w-3 h-3" /> Scene
-          </button>
-
-          {/* Shot button with scene picker */}
-          <div ref={shotPickerRef} className="relative">
-            <button type="button"
-              onClick={() => {
-                if (scenes.length === 1) { handleNewShot(scenes[0].id); return }
-                if (scenes.length > 1) setShotPickerOpen(o => !o)
-              }}
-              disabled={scenes.length === 0}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
-              style={{
-                color: contentMode === 'shots' ? '#fff7ed' : '#78716c',
-                backgroundColor: contentMode === 'shots' ? '#ea580c' : 'transparent',
-                border: contentMode === 'shots' ? '1px solid #c2410c' : '1px solid #44403c',
-              }}>
-              <Plus className="w-3 h-3" /> Shot
-              {scenes.length > 1 && <ChevronDown className="w-3 h-3 ml-0.5" />}
-            </button>
-            {shotPickerOpen && scenes.length > 1 && (
-              <div className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
-                style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 200, maxHeight: 260 }}>
-                <div className="px-3 py-1.5 text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
-                  Add shot to scene:
-                </div>
-                <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
-                  {scenes
-                    .slice()
-                    .sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0))
-                    .map(sc => (
-                      <button key={sc.id} type="button"
-                        onClick={() => { handleNewShot(sc.id); setShotPickerOpen(false) }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11.5px] font-mono hover:bg-stone-700 transition-colors"
-                        style={{ borderBottom: '1px solid #1c1917', color: '#d6d3d1' }}>
-                        <Film className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-                        <span className="flex-1 truncate">{sc.name || 'Untitled'}</span>
-                        <span className="text-[9.5px] font-mono ml-auto flex-shrink-0" style={{ color: '#57534e' }}>
-                          {(shotsByScene[sc.id] || []).length} shots
-                        </span>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      </Toolbar>
 
       {/* ── Filter panel ── */}
       {showFilterPanel && (
@@ -846,31 +963,50 @@ export default function ScenesView() {
         />
       )}
 
-      {/* ── Save view dialog ── */}
+      {/* ── Save view: the same inline row (the saved-views menu and this
+          row are 6b's), on the kit's field and buttons ── */}
       {showSaveDialog && (
-        <div className="px-4 py-2.5 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+        <div className="rb-scene-save">
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-48"
-            style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
+            aria-label="View name"
+            className="ui-input rb-scene-save-input"
+            data-size="sm"
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
-          <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
-          <button type="button" onClick={() => setShowSaveDialog(false)}
-            className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <Button size="sm" variant="primary" onClick={saveCurrentView}>Save</Button>
+          <IconButton size="sm" Icon={X} title="Cancel" onClick={() => setShowSaveDialog(false)} />
         </div>
       )}
 
-      {/* ── Body ── */}
-      <div className="flex-1 overflow-auto">
+      {/* Bins could not be loaded for the take chips (milestone 2): said here
+          on the page with a retry, not only inside a takes dialog she may
+          never open (review round 2). The kit Banner, in the warning tone. */}
+      {supportsBins && takesNotice && !takesShotId && !pickerShotId && (
+        <Banner
+          tone="warning"
+          action={(
+            <span className="rb-scene-notice-actions">
+              <Button size="sm" onClick={() => { setTakesNotice(null); ctxRef.current?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`)) }}>
+                Retry
+              </Button>
+              <IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setTakesNotice(null)} />
+            </span>
+          )}
+        >
+          <span className="rb-scene-notice-text">{takesNotice}</span>
+        </Banner>
+      )}
+
+      {/* ── Body: the region the content tabs switch, and inside it the one
+          the view tabs switch (each tab bar points at its own panel) ── */}
+      <div className="rb-scene-body" id={CONTENT_PANEL_ID} role="tabpanel" aria-label={contentMode === 'shots' ? 'Shots' : 'Scenes'}>
+       <div className="rb-scene-view" id={VIEW_PANEL_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'}>
         {contentMode === 'shots' ? (
           viewMode === 'table' ? (
             <ShotTable
               shotGroups={shotGroups}
               ctx={ctx}
+              takes={takesApi}
               fps={fps}
               thumbSize={thumbSize}
               thumbRevision={thumbRevision}
@@ -886,6 +1022,8 @@ export default function ScenesView() {
               gallerySize={gallerySize}
               fps={fps}
               ctx={ctx}
+              takes={takesApi}
+              thumbRevision={thumbRevision}
               onOpenSceneDetail={setDetailSceneId}
               onOpenShotDetail={setDetailShotId}
               onRequestDelete={setConfirmDelete}
@@ -894,24 +1032,27 @@ export default function ScenesView() {
         ) : (
           viewMode === 'table' ? (
             groups ? (
-              groups.map(g => (
+              <div className="rb-scene-groups">
+              {groups.map(g => (
                 <div key={g.key}>
-                  <div className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-stone-800/30 transition-colors"
-                    style={{ borderBottom: '1px solid #292524', borderLeft: `3px solid ${groupAccent(g.key)}`, backgroundColor: '#292524' }}
-                    onClick={() => toggleGroup(g.key)}>
+                  {/* A group's band: one button, the whole band (it was a
+                      clickable div with no keyboard way in), on the raised
+                      paper. A status group carries the kit's StatusDot; the
+                      3px accent and its colour are gone (R3-11). */}
+                  <button type="button" onClick={() => toggleGroup(g.key)}
+                    aria-expanded={!collapsedGroups.has(g.key)}
+                    className="rb-scene-group-toggle rb-scene-band">
                     {collapsedGroups.has(g.key)
-                      ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-                      : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                    <span className="text-[11.5px] font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
-                      {g.label}
-                    </span>
-                    <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
-                      ({g.scenes.length})
-                    </span>
-                  </div>
+                      ? <ChevronRight className="rb-scene-group-chevron" aria-hidden="true" />
+                      : <ChevronDown className="rb-scene-group-chevron" aria-hidden="true" />}
+                    {groupBy === 'status' && <StatusDot status={g.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
+                    <span className="rb-scene-group-label">{g.label}</span>
+                    <span className="rb-scene-group-count">({g.scenes.length})</span>
+                  </button>
                   {!collapsedGroups.has(g.key) && (
                     <SceneTable
                       scenes={g.scenes}
+                      takes={takesApi}
                       shotsByScene={shotsByScene}
                       sceneTotals={sceneTotals}
                       assetCountByScene={assetCountByScene}
@@ -928,10 +1069,12 @@ export default function ScenesView() {
                     />
                   )}
                 </div>
-              ))
+              ))}
+              </div>
             ) : (
               <SceneTable
                 scenes={sorted}
+                takes={takesApi}
                 shotsByScene={shotsByScene}
                 sceneTotals={sceneTotals}
                 assetCountByScene={assetCountByScene}
@@ -957,6 +1100,7 @@ export default function ScenesView() {
             />
           )
         )}
+       </div>
       </div>
 
       {/* ── Scene detail popup ── */}
@@ -985,6 +1129,7 @@ export default function ScenesView() {
         <ShotDetailPopup
           shotId={detailShotId}
           ctx={ctx}
+          takes={takesApi}
           fps={fps}
           projectMembers={projectMembers}
           roleEntries={roleEntries}
@@ -994,6 +1139,46 @@ export default function ScenesView() {
           onRequestDelete={setConfirmDelete}
         />
       )}
+
+      {/* ── Shot takes: the dialog from a row, and the picker (milestone 2) ──
+          Each its own kit Dialog (B6's Modal), 🚨 PORTALLED into <body>
+          (surface 6c): the detail popups are there now, and the picker opens
+          from the shot popup's takes — rendered here in the page it would sit
+          UNDER the popup (both at the kit's z-index, the later in <body>
+          painting over) while it held the top of the modal stack. In <body>
+          it comes after the popup, as it comes after it on the stack.
+          In <body> it is also outside the app's `wilson-dark-scroll` root,
+          and B6's dialogs take no className: the portal's one wrapper
+          carries the class, so the picker's list scrolls on the app's dark
+          bar as it did in the page (review round one, R1-12). */}
+      {takesShotId && (() => {
+        const shot = shots.find(s => s.id === takesShotId)
+        if (!shot) return null
+        return createPortal(
+          <div className="wilson-dark-scroll">
+            <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
+              entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
+              onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
+              onOpenPicker={() => setPickerShotId(shot.id)}>
+              {takesNotice && <div className="rb-scene-takes-notice">{takesNotice}</div>}
+            </ShotTakesDialog>
+          </div>,
+          document.body,
+        )
+      })()}
+      {pickerShotId && (() => {
+        const shot = shots.find(s => s.id === pickerShotId)
+        if (!shot) return null
+        const entries = takesByShotMap.get(shot.id) || []
+        return createPortal(
+          <div className="wilson-dark-scroll">
+            <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
+              assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
+              onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
+          </div>,
+          document.body,
+        )
+      })()}
 
       {/* ── Delete confirmation ── */}
       {confirmDelete && (
@@ -1009,6 +1194,8 @@ export default function ScenesView() {
             else handleDeleteShot(confirmDelete.id)
           }}
           onCancel={() => setConfirmDelete(null)}
+          // From a detail popup's Delete: what opened the popup (surface 6c).
+          returnTo={confirmDelete.returnTo || null}
         />
       )}
     </div>
@@ -1017,30 +1204,26 @@ export default function ScenesView() {
 
 
 // ─── BigTile — summary card ───
-function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac', icon: '#15803d' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5', icon: '#7f1d1d' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e', icon: '#57534e' },
-  }[tone]
-  return (
-    <div className="flex-1 min-w-[120px] flex items-center gap-3 rounded-sm px-4 py-3"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
-      <div className="flex flex-col min-w-0">
-        <span className="text-[11.5px] font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
-        <span className="text-lg font-mono font-bold" style={{ color: colors.text }}>{value}</span>
-      </div>
-    </div>
-  )
+// The kit Stat (R3-10), on the Budget's tile look: the Label-step name over
+// the tabular value, on the raised paper with one hairline. No caller ever
+// passed a tone, and Stat has no icon slot, so both are gone.
+function BigTile({ label, value }) {
+  return <Stat className="rb-scene-stat" label={label} value={value} />
 }
 
 
 // ─── Scene table ───
-function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+// The kit Table (R3-20): a real <table>, the same columns in the same order,
+// the header one row of the kit's Th. A scene's shots stay nested under it —
+// one row that spans the table and holds a table of the shots, indented as
+// before, opened and closed by the same toggle. Widths are the sheet's
+// (`.rb-scene-table-wrap`), each column's thumbnail box its size's.
+function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
-  const tw = thumbW(rowH)
   const [expandedScenes, setExpandedScenes] = useState(new Set())
+  // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
+  // was a window.confirm, and each question keeps its words.
+  const [confirmBulk, setConfirmBulk] = useState(null)
 
   // ── Nested-shot multi-select ──
   const [selectedNestedShots, setSelectedNestedShots] = useState(new Set())
@@ -1048,7 +1231,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   function clearNestedSelection() { setSelectedNestedShots(new Set()) }
   function bulkUpdateNestedShots(patch) { for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
   function bulkDeleteNestedShots() {
-    if (!window.confirm(`Delete ${selectedNestedShots.size} shot${selectedNestedShots.size === 1 ? '' : 's'}?`)) return
     for (const id of selectedNestedShots) ctx?.deleteShot?.(id)
     clearNestedSelection()
   }
@@ -1064,7 +1246,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { for (const id of selected) ctx?.updateScene?.(id, patch); clearSelection() }
   function bulkDelete() {
-    if (!window.confirm(`Delete ${selected.size} scene${selected.size === 1 ? '' : 's'} and their shots?`)) return
     for (const id of selected) {
       const childShots = shotsByScene[id] || []
       for (const shot of childShots) ctx?.deleteShot?.(shot.id)
@@ -1081,493 +1262,505 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
     })
   }
 
+  // Nothing to list: the kit EmptyState (R3-19), the same words.
   if (scenes.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
-          No scenes yet
-        </span>
-      </div>
-    )
+    return <EmptyState Icon={Film} title="No scenes yet" />
   }
 
   return (
-    <div className="flex flex-col gap-1 p-3">
-      {/* Header */}
-      <div className="relative flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="w-7 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
-          {allSelected ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : someSelected ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-        </span>
-        <span className="w-7" />
-        <span style={{ width: tw }} className="text-[10.5px] font-mono uppercase tracking-widest text-center flex-shrink-0" />
-        <span className="w-14 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
-        <span className="w-48 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
-        <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
-        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="flex-1 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Description</span>
-        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Runtime</span>
-        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Frames</span>
-        <span className="w-14" />
+    <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
+      {/* The bulk-action bar overlays the header right of the checkbox
+          column, where it always did: the raised paper, the signal edge, the
+          count at Dense 600 in the ink (it was orange mono), the kit's
+          fields and buttons. */}
+      {someSelected && (
+        <div className="rb-scene-bulk">
+          <span className="rb-scene-bulk-count">{selected.size} selected</span>
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+          <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk('scenes')}>
+            Delete
+          </Button>
+          <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
+        </div>
+      )}
 
-        {/* Bulk action bar */}
-        {someSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
-            style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[10.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-0.5 rounded-sm hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[9.5px] font-mono uppercase">Delete</span>
-            </button>
-            <button type="button" onClick={clearSelection} className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Rows */}
-      {scenes.map(sc => {
-        const sceneShots = shotsByScene[sc.id] || []
-        const expanded = expandedScenes.has(sc.id)
-        const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
-        const isChecked = selected.has(sc.id)
-        return (
-          <div key={sc.id}>
-            <div
-              className="flex items-center gap-3 px-3 rounded-sm transition-colors hover:bg-stone-800 cursor-pointer group"
-              style={{
-                backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
-                border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}`,
-                minHeight: rowH + 8,
-              }}
-            >
-              {/* Checkbox */}
-              <span className="w-7 flex items-center justify-center cursor-pointer flex-shrink-0"
-                onClick={e => { e.stopPropagation(); toggleOne(sc.id) }}>
-                {isChecked
-                  ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                  : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-              </span>
-
-              {/* Expand toggle */}
-              <button type="button" onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
-                className="w-7 flex items-center justify-center flex-shrink-0 p-1 -m-1 rounded hover:bg-stone-700/50 transition-colors"
-                style={{ color: '#78716c' }}>
-                {sceneShots.length > 0 ? (
-                  expanded
-                    ? <ChevronDown className="w-4 h-4" />
-                    : <ChevronRight className="w-4 h-4" />
-                ) : (
-                  <span className="w-4 h-4" />
-                )}
+      <Table
+        className="rb-scene-table rb-scene-table-scenes"
+        head={(
+          <Row>
+            <Th width="var(--rb-scene-col-check)" className="rb-scene-check-cell">
+              <button type="button" onClick={toggleAll}
+                className="rb-scene-check"
+                data-checked={allSelected ? 'all' : someSelected ? 'some' : 'none'}
+                aria-label={allSelected ? 'Clear the selection' : 'Select every scene'}
+                title={allSelected ? 'Clear the selection' : 'Select every scene'}>
+                {allSelected
+                  ? <CheckSquare aria-hidden="true" />
+                  : someSelected
+                    ? <MinusSquare aria-hidden="true" />
+                    : <Square aria-hidden="true" />}
               </button>
+            </Th>
+            <Th width="var(--rb-scene-col-expand)" className="rb-scene-expand-cell"><span className="sr-only">Shots</span></Th>
+            <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
+            <Th width="var(--rb-scene-col-num)" numeric>#</Th>
+            <Th width="var(--rb-scene-col-name)">Name</Th>
+            <Th width="var(--rb-scene-col-status)">Status</Th>
+            <Th width="var(--rb-scene-col-time)">Time of day</Th>
+            <Th width="var(--rb-scene-col-type)">Type</Th>
+            <Th>Description</Th>
+            <Th width="var(--rb-scene-col-runtime)" numeric>Runtime</Th>
+            <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
+            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+          </Row>
+        )}
+      >
 
-              {/* Thumbnail */}
-              <div className="flex items-center justify-center rounded-sm overflow-hidden flex-shrink-0 relative group/scthumb cursor-pointer"
-                style={{ width: tw, height: rowH, backgroundColor: '#0c0a09', border: '1px solid #292524' }}
-                onClick={async e => {
-                  e.stopPropagation()
-                  if (!window.electronAPI?.rabbit?.pickImage) return
-                  const imagePath = await window.electronAPI.rabbit.pickImage()
-                  if (!imagePath) return
-                  ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
-                  try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
-                  onThumbChanged?.()
-                }}>
-                {sc.thumbnail_image ? (
-                  <>
-                    <img src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`}
-                      alt="" style={{ width: tw, height: rowH, objectFit: 'cover', display: 'block' }} />
-                    <div className="absolute inset-0 opacity-0 group-hover/scthumb:opacity-100 transition-opacity flex items-center justify-center"
-                      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                      <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Film className="w-4 h-4 group-hover/scthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
-                    <ImagePlus className="w-3.5 h-3.5 absolute opacity-0 group-hover/scthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
-                  </>
-                )}
-              </div>
+        {scenes.map(sc => {
+          const sceneShots = shotsByScene[sc.id] || []
+          const expanded = expandedScenes.has(sc.id)
+          const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
+          const isChecked = selected.has(sc.id)
+          // What each unnamed control on the row is named for.
+          const name = sc.name || 'Untitled'
+          return (
+            <Fragment key={sc.id}>
+              {/* The kit Row: its one selected treatment (R3-38 — it was an
+                  orange tint AND a full orange border), the lane's hover. */}
+              <Row className="rb-scene-row" selected={isChecked} data-ticked={isChecked ? 'true' : 'false'}>
+                {/* Checkbox: one 28px square (R3-40) */}
+                <Td className="rb-scene-check-cell">
+                  <button type="button" onClick={e => { e.stopPropagation(); toggleOne(sc.id) }}
+                    className="rb-scene-check"
+                    data-checked={isChecked ? 'all' : 'none'}
+                    aria-pressed={isChecked}
+                    aria-label={`Select ${name}`}
+                    title={`Select ${name}`}>
+                    {isChecked ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
+                  </button>
+                </Td>
 
-              {/* Scene # */}
-              <span className="w-14 text-[11.5px] font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
-                {sc.scene_number ?? '—'}
-              </span>
+                {/* Expand toggle: a scene with no shots shows no chevron, and
+                    still opens onto its Add shot, as before */}
+                <Td className="rb-scene-expand-cell">
+                  <IconButton
+                    size="sm"
+                    Icon={sceneShots.length > 0 ? (expanded ? ChevronDown : ChevronRight) : undefined}
+                    title={expanded ? 'Hide shots' : 'Show shots'}
+                    aria-expanded={expanded}
+                    onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
+                  />
+                </Td>
 
-              {/* Name */}
-              <div className="w-48 min-w-0 flex-shrink-0" onClick={() => onOpenDetail(sc.id)}>
-                <InlineText
-                  value={sc.name || ''}
-                  placeholder="Untitled scene"
-                  color="#fb923c"
-                  onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
-                />
-              </div>
-
-              {/* Status */}
-              <span className="w-36 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <select
-                  value={sc.status || 'not_started'}
-                  onChange={e => ctx?.updateScene?.(sc.id, { status: e.target.value })}
-                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{
-                    color: statusColor(sc.status),
-                    backgroundColor: 'rgba(0,0,0,0.3)',
-                    border: `1px solid ${statusColor(sc.status)}30`,
-                  }}
-                >
-                  {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                </select>
-              </span>
-
-              {/* Time of Day */}
-              <span className="w-28 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <select
-                  value={sc.time_of_day || ''}
-                  onChange={e => ctx?.updateScene?.(sc.id, { time_of_day: e.target.value || null })}
-                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{ color: sc.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
-                >
-                  <option value="">—</option>
-                  {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                </select>
-              </span>
-
-              {/* Type */}
-              <span className="w-20 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <select
-                  value={sc.type || 'interior'}
-                  onChange={e => ctx?.updateScene?.(sc.id, { type: e.target.value })}
-                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
-                >
-                  {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                </select>
-              </span>
-
-              {/* Description */}
-              <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
-                <InlineText
-                  value={sc.description || ''}
-                  placeholder="Add description…"
-                  size="sm"
-                  onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
-                />
-              </div>
-
-              {/* Runtime */}
-              <span className="w-28 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: totals.totalFrames > 0 ? '#d6d3d1' : '#44403c' }}>
-                {totals.runtime}
-              </span>
-
-              {/* Frame count */}
-              <span className="w-20 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: totals.totalFrames > 0 ? '#d6d3d1' : '#44403c' }}>
-                {fmtNumber(totals.totalFrames)}
-              </span>
-
-              {/* Actions */}
-              <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                <button type="button" onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }}
-                  className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                  <Eye className="w-3 h-3" />
-                </button>
-                <button type="button" onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }}
-                  className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete scene">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </span>
-            </div>
-
-            {/* Nested shots */}
-            {expanded && (
-              <div className="ml-7 flex flex-col gap-0.5 mt-0.5 mb-1 relative">
-                {/* Nested-shot bulk action bar */}
-                {(() => {
-                  const sceneShotIds = sceneShots.map(s => s.id)
-                  const selInScene = sceneShotIds.filter(id => selectedNestedShots.has(id))
-                  if (selInScene.length === 0) return null
-                  return (
-                    <div className="sticky top-0 z-20 flex items-center gap-3 px-3 py-1.5 rounded-sm mb-0.5"
-                      style={{ backgroundColor: '#292524', border: '1px solid #fb923c' }}>
-                      <span className="text-[10.5px] font-mono font-bold" style={{ color: '#fb923c' }}>
-                        {selInScene.length} selected
-                      </span>
-                      <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
-                      <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
-                      <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
-                      <button type="button" onClick={bulkDeleteNestedShots}
-                        className="ml-auto px-2 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-red-900/30 transition-colors"
-                        style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-                        <Trash2 className="w-3 h-3 inline-block mr-1" /> Delete
-                      </button>
-                      <button type="button" onClick={clearNestedSelection}
-                        className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )
-                })()}
-                {sceneShots.map(shot => {
-                  const isNested = selectedNestedShots.has(shot.id)
-                  return (
-                  <div key={shot.id}
-                    className="flex items-center gap-3 px-3 py-1.5 rounded-sm hover:bg-stone-800/60 transition-colors group/shot"
-                    style={{
-                      backgroundColor: isNested ? 'rgba(234, 88, 12, 0.08)' : '#0c0a09',
-                      border: `1px solid ${isNested ? '#ea580c' : '#292524'}`,
+                {/* Thumbnail */}
+                <Td className="rb-scene-thumb-cell">
+                  <div className="rb-scene-thumb"
+                    onClick={async e => {
+                      e.stopPropagation()
+                      if (!window.electronAPI?.rabbit?.pickImage) return
+                      const imagePath = await window.electronAPI.rabbit.pickImage()
+                      if (!imagePath) return
+                      ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
+                      try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
+                      onThumbChanged?.()
                     }}>
-                    {/* Checkbox */}
-                    <span className="flex items-center justify-center cursor-pointer flex-shrink-0"
-                      onClick={() => toggleNestedShot(shot.id)}>
-                      {isNested
-                        ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-                    </span>
-                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-                    {/* Thumbnail */}
-                    <div className="flex items-center justify-center rounded-sm overflow-hidden flex-shrink-0 relative group/shthumb cursor-pointer"
-                      style={{ width: thumbW(Math.max(rowH - 8, 28)), height: Math.max(rowH - 8, 28), backgroundColor: '#0c0a09', border: '1px solid #292524' }}
-                      onClick={async e => {
-                        e.stopPropagation()
-                        if (!window.electronAPI?.rabbit?.pickImage) return
-                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                        if (!imagePath) return
-                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                        onThumbChanged?.()
-                      }}>
-                      {shot.thumbnail_image ? (
-                        <>
-                          <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
-                            alt="" style={{ width: thumbW(Math.max(rowH - 8, 28)), height: Math.max(rowH - 8, 28), objectFit: 'cover', display: 'block' }} />
-                          <div className="absolute inset-0 opacity-0 group-hover/shthumb:opacity-100 transition-opacity flex items-center justify-center"
-                            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                            <ImagePlus className="w-3 h-3" style={{ color: '#d6d3d1' }} />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <Clapperboard className="w-3 h-3 group-hover/shthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
-                          <ImagePlus className="w-3 h-3 absolute opacity-0 group-hover/shthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
-                        </>
-                      )}
-                    </div>
-                    {/* Shot # */}
-                    <span className="w-10 text-[11.5px] font-mono text-center flex-shrink-0" style={{ color: '#57534e' }}>
-                      {shot.shot_number ?? '—'}
-                    </span>
-                    {/* Name */}
-                    <div className="w-40 min-w-0 flex-shrink-0">
-                      <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
-                    </div>
-                    {/* Status */}
-                    <span className="w-36 flex justify-center flex-shrink-0">
-                      <select value={shot.status || 'not_started'} onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
-                        {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                      </select>
-                    </span>
-                    {/* Time of Day */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select value={shot.time_of_day || ''} onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
-                    {/* Type */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
-                      <select value={shot.type || 'other'} onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: '#78716c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
-                    {/* Framing */}
-                    <span className="w-20 flex justify-center flex-shrink-0 relative">
-                      <span className="absolute inset-0 flex items-center px-1.5 text-[10.5px] font-mono uppercase pointer-events-none z-[1]"
-                        style={{ color: shot.framing ? '#a8a29e' : '#44403c' }}>
-                        <span className="flex-1 text-center">{shot.framing || '—'}</span>
-                        <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
-                      </span>
-                      <select value={shot.framing || ''} onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
-                        style={{ color: 'transparent', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
-                      </select>
-                    </span>
-                    {/* Camera Movement */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select value={shot.camera_movement || ''} onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr}</option>)}
-                      </select>
-                    </span>
-                    {/* Description */}
-                    <div className="flex-1 min-w-0">
-                      <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
-                    </div>
-                    {/* Duration */}
-                    <span className="w-28 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: (shot.frame_count || 0) > 0 ? '#a8a29e' : '#44403c' }}>
-                      {framesToTimecode(shot.frame_count || 0, fps)}
-                    </span>
-                    {/* Frames */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
-                      <input type="number" min={0} value={shot.frame_count ?? ''}
-                        onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
-                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 tabular-nums"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
-                        onFocus={e => { e.target.style.borderColor = '#44403c' }}
-                        onBlur={e => { e.target.style.borderColor = 'transparent' }}
-                        placeholder="0" />
-                    </span>
-                    <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover/shot:opacity-100 transition-opacity flex-shrink-0">
-                      <button type="button" onClick={() => onOpenShotDetail(shot.id)}
-                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                        <Eye className="w-3 h-3" />
-                      </button>
-                      <button type="button" onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
+                    {sc.thumbnail_image ? (
+                      <>
+                        <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                        <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                      </>
+                    ) : (
+                      <>
+                        <Film className="rb-scene-thumb-mark" aria-hidden="true" />
+                        <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                      </>
+                    )}
                   </div>
-                  )
-                })}
-                {/* Add shot row */}
-                <button type="button" onClick={() => onNewShot(sc.id)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800/40 transition-colors"
-                  style={{ color: '#57534e', border: '1px dashed #292524' }}>
-                  <Plus className="w-3 h-3" /> Add shot
-                </button>
-              </div>
-            )}
-          </div>
-        )
-      })}
+                </Td>
+
+                {/* Scene # */}
+                <Td numeric className="rb-scene-num-cell" data-empty={sc.scene_number == null ? 'true' : undefined}>
+                  {sc.scene_number ?? '—'}
+                </Td>
+
+                {/* Name: the row's anchor, 600 in the ink (it was orange) */}
+                <Td className="rb-scene-name-cell">
+                  <span className="rb-scene-name" onClick={() => onOpenDetail(sc.id)}>
+                    <InlineText
+                      value={sc.name || ''}
+                      placeholder="Untitled scene"
+                      strong
+                      label={`Name for ${name}`}
+                      onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
+                    />
+                  </span>
+                </Td>
+
+                {/* Status: the kit's StatusDot beside a CellSelect, the words
+                    in the ink, the tone from the one STATUS map (R3-11) */}
+                <Td className="rb-scene-status-cell" onClick={e => e.stopPropagation()}>
+                  <span className="rb-scene-status">
+                    <StatusDot status={sc.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                    <CellSelect
+                      className="rb-scene-status-select"
+                      value={sc.status || 'not_started'}
+                      onChange={v => ctx?.updateScene?.(sc.id, { status: v })}
+                      options={STATUS_OPTIONS}
+                      aria-label={`Status for ${name}`}
+                    />
+                  </span>
+                </Td>
+
+                {/* Time of day */}
+                <Td className="rb-scene-time-cell" onClick={e => e.stopPropagation()}>
+                  <CellSelect
+                    value={sc.time_of_day || null}
+                    onChange={v => ctx?.updateScene?.(sc.id, { time_of_day: v })}
+                    placeholder="—"
+                    options={TIME_OPTIONS}
+                    aria-label={`Time of day for ${name}`}
+                  />
+                </Td>
+
+                {/* Type */}
+                <Td className="rb-scene-type-cell" onClick={e => e.stopPropagation()}>
+                  <CellSelect
+                    value={sc.type || 'interior'}
+                    onChange={v => ctx?.updateScene?.(sc.id, { type: v })}
+                    options={TYPE_OPTIONS}
+                    aria-label={`Type for ${name}`}
+                  />
+                </Td>
+
+                {/* Description */}
+                <Td className="rb-scene-desc-cell" onClick={e => e.stopPropagation()}>
+                  <InlineText
+                    value={sc.description || ''}
+                    placeholder="Add description…"
+                    size="sm"
+                    label={`Description for ${name}`}
+                    onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
+                  />
+                </Td>
+
+                {/* Runtime: a zero at the third ink, never #44403c (R3-13) */}
+                <Td numeric className="rb-scene-dur-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                  {totals.runtime}
+                </Td>
+
+                {/* Frame count */}
+                <Td numeric className="rb-scene-count-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                  {fmtNumber(totals.totalFrames)}
+                </Td>
+
+                {/* Actions: the kit HoverActions — on hover AND on focus
+                    (Q17(b)), one reserved slot the same width in every row
+                    of all three tables (R3-24) */}
+                <Td align="right" className="rb-scene-acts-cell">
+                  <HoverActions className="rb-scene-acts">
+                    <IconButton size="sm" Icon={Eye} title="View details"
+                      onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
+                    <IconButton size="sm" Icon={Trash2} danger title="Delete scene"
+                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
+                  </HoverActions>
+                </Td>
+              </Row>
+
+              {/* Nested shots: one row across the table, indented as before,
+                  holding the scene's shots as a table of their own (no
+                  header, as before) on the recessed paper they sat on. */}
+              {expanded && (
+                <Row className="rb-scene-nest-row">
+                  <Td colSpan={12} className="rb-scene-nest-cell">
+                    <div className="rb-scene-nest">
+                      {/* Nested-shot bulk action bar */}
+                      {(() => {
+                        const selInScene = sceneShots.filter(s => selectedNestedShots.has(s.id))
+                        if (selInScene.length === 0) return null
+                        return (
+                          <div className="rb-scene-nest-bulk">
+                            <span className="rb-scene-bulk-count">{selInScene.length} selected</span>
+                            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
+                            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
+                            <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                            <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk('shots')}>
+                              Delete
+                            </Button>
+                            <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearNestedSelection} />
+                          </div>
+                        )
+                      })()}
+                      {sceneShots.length > 0 && (
+                        <Table className="rb-scene-table rb-scene-nest-table" scrollClassName="rb-scene-nest-scroll" data-takes={takes?.supports ? 'true' : 'false'}>
+                          {sceneShots.map(shot => {
+                            const isNested = selectedNestedShots.has(shot.id)
+                            const shotTakeEntries = takes?.map?.get(shot.id) || []
+                            const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                            const nestedThumbH = Math.max(rowH - 8, 28)
+                            const shotName = shot.name || 'Untitled'
+                            return (
+                              <Row key={shot.id} className="rb-scene-row" selected={isNested} data-ticked={isNested ? 'true' : 'false'}>
+                                {/* Checkbox: the 28px square (R3-40; it was the 12px glyph alone) */}
+                                <Td className="rb-scene-check-cell">
+                                  <button type="button" onClick={() => toggleNestedShot(shot.id)}
+                                    className="rb-scene-check"
+                                    data-checked={isNested ? 'all' : 'none'}
+                                    aria-pressed={isNested}
+                                    aria-label={`Select ${shotName}`}
+                                    title={`Select ${shotName}`}>
+                                    {isNested ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
+                                  </button>
+                                </Td>
+                                <Td className="rb-scene-mark-cell">
+                                  <Clapperboard className="rb-scene-mark" aria-hidden="true" />
+                                </Td>
+                                {/* Thumbnail */}
+                                <Td className="rb-scene-thumb-cell">
+                                  <div className="rb-scene-thumb" data-nested="true"
+                                    onClick={async e => {
+                                      e.stopPropagation()
+                                      if (!window.electronAPI?.rabbit?.pickImage) return
+                                      const imagePath = await window.electronAPI.rabbit.pickImage()
+                                      if (!imagePath) return
+                                      ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                                      try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                                      onThumbChanged?.()
+                                    }}>
+                                    {shot.thumbnail_image ? (
+                                      <>
+                                        <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                                        <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                                      </>
+                                    ) : takeFallback ? (
+                                      <>
+                                        {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                                        <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} className="rb-scene-poster" />
+                                        <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
+                                        <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                                      </>
+                                    )}
+                                  </div>
+                                </Td>
+                                {/* Shot # */}
+                                <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined}>
+                                  {shot.shot_number ?? '—'}
+                                </Td>
+                                {/* Name */}
+                                <Td className="rb-scene-name-cell">
+                                  <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm" strong
+                                    label={`Name for ${shotName}`}
+                                    onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
+                                </Td>
+                                {/* Takes (milestone 2) */}
+                                {takes?.supports && (
+                                  <Td className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
+                                    <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 22)} max={3}
+                                      canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                                  </Td>
+                                )}
+                                {/* Status */}
+                                <Td className="rb-scene-status-cell">
+                                  <span className="rb-scene-status">
+                                    <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                                    <CellSelect
+                                      className="rb-scene-status-select"
+                                      value={shot.status || 'not_started'}
+                                      onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
+                                      options={STATUS_OPTIONS}
+                                      aria-label={`Status for ${shotName}`}
+                                    />
+                                  </span>
+                                </Td>
+                                {/* Time of day */}
+                                <Td className="rb-scene-time-cell">
+                                  <CellSelect value={shot.time_of_day || null} onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
+                                    placeholder="—" options={TIME_OPTIONS} aria-label={`Time of day for ${shotName}`} />
+                                </Td>
+                                {/* Type */}
+                                <Td className="rb-scene-type-cell">
+                                  <CellSelect value={shot.type || 'other'} onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
+                                    options={TYPE_OPTIONS} aria-label={`Type for ${shotName}`} />
+                                </Td>
+                                {/* Framing: the code in the cell, the long names in the list */}
+                                <Td className="rb-scene-framing-cell">
+                                  <span className="rb-scene-framing">
+                                    <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
+                                    <CellSelect className="rb-scene-framing-select" value={shot.framing || null} onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
+                                      placeholder="—" options={FRAMING_CHOICES} aria-label={`Framing for ${shotName}`} />
+                                  </span>
+                                </Td>
+                                {/* Camera movement */}
+                                <Td className="rb-scene-move-cell">
+                                  <CellSelect value={shot.camera_movement || null} onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
+                                    placeholder="—" options={MOVE_CHOICES} aria-label={`Camera movement for ${shotName}`} />
+                                </Td>
+                                {/* Description */}
+                                <Td className="rb-scene-desc-cell">
+                                  <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
+                                    label={`Description for ${shotName}`}
+                                    onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
+                                </Td>
+                                {/* Duration */}
+                                <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
+                                  {framesToTimecode(shot.frame_count || 0, fps)}
+                                </Td>
+                                {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26) */}
+                                <Td numeric className="rb-scene-frames-cell">
+                                  <input type="number" min={0} value={shot.frame_count ?? ''}
+                                    onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
+                                    aria-label={`Frames for ${shotName}`}
+                                    className="ui-input rb-scene-frames"
+                                    data-size="sm"
+                                    placeholder="0" />
+                                </Td>
+                                <Td align="right" className="rb-scene-acts-cell">
+                                  <HoverActions className="rb-scene-acts">
+                                    <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
+                                    <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
+                                      onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                                  </HoverActions>
+                                </Td>
+                              </Row>
+                            )
+                          })}
+                        </Table>
+                      )}
+                      {/* Add shot row */}
+                      <button type="button" onClick={() => onNewShot(sc.id)} className="rb-scene-add">
+                        <Plus aria-hidden="true" /> Add shot
+                      </button>
+                    </div>
+                  </Td>
+                </Row>
+              )}
+            </Fragment>
+          )
+        })}
+      </Table>
+
+      {/* W9: the two bulk questions, word for word, on the kit Dialog in
+          <body>. Neither ever closed on a click outside (window.confirm). */}
+      {confirmBulk === 'scenes' && (
+        <ConfirmDialog
+          title="Delete scenes"
+          message={`Delete ${selected.size} scene${selected.size === 1 ? '' : 's'} and their shots?`}
+          dismissOnBackdrop={false}
+          onCancel={() => setConfirmBulk(null)}
+          onConfirm={() => { setConfirmBulk(null); bulkDelete() }}
+        />
+      )}
+      {confirmBulk === 'shots' && (
+        <ConfirmDialog
+          title="Delete shots"
+          message={`Delete ${selectedNestedShots.size} shot${selectedNestedShots.size === 1 ? '' : 's'}?`}
+          dismissOnBackdrop={false}
+          onCancel={() => setConfirmBulk(null)}
+          onConfirm={() => { setConfirmBulk(null); bulkDeleteNestedShots() }}
+        />
+      )}
     </div>
   )
 }
 
 
 // ─── Scene gallery ───
+// The kit's Card, as the Levels and Experiences pages' (B4c's EntityCard) and
+// the Assets page's (B4b): the raised paper with one hairline, at the width
+// its size gives it — 160, 220 or 300px as before, keyed on the gallery's
+// `data-card`, not a style — and a hairline that lifts on hover (the orange
+// ring is gone; no filter on anything inside, R3-23). The well on the paper,
+// half the card's width tall as before, the scene's glyph at 24px in the
+// third ink (R3-29: 28px at 1.2:1). The delete sits in the kit's
+// HoverActions, shown on hover AND on focus (R3-24, Q17(b)), and is named
+// for its scene now (it had no name). Then the name at 600 in the ink, the
+// description in the second ink, the type and time of day at the Label step
+// beside the kit's StatusBadge — its words and tone from the one STATUS map
+// (R3-11: a status-coloured chip AND a 2px status-coloured bar under the
+// well said it twice in statusColor's hues; the bar goes, as the Assets
+// cards' did) — and the shot count and runtime in the mono, in the third
+// ink (R3-13: #57534e, 2.3:1). The whole card opens the scene, as it did.
 function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onOpenDetail, onRequestDelete }) {
-  const sizeMap = { sm: 160, md: 220, lg: 300 }
-  const cardW = sizeMap[gallerySize] || sizeMap.md
-
   if (scenes.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
-          No scenes yet
-        </span>
-      </div>
-    )
+    // The kit's empty state (R3-19), in the same words.
+    return <EmptyState Icon={Film} title="No scenes yet" />
   }
 
   return (
-    <div className="p-4 flex flex-wrap gap-3">
-      {scenes.map(sc => {
-        const sceneShots = shotsByScene[sc.id] || []
-        const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
-        return (
-          <div key={sc.id}
-            onClick={() => onOpenDetail(sc.id)}
-            className="rounded-sm overflow-hidden hover:ring-1 hover:ring-orange-500/40 transition-all cursor-pointer group relative"
-            style={{ width: cardW, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            {/* Thumbnail placeholder */}
-            <div className="flex items-center justify-center relative"
-              style={{ height: cardW * 0.5, backgroundColor: '#0c0a09', borderBottom: '1px solid #292524' }}>
-              <Film className="w-7 h-7" style={{ color: '#292524' }} />
-              {/* Delete button */}
-              <button type="button"
-                onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }}
-                className="absolute top-2 right-2 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
-                style={{ color: '#ef4444' }}>
-                <Trash2 className="w-3 h-3" />
-              </button>
-              {/* Status accent bar */}
-              <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: statusColor(sc.status) }} />
-            </div>
-            {/* Info */}
-            <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <span className="text-[11.5px] font-mono truncate font-bold" style={{ color: '#d6d3d1' }}>
-                {sc.name || 'Untitled scene'}
-              </span>
-              {sc.description && (
-                <span className="text-[9.5px] font-mono truncate" style={{ color: '#57534e' }}>
-                  {sc.description}
-                </span>
-              )}
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[9.5px] font-mono uppercase" style={{ color: '#78716c' }}>
-                  {fmt(sc.type || '')}
-                </span>
-                {sc.time_of_day && (
-                  <span className="text-[9.5px] font-mono uppercase" style={{ color: '#78716c' }}>
-                    {fmt(sc.time_of_day)}
-                  </span>
-                )}
-                <span className="px-1.5 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm"
-                  style={{ color: statusColor(sc.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sc.status)}30` }}>
-                  {fmt(sc.status || 'not_started')}
-                </span>
+    <div className="rb-scene-gallery" data-card={gallerySize}>
+      <div className="rb-scene-cards">
+        {scenes.map(sc => {
+          const sceneShots = shotsByScene[sc.id] || []
+          const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
+          // What the card's delete is named for — the name its question says.
+          const name = sc.name || 'Untitled'
+          return (
+            <Card key={sc.id} pad={false} className="rb-scene-card ui-hover-host" onClick={() => onOpenDetail(sc.id)}>
+              <div className="rb-scene-card-media">
+                <Film className="rb-scene-card-glyph" aria-hidden="true" />
+                <HoverActions className="rb-scene-card-acts">
+                  <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
+                    onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name }) }} />
+                </HoverActions>
               </div>
-              <div className="flex items-center gap-3 mt-0.5">
-                {sceneShots.length > 0 && (
-                  <span className="text-[9.5px] font-mono" style={{ color: '#57534e' }}>
-                    {sceneShots.length} shot{sceneShots.length !== 1 ? 's' : ''}
+              <div className="rb-scene-card-body">
+                <span className="rb-scene-card-name">
+                  {sc.name || 'Untitled scene'}
+                </span>
+                {sc.description && (
+                  <span className="rb-scene-card-desc">
+                    {sc.description}
                   </span>
                 )}
-                {totals.totalFrames > 0 && (
-                  <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#57534e' }}>
-                    {totals.runtime}
+                <div className="rb-scene-card-meta">
+                  <span className="rb-scene-card-tag">
+                    {humanizeStatus(sc.type || '')}
                   </span>
-                )}
+                  {sc.time_of_day && (
+                    <span className="rb-scene-card-tag">
+                      {humanizeStatus(sc.time_of_day)}
+                    </span>
+                  )}
+                  <StatusBadge status={sc.status || 'not_started'} />
+                </div>
+                <div className="rb-scene-card-figures">
+                  {sceneShots.length > 0 && (
+                    <span className="rb-scene-card-figure">
+                      {sceneShots.length} shot{sceneShots.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {totals.totalFrames > 0 && (
+                    <span className="rb-scene-card-figure">
+                      {totals.runtime}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
-        )
-      })}
+            </Card>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
 
 // ─── Shot table (shots grouped by scene) ───
-function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+// The kit Table (R3-20), the same columns in the same order; a group's
+// header is a row of the table (the Tasks and Expenses tables' bands), its
+// Add shot the row after its shots.
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  // W9: the bulk delete asks on the kit Dialog (it was window.confirm).
+  const [confirmBulk, setConfirmBulk] = useState(false)
 
   // ── Multi-select ──
   const [selected, setSelected] = useState(new Set())
@@ -1580,7 +1773,6 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { for (const id of selected) ctx?.updateShot?.(id, patch); clearSelection() }
   function bulkDelete() {
-    if (!window.confirm(`Delete ${selected.size} shot${selected.size === 1 ? '' : 's'}?`)) return
     for (const id of selected) ctx?.deleteShot?.(id)
     clearSelection()
   }
@@ -1593,277 +1785,269 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
     })
   }
 
+  // Nothing to list: the kit EmptyState (R3-19), the same words — the
+  // instruction is its body now.
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
-          No shots yet — create a scene first, then add shots
-        </span>
-      </div>
-    )
+    return <EmptyState Icon={Clapperboard} title="No shots yet" body="Create a scene first, then add shots." />
   }
 
+  // What a group's band and an Add shot row span: every column.
+  const span = takes?.supports ? 16 : 15
+
   return (
-    <div className="flex flex-col gap-1 p-3">
-      {/* Column header */}
-      <div className="relative flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="w-7 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
-          {allSelected ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : someSelected ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-           : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-        </span>
-        <span style={{ width: tw }} className="flex-shrink-0" />
-        <span className="w-14 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
-        <span className="w-48 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
-        <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
-        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Framing</span>
-        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Cam Move</span>
-        <span className="flex-1 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Description</span>
-        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Duration</span>
-        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Frames</span>
-        <span className="w-24 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Start</span>
-        <span className="w-24 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>End</span>
-        <span className="w-14" />
+    <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
+      {/* Bulk action bar: over the header, right of the checkbox column */}
+      {someSelected && (
+        <div className="rb-scene-bulk">
+          <span className="rb-scene-bulk-count">{selected.size} selected</span>
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+          <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+          <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
+          <span className="rb-scene-divider" aria-hidden="true" />
+          <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk(true)}>
+            Delete
+          </Button>
+          <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
+        </div>
+      )}
 
-        {/* Bulk action bar */}
-        {someSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
-            style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[10.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
-            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-0.5 rounded-sm hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[9.5px] font-mono uppercase">Delete</span>
-            </button>
-            <button type="button" onClick={clearSelection} className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
-          </div>
+      <Table
+        className="rb-scene-table rb-scene-table-shots"
+        data-takes={takes?.supports ? 'true' : 'false'}
+        head={(
+          <Row>
+            <Th width="var(--rb-scene-col-check)" className="rb-scene-check-cell">
+              <button type="button" onClick={toggleAll}
+                className="rb-scene-check"
+                data-checked={allSelected ? 'all' : someSelected ? 'some' : 'none'}
+                aria-label={allSelected ? 'Clear the selection' : 'Select every shot'}
+                title={allSelected ? 'Clear the selection' : 'Select every shot'}>
+                {allSelected
+                  ? <CheckSquare aria-hidden="true" />
+                  : someSelected
+                    ? <MinusSquare aria-hidden="true" />
+                    : <Square aria-hidden="true" />}
+              </button>
+            </Th>
+            <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
+            <Th width="var(--rb-scene-col-num)" numeric>#</Th>
+            <Th width="var(--rb-scene-col-name)">Shot name</Th>
+            {takes?.supports && <Th width="var(--rb-scene-col-takes)" title="Bin files assigned to the shot; the starred one is the primary take">Takes</Th>}
+            <Th width="var(--rb-scene-col-status)">Status</Th>
+            <Th width="var(--rb-scene-col-time)">Time of day</Th>
+            <Th width="var(--rb-scene-col-type)">Type</Th>
+            <Th width="var(--rb-scene-col-framing)">Framing</Th>
+            <Th width="var(--rb-scene-col-move)">Cam move</Th>
+            <Th>Description</Th>
+            <Th width="var(--rb-scene-col-runtime)" numeric>Duration</Th>
+            <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
+            <Th width="var(--rb-scene-col-date)">Start</Th>
+            <Th width="var(--rb-scene-col-date)">End</Th>
+            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+          </Row>
         )}
-      </div>
+      >
 
-      {shotGroups.map(g => {
-        const isGrouped = g.groupType !== 'none'
-        const collapsed = isGrouped && collapsedGroups.has(g.key)
-        const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
-        return (
-          <div key={g.key}>
-            {/* Group header (skip for ungrouped) */}
-            {g.groupType === 'scene' && (
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-sm cursor-pointer hover:bg-stone-800/30 transition-colors"
-                style={{ backgroundColor: '#292524', borderLeft: `3px solid ${g.scene ? statusColor(g.scene.status) : '#57534e'}` }}
-                onClick={() => toggleGroup(g.key)}
-              >
-                {collapsed
-                  ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
-                  : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
-                <Film className="w-3 h-3" style={{ color: '#fb923c' }} />
-                <span className="text-[10.5px] font-mono font-bold truncate" style={{ color: '#fb923c' }}>
-                  {g.label}
-                </span>
-                <span className="text-[9.5px] font-mono" style={{ color: '#78716c' }}>
-                  ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
-                </span>
-                {groupFrames > 0 && (
-                  <span className="text-[9.5px] font-mono tabular-nums ml-auto mr-2" style={{ color: '#57534e' }}>
-                    {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
-                  </span>
-                )}
-                {g.scene && (
-                  <button type="button"
-                    onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }}
-                    className="p-1 rounded-sm hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }} title="Scene details">
-                    <Eye className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            )}
-            {g.groupType === 'field' && (
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-sm cursor-pointer hover:bg-stone-800/30 transition-colors"
-                style={{ backgroundColor: '#292524', borderLeft: '3px solid #78716c' }}
-                onClick={() => toggleGroup(g.key)}
-              >
-                {collapsed
-                  ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
-                  : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
-                <Layers className="w-3 h-3" style={{ color: '#a8a29e' }} />
-                <span className="text-[10.5px] font-mono font-bold truncate" style={{ color: '#a8a29e' }}>
-                  {g.label}
-                </span>
-                <span className="text-[9.5px] font-mono" style={{ color: '#78716c' }}>
-                  ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
-                </span>
-                {groupFrames > 0 && (
-                  <span className="text-[9.5px] font-mono tabular-nums ml-auto mr-2" style={{ color: '#57534e' }}>
-                    {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Shot rows */}
-            {!collapsed && (
-              <div className="flex flex-col gap-0.5 mt-0.5">
-                {g.shots.map(shot => {
-                  const isChecked = selected.has(shot.id)
-                  return (
-                  <div key={shot.id}
-                    className="flex items-center gap-3 px-3 rounded-sm hover:bg-stone-800 transition-colors group"
-                    style={{
-                      backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
-                      border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}`,
-                      minHeight: rowH + 8,
-                    }}>
-                    {/* Checkbox */}
-                    <span className="w-7 flex items-center justify-center cursor-pointer flex-shrink-0"
-                      onClick={() => toggleOne(shot.id)}>
-                      {isChecked
-                        ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
+        {shotGroups.map(g => {
+          const isGrouped = g.groupType !== 'none'
+          const collapsed = isGrouped && collapsedGroups.has(g.key)
+          const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
+          return (
+            <Fragment key={g.key}>
+              {/* A group's band (none for ungrouped): one row across the
+                  table on the raised paper. Its toggle is a button now (it
+                  was a clickable div), and Scene details sits BESIDE it, not
+                  inside it. A scene's status is the kit's StatusDot (the 3px
+                  accent in its colour is gone, R3-11); names in the ink. */}
+              {isGrouped && (
+                <Row className="rb-scene-group-row">
+                  <Td colSpan={span} className="rb-scene-group-cell">
+                    <span className="rb-scene-group-head">
+                      <button type="button" onClick={() => toggleGroup(g.key)}
+                        aria-expanded={!collapsed}
+                        className="rb-scene-group-toggle">
+                        {collapsed
+                          ? <ChevronRight className="rb-scene-group-chevron" aria-hidden="true" />
+                          : <ChevronDown className="rb-scene-group-chevron" aria-hidden="true" />}
+                        {g.scene && <StatusDot status={g.scene.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} />}
+                        {g.groupType === 'scene'
+                          ? <Film className="rb-scene-group-icon" aria-hidden="true" />
+                          : <Layers className="rb-scene-group-icon" aria-hidden="true" />}
+                        <span className="rb-scene-group-label">{g.label}</span>
+                        <span className="rb-scene-group-count">
+                          ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
+                        </span>
+                        {groupFrames > 0 && (
+                          <span className="rb-scene-group-frames">
+                            {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
+                          </span>
+                        )}
+                      </button>
+                      {g.scene && (
+                        <IconButton size="sm" Icon={Eye} title="Scene details"
+                          onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
+                      )}
                     </span>
+                  </Td>
+                </Row>
+              )}
+
+              {/* Shot rows */}
+              {!collapsed && g.shots.map(shot => {
+                const isChecked = selected.has(shot.id)
+                const shotTakeEntries = takes?.map?.get(shot.id) || []
+                const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                const shotName = shot.name || 'Untitled'
+                return (
+                  <Row key={shot.id} className="rb-scene-row" selected={isChecked} data-ticked={isChecked ? 'true' : 'false'}>
+                    {/* Checkbox: one 28px square (R3-40) */}
+                    <Td className="rb-scene-check-cell">
+                      <button type="button" onClick={() => toggleOne(shot.id)}
+                        className="rb-scene-check"
+                        data-checked={isChecked ? 'all' : 'none'}
+                        aria-pressed={isChecked}
+                        aria-label={`Select ${shotName}`}
+                        title={`Select ${shotName}`}>
+                        {isChecked ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
+                      </button>
+                    </Td>
 
                     {/* Thumbnail */}
-                    <div className="flex items-center justify-center rounded-sm overflow-hidden flex-shrink-0 relative group/stthumb cursor-pointer"
-                      style={{ width: tw, height: rowH, backgroundColor: '#0c0a09', border: '1px solid #292524' }}
-                      onClick={async e => {
-                        e.stopPropagation()
-                        if (!window.electronAPI?.rabbit?.pickImage) return
-                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                        if (!imagePath) return
-                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                        onThumbChanged?.()
-                      }}>
-                      {shot.thumbnail_image ? (
-                        <>
-                          <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
-                            alt="" style={{ width: tw, height: rowH, objectFit: 'cover', display: 'block' }} />
-                          <div className="absolute inset-0 opacity-0 group-hover/stthumb:opacity-100 transition-opacity flex items-center justify-center"
-                            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                            <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <Clapperboard className="w-4 h-4 group-hover/stthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
-                          <ImagePlus className="w-3.5 h-3.5 absolute opacity-0 group-hover/stthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
-                        </>
-                      )}
-                    </div>
+                    <Td className="rb-scene-thumb-cell">
+                      <div className="rb-scene-thumb"
+                        onClick={async e => {
+                          e.stopPropagation()
+                          if (!window.electronAPI?.rabbit?.pickImage) return
+                          const imagePath = await window.electronAPI.rabbit.pickImage()
+                          if (!imagePath) return
+                          ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                          try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                          onThumbChanged?.()
+                        }}>
+                        {shot.thumbnail_image ? (
+                          <>
+                            <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                            <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                          </>
+                        ) : takeFallback ? (
+                          <>
+                            {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                            <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} className="rb-scene-poster" />
+                            <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>
+                          </>
+                        ) : (
+                          <>
+                            <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
+                            <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                          </>
+                        )}
+                      </div>
+                    </Td>
 
                     {/* Shot # */}
-                    <span className="w-14 text-[11.5px] font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
+                    <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined}>
                       {shot.shot_number ?? '—'}
-                    </span>
+                    </Td>
 
-                    {/* Name */}
-                    <div className="w-48 min-w-0 flex-shrink-0">
+                    {/* Name: the row's anchor, 600 in the ink */}
+                    <Td className="rb-scene-name-cell">
                       <InlineText
                         value={shot.name || ''}
                         placeholder="Untitled shot"
+                        strong
+                        label={`Name for ${shotName}`}
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
                       />
-                    </div>
+                    </Td>
 
-                    {/* Status */}
-                    <span className="w-36 flex justify-center flex-shrink-0">
-                      <select
-                        value={shot.status || 'not_started'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{
-                          color: statusColor(shot.status),
-                          backgroundColor: 'rgba(0,0,0,0.3)',
-                          border: `1px solid ${statusColor(shot.status)}30`,
-                        }}>
-                        {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                      </select>
-                    </span>
+                    {/* Takes (milestone 2) */}
+                    {takes?.supports && (
+                      <Td className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 26)} max={3}
+                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                      </Td>
+                    )}
 
-                    {/* Time of Day */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select
-                        value={shot.time_of_day || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
+                    {/* Status: the kit's StatusDot beside a CellSelect (R3-11) */}
+                    <Td className="rb-scene-status-cell">
+                      <span className="rb-scene-status">
+                        <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                        <CellSelect
+                          className="rb-scene-status-select"
+                          value={shot.status || 'not_started'}
+                          onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
+                          options={STATUS_OPTIONS}
+                          aria-label={`Status for ${shotName}`}
+                        />
+                      </span>
+                    </Td>
+
+                    {/* Time of day */}
+                    <Td className="rb-scene-time-cell">
+                      <CellSelect
+                        value={shot.time_of_day || null}
+                        onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
+                        placeholder="—"
+                        options={TIME_OPTIONS}
+                        aria-label={`Time of day for ${shotName}`}
+                      />
+                    </Td>
 
                     {/* Type */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
-                      <select
+                    <Td className="rb-scene-type-cell">
+                      <CellSelect
                         value={shot.type || 'other'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
+                        onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
+                        options={TYPE_OPTIONS}
+                        aria-label={`Type for ${shotName}`}
+                      />
+                    </Td>
 
-                    {/* Framing */}
-                    <span className="w-20 flex justify-center flex-shrink-0 relative">
-                      <span className="absolute inset-0 flex items-center px-1.5 text-[10.5px] font-mono uppercase pointer-events-none z-[1]"
-                        style={{ color: shot.framing ? '#a8a29e' : '#44403c' }}>
-                        <span className="flex-1 text-center">{shot.framing || '—'}</span>
-                        <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
+                    {/* Framing: the code in the cell, the long names in the list */}
+                    <Td className="rb-scene-framing-cell">
+                      <span className="rb-scene-framing">
+                        <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
+                        <CellSelect
+                          className="rb-scene-framing-select"
+                          value={shot.framing || null}
+                          onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
+                          placeholder="—"
+                          options={FRAMING_CHOICES}
+                          aria-label={`Framing for ${shotName}`}
+                        />
                       </span>
-                      <select
-                        value={shot.framing || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
-                        style={{ color: 'transparent', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
-                      </select>
-                    </span>
+                    </Td>
 
-                    {/* Camera Movement */}
-                    <span className="w-28 flex justify-center flex-shrink-0">
-                      <select
-                        value={shot.camera_movement || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        <option value="">—</option>
-                        {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr}</option>)}
-                      </select>
-                    </span>
+                    {/* Camera movement */}
+                    <Td className="rb-scene-move-cell">
+                      <CellSelect
+                        value={shot.camera_movement || null}
+                        onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
+                        placeholder="—"
+                        options={MOVE_CHOICES}
+                        aria-label={`Camera movement for ${shotName}`}
+                      />
+                    </Td>
 
                     {/* Description */}
-                    <div className="flex-1 min-w-0">
+                    <Td className="rb-scene-desc-cell">
                       <InlineText
                         value={shot.description || ''}
                         placeholder="Add description…"
                         size="sm"
+                        label={`Description for ${shotName}`}
                         onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
                       />
-                    </div>
+                    </Td>
 
-                    {/* Duration (derived) */}
-                    <span className="w-28 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: (shot.frame_count || 0) > 0 ? '#d6d3d1' : '#44403c' }}>
+                    {/* Duration (derived): a zero at the third ink (R3-13) */}
+                    <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
                       {framesToTimecode(shot.frame_count || 0, fps)}
-                    </span>
+                    </Td>
 
-                    {/* Frame count (editable) */}
-                    <span className="w-20 flex justify-center flex-shrink-0">
+                    {/* Frame count (editable): the kit's small field */}
+                    <Td numeric className="rb-scene-frames-cell">
                       <input
                         type="number"
                         min={0}
@@ -1872,172 +2056,194 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
                           const n = parseInt(e.target.value, 10)
                           ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                         }}
-                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 tabular-nums"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
-                        onFocus={e => { e.target.style.borderColor = '#44403c' }}
-                        onBlur={e => { e.target.style.borderColor = 'transparent' }}
+                        aria-label={`Frames for ${shotName}`}
+                        className="ui-input rb-scene-frames"
+                        data-size="sm"
                         placeholder="0"
                       />
-                    </span>
+                    </Td>
 
                     {/* Start date */}
-                    <span className="w-24 flex justify-center flex-shrink-0">
+                    <Td className="rb-scene-date-cell">
                       <input
                         type="date"
                         value={shot.start_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
+                        aria-label={`Start date for ${shotName}`}
+                        className="ui-input rb-scene-date"
+                        data-size="sm"
+                        data-empty={shot.start_date ? undefined : 'true'}
                       />
-                    </span>
+                    </Td>
 
                     {/* End date */}
-                    <span className="w-24 flex justify-center flex-shrink-0">
+                    <Td className="rb-scene-date-cell">
                       <input
                         type="date"
                         value={shot.end_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
+                        aria-label={`End date for ${shotName}`}
+                        className="ui-input rb-scene-date"
+                        data-size="sm"
+                        data-empty={shot.end_date ? undefined : 'true'}
                       />
-                    </span>
+                    </Td>
 
-                    {/* Actions */}
-                    <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button type="button" onClick={() => onOpenShotDetail(shot.id)}
-                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                        <Eye className="w-3 h-3" />
-                      </button>
-                      <button type="button" onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
-                  </div>
-                  )
-                })}
+                    {/* Actions: the kit HoverActions, the one slot width (R3-24) */}
+                    <Td align="right" className="rb-scene-acts-cell">
+                      <HoverActions className="rb-scene-acts">
+                        <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
+                        <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
+                          onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                      </HoverActions>
+                    </Td>
+                  </Row>
+                )
+              })}
 
-                {/* Add shot row */}
-                {g.scene && (
-                  <button type="button" onClick={() => onNewShot(g.sceneId)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800/40 transition-colors"
-                    style={{ color: '#57534e', border: '1px dashed #292524' }}>
-                    <Plus className="w-3 h-3" /> Add shot
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
+              {/* Add shot row */}
+              {!collapsed && g.scene && (
+                <Row>
+                  <Td colSpan={span} className="rb-scene-add-cell">
+                    <button type="button" onClick={() => onNewShot(g.sceneId)} className="rb-scene-add">
+                      <Plus aria-hidden="true" /> Add shot
+                    </button>
+                  </Td>
+                </Row>
+              )}
+            </Fragment>
+          )
+        })}
+      </Table>
+
+      {/* W9: the bulk question, word for word, on the kit Dialog in <body>.
+          It never closed on a click outside (window.confirm). */}
+      {confirmBulk && (
+        <ConfirmDialog
+          title="Delete shots"
+          message={`Delete ${selected.size} shot${selected.size === 1 ? '' : 's'}?`}
+          dismissOnBackdrop={false}
+          onCancel={() => setConfirmBulk(false)}
+          onConfirm={() => { setConfirmBulk(false); bulkDelete() }}
+        />
+      )}
     </div>
   )
 }
 
 
 // ─── Shot gallery (shot cards grouped by scene) ───
-function ShotGallery({ shotGroups, gallerySize, fps, ctx, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+// The scene gallery's card (above), its well the 16:9 frame it always was:
+// her own thumbnail, else the primary take's poster (milestone 2, Q6), else
+// the clapperboard. A frame can hold a picture, so its delete sits on the
+// paper, as the Assets cards' media buttons do (B4b), and reads over one.
+// The shot number in the second ink beside the kit's StatusBadge (the 2px
+// status-coloured bar goes, R3-11); the runtime and the frame count in the
+// mono, both in the third ink — the count was #44403c, 1.7:1 (R3-13). The
+// take chips keep the 20px height ScenesView always handed them (B6 §4).
+// A group's head is the shot table's band in the gallery's shape: the glyph
+// and the count in the third ink, the name at 600 in the ink (they were
+// orange), the named kit IconButton for Scene details, then a hairline.
+function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+  // The sheet sizes the cards (`.rb-scene-gallery[data-card]`, the same three
+  // widths and their 16:9 heights); these are what BinPoster is handed.
   const sizeMap = { sm: 160, md: 220, lg: 300 }
   const cardW = sizeMap[gallerySize] || sizeMap.md
+  const cardH = Math.round(cardW * 9 / 16)
 
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
-          No shots yet
-        </span>
-      </div>
-    )
+    // The kit's empty state (R3-19), in the same words (the gallery's had no
+    // instruction line; the table's still does).
+    return <EmptyState Icon={Clapperboard} title="No shots yet" />
   }
 
   return (
-    <div className="p-4">
+    <div className="rb-scene-gallery" data-card={gallerySize}>
       {shotGroups.map(g => {
         const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
+        // Keyed on the group's own key: only a scene group has a sceneId, so
+        // grouped by a field every group was keyed `undefined`.
         return (
-          <div key={g.sceneId} className="mb-5 last:mb-0">
+          <div key={g.key} className="rb-scene-gallery-group">
             {/* Scene group header */}
-            <div className="flex items-center gap-2 mb-3">
-              <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+            <div className="rb-scene-gallery-head">
+              <Film className="rb-scene-group-icon" aria-hidden="true" />
+              <span className="rb-scene-group-label">
                 {g.label}
               </span>
-              <span className="text-[9.5px] font-mono" style={{ color: '#57534e' }}>
+              <span className="rb-scene-group-count">
                 {g.shots.length} shot{g.shots.length !== 1 ? 's' : ''}
               </span>
               {groupFrames > 0 && (
-                <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#57534e' }}>
+                <span className="rb-scene-group-count">
                   · {framesToTimecode(groupFrames, fps)}
                 </span>
               )}
               {g.scene && (
-                <button type="button"
-                  onClick={() => onOpenSceneDetail(g.sceneId)}
-                  className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }} title="Scene details">
-                  <Eye className="w-3 h-3" />
-                </button>
+                <IconButton size="sm" Icon={Eye} title="Scene details" onClick={() => onOpenSceneDetail(g.sceneId)} />
               )}
-              <div className="flex-1 h-px ml-2" style={{ backgroundColor: '#292524' }} />
+              <span className="rb-scene-gallery-rule" aria-hidden="true" />
             </div>
 
             {/* Shot cards */}
-            <div className="flex flex-wrap gap-3">
-              {g.shots.map(shot => (
-                <div key={shot.id}
-                  className="rounded-sm overflow-hidden hover:ring-1 hover:ring-orange-500/40 transition-all cursor-pointer group relative"
-                  style={{ width: cardW, backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-                  onClick={() => onOpenShotDetail?.(shot.id)}
-                >
-                  {/* Thumbnail placeholder (16:9) */}
-                  <div className="flex items-center justify-center relative"
-                    style={{ height: Math.round(cardW * 9 / 16), backgroundColor: '#0c0a09', borderBottom: '1px solid #292524' }}>
-                    <Clapperboard className="w-6 h-6" style={{ color: '#292524' }} />
-                    <button type="button"
-                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
-                      className="absolute top-2 right-2 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
-                      style={{ color: '#ef4444' }}>
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: statusColor(shot.status) }} />
+            <div className="rb-scene-cards">
+              {g.shots.map(shot => {
+                const shotTakeEntries = takes?.map?.get(shot.id) || []
+                const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                const name = shot.name || 'Untitled'
+                return (
+                <Card key={shot.id} pad={false} className="rb-scene-card ui-hover-host" onClick={() => onOpenShotDetail?.(shot.id)}>
+                  {/* Thumbnail (16:9): her own, else the primary take's poster (milestone 2, Q6), else the placeholder */}
+                  <div className="rb-scene-card-media rb-scene-card-frame">
+                    {shot.thumbnail_image ? (
+                      <img className="rb-scene-card-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" />
+                    ) : takeFallback ? (
+                      <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={cardW} height={cardH} radius={0} className="rb-scene-poster" iconSize={28} />
+                    ) : (
+                      <Clapperboard className="rb-scene-card-glyph" aria-hidden="true" />
+                    )}
+                    <HoverActions className="rb-scene-card-acts">
+                      <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
+                        onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name }) }} />
+                    </HoverActions>
                   </div>
                   {/* Info */}
-                  <div className="px-3 py-2.5 flex flex-col gap-1">
-                    <span className="text-[11.5px] font-mono truncate font-bold" style={{ color: '#d6d3d1' }}>
+                  <div className="rb-scene-card-body">
+                    <span className="rb-scene-card-name">
                       {shot.name || 'Untitled shot'}
                     </span>
                     {shot.description && (
-                      <span className="text-[9.5px] font-mono truncate" style={{ color: '#57534e' }}>
+                      <span className="rb-scene-card-desc">
                         {shot.description}
                       </span>
                     )}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[9.5px] font-mono" style={{ color: '#78716c' }}>
+                    <div className="rb-scene-card-meta">
+                      <span className="rb-scene-card-num">
                         #{shot.shot_number ?? '—'}
                       </span>
-                      <span className="px-1.5 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm"
-                        style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
-                        {fmt(shot.status || 'not_started')}
-                      </span>
+                      <StatusBadge status={shot.status || 'not_started'} />
                     </div>
                     {(shot.frame_count || 0) > 0 && (
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#57534e' }}>
+                      <div className="rb-scene-card-meta">
+                        <span className="rb-scene-card-figure">
                           {framesToTimecode(shot.frame_count, fps)}
                         </span>
-                        <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#44403c' }}>
+                        <span className="rb-scene-card-figure">
                           {fmtNumber(shot.frame_count)} fr
                         </span>
                       </div>
                     )}
+                    {takes?.supports && (
+                      <div className="rb-scene-card-takes" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={20} max={4}
+                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                </Card>
+                )
+              })}
             </div>
           </div>
         )
@@ -2048,6 +2254,43 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, onOpenSceneDetail, onO
 
 
 // ─── Scene detail popup ───
+// Lane B5b, surface 6c (2026-09-27): the kit Dialog at the popup's old width,
+// 896px (its max-w-4xl: a real geometry, so a number), 🚨 PORTALLED into
+// <body> — the kit Dialog does not portal (B4-KR-2) — on the Dialog's raised
+// paper, where it was the legacy #292524 (the third ink fails there, 4.37:1,
+// and passes on the raised paper, 4.66). B4c's EntityDetailPopup
+// (EntityListView.jsx) is its pattern, re-made in this lane's classes. The
+// kit's backdrop centres it with flex, as the old layer did, never a
+// transform, so a fixed-position layer inside it still places against the
+// window. The header keeps the scene's glyph, its name and its code: the name
+// is the H2 title, read-only — the "Scene name" field below is still where it
+// is edited (C1: the two stay two) — and names the Dialog. The status is the
+// kit's StatusBadge, where the 3px status-coloured rule under the header said
+// it (R3-11). The kit brings the named ✕ (the old one had no name), Escape
+// (Q17) and the backdrop, which closed it before and still does. The body
+// keeps its two columns — RelationsPanel's sidebar, then the properties — and
+// every section, field and button in its old order.
+//
+// R3-36: the same fields in the same order in the same two grids, each grid
+// under the kit's SectionTitle, its hairline above and its heading at the
+// Label step — Identity, and Schedule (the counts and the two dates, as the
+// shot popup's Schedule holds its parent scene and its dates). Each field is
+// the kit's small well (legible as editable at rest, R3-26's lesson in the
+// tables); a value nobody types — Runtime, Total frames, the counts, the
+// folder — is inert: no well, no edge, the second ink, never a tab stop.
+//
+// 🚨 THE TASK FORM. "Add new task" opens NewTaskSidePopup to the popup's
+// LEFT, as it always did — INSIDE the Dialog now, as its first column: the
+// Dialog is one surface, and its focus trap would strand a panel drawn beside
+// it (the kit has no side-panel slot, B4c-KR-1). The Dialog grows by the
+// form's width and the hairline after it; at 94vw the properties column
+// gives, as the old popup shrank beside the form. A task opened from the
+// sidebar is TaskDetailPopup, itself a kit Dialog: it opens as this Dialog's
+// SIBLING, portalled, over it on the modal stack, so one Escape closes it and
+// this popup stays.
+//
+// R4-26's twin — a related asset's click sets `nestedAssetId`, which nothing
+// renders — is RECORDED, not changed (C1), as B4c recorded it.
 function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot }) {
   const scene = (ctx?.scenes || []).find(s => s.id === sceneId)
   const sceneShots = shotsByScene[sceneId] || []
@@ -2059,16 +2302,26 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
   const [notesDraft, setNotesDraft] = useState(scene?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  // Focus back to each one's words when its edit closes (R2-05, useFocusBack).
+  const descWordsRef = useFocusBack(editingDesc)
+  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // What opened this popup — a row's "View details" — captured in render, as
+  // the kit Dialog captures it (an effect would read the popup's own focus).
+  // The delete question asked from here is handed it (ConfirmDialog).
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
   useEffect(() => { setDescDraft(scene?.description || '') }, [scene?.description])
   useEffect(() => { setNotesDraft(scene?.notes || '') }, [scene?.notes])
 
   if (!scene) return null
 
-  const sc = statusColor(scene.status)
+  // What the Dialog is named for: the name its title shows.
+  const name = scene.name || 'Untitled scene'
+  const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
 
   function handleUpdate(patch) { ctx?.updateScene?.(scene.id, patch) }
@@ -2102,385 +2355,399 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
   const sceneFolderPath = `SCENES/${sceneSlug}/`
   const fileCount = managedFiles.filter(f => f.scene_id === scene.id && !f.deleted_at).length
 
-  // Show side panel?
-  const hasLeftSide = showCreateTask || nestedTaskId || nestedAssetId
-
   return (
     <>
-      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
-
-        {/* ── LEFT SIDE POPUP (task creation / nested detail) ── */}
-        {showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
-            <NewTaskSidePopup
-              entityType="scene"
-              entityId={scene.id}
-              assets={ctx?.assets || []}
-              phases={ctx?.phases || []}
-              scenes={ctx?.scenes || []}
-              shots={ctx?.shots || []}
-              levels={ctx?.levels || []}
-              experiences={ctx?.experiences || []}
-              projectMembers={projectMembers || []}
-              roleEntries={roleEntries || []}
-              project={project}
-              onConfirm={handleCreateTask}
-              onClose={() => setShowCreateTask(false)}
-            />
-          </div>
-        )}
-
-        {nestedTaskId && !showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
-            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
-          </div>
-        )}
-
-        {/* ── MAIN POPUP ── */}
-        <div
-          className="pointer-events-auto w-full max-w-4xl rounded-sm overflow-hidden flex flex-col"
-          style={{
-            backgroundColor: '#292524',
-            border: '2px solid #f97316',
-            maxHeight: '85vh',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-          }}
-          onClick={e => e.stopPropagation()}
+      {createPortal(
+        <Dialog
+          // Wider by the task form's column while it is open.
+          width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
+          // In <body> it is outside the app's `wilson-dark-scroll` root, so
+          // it carries the class itself, as A4's Help does: its columns
+          // scroll on the app's dark bar (review round one, R1-12).
+          className="rb-scene-detail wilson-dark-scroll"
+          // A title that is a node names nothing, so the Dialog carries the
+          // scene's name as its aria-label, as B4c's popup does.
+          aria-label={name}
+          title={(
+            <span className="rb-scene-detail-title">
+              <Film aria-hidden="true" className="rb-scene-detail-icon" />
+              <span className="rb-scene-detail-name">{name}</span>
+              <Badge className="rb-scene-detail-code">{sceneCode}</Badge>
+            </span>
+          )}
+          subtitle={<StatusBadge status={status} />}
+          dismissOnBackdrop
+          onClose={onClose}
+          footer={(
+            <>
+              {/* At the footer's left, where it was; Close at its right. */}
+              <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
+                onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled', returnTo: openerRef.current }) }}>
+                Delete scene
+              </Button>
+              <Button onClick={onClose}>
+                Close
+              </Button>
+            </>
+          )}
         >
-        {/* Header — spans full width */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
-          <div className="flex items-center gap-2.5">
-            <Film className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-[14px] font-mono font-bold" style={{ color: '#fb923c' }}>
-              {scene.name || 'Untitled scene'}
-            </span>
-            <span className="text-[10.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
-              style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {sceneCode}
-            </span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+          <div className="rb-scene-detail-body">
 
-        {/* Two-column body */}
-        <div className="flex-1 overflow-auto flex">
+            {/* The task form: the first column, while it is open */}
+            {showCreateTask && (
+              <div className="rb-scene-detail-task">
+                <NewTaskSidePopup
+                  entityType="scene"
+                  entityId={scene.id}
+                  assets={ctx?.assets || []}
+                  phases={ctx?.phases || []}
+                  scenes={ctx?.scenes || []}
+                  shots={ctx?.shots || []}
+                  levels={ctx?.levels || []}
+                  experiences={ctx?.experiences || []}
+                  projectMembers={projectMembers || []}
+                  roleEntries={roleEntries || []}
+                  project={project}
+                  onConfirm={handleCreateTask}
+                  onClose={() => setShowCreateTask(false)}
+                />
+              </div>
+            )}
 
-          {/* LEFT COLUMN — Relations */}
-          <RelationsPanel
-            entityType="scene"
-            entityId={scene.id}
-            assets={ctx?.assets || []}
-            tasks={ctx?.tasks || []}
-            ctx={ctx}
-            onOpenAsset={id => setNestedAssetId(id)}
-            onOpenTask={id => setNestedTaskId(id)}
-            onCreateTask={() => setShowCreateTask(true)}
-          />
+            {/* Relations: RelationsPanel's sidebar, the kit Panel */}
+            <div className="rb-scene-detail-side">
+              <RelationsPanel
+                entityType="scene"
+                entityId={scene.id}
+                assets={ctx?.assets || []}
+                tasks={ctx?.tasks || []}
+                ctx={ctx}
+                onOpenAsset={id => setNestedAssetId(id)}
+                onOpenTask={id => setNestedTaskId(id)}
+                onCreateTask={() => setShowCreateTask(true)}
+              />
+            </div>
 
-          {/* RIGHT COLUMN — Properties */}
-          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
+            {/* Properties */}
+            <div className="rb-scene-detail-main">
 
-          {/* Thumbnail + Title */}
-          <div className="flex items-start gap-4 mb-5">
-            <div className="relative flex-shrink-0 rounded-sm overflow-hidden flex items-center justify-center group/thumb"
-              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {hasThumbnail ? (
-                <>
-                  <img
-                    src={`/api/rabbit/projects/${project?.id}/scenes/${scene.id}/thumbnail?r=${thumbRevision}`}
-                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
-                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+              {/* The thumbnail, then the name */}
+              <div className="rb-scene-detail-top">
+                <div className="rb-scene-detail-thumb ui-hover-host">
+                  {hasThumbnail ? (
+                    <>
+                      <img
+                        className="rb-scene-detail-thumb-img"
+                        src={`/api/rabbit/projects/${project?.id}/scenes/${scene.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" />
+                      {/* Change and remove over the picture: the kit's
+                          HoverActions, shown on hover as they were, and on
+                          keyboard focus now. */}
+                      <HoverActions className="rb-scene-detail-thumb-acts">
+                        <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                      </HoverActions>
+                    </>
+                  ) : (
                     <button type="button" onClick={handleSetThumbnail}
-                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
-                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
-                    <button type="button" onClick={handleClearThumbnail}
-                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
-                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
-                  </div>
-                </>
-              ) : (
-                <button type="button" onClick={handleSetThumbnail}
-                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
-                  style={{ color: '#57534e' }} title="Set thumbnail">
-                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                    <ImagePlus className="w-4 h-4" />
-                    <span className="text-[8px] font-mono uppercase">Set thumbnail</span>
-                  </div>
-                  <Film className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
-                </button>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <FieldLabel>Scene name</FieldLabel>
-              <PopupInlineText
-                value={scene.name || ''}
-                placeholder="Untitled scene"
-                onCommit={v => handleUpdate({ name: v })}
-              />
-            </div>
-          </div>
-
-          {/* Properties grid */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Status</FieldLabel>
-              <select value={scene.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
-                {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Type</FieldLabel>
-              <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
-                {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Time of Day</FieldLabel>
-              <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: scene.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Scene number</FieldLabel>
-              <input type="number" value={scene.scene_number ?? ''} onChange={e => {
-                const n = parseInt(e.target.value, 10)
-                if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
-              }}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
-            </div>
-            <div>
-              <FieldLabel>Runtime</FieldLabel>
-              <div className="px-2.5 py-1.5 text-[11.5px] font-mono tabular-nums rounded-sm"
-                style={{ backgroundColor: '#1c1917', color: totals.totalFrames > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {totals.runtime}
-              </div>
-            </div>
-            <div>
-              <FieldLabel>Total Frames</FieldLabel>
-              <div className="px-2.5 py-1.5 text-[11.5px] font-mono tabular-nums rounded-sm"
-                style={{ backgroundColor: '#1c1917', color: totals.totalFrames > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {fmtNumber(totals.totalFrames)}
-              </div>
-            </div>
-          </div>
-
-          {/* Counts + dates */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Shots / Assets / Tasks</FieldLabel>
-              <div className="flex items-center gap-2">
-                <span className="text-[12.5px] font-mono font-bold" style={{ color: '#d6d3d1' }}>
-                  {sceneShots.length}
-                </span>
-                <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
-                  / {assetCountByScene[sceneId] || 0} / {taskCountByScene[sceneId] || 0}
-                </span>
-              </div>
-            </div>
-            <div>
-              <FieldLabel>Start Date</FieldLabel>
-              <input
-                type="date"
-                value={scene.start_date || ''}
-                onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-            <div>
-              <FieldLabel>End Date</FieldLabel>
-              <input
-                type="date"
-                value={scene.end_date || ''}
-                onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-          </div>
-
-          {/* Description */}
-          <div className="mb-4">
-            <FieldLabel>Description</FieldLabel>
-            {editingDesc ? (
-              <div>
-                <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}
-                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: scene.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {scene.description || 'Click to add a description...'}
-              </div>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div className="mb-4">
-            <FieldLabel>Notes</FieldLabel>
-            {editingNotes ? (
-              <div>
-                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}
-                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: scene.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {scene.notes || 'Click to add notes...'}
-              </div>
-            )}
-          </div>
-
-          {/* Folder path */}
-          <div className="mb-4">
-            <FieldLabel>Folder</FieldLabel>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-sm"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
-              <span className="text-[11.5px] font-mono truncate" style={{ color: '#a8a29e' }}>
-                {sceneFolderPath}
-              </span>
-            </div>
-          </div>
-
-          {/* Files */}
-          <div className="mb-4">
-            <FieldLabel>Files ({fileCount})</FieldLabel>
-            <FileManager
-              files={managedFiles}
-              sceneId={scene.id}
-              sceneName={scene.name || 'Untitled-Scene'}
-              projectId={project?.id}
-              project={project}
-              mode="full"
-              onFileAdded={() => ctx?.refreshManagedFiles?.()}
-              onFileDeleted={() => ctx?.refreshManagedFiles?.()}
-              onFileUpdated={() => ctx?.refreshManagedFiles?.()}
-            />
-          </div>
-
-          {/* Shots list */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <FieldLabel>Shots ({sceneShots.length})</FieldLabel>
-              <button type="button" onClick={() => onNewShot(sceneId)}
-                className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
-                style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-                <Plus className="w-3 h-3" /> Add shot
-              </button>
-            </div>
-            {sceneShots.length === 0 ? (
-              <div className="px-3 py-4 text-center text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
-                style={{ color: '#57534e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                No shots yet
-              </div>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {sceneShots.map(shot => (
-                  <div key={shot.id}
-                    className="flex items-center gap-2 px-3 py-2 rounded-sm hover:bg-stone-800 transition-colors group/shot cursor-pointer"
-                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-                    onClick={() => onOpenShot?.(shot.id)}>
-                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-                    <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
-                      <span className="text-[11.5px] font-mono truncate block cursor-pointer" style={{ color: '#d6d3d1' }}
-                        onClick={() => onOpenShot?.(shot.id)}>
-                        {shot.name || 'Untitled shot'}
+                      className="rb-scene-detail-thumb-set"
+                      title="Set thumbnail">
+                      <span className="rb-scene-detail-thumb-hint">
+                        <ImagePlus aria-hidden="true" className="rb-scene-detail-thumb-hint-icon" />
+                        Set thumbnail
                       </span>
-                      <InlineText
-                        value={shot.description || ''}
-                        placeholder="Add description…"
-                        size="xs"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
-                      />
-                    </div>
-                    <span className="text-[9.5px] font-mono flex-shrink-0" style={{ color: '#78716c' }}>
-                      #{shot.shot_number ?? '—'}
-                    </span>
-                    {(shot.frame_count || 0) > 0 && (
-                      <span className="text-[9.5px] font-mono tabular-nums flex-shrink-0" style={{ color: '#57534e' }}>
-                        {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
-                      </span>
-                    )}
-                    <span className="px-1.5 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
-                      style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
-                      {fmt(shot.status || 'not_started')}
-                    </span>
-                    <button type="button"
-                      onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                      className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors opacity-0 group-hover/shot:opacity-100"
-                      style={{ color: '#ef4444' }}>
-                      <Trash2 className="w-3 h-3" />
+                      <Film aria-hidden="true" className="rb-scene-detail-thumb-glyph" />
                     </button>
-                  </div>
-                ))}
+                  )}
+                </div>
+                <div className="rb-scene-detail-field">
+                  <FieldLabel>Scene name</FieldLabel>
+                  <PopupInlineText
+                    value={scene.name || ''}
+                    placeholder="Untitled scene"
+                    label="Scene name"
+                    onCommit={v => handleUpdate({ name: v })}
+                  />
+                </div>
               </div>
-            )}
-          </div>
-          </div>{/* close RIGHT COLUMN */}
-        </div>{/* close two-column flex */}
 
-        {/* Footer */}
-        <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button"
-            onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
-            style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-            <Trash2 className="w-3 h-3" /> Delete scene
-          </button>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Close
-          </button>
-        </div>
-      </div>{/* close MAIN POPUP */}
-      </div>{/* close flex container */}
+              {/* Identity: the status, type, time of day and number, and the
+                  runtime and frames its shots add up to (R3-36). Each control
+                  is named for its label, which labels nothing by itself. */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Identity</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Status</FieldLabel>
+                    {/* The kit's dot inside the well, the kit's words in the
+                        select: the status colour on the text and on every
+                        option is gone (R3-11). */}
+                    <span className="rb-scene-prop-status">
+                      <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                      <select value={status} onChange={e => handleUpdate({ status: e.target.value })}
+                        aria-label="Status"
+                        className="ui-input rb-scene-prop-status-input"
+                        data-size="sm">
+                        {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Type</FieldLabel>
+                    <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
+                      aria-label="Type"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm">
+                      {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Time of day</FieldLabel>
+                    <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                      aria-label="Time of day"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={scene.time_of_day ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Scene number</FieldLabel>
+                    <input type="number" value={scene.scene_number ?? ''} onChange={e => {
+                      const n = parseInt(e.target.value, 10)
+                      if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
+                    }}
+                      aria-label="Scene number"
+                      className="ui-input rb-scene-prop-number"
+                      data-size="sm" />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Runtime</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                      {totals.runtime}
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Total frames</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                      {fmtNumber(totals.totalFrames)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Schedule: the counts, then the two dates (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Schedule</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Shots / assets / tasks</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure">
+                      <span className="rb-scene-prop-strong">{sceneShots.length}</span>
+                      {` / ${assetCountByScene[sceneId] || 0} / ${taskCountByScene[sceneId] || 0}`}
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Start date</FieldLabel>
+                    <input
+                      type="date"
+                      value={scene.start_date || ''}
+                      onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                      aria-label="Start date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={scene.start_date ? undefined : 'true'}
+                    />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>End date</FieldLabel>
+                    <input
+                      type="date"
+                      value={scene.end_date || ''}
+                      onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                      aria-label="End date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={scene.end_date ? undefined : 'true'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Description: the words in the kit's well open its textarea;
+                  Save and Cancel are the kit's Buttons. Escape cancels, and is
+                  MARKED handled so the Dialog stays (W2). */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Description</FieldLabel>
+                {editingDesc ? (
+                  <>
+                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(scene.description || ''); setEditingDesc(false) } }}
+                      aria-label="Description"
+                      className="ui-input rb-scene-textarea"
+                      data-field="description"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={scene.description ? undefined : 'true'}>
+                    {scene.description || 'Click to add a description...'}
+                  </button>
+                )}
+              </div>
+
+              {/* Notes: the same editor */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Notes</FieldLabel>
+                {editingNotes ? (
+                  <>
+                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(scene.notes || ''); setEditingNotes(false) } }}
+                      aria-label="Notes"
+                      className="ui-input rb-scene-textarea"
+                      data-field="notes"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={scene.notes ? undefined : 'true'}>
+                    {scene.notes || 'Click to add notes...'}
+                  </button>
+                )}
+              </div>
+
+              {/* The folder: a value nobody types, so inert (R3-36) */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Folder</FieldLabel>
+                <span className="rb-scene-prop-inert">
+                  <FolderOpen aria-hidden="true" className="rb-scene-prop-glyph" />
+                  <span className="rb-scene-prop-words rb-scene-prop-figure">{sceneFolderPath}</span>
+                </span>
+              </div>
+
+              {/* Files */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>{`Files (${fileCount})`}</FieldLabel>
+                <FileManager
+                  files={managedFiles}
+                  sceneId={scene.id}
+                  sceneName={scene.name || 'Untitled-Scene'}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
+              </div>
+
+              {/* Shots: the list, each row opening its shot as before. A row
+                  is on the paper with one hairline; its status the kit's
+                  StatusBadge (R3-11); its delete the kit's IconButton, named
+                  for its shot, in the kit's HoverActions — on hover as it
+                  was, and on keyboard focus now (R3-24). Its click still
+                  reaches the row, as it did (C1: recorded). */}
+              <div className="rb-scene-detail-text">
+                <div className="rb-scene-detail-list-head">
+                  <FieldLabel>{`Shots (${sceneShots.length})`}</FieldLabel>
+                  <Button size="sm" Icon={Plus} onClick={() => onNewShot(sceneId)}>
+                    Add shot
+                  </Button>
+                </div>
+                {sceneShots.length === 0 ? (
+                  <EmptyState title="No shots yet" className="rb-scene-detail-empty" />
+                ) : (
+                  <ul className="rb-scene-shot-list">
+                    {sceneShots.map(shot => (
+                      <li key={shot.id} className="rb-scene-shot" onClick={() => onOpenShot?.(shot.id)}>
+                        <Clapperboard aria-hidden="true" className="rb-scene-shot-glyph" />
+                        <div className="rb-scene-shot-words" onClick={e => e.stopPropagation()}>
+                          <button type="button" className="rb-scene-shot-name" onClick={() => onOpenShot?.(shot.id)}>
+                            {shot.name || 'Untitled shot'}
+                          </button>
+                          <InlineText
+                            value={shot.description || ''}
+                            placeholder="Add description…"
+                            size="xs"
+                            label={`Description for ${shot.name || 'Untitled shot'}`}
+                            onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
+                          />
+                        </div>
+                        <span className="rb-scene-shot-num">#{shot.shot_number ?? '—'}</span>
+                        {(shot.frame_count || 0) > 0 && (
+                          <span className="rb-scene-shot-time">
+                            {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
+                          </span>
+                        )}
+                        <StatusBadge status={shot.status || 'not_started'} />
+                        <HoverActions className="rb-scene-shot-acts">
+                          <IconButton size="sm" Icon={Trash2} danger title={`Delete ${shot.name || 'Untitled shot'}`}
+                            onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                        </HoverActions>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* A task opened from the sidebar: its own kit Dialog, portalled beside
+          this one and over it on the modal stack. Not while the task form is
+          open, as before. B2's popup takes no className: the portal's
+          wrapper gives it the app's dark bar (R1-12, as the takes dialogs'). */}
+      {nestedTaskId && !showCreateTask && createPortal(
+        <div className="wilson-dark-scroll">
+          <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+        </div>,
+        document.body,
+      )}
     </>
   )
 }
 
 
 // ─── Shot detail popup ───
-function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
+// Lane B5b, surface 6c (2026-09-27): the scene popup's twin (above) — the kit
+// Dialog at 896px, portalled into <body>, on the raised paper; the shot's
+// glyph, name and code in its title and its status the kit's StatusBadge;
+// the task form as the Dialog's first column; a task opened from the sidebar
+// its own kit Dialog over it. R3-36: the same fields in the same order in the
+// same three grids — Identity, Camera, Schedule — each under the kit's
+// SectionTitle at the Label step with a hairline above. The empty cell that
+// held the Camera grid open is gone: Camera movement spans the two columns it
+// left (its "DOLLY ZOOM — Dolly zoom / vertigo" cut at one). Duration and
+// Parent scene, and the folder, are inert: no well, no edge, the second ink,
+// never a tab stop. The primary take stands in for an empty thumbnail as
+// before, BinPoster at the 142 × 80 it is handed; its "From primary take"
+// caption at the Label step (it was 7.5px, R3-07's floor is 11).
+function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
   const shot = (ctx?.shots || []).find(s => s.id === shotId)
   const scene = shot ? (ctx?.scenes || []).find(s => s.id === shot.scene_id) : null
   const project = ctx?.project
@@ -2490,16 +2757,23 @@ function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbR
   const [notesDraft, setNotesDraft] = useState(shot?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  // Focus back to each one's words when its edit closes (R2-05, as the scene popup's).
+  const descWordsRef = useFocusBack(editingDesc)
+  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // What opened this popup, handed to the delete question (the scene popup's).
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
   useEffect(() => { setDescDraft(shot?.description || '') }, [shot?.description])
   useEffect(() => { setNotesDraft(shot?.notes || '') }, [shot?.notes])
 
   if (!shot) return null
 
-  const sc = statusColor(shot.status)
+  const name = shot.name || 'Untitled shot'
+  const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
 
   function handleUpdate(patch) { ctx?.updateShot?.(shot.id, patch) }
@@ -2534,446 +2808,523 @@ function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbR
   const shotFolderPath = `SHOTS/${shotSlug}/`
 
   const fileCount = managedFiles.filter(f => f.shot_id === shot.id && !f.deleted_at).length
+  // Shot takes (milestone 2): the ordered list, and the primary take's poster
+  // standing in while the shot has no thumbnail of its own (Q6).
+  const shotTakeEntries = takes?.map?.get(shot.id) || []
+  const takeFallback = takes?.supports && !hasThumbnail ? primaryOf(shotTakeEntries)?.file : null
 
   return (
     <>
-      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
-
-        {/* ── LEFT SIDE POPUP ── */}
-        {showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
-            <NewTaskSidePopup
-              entityType="shot"
-              entityId={shot.id}
-              assets={ctx?.assets || []}
-              phases={ctx?.phases || []}
-              scenes={ctx?.scenes || []}
-              shots={ctx?.shots || []}
-              levels={ctx?.levels || []}
-              experiences={ctx?.experiences || []}
-              projectMembers={projectMembers || []}
-              roleEntries={roleEntries || []}
-              project={project}
-              onConfirm={handleCreateTask}
-              onClose={() => setShowCreateTask(false)}
-            />
-          </div>
-        )}
-
-        {nestedTaskId && !showCreateTask && (
-          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
-            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
-          </div>
-        )}
-
-        {/* ── MAIN POPUP ── */}
-        <div
-          className="pointer-events-auto w-full max-w-4xl rounded-sm overflow-hidden flex flex-col"
-          style={{
-            backgroundColor: '#292524',
-            border: '2px solid #f97316',
-            maxHeight: '85vh',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-          }}
-          onClick={e => e.stopPropagation()}
+      {createPortal(
+        <Dialog
+          width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
+          // The app's dark bar, as the scene popup's (R1-12).
+          className="rb-scene-detail wilson-dark-scroll"
+          aria-label={name}
+          title={(
+            <span className="rb-scene-detail-title">
+              <Clapperboard aria-hidden="true" className="rb-scene-detail-icon" />
+              <span className="rb-scene-detail-name">{name}</span>
+              <Badge className="rb-scene-detail-code">{shotCode}</Badge>
+            </span>
+          )}
+          subtitle={<StatusBadge status={status} />}
+          dismissOnBackdrop
+          onClose={onClose}
+          footer={(
+            <>
+              <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
+                onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled', returnTo: openerRef.current }) }}>
+                Delete shot
+              </Button>
+              <Button onClick={onClose}>
+                Close
+              </Button>
+            </>
+          )}
         >
-        {/* Header — spans full width */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
-          <div className="flex items-center gap-2.5">
-            <Clapperboard className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-[14px] font-mono font-bold" style={{ color: '#fb923c' }}>
-              {shot.name || 'Untitled shot'}
-            </span>
-            <span className="text-[10.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
-              style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {shotCode}
-            </span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+          <div className="rb-scene-detail-body">
 
-        {/* Two-column body */}
-        <div className="flex-1 overflow-auto flex">
+            {/* The task form: the first column, while it is open */}
+            {showCreateTask && (
+              <div className="rb-scene-detail-task">
+                <NewTaskSidePopup
+                  entityType="shot"
+                  entityId={shot.id}
+                  assets={ctx?.assets || []}
+                  phases={ctx?.phases || []}
+                  scenes={ctx?.scenes || []}
+                  shots={ctx?.shots || []}
+                  levels={ctx?.levels || []}
+                  experiences={ctx?.experiences || []}
+                  projectMembers={projectMembers || []}
+                  roleEntries={roleEntries || []}
+                  project={project}
+                  onConfirm={handleCreateTask}
+                  onClose={() => setShowCreateTask(false)}
+                />
+              </div>
+            )}
 
-          {/* LEFT COLUMN — Relations */}
-          <RelationsPanel
-            entityType="shot"
-            entityId={shot.id}
-            assets={ctx?.assets || []}
-            tasks={ctx?.tasks || []}
-            ctx={ctx}
-            onOpenAsset={id => setNestedAssetId(id)}
-            onOpenTask={id => setNestedTaskId(id)}
-            onCreateTask={() => setShowCreateTask(true)}
-          />
+            {/* Relations: RelationsPanel's sidebar, the kit Panel */}
+            <div className="rb-scene-detail-side">
+              <RelationsPanel
+                entityType="shot"
+                entityId={shot.id}
+                assets={ctx?.assets || []}
+                tasks={ctx?.tasks || []}
+                ctx={ctx}
+                onOpenAsset={id => setNestedAssetId(id)}
+                onOpenTask={id => setNestedTaskId(id)}
+                onCreateTask={() => setShowCreateTask(true)}
+              />
+            </div>
 
-          {/* RIGHT COLUMN — Properties */}
-          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
+            {/* Properties */}
+            <div className="rb-scene-detail-main">
 
-          {/* Thumbnail + Title */}
-          <div className="flex items-start gap-4 mb-5">
-            <div className="relative flex-shrink-0 rounded-sm overflow-hidden flex items-center justify-center group/thumb"
-              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              {hasThumbnail ? (
-                <>
-                  <img
-                    src={`/api/rabbit/projects/${project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
-                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
-                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+              {/* The thumbnail, then the name */}
+              <div className="rb-scene-detail-top">
+                <div className="rb-scene-detail-thumb ui-hover-host">
+                  {hasThumbnail ? (
+                    <>
+                      <img
+                        className="rb-scene-detail-thumb-img"
+                        src={`/api/rabbit/projects/${project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" />
+                      <HoverActions className="rb-scene-detail-thumb-acts">
+                        <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                      </HoverActions>
+                    </>
+                  ) : (
                     <button type="button" onClick={handleSetThumbnail}
-                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
-                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
-                    <button type="button" onClick={handleClearThumbnail}
-                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
-                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
+                      className="rb-scene-detail-thumb-set"
+                      data-take={takeFallback ? 'true' : undefined}
+                      title={takeFallback ? 'Showing the primary take. Click to set a thumbnail of your own.' : 'Set thumbnail'}>
+                      {/* The primary take's poster fills the well, dimmed on
+                          hover under the words (BinPoster at the size it is
+                          handed; the well draws the edge, where it was
+                          handed `style={{ border: 'none' }}`). */}
+                      {takeFallback && (
+                        <span className="rb-scene-detail-poster">
+                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={142} height={80} radius={0}
+                            className="rb-scene-poster" iconSize={24} />
+                        </span>
+                      )}
+                      <span className="rb-scene-detail-thumb-hint">
+                        <ImagePlus aria-hidden="true" className="rb-scene-detail-thumb-hint-icon" />
+                        Set thumbnail
+                      </span>
+                      {!takeFallback && <Clapperboard aria-hidden="true" className="rb-scene-detail-thumb-glyph" />}
+                      {takeFallback && <span className="rb-scene-detail-thumb-take">From primary take</span>}
+                    </button>
+                  )}
+                </div>
+                <div className="rb-scene-detail-field">
+                  <FieldLabel>Shot name</FieldLabel>
+                  <PopupInlineText
+                    value={shot.name || ''}
+                    placeholder="Untitled shot"
+                    label="Shot name"
+                    onCommit={v => handleUpdate({ name: v })}
+                  />
+                </div>
+              </div>
+
+              {/* Identity (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Identity</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Status</FieldLabel>
+                    <span className="rb-scene-prop-status">
+                      <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                      <select value={status} onChange={e => handleUpdate({ status: e.target.value })}
+                        aria-label="Status"
+                        className="ui-input rb-scene-prop-status-input"
+                        data-size="sm">
+                        {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </span>
                   </div>
-                </>
-              ) : (
-                <button type="button" onClick={handleSetThumbnail}
-                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
-                  style={{ color: '#57534e' }} title="Set thumbnail">
-                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                    <ImagePlus className="w-4 h-4" />
-                    <span className="text-[8px] font-mono uppercase">Set thumbnail</span>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Type</FieldLabel>
+                    <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
+                      aria-label="Type"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm">
+                      {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
                   </div>
-                  <Clapperboard className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
-                </button>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Time of day</FieldLabel>
+                    <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                      aria-label="Time of day"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={shot.time_of_day ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Shot number</FieldLabel>
+                    <input type="number" value={shot.shot_number ?? ''} onChange={e => {
+                      const n = parseInt(e.target.value, 10)
+                      if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
+                    }}
+                      aria-label="Shot number"
+                      className="ui-input rb-scene-prop-number"
+                      data-size="sm" />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Frame count</FieldLabel>
+                    <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
+                      const n = parseInt(e.target.value, 10)
+                      handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
+                    }}
+                      aria-label="Frame count"
+                      className="ui-input rb-scene-prop-number"
+                      data-size="sm"
+                      placeholder="0" />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Duration</FieldLabel>
+                    <span className="rb-scene-prop-inert rb-scene-prop-figure" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
+                      {framesToTimecode(shot.frame_count || 0, fps)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Camera: framing, then the movement across the two columns
+                  the empty placeholder held (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Camera</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Framing</FieldLabel>
+                    <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
+                      aria-label="Framing"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={shot.framing ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {FRAMING_CHOICES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="rb-scene-prop rb-scene-prop-wide">
+                    <FieldLabel>Camera movement</FieldLabel>
+                    <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
+                      aria-label="Camera movement"
+                      className="ui-input rb-scene-prop-select"
+                      data-size="sm"
+                      data-empty={shot.camera_movement ? undefined : 'true'}>
+                      <option value="">—</option>
+                      {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr} — {c.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Schedule: the parent scene, then the two dates (R3-36) */}
+              <div className="rb-scene-group">
+                <SectionTitle as="h3" className="rb-scene-section">Schedule</SectionTitle>
+                <div className="rb-scene-prop-grid">
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Parent scene</FieldLabel>
+                    <span className="rb-scene-prop-inert" data-empty={scene ? undefined : 'true'}>
+                      <span className="rb-scene-prop-words">{scene?.name || '—'}</span>
+                    </span>
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>Start date</FieldLabel>
+                    <input
+                      type="date"
+                      value={shot.start_date || ''}
+                      onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                      aria-label="Start date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={shot.start_date ? undefined : 'true'}
+                    />
+                  </div>
+                  <div className="rb-scene-prop">
+                    <FieldLabel>End date</FieldLabel>
+                    <input
+                      type="date"
+                      value={shot.end_date || ''}
+                      onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                      aria-label="End date"
+                      className="ui-input rb-scene-date"
+                      data-size="sm"
+                      data-empty={shot.end_date ? undefined : 'true'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Description (W2, as the scene popup's) */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Description</FieldLabel>
+                {editingDesc ? (
+                  <>
+                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(shot.description || ''); setEditingDesc(false) } }}
+                      aria-label="Description"
+                      className="ui-input rb-scene-textarea"
+                      data-field="description"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={shot.description ? undefined : 'true'}>
+                    {shot.description || 'Click to add a description...'}
+                  </button>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Notes</FieldLabel>
+                {editingNotes ? (
+                  <>
+                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(shot.notes || ''); setEditingNotes(false) } }}
+                      aria-label="Notes"
+                      className="ui-input rb-scene-textarea"
+                      data-field="notes"
+                      autoFocus />
+                    <div className="rb-scene-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
+                    className="ui-input rb-scene-prop-text"
+                    data-empty={shot.notes ? undefined : 'true'}>
+                    {shot.notes || 'Click to add notes...'}
+                  </button>
+                )}
+              </div>
+
+              {/* The folder: inert (R3-36) */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>Folder</FieldLabel>
+                <span className="rb-scene-prop-inert">
+                  <FolderOpen aria-hidden="true" className="rb-scene-prop-glyph" />
+                  <span className="rb-scene-prop-words rb-scene-prop-figure">{shotFolderPath}</span>
+                </span>
+              </div>
+
+              {/* Takes (milestone 2): the bin files this shot is cut from, in
+                  order — ShotTakesPanel, B6's, as it was. A failed load says
+                  so on the kit Banner, its dismiss named (it had no name). */}
+              {takes?.supports && (
+                <div className="rb-scene-detail-text rb-scene-detail-takes">
+                  <FieldLabel>{`Takes (${shotTakeEntries.length})`}</FieldLabel>
+                  {takes.notice && (
+                    <Banner
+                      tone="warning"
+                      className="rb-scene-detail-notice"
+                      action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={takes.clearNotice} />}
+                    >
+                      {takes.notice}
+                    </Banner>
+                  )}
+                  <ShotTakesPanel shot={shot} entries={shotTakeEntries} fps={fps} canWrite={takes.canWrite} thumbUrlFor={takes.thumbUrlFor} binPathFor={takes.binPathFor} projectId={takes.projectId}
+                    onUpdate={takes.onUpdate} onRemove={takes.onRemove} onReorder={takes.onReorder} onUseLength={takes.onUseLength}
+                    onOpenPicker={() => takes.openPicker(shot.id)} />
+                </div>
               )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <FieldLabel>Shot name</FieldLabel>
-              <PopupInlineText
-                value={shot.name || ''}
-                placeholder="Untitled shot"
-                onCommit={v => handleUpdate({ name: v })}
-              />
-            </div>
-          </div>
 
-          {/* Properties grid */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Status</FieldLabel>
-              <select value={shot.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
-                {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Type</FieldLabel>
-              <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
-                {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Time of Day</FieldLabel>
-              <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: shot.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Shot number</FieldLabel>
-              <input type="number" value={shot.shot_number ?? ''} onChange={e => {
-                const n = parseInt(e.target.value, 10)
-                if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
-              }}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
-            </div>
-            <div>
-              <FieldLabel>Frame count</FieldLabel>
-              <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
-                const n = parseInt(e.target.value, 10)
-                handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
-              }}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
-                placeholder="0" />
-            </div>
-            <div>
-              <FieldLabel>Duration</FieldLabel>
-              <div className="px-2.5 py-1.5 text-[11.5px] font-mono tabular-nums rounded-sm"
-                style={{ backgroundColor: '#1c1917', color: (shot.frame_count || 0) > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {framesToTimecode(shot.frame_count || 0, fps)}
+              {/* Files */}
+              <div className="rb-scene-detail-text">
+                <FieldLabel>{`Files (${fileCount})`}</FieldLabel>
+                <FileManager
+                  files={managedFiles}
+                  shotId={shot.id}
+                  shotName={shot.name || 'Untitled-Shot'}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
               </div>
             </div>
           </div>
+        </Dialog>,
+        document.body,
+      )}
 
-          {/* Framing + Camera Movement */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Framing</FieldLabel>
-              <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: shot.framing ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Camera Movement</FieldLabel>
-              <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: shot.camera_movement ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                <option value="">—</option>
-                {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr} — {c.label}</option>)}
-              </select>
-            </div>
-            <div />
-          </div>
-
-          {/* Parent scene + dates */}
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-            <div>
-              <FieldLabel>Parent scene</FieldLabel>
-              <div className="px-2.5 py-1.5 text-[11.5px] font-mono truncate rounded-sm"
-                style={{ backgroundColor: '#1c1917', color: scene ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
-                {scene?.name || '—'}
-              </div>
-            </div>
-            <div>
-              <FieldLabel>Start Date</FieldLabel>
-              <input
-                type="date"
-                value={shot.start_date || ''}
-                onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-            <div>
-              <FieldLabel>End Date</FieldLabel>
-              <input
-                type="date"
-                value={shot.end_date || ''}
-                onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
-              />
-            </div>
-          </div>
-
-          {/* Description */}
-          <div className="mb-4">
-            <FieldLabel>Description</FieldLabel>
-            {editingDesc ? (
-              <div>
-                <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}
-                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: shot.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {shot.description || 'Click to add a description...'}
-              </div>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div className="mb-4">
-            <FieldLabel>Notes</FieldLabel>
-            {editingNotes ? (
-              <div>
-                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
-                  autoFocus />
-                <div className="flex gap-2 mt-1">
-                  <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
-                    <Save className="w-3 h-3" /> Save
-                  </button>
-                  <button type="button" onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}
-                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
-                style={{ backgroundColor: '#1c1917', color: shot.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
-                {shot.notes || 'Click to add notes...'}
-              </div>
-            )}
-          </div>
-
-          {/* Folder path */}
-          <div className="mb-4">
-            <FieldLabel>Folder</FieldLabel>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-sm"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
-              <span className="text-[11.5px] font-mono truncate" style={{ color: '#a8a29e' }}>
-                {shotFolderPath}
-              </span>
-            </div>
-          </div>
-
-          {/* Files */}
-          <div className="mb-4">
-            <FieldLabel>Files ({fileCount})</FieldLabel>
-            <FileManager
-              files={managedFiles}
-              shotId={shot.id}
-              shotName={shot.name || 'Untitled-Shot'}
-              projectId={project?.id}
-              project={project}
-              mode="full"
-              onFileAdded={() => ctx?.refreshManagedFiles?.()}
-              onFileDeleted={() => ctx?.refreshManagedFiles?.()}
-              onFileUpdated={() => ctx?.refreshManagedFiles?.()}
-            />
-          </div>
-          </div>{/* close RIGHT COLUMN */}
-        </div>{/* close two-column flex */}
-
-        {/* Footer */}
-        <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button"
-            onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
-            style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-            <Trash2 className="w-3 h-3" /> Delete shot
-          </button>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Close
-          </button>
-        </div>
-      </div>{/* close MAIN POPUP */}
-      </div>{/* close flex container */}
+      {/* A task opened from the sidebar: its own kit Dialog, over this one,
+          in the wrapper that gives it the app's dark bar (R1-12) */}
+      {nestedTaskId && !showCreateTask && createPortal(
+        <div className="wilson-dark-scroll">
+          <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+        </div>,
+        document.body,
+      )}
     </>
   )
 }
 
 
 // ─── Confirmation dialog ───
-function ConfirmDialog({ title, message, onConfirm, onCancel }) {
-  return (
-    <>
-      <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onCancel} />
-      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-sm rounded-sm overflow-hidden"
-        style={{ backgroundColor: '#292524', border: '2px solid #ef4444', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
-        onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
-            <span className="text-[13.5px] font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
-          </div>
-        </div>
-        <div className="px-5 py-4">
-          <p className="text-[11.5px] font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
-            {message}
-          </p>
-        </div>
-        <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Cancel
-          </button>
-          <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
-            style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>
-            Delete
-          </button>
-        </div>
-      </div>
-    </>
+// The kit Dialog at the confirm width (W9), portalled into <body> so no
+// container on the page can hold it (the kit Dialog does not portal): the
+// same words, Cancel first and focused, Delete the kit's danger button, and
+// Escape and the focus trap the kit adds (Q17). A row's delete keeps its
+// backdrop click, as the hand-rolled one had; the three bulk deletes that
+// were window.confirm pass `dismissOnBackdrop={false}`.
+//
+// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus` (surface 6c,
+// B4c's lesson). From a detail popup's Delete the popup closes in the same
+// commit this opens: `autoFocus` puts focus on Cancel during the commit, the
+// popup's unmount hands focus back to what opened IT, and the kit Dialog's
+// own effect, finding focus outside, lands it on ✕. This effect runs after
+// both — a child's effects run before its parent's — so the question opens on
+// Cancel from every path, as it does from a row.
+//
+// 🚨 …and on close, focus goes back to `returnTo` when a popup asked: what
+// opened the popup, the row's "View details". The kit Dialog hands focus to
+// what had it when the question opened — the popup's own Delete, gone with
+// the popup — so every close from that path dropped focus to <body>. Only
+// when focus has fallen there, and only while the opener is in the page (a
+// delete takes the row, and its button, with it; StrictMode's rehearsal of an
+// unmount leaves focus on Cancel, so that does nothing).
+//
+// 🚨 …and while one is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
+// above). This page's question counts itself in `openQuestions` while it is
+// mounted: the tables' bulk questions are their own state, which the page's
+// key handler cannot read. Module state, as the kit's modal stack is
+// (overlay.js): there is one page and one keyboard.
+//
+// 🚨 This component is NOT every question on the page (review round two,
+// R2-01). The popups host FileManager's "Delete file" and RelationsPanel's
+// "Create task", each the kit Dialog at the confirm width in <body>, and
+// Ctrl+Z behind them reverted an edit (a status set in the table) while the
+// question was up. So the handler also stands down while ANY kit Dialog at
+// the confirm width is on screen, whoever opened it: the kit writes the
+// width token on its surface (`data-width="confirm"`, Dialog.jsx). A popup
+// is the kit Dialog at another width, so the keys still undo there (C1).
+const openQuestions = { count: 0 }
+function questionOnScreen() {
+  return openQuestions.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+}
+function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
+  const cancelRef = useRef(null)
+  useEffect(() => {
+    openQuestions.count += 1
+    cancelRef.current?.focus()
+    return () => {
+      openQuestions.count -= 1
+      const active = document.activeElement
+      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
+    }
+  }, [])
+  return createPortal(
+    <Dialog
+      width="confirm"
+      title={title}
+      dismissOnBackdrop={dismissOnBackdrop}
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
+          <Button variant="danger" onClick={onConfirm}>Delete</Button>
+        </>
+      )}
+    >
+      {message}
+    </Dialog>,
+    document.body,
   )
 }
 
 
 // ─── Filter panel ───
+// The Tasks, Assets, Levels and Budget pages' filter strip (B2, B4b, B4c,
+// B5), in this lane's classes, at the page's 24px gutter (R3-31): each field
+// a native select or text field in the kit's small well (`ui-input`, not the
+// kit Input, whose own Escape and Enter would break a draft), named for what
+// it is; each row's remove the kit's danger IconButton, named (it had no
+// name); Add filter and Done the kit's Buttons. The same rows, fields,
+// operators and order. Done stays on show with no filter, as it always was
+// here (C1; the other strips never showed it then). The words in sentence
+// case (Q2): a choice humanised from its value (a framing or movement code
+// keeps its capitals), and the value field's hint.
 function SceneFilterPanel({ filters, filterFields, onAdd, onUpdate, onRemove, onClose }) {
   const fields = filterFields || SCENE_FILTER_FIELDS
   function getOptions(f) {
     const def = fields.find(ff => ff.value === f.field)
     if (!def) return []
-    return (def.options || []).map(o => ({ value: o, label: fmt(o) }))
+    return (def.options || []).map(o => ({ value: o, label: humanizeStatus(o) }))
   }
   function getType(f) {
     return fields.find(ff => ff.value === f.field)?.type || 'text'
   }
   return (
-    <div className="px-4 py-2.5 flex flex-col gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+    <div className="rb-scene-filters">
       {filters.map((f, i) => {
         const type = getType(f)
         const ops = FILTER_OPS[type] || FILTER_OPS.text
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-[9.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+          <div key={i} className="rb-scene-filter-row">
+            <span className="rb-scene-filter-where text-label uppercase">
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+              aria-label="Field" className="ui-input rb-scene-filter-field" data-size="sm">
               {fields.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+              aria-label="Condition" className="ui-input rb-scene-filter-op" data-size="sm">
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+                  aria-label="Value" className="ui-input rb-scene-tool" data-size="sm">
                   <option value="">Select…</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-32"
-                  style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}
-                  placeholder="value…" />
+                  placeholder="Value…"
+                  aria-label="Value"
+                  className="ui-input rb-scene-filter-text" data-size="sm" />
               )
             )}
-            <button type="button" onClick={() => onRemove(i)}
-              className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3 h-3" />
-            </button>
+            <IconButton size="sm" Icon={X} danger title="Remove this filter" onClick={() => onRemove(i)} />
           </div>
         )
       })}
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={onAdd}
-          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-          <Plus className="w-3 h-3" /> Add filter
-        </button>
-        <button type="button" onClick={onClose}
-          className="px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: '#78716c', border: '1px solid #44403c' }}>
-          Done
-        </button>
+      <div className="rb-scene-filter-actions">
+        <Button size="sm" Icon={Plus} onClick={onAdd}>Add filter</Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>Done</Button>
       </div>
     </div>
   )
@@ -2981,6 +3332,18 @@ function SceneFilterPanel({ filters, filterFields, onAdd, onUpdate, onRemove, on
 
 
 // ─── Saved views dropdown ───
+// The Tasks, Assets, Levels and Budget pages' menu (B2's, restyled in place
+// on the kit's floating tokens: the kit Menu has no item with a trailing
+// action — load a view AND delete it from one row, B2's kit request K2), in
+// this lane's classes: a view's row loads it, its delete the kit's danger
+// IconButton named for the view (it had no name), Save current view at the
+// foot; still 180px at least, the list scrolling past 200px, as it did. The
+// same three clicks and no new keys: it still closes on a press outside.
+// Its button stays the icon it was, now the kit's IconButton under the name
+// it always had, "Saved views": the others' "Views" word would take the
+// toolbar to two lines at 1440 in the shots mode (C1). Its glyph takes the
+// signal while views are saved, as it took orange (grey when none, #57534e
+// at 2.3:1; the kit's second ink now).
 function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -2995,43 +3358,35 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
   }, [open])
 
   return (
-    <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)}
-        className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
-        style={{ color: views.length > 0 ? '#fb923c' : '#57534e' }}
-        title="Saved views">
-        <BookmarkPlus className="w-3.5 h-3.5" />
-      </button>
+    <div ref={ref} className="rb-scene-views">
+      <IconButton size="sm" Icon={BookmarkPlus} title="Saved views" aria-expanded={open}
+        className="rb-scene-views-button" data-saved={views.length > 0 ? 'true' : 'false'}
+        onClick={() => setOpen(o => !o)} />
       {open && (
-        <div className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
-          style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 180, maxHeight: 240 }}>
-          <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
+        <div className="rb-scene-menu">
+          <div className="rb-scene-menu-list">
             {views.length === 0 ? (
-              <div className="px-3 py-2 text-[10.5px] font-mono italic" style={{ color: '#57534e' }}>
+              <div className="rb-scene-menu-empty">
                 No saved views yet
               </div>
             ) : (
               views.map(v => (
-                <div key={v.id}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-stone-700 transition-colors cursor-pointer"
-                  style={{ borderBottom: '1px solid #1c1917' }}>
-                  <span className="flex-1 text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}
-                    onClick={() => { onLoad(v); setOpen(false) }}>
-                    {v.name}
-                  </span>
-                  <button type="button" onClick={() => onDelete(v.id)}
-                    className="p-0.5 rounded-sm hover:bg-stone-600 transition-colors" style={{ color: '#78716c' }}>
-                    <X className="w-3 h-3" />
-                  </button>
+                <div key={v.id} className="rb-scene-menu-item"
+                  onClick={() => { onLoad(v); setOpen(false) }}>
+                  <span className="rb-scene-menu-label">{v.name}</span>
+                  <IconButton size="sm" Icon={X} danger title={`Delete the saved view "${v.name}"`}
+                    onClick={e => { e.stopPropagation(); onDelete(v.id) }} />
                 </div>
               ))
             )}
           </div>
-          <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
-            className="w-full px-3 py-2 text-[10.5px] font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors text-left"
-            style={{ color: '#fb923c', borderTop: '1px solid #44403c' }}>
-            <Save className="w-3 h-3 inline-block mr-1.5" /> Save current view
-          </button>
+          <div className="rb-scene-menu-foot">
+            <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
+              className="rb-scene-menu-item">
+              <Save className="rb-scene-menu-icon" aria-hidden="true" />
+              <span className="rb-scene-menu-label">Save current view</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -3040,20 +3395,34 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
 
 
 // ─── Bulk select ───
+// A bulk bar's picker: the kit's small field (B4b's AssetBulkSelect), its
+// first option the label it always showed, its choices in sentence case.
 function SceneBulkSelect({ label, options, onPick }) {
   return (
-    <select defaultValue="" onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none cursor-pointer"
-      style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+    <select defaultValue="" aria-label={label}
+      onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
+      className="ui-input rb-scene-bulk-select"
+      data-size="sm">
       <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
+      {options.map(o => <option key={o} value={o}>{humanizeStatus(o)}</option>)}
     </select>
   )
 }
 
 
 // ─── InlineText ───
-function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
+// A cell's words that become a field on a click, exactly as before. At rest
+// the words — `strong` (a row's name) at 600 in the ink, the rest in the
+// second ink, `size="xs"` (the scene popup's shot line) in the third, an
+// empty one its placeholder in the third (R3-13: it was #57534e, 2.3:1) —
+// with the kit's hover fill; editing, the kit's small field, a native
+// `ui-input` (the kit Input's own Escape and Enter would break the draft,
+// B3d trap 3). `label` names the field for a screen reader. Escape reverts
+// the draft and is MARKED handled, as PopupInlineText's is (K4's mark): a
+// shot's description in the scene popup is inside the kit Dialog, which
+// stands down on a handled Escape, so the first press only reverts (review
+// round one, R1-02: it reverted AND closed the popup).
+function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -3068,18 +3437,20 @@ function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
         onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
         onKeyDown={e => {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
         }}
-        className={`w-full bg-transparent focus:outline-none font-mono ${size === 'xs' ? 'text-[9.5px]' : size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'}`}
-        style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
+        aria-label={label}
+        className="ui-input rb-scene-inline-input"
+        data-size="sm"
         onClick={e => e.stopPropagation()}
       />
     )
   }
   return (
     <span
-      className={`font-mono truncate cursor-text block ${size === 'xs' ? 'text-[9.5px]' : size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'}`}
-      style={{ color: value ? (color || (size === 'xs' ? '#78716c' : '#d6d3d1')) : '#57534e' }}
+      className="rb-scene-inline"
+      data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+      data-empty={value ? undefined : 'true'}
       onClick={e => { e.stopPropagation(); setEditing(true) }}
     >
       {value || placeholder}
@@ -3089,10 +3460,22 @@ function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
 
 
 // ─── PopupInlineText ───
-function PopupInlineText({ value, placeholder, onCommit }) {
+// The popups' name field (surface 6c). At rest its words in the kit's small
+// well, a button — legible as a field, and a tab stop where it was a span
+// only a pointer could open — an empty one's placeholder in the third ink
+// (it was #57534e, 2.3:1). On a click the kit's small field takes its place,
+// the same size (a native `ui-input`: the kit Input's own Escape and Enter
+// would break the draft, B3d trap 3), in the ink where it was orange with an
+// orange underline. Enter and blur commit the draft as they did. Escape
+// reverts it and is MARKED handled (K4's mark), so the kit Dialog around it
+// stands down: the first press reverts the edit, the next closes the popup
+// (W2). Closed, it gives focus back to its words (R2-05, useFocusBack).
+// `label` names the field.
+function PopupInlineText({ value, placeholder, label, onCommit }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
+  const wordsRef = useFocusBack(editing)
 
   useEffect(() => { setDraft(value) }, [value])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
@@ -3104,30 +3487,63 @@ function PopupInlineText({ value, placeholder, onCommit }) {
         onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
         onKeyDown={e => {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
         }}
-        className="w-full bg-transparent focus:outline-none text-[13.5px] font-mono"
-        style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
+        aria-label={label}
+        className="ui-input"
+        data-size="sm"
       />
     )
   }
   return (
-    <span
-      className="text-[13.5px] font-mono truncate cursor-text block"
-      style={{ color: value ? '#d6d3d1' : '#57534e' }}
-      onClick={() => setEditing(true)}
-    >
+    <button ref={wordsRef} type="button" onClick={() => setEditing(true)}
+      className="ui-input rb-scene-name-text"
+      data-size="sm"
+      data-empty={value ? undefined : 'true'}>
       {value || placeholder}
-    </span>
+    </button>
   )
 }
 
 
+// ─── useFocusBack ───
+// An editor in a popup whose words at rest are a control — the name field
+// (PopupInlineText) and each popup's description and notes — gives focus
+// back to them when its edit closes (review round two, R2-05). The field
+// that had focus goes with the edit, and focus fell to <body>: the next Tab
+// started again from the popup's first control (Escape in the description,
+// then Tab, landed on the popup's Close). Whenever focus has fallen there —
+// always after Escape, Enter, Save or Cancel, whose control is the one that
+// went; after a blur that commits only then, so a Tab or a click elsewhere
+// keeps where it went. Returns the ref for the words' button.
+// InlineText (the tables' editor, also in the scene popup's shot list) is
+// NOT on it: its words are a span, not a control, and making them one would
+// add a Tab stop to every row (C1; recorded for Audrey), so its close there
+// still leaves focus on <body>.
+function useFocusBack(editing) {
+  const wordsRef = useRef(null)
+  const wasEditing = useRef(editing)
+  useEffect(() => {
+    const closed = wasEditing.current && !editing
+    wasEditing.current = editing
+    if (!closed) return
+    const active = document.activeElement
+    if (!active || active === document.body) wordsRef.current?.focus()
+  }, [editing])
+  return wordsRef
+}
+
+
 // ─── FieldLabel ───
+// A property's label: the kit Field's own label class — 11px, 600, capitals
+// at the kit's tracking, the second ink (7.85:1 on the Dialog's raised paper,
+// where #78716c measured 3.16 on #292524) — a block over its value, as B4c's
+// FieldLabel. As before it labels no control by itself: each control carries
+// its own name.
 function FieldLabel({ children }) {
   return (
-    <span className="block text-[10.5px] font-mono uppercase tracking-widest font-medium mb-1" style={{ color: '#78716c' }}>
+    <label className="ui-field-label rb-scene-label">
       {children}
-    </span>
+    </label>
   )
 }

@@ -12,6 +12,7 @@
 // =============================================================================
 
 import { supabase } from './auth/supabaseClient'
+import { devFixtures, devWriteRefused } from '../dev/devFixtures'
 import { reportAppEvent } from './errorCodes'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -35,7 +36,24 @@ const FRIENDLY = {
   method_not_allowed: 'Malformed request.',
 }
 
-async function callAdminFn(name, body) {
+// Dev fixtures (2026-09-11, dev builds only): there is no Edge Function behind
+// fixture data. A WRITE is refused with a toast (the refusal bus) and the same
+// answer shape; the one READ (security posture) is a capability gap and answers
+// quietly — a toast on a read is wrong (review round 2). Labels are what the
+// toast says; the function slug never reaches the copy.
+const FIXTURE_LABELS = {
+  'admin-create-user': 'Creating a user',
+  'admin-reset-password': 'Resetting a password',
+  'admin-set-active': "Changing a member's access",
+}
+
+async function callAdminFn(name, body, { write = true } = {}) {
+  if (import.meta.env.DEV && devFixtures()) {
+    const friendly = write
+      ? devWriteRefused(FIXTURE_LABELS[name] || 'This admin action').message
+      : 'Security details are not available on fixture data.'
+    return { ok: false, status: 501, data: { error: 'dev_fixtures_refused', friendly } }
+  }
   let token = null
   try {
     const { data } = await supabase.auth.getSession()
@@ -97,7 +115,7 @@ export function adminSetActive(userId, active) {
 
 /** Security posture for the user-detail panel (MFA, ban, last sign-in). */
 export function adminUserSecurity(userId) {
-  return callAdminFn('admin-user-security', { user_id: userId })
+  return callAdminFn('admin-user-security', { user_id: userId }, { write: false })
 }
 
 /** True when the edge function is deployed (feature-detect helper). */

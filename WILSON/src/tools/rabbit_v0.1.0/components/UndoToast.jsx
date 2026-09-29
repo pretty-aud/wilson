@@ -75,10 +75,16 @@ export default function UndoToast() {
 
   const paused = hovered || busy
 
+  // The layer is the kit Toast's (index.css `.ui-toast-stack`, 90), over the
+  // kit Dialog's backdrop (70): a delete made inside a popup — a take
+  // unassigned from a shot, a task deleted from its stacked popup — shows its
+  // Undo over that popup, and a click on it is the Undo's, not the
+  // backdrop's (B5b review round one, R1-01: at z-50 it sat under the
+  // backdrop and the click closed the popup instead).
   return (
     <div
       key={toast.key}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-sm shadow-2xl overflow-hidden pl-4 pr-2 py-2"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-90 flex items-center gap-3 rounded-float shadow-float overflow-hidden pl-4 pr-2 py-2"
       style={{
         backgroundColor: '#292524',
         border: '1px solid #ea580c',
@@ -89,7 +95,7 @@ export default function UndoToast() {
       onMouseLeave={() => setHovered(false)}
     >
       {/* Message */}
-      <span className="flex-1 text-[11px] font-mono truncate" style={{ color: '#e7e5e4' }}>
+      <span className="flex-1 text-dense truncate" style={{ color: '#e7e5e4' }}>
         {toast.message}
       </span>
 
@@ -98,7 +104,7 @@ export default function UndoToast() {
         type="button"
         onClick={handleUndo}
         disabled={busy}
-        className="flex items-center gap-1.5 px-4 rounded-sm text-[11px] font-mono uppercase tracking-wider font-bold transition-colors"
+        className="flex items-center gap-1.5 px-4 rounded-control text-dense font-semibold transition-colors"
         style={{
           minHeight: 32,
           color: '#fff7ed',
@@ -115,7 +121,7 @@ export default function UndoToast() {
       <button
         type="button"
         onClick={() => dismiss?.()}
-        className="p-1 rounded-sm hover:bg-stone-700"
+        className="p-1 rounded-control hover:bg-stone-700"
         title="Dismiss"
         style={{ color: '#a8a29e' }}
       >

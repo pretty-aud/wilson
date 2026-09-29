@@ -80,6 +80,63 @@ NO environment yet" is out of date.
 
 ## Broken features
 
+### A private project's media body is never purged from the desktop
+**INFERRED from the design (2026-09-11, the private-projects build,
+`4c10387`); a stated limit, not yet seen to matter.** Cloud rows with
+`storage_provider = 'local_server'` keep their bodies under the desktop's
+local media root (`electron/localMedia.cjs`). `deleteFile` is a soft delete
+that leaves every provider's blob in place (the documented blob-GC gap), and
+the hard-delete / GC sweeps run in the cloud (`trg_files_gc_enqueue`, the
+orphan scan, the teardown sweep), which cannot reach a disk: a local body
+outlives its row for ever. §4a2b invariant 3 ("purge is provider-aware") is
+therefore not met for this provider. Fix shape: on the desktop, a sweep that
+lists `local-media` keys and unlinks any whose row is gone — or a `del()`
+from `deleteFile` when the row is hard-deleted. Until then, *Reset demo
+folder* deliberately leaves `media\` alone (its rows outlive the folder).
+
+### O.T.T.E.R. software routes join a route parameter onto `getSoftwareDir()` raw
+**INFERRED from code reading (adversarial review round 2 of the local demo
+folder, 2026-09-10); not yet measured.** The same shape that round measured
+on the R.A.B.B.I.T. per-id routes (fixed the same day with `dataFilePath`):
+`electron/main.cjs` joins `req.params.slug` / `req.params.sub` onto
+`getSoftwareDir()` in the O.T.T.E.R. software routes (the review named lines
+486, 492, 574–595, 600, 618–620, 642, 659, 695–700, 721–726, 762–768, 803–808
+and 883–899 at `1ab8593`), and Express 5 decodes `..%2F` to `../`, so an
+unauthenticated local page can read, write or unlink outside
+`userData/otter-data` — up to and including an open demo folder. Fix shape:
+the same `dataFileOrThrow` the R.A.B.B.I.T. routes use, one line per helper.
+Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
+Q2); settle it by copying the routes into a scratch express app the way the
+review's `repro-express.cjs` did.
+
+### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
+**MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
+sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
+`GET /auth/v1/user` is cancelled 10 ms after the page loads (`[wilson]
+setSession failed: Failed to fetch`) and the sign-in screen is up 4.5 s after
+the page loads, the same as a signed-out launch; with `=stall` the restore
+times out at 15.0 s (`session restore timed out after 15000ms`) and the
+sign-in screen follows 4.3 s later — never an orange window.**
+`checkSessionValid()` (App.jsx) restores the saved
+session through `hydrateSupabase()` → `supabase.auth.setSession()`, and
+`@supabase/auth-js` 2.101.1 `GoTrueClient._setSession` calls `_getUser()`
+(GET `/auth/v1/user`) for a token that has NOT expired
+(`dist/main/GoTrueClient.js` line 2815); an unreachable auth server turns that
+into an error, `hydrateSupabase` returns null, and the boot lands on the
+sign-in screen with no way through. The demo script's step 6 ("close and
+relaunch … pull the cable at any point") therefore holds only when the
+relaunch happens online; walkthrough 18 "The cable pulled" says so. Fix
+shape (a policy decision, asked in the local-storage hand-off): in
+`hydrateSupabase`, when the saved token is unexpired and `setSession` fails
+with a retryable fetch error, return the saved session so the shell opens
+offline; cloud calls then fail honestly and the Storage card follows
+solo-user rules until the next online launch. Owner: the local-storage
+session (`demo/local-storage`). **2026-09-10, later:** Audrey chose cloud data
+for part 1 of the demo (`DEMO_LOCAL_STORAGE_BRIEF.md` §7), so an offline
+LAUNCH is no longer a Friday requirement and the offline-tolerant launch is
+not being built; the bounded restore (`c5e5a77`) stands, measured above. The
+limit itself stands and is stated in walkthrough 18 "The cable pulled".
+
 ### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
 **REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause
 read from the code, not yet measured in a browser.** `MfaEnrollGate` renders
@@ -1547,6 +1604,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| UI overhaul P1 (2026-09-27; `ui/p1-close` into `feat/ui-overhaul`, which is merged nowhere) | **one section at the end: the overhaul as its last session left it.** V2's §4.2 sections A (behaviour, left under C1) and B (older bugs and data), each row with its number, owner and origin; the visual rows P1 did not close and why; autoplay (R4-36), which plan §5 named for this file; the pet over the page. Questions stay in walkthrough 47, not here. | nothing: no earlier entry was the overhaul's. Comment markers: 5 → 5, still pairing. |
 | 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
@@ -1636,3 +1694,118 @@ what it attempted, not what it changed.** Of nine settings listed, only two
 were actually off when checked — `Enable email provider` and TOTP. Site URL,
 OTP length, signup and confirm-email were all still original. Reading the live
 state first would have replaced a nine-row restore list with a two-row one.
+
+## Bins (demo sprint, 2026-09-10)
+
+### A disconnected network root can stall the local server while bins open or relink
+**INFERRED.** `electron/rabbitBins.cjs` stats every referenced path on the
+list route and walks known roots (capped at 5000 entries / depth 8) for the
+relink scan, all synchronously on the Express thread. A root on an unplugged
+SMB share makes each `statSync` wait out the network timeout, and no other
+R.A.B.B.I.T. request is served meanwhile. Would settle it: a bin file added
+from a network drive, the drive disconnected, the Bins tab opened — measure
+the freeze. Fix direction: stat and walk asynchronously (`fs.promises`) with a
+per-root deadline, or skip roots whose drive letter is not mounted.
+
+### A file dropped on any tab other than Bins may navigate the window to it
+**INFERRED** (review round 2, 2026-09-10). Nothing in `electron/main.cjs` or
+`src/App.jsx` prevents the default of an OS `drop` (no `will-navigate` guard,
+no document-level `dragover`/`drop` handler), and Chromium's default for a
+file dropped on a document is to navigate to it. The Bins tab guards every
+surface while it is mounted (`views/BinsView.jsx`, the document-level drop
+effect), so the demo path is covered; a clip dropped on Scenes, Summary or
+Tasks is not. Would settle it: drag an MP4 from Explorer onto the Summary
+tab of the dev app. Fix direction: a `will-navigate` handler in `main.cjs`
+that refuses anything but the app's own origin, plus a document-level
+`dragover`/`drop` `preventDefault` in `App.jsx` — the shell's layer, not
+the bin session's.
+
+## UI overhaul (`feat/ui-overhaul`, merged nowhere) — left open at its close, P1 (2026-09-27)
+
+Everything the overhaul knows is broken and did not fix, as the last session
+(P1) left it. The source is V2's one table (`docs/sessions/handoffs/ui-v2-2026-09-27.md`
+§4.2), each row kept with its number, owner and origin; P1's hand-off
+(`ui-p1-2026-09-27.md`) says what P1 closed. Questions for Audrey are in
+`docs/walkthroughs/47_ui_overhaul_final.md` §2, not here. Tags as this file
+defines them; a row's "owner" is who acts first.
+
+### Behaviour and keyboard, left under C1 (no view or interaction change was allowed)
+
+- **P1-01 · Enter toggles the pet.** MEASURED. `App.jsx` ~1404–1417: Enter on any focused button toggles the pet and never presses the button (every kit Dialog, drawer, picker; Space works). Owner: Audrey (C5), then a session. From A4-1, B3d, B4c-6, B5b-27.
+- **P1-02 · Space opens O.T.T.E.R.'s Search from any focused control** that is not a field, and can stack Search over an open Dialog or Drawer (`Otter.jsx` global shortcuts). MEASURED. From A4-2.
+- **P1-03 · Home's document keydown listener runs on every page** (`Home.jsx:134-197`): ArrowDown+Enter in O.T.T.E.R.'s Search went to /dog; it can swallow an Escape. MEASURED. From A4-3.
+- **P1-04 · D.O.G.'s document keys act behind its overlays** (Alt toggles Full deck; ←/→ switch the page). MEASURED. Needs a C1 ruling. From A4-4.
+- **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
+- **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
+- **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
+- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22.
+- **P1-09 · Escape discards unsaved drafts** in the Scenes popups, `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d.
+- **P1-10 · Keyboard scrolling hides the focused row or cell** (the Bins list under its sticky head; Crew/Talent period cells past the scroller's edge). MEASURED. Owner: a session and the kit (scroll padding, B5b-KR-5). From B4c-13, B5b-7.
+- **P1-11 · A minimap bar drag does not save.** MEASURED. Owner: Audrey (C1). From B3d.
+- **P1-12 · Two "Today" buttons** (minimap and gantt). MEASURED. Owner: Audrey. From B3d.
+- **P1-13 · O.T.T.E.R.'s duplicate-found dialog is unreachable** (`renderDuplicateModal`; nothing sets its state). INFERRED from the code; would settle it: an import of a course whose slug exists. From A4-9.
+- **P1-14 · "Import failed: …" is `window.alert`** (`Otter.jsx` `handleImportFile`). MEASURED. From A4-10.
+- **P1-15 · Two `window.confirm` left** (`TeamView.jsx:388` "Remove from project", `:693` "Remove from roster"). MEASURED (P1's grep audit: 2). W9 already ruled the conversion; behaviour, so not P1's visual close.
+- **P1-16 · The slide preview logs "Maximum update depth exceeded"** when the duplicate resolver previews (`LayoutVisualizer`, C4). MEASURED. Needs a C4 ruling. From A4-13.
+- **P1-17 · Opening a task template logs React's "unique key" warning** (`TaskTemplateManager` → `TemplateEditor`). MEASURED by V2's probe.
+- **Autoplay (R4-36).** MEASURED: the video preview starts playing when it opens (`VideoPreview.jsx:177`, `controls autoPlay`), with no reduced-motion path. Left under C1 by B4; plan §5 names it for this file.
+
+### Older bugs and data, left under C1
+
+- **P1-18 · Role slugs printed as labels** ("production_designer") in the client view's crew list and the By role report (`ClientViewTab` `crewByDept`). MEASURED. Owner: Audrey, then a session.
+- **P1-19 · A locked version's total reads $0** in the versions table and active-budget banner (the fixtures' snapshot has no `grandTotal`). MEASURED on the fixtures.
+- **P1-20 · The Projects page shows a project's dates one day early** ("Aug 2 – Dec 17, 2026" against 08/03 – 12/18 in its fields): a time-zone parse. MEASURED.
+- **P1-21 · A new scene thumbnail shows late** in the ungrouped scene table (never handed `thumbRevision` / `onThumbChanged`). MEASURED. From B5b-18.
+- **P1-22 · A shot row's delete inside the scene popup also opens that shot.** MEASURED. From B5b-19.
+- **P1-23 · A related asset's click in a scene, shot, Level or Experience popup opens nothing** (`RelationsPanel` `onOpenAsset`, R4-26). MEASURED. From B5b-20, B4c-3.
+- **P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.
+- (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1.)
+- **P1-25 · React logs duplicate keys (26×) after a take is unassigned or undone** (`rabbitFixturesAdapter.js:68-74`, `RabbitProvider.jsx:2919`; dev fixtures). MEASURED.
+- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED.
+- **P1-27 · Two tests import `@babel/parser` / `@babel/traverse` undeclared** (`otterCss.test.js`, `authSelectors.test.js`; resolved through plugin-react). MEASURED by reading `package.json`. Declaring them is a lock change: the lock's owner.
+- **P1-28 · A missing thumbnail draws the browser's broken-image icon** in a light 1px frame (`FileThumbnail`, the entity popups, Scenes rows; the asset detail draws initials instead). MEASURED.
+
+### Visual rows P1 did not close, and why
+
+MEASURED by V1/V2's walk and look unless tagged otherwise. Rows that wait on a
+ruling are Audrey's questions in walkthrough 47 as well.
+
+- **P1-29 · Team members: twelve columns need 1,707px and have 1,230**; Day rate, Status and the actions cut at every width. Waits on Audrey's design call (47).
+- **P1-30 · Rate card: at 1280 the table scrolls sideways**; its frame is 980px and its columns' content needs about 1,040px (P1 measured), so no re-split fits. Ways out in 47 (the kit's compact padding, B4-KR-3, would fit it).
+- **P1-31 · The Timeline task editor's own chrome:** inline hexes (178 in `TimelineView.jsx`, most of them its), 26 `ring-orange-500`, 4 `ring-amber-500`, its three footer buttons dimming to 30% while saving, "Asset: …" at 3.16:1. Waits on Audrey (walkthrough 42 Q6, in 47).
+- **P1-32 · Timeline Fit cuts the first and last key-date diamonds** and hides the last key-date line; two diamonds sit 3.9px apart at 1024 over five years; the week axis overprints a month's first day. Fit's range is C1 (the lane kept it); the minimap window's 2px sides are B3's documented selected edge. Owner: Audrey (47).
+- **P1-33 · Home's Resources column dims the other items to 1.77:1 on the orange** (a C6 break on the fonts-only page). Owner: Audrey (47).
+- **P1-34 · Dates in six forms app-wide.** Owner: Audrey (one format, 47), then the kit's date formatter (V2-KR-1).
+- **P1-37 · The lesson page's heading outline:** the lesson title is an `<h2>` under the tool's `<h1>`, and a lesson's `#` renders an `<h1>` below it. Not visual; closing it moves `.lesson-content`'s h1–h3 selectors with the tags, which `typeScale.test.js`'s lesson sweep names. Direction: render the markdown's h1/h2/h3 as h3/h4/h5 with the selectors following.
+- **P1-38 · `scrollbar-gutter: stable` on O.T.T.E.R.'s scrollers only.** Owner: Audrey (47).
+- **P1-40 · The three popups draw the same things three ways** (Level/Experience, Scene/Shot, Task). Owner: Audrey (which is the model, 47).
+- **P1-41 · Tables full-bleed on Levels, Experiences, Tasks, Assets; on the gutter on Scenes and Budget**; Levels/Experiences show a select-all box with no row boxes. Owner: Audrey (47).
+- **P1-42 · The Scenes and Levels/Experiences/Assets toolbars differ** (icon toggles vs text, "Views" vs its icon, the count, the size picker, three sorts, a moving create button). Needs the kit's segmented control (B5b-KR-2) and Audrey's answers (47).
+- **P1-43 · Dialogs close three ways** (an orange "Done", an outline "Close", an outline "Done"); the Rate card's Google Sheet dialog's Cancel is borderless. Not reached by P1: it needs one convention chosen and every caller moved.
+- **P1-44 · Budget:** empty values marked four ways ("--", "–", "—", "·"; R4-19 said one em dash); Custom's total row has a grey rule where the others are orange and leaves Logged/Variance blank; the Margin / Contingency / Agency fee inputs do not form a column; the actuals popovers' titles are capitalised and carry a name; variance figures sit ~2px high. Not reached by P1. (Talent's rate is Audrey's question.)
+- **P1-45 · Bins' three pane header rules sit at three heights** (211 / 225 / 265); "Add" moves 86px between grid and list. Not reached by P1.
+- **P1-49 · A count is styled three ways** ("8 MEMBERS" on the Label step, "16 tasks" in the mono, "1 project"); P1's audit found three more on the Label step in the mono (Intake, Summary, Team). Not reached by P1: it needs one count style chosen.
+- **P1-51 · O.T.T.E.R.:** selects draw the browser's chevron (D.O.G.'s draw a custom one); page titles at x399 in a centred column on Admin / Quiz / New course against x224 elsewhere; Validate's actions end at 1256 vs 1245; the quiz's levels lower case vs capitalised badges; Help's title 12px right of its nav; the Search field's magnifier outside the field. Not reached by P1.
+- **P1-53 · Glyphs in a fallback face:** → ← ● ○ (Segoe UI), D.O.G.'s ▸ output markers (Cambria Math: 17 glyphs on Help → D.O.G. → System prompts, filed in the walk with a glyph ceiling each) and "₩" (Cascadia Mono). Owner: Audrey (may a session fetch Geist's release, 47).
+- **P1-54 · The pet sits over drawn page content** — the screens are measured by P1's final walk in 47 §3. Owner: Audrey (C5).
+- **P1-55 / P1-79 · Chips (and the Dashboard's "Filter" chip) are on the capitalised Label step** while Q2 lists chips for sentence case. Owner: Audrey (47).
+- **P1-56 · Project type names in Title Case; CAM MOVE / FRAMING codes and the Bins codec in capitals.** Owner: Audrey (47).
+- **P1-57 · Names 600 in the entity tables, 400 in the file tables; the popup Tasks table's Assignee / Reviewer in full ink; dates right-aligned on the Files page, left in R.A.B.B.I.T.'s file tables.** Owner: Audrey (47).
+- **P1-58 · One 16:9 preview geometry at three sizes** (`FileThumbnail`, the Assets and Level thumbnails, R4-35). Not reached by P1.
+- **P1-59 · The Assets toolbar's ten controls, the popup's four jobs, the two-line row, one picker, the bulk bar over the header, the sidebar's status pill.** Waits on walkthrough 44's questions (in 47).
+- **P1-60 · The Files page's Created / Modified / Duration widths have no floor** (a date still cut at 1024; "DURATI…" cut at 1280 and 1440). Owner: Audrey (walkthrough 44 Q27/Q28, in 47).
+- **P1-61 · `ShotTakeChips` paints inline colours and borders and takes no class** (B6's contract); its take rows' data-coloured inset edge goes with it. Not reached by P1.
+- **P1-63 · The nested shot rows still scroll sideways** at medium / large thumbnails (`rabbitScenes.css`). Not reached by P1.
+- **P1-64 · The Budget strip's `scrollbar-width: none` loses to the unlayered `.wilson-dark-scroll *`.** INFERRED (latent: the strip never overflows at 1024+). The fix is layering that `index.css` block, a global cascade change.
+- **P1-65 · Partial dead selectors are not guarded** (`.rb-audit-body .rb-relink-row`); a shadowed `keepEscape` would pass the §11 guard. Tooling; not reached by P1.
+- **P1-67 · The native date field's calendar icon draws a white focus square** (47 native date inputs). Not reached by P1 (headless Chromium does not show the picker indicator's focus).
+- **P1-68 · The kit input's edge is 1.48:1 on the raised paper** (WCAG 1.4.11 asks 3:1 for an input's only boundary). Every field's look: Audrey's call (47, with the outlined button's edge).
+- **P1-69 · `otterCss.test.js`'s scope guard lets a kit ROOT be reached through an O.T.T.E.R. container.** Needs a ruling.
+- **P1-70 · `scripts/ui-walk.mjs` runs every screen in one browser context**, so a `--only` run measures Settings / Help over whatever the last screen left. Tooling; not reached by P1.
+- **P1-72 · The Undo toast (z 90) sits over the kit Menu (80) and the lane popover (65) app-wide.** Owner: Audrey (47).
+- **P1-73 · A zero margin reads "+$0" in the Summary but "$0" elsewhere; a variance under 50¢ reads "$0" in its tone.** Owner: Audrey (47).
+- **P1-82 · The four Scenes tiles lost their icons** (the kit Stat has no icon slot, B5b-KR-1). Owner: Audrey (47), then the kit.
+- **P1-83 · A sortable head's inset ring sits on the first glyph of a left-aligned label**, and Budget's and Bins' sheets duplicate the kit's inset rule. Not closed: moving the ring into the cell padding changes every sortable head's hit box, and Bins' head layout is built on the kit's `padding: 0`, which `binsCss.test.js` pins.
+- **The agent overlays are still hand-drawn:** `DiffView` (a private backdrop, the stone palette, an orange frame) and the agent toast; P1 moved their shadows onto the float token and the outline proposal onto the kit Dialog. Not reached by P1.
+- **The Summary's missing-files notice is hand-drawn** (`ProjectSummaryView.jsx`, the relink notice: a `color-mix` warning tint, its own hairline, a kit Button inside), where the kit Banner has the warning tone and an action slot, as Storage's load error now uses (P1-39). READ in code at P1's close (review round two's mono fix touched its sentence); not reached by P1.
+- **Hexes left in lane code:** `IngestionToast.jsx` 21 and `UndoToast.jsx` 10 (the toasts' own colours; P1 moved their shadows and radius only), besides the task editor's (P1-31). MEASURED by P1's audit.

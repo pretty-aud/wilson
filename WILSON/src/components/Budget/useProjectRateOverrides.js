@@ -38,7 +38,15 @@ export function useProjectRateOverrides() {
   const [error, setError]         = useState(null)
 
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  // Set true in the effect, not only by useRef: StrictMode (dev) runs the
+  // cleanup once between two mounts, and a guard that only ever goes false
+  // drops every later load — the Talent tab said "Loading talent..." for
+  // ever and the Expenses tab showed nothing (B5; B4c's FileAuditDrawer had
+  // the same). A production build mounts once and is unchanged.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── The rates mirror (Session 27) ─────────────────────────────────────
   //

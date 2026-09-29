@@ -1,6 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
+import DevFixturesBadge from './dev/DevFixturesBadge'
+import { PageHeader, IconButton, ToastProvider, Button } from './ui'
+// T3: the close-confirmation dialog below is the one surface in this file
+// still written entirely as inline style objects. Its type now reads the
+// scale from here rather than restating 16px / 13px / 12px by hand.
+import {
+  TYPE, LEADING, WEIGHT, PAPER, INK_2, SIGNAL, BACKDROP,
+  RADIUS_FLOAT, SHADOW_FLOAT, DIALOG,
+} from './ui/tokens'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
@@ -16,7 +25,7 @@ import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSource
 import { loadPet, savePetData, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import { canCreateNewEgg, mintEggFrom } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
-import { PAGE_BARS } from './layout/pageBars'
+import { PAGES, PAGE_BARS, PAGE_TITLES, getPage, navPages } from './layout/pages'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
 import Home from './components/Home'
@@ -24,6 +33,7 @@ import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
 import RateCardPage from './components/RateCard'
 import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
+import ProjectFilesExplorer from './components/Resources/ProjectFilesExplorer'
 import DashboardPage from './components/Dashboard/DashboardPage'
 import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
 import HelpPage from './components/HelpPage'
@@ -44,6 +54,9 @@ import { AgentProvider, useAgent } from './agent'
 import { otterFetch } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
 import { withTimeout } from './cloud/auth/withTimeout'
+// The line above is pinned VERBATIM by src/tools/otter_v0.3.1/petKnowledgeWiring.test.js
+// (a tree this sprint does not edit), so the boot ceiling's constant rides its own import.
+import { AUTH_TIMEOUT_MS } from './cloud/auth/withTimeout'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
@@ -89,21 +102,33 @@ function PetCompanionWithAgent(props) {
   )
 }
 
-const PAGE_TITLES = {
-  home: 'HOME',
-  dog: 'D.O.G.',
-  otter: 'O.T.T.E.R.',
-  rabbit: 'R.A.B.B.I.T.',
-  settings: 'SYSTEM SETTINGS',
-  'project-manager': 'PROJECTS',
-  'rate-card': 'RATE CARD',
-  'team-members': 'TEAM MEMBERS',
-  dashboard: 'DASHBOARD',
-  'admin-terminal': 'ADMIN TERMINAL',
-  help: 'HELP',
-};
+// PAGE_TITLES, PAGE_BARS, the nav columns and the header's chrome all derive
+// from ONE registry now — `src/layout/pages.js`. This table was the first of
+// the three hand-maintained lists a new page had to be added to, and the one
+// the Files page WAS added to while missing the bar table (review F32 / F-R04).
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
+
+// One page wrapper for all twelve pages (F2). The scroll class and the focus
+// / caret / selection scope both come from the registry's `surface`, so the
+// scroll classes stop doing double duty as the surface scope (F1 hand-off §7)
+// and a page cannot be dark in one and light in the other.
+//
+// 🚨 Module level, NOT inside App. A component declared inside a render is a
+// new type on every render, so React unmounts and remounts its subtree — and
+// the entire reason every page is rendered at once is to PRESERVE that state.
+function PageSurface({ id, currentPage, overflow = 'auto', children }) {
+  const page = getPage(id);
+  return (
+    <div
+      className={page.surface === 'dark' ? 'wilson-dark-scroll' : 'wilson-light-scroll'}
+      data-surface={page.surface}
+      style={{ display: currentPage === id ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow }}
+    >
+      {children}
+    </div>
+  );
+}
 
 // Phase 6: the ceiling on reading the courses for one chat message. Generous
 // enough that a cold index build over a real library finishes (it is bounded-
@@ -146,9 +171,20 @@ async function checkSessionValid() {
   try {
     const saved = await loadSession();
     if (!saved) return null;
-    const session = await hydrateSupabase(saved);
+    // Demo sprint (2026-09-10): BOUNDED. hydrateSupabase → setSession refreshes
+    // an expired token over the network with no ceiling of its own, and NOTHING
+    // renders until this returns (`showOverlay && sessionChecked` gates the
+    // sign-in screen, `authed` the shell): Audrey's all-orange window on
+    // 2026-09-10 was a 2026-09-07 session and a stalled refresh. The same
+    // ceiling as every await in LoginScreen; a timeout is "no session", so the
+    // sign-in screen appears within it. The request is left to settle
+    // (withTimeout races, never aborts) — a late success is harmless.
+    const session = await withTimeout(hydrateSupabase(saved), AUTH_TIMEOUT_MS, 'session restore');
     return session ?? null;
-  } catch { return null; }
+  } catch (err) {
+    console.warn('[wilson] session restore skipped:', err?.message ?? err);
+    return null;
+  }
 }
 
 const EASE = 'cubic-bezier(0.4,0,0.2,1)';
@@ -336,6 +372,23 @@ export default function App() {
   // Check persisted Supabase session on mount. `session` carries the JWT that
   // RLS uses to gate every request; losing it means logged-out state.
   useEffect(() => {
+    // Dev tester mode — Audrey, 2026-09-11 (UI overhaul F1): "no just bypass
+    // password entry." 🚨 DEV BUILDS ONLY: `import.meta.env.DEV` is a
+    // compile-time constant, so `vite build` (the installer, the beta,
+    // Vercel) drops this branch; there is no runtime switch. With
+    // VITE_DEV_AUTOLOGIN=tester in .env.local the sign-in screen is skipped
+    // with NO credentials and NO session: usePermissions stays empty (no
+    // role, no workspace) and every RLS-gated query returns nothing, so the
+    // chrome, the fonts and the kit are reviewable while the tables are
+    // empty. The credentialed variant (VITE_DEV_AUTOLOGIN=1 + a test
+    // account) lives in LoginScreen.jsx and gives a real session.
+    if (import.meta.env.DEV && import.meta.env.VITE_DEV_AUTOLOGIN === 'tester') {
+      console.warn('[wilson] DEV tester mode: sign-in skipped, no session, no workspace (VITE_DEV_AUTOLOGIN=tester; dev builds only)');
+      setAuthed(true);
+      setShowOverlay(false);
+      setSessionChecked(true);
+      return;
+    }
     checkSessionValid().then(session => {
       if (session) {
         setAuthed(true);
@@ -1203,7 +1256,16 @@ export default function App() {
     // Build context
     let context = '\n\n--- CURRENT CONTEXT ---';
     context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
-    context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), R.A.B.B.I.T. (Resource Allocation, Budgeting & Breakdown Intake Tool), System Settings, Projects, Rate Card, Help`;
+    // 🚨 A FOURTH hand-kept list of page names lived here. It was missing
+    // four of the twelve pages and still said "System Settings" after Q7
+    // renamed it. It is the registry now, like the other three — and
+    // `adminOnly` is filtered out exactly as the nav filters it, so the
+    // companion does not tell a non-admin that an Admin terminal exists.
+    const pageList = PAGES
+      .filter(p => !p.adminOnly)
+      .map(p => (p.subtitle ? `${p.title} (${p.subtitle})` : p.title))
+      .join(', ');
+    context += '\nAVAILABLE PAGES: ' + pageList;
 
     // RABBIT knowledge snippet — appended when the user is on the
     // RABBIT page so the companion can field tool-specific questions
@@ -1217,7 +1279,7 @@ export default function App() {
       context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
       context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
       context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard's AI features are included with the workspace sign-in — no API key setup needed.`;
-      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → System Settings → RABBIT tab.`;
+      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → App settings → Storage tab.`;
       context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
     }
 
@@ -1612,12 +1674,16 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Page flags
+  // Page flags. `isDarkPage` and the header's shape are the registry's answer
+  // now, not a hand-kept list: Team Members is the first page on the Q1 dark
+  // ground that is NOT a tool, and the two used to be the same condition.
+  const page = getPage(currentPage) || getPage('home');
   const isDog = currentPage === 'dog';
   const isOtter = currentPage === 'otter';
   const isRabbit = currentPage === 'rabbit';
   const isHome = currentPage === 'home';
-  const isDarkPage = isDog || isOtter || isRabbit;
+  const isToolPage = page.chrome === 'tool';
+  const isDarkPage = page.surface === 'dark';
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar.
@@ -1662,7 +1728,16 @@ export default function App() {
   // dark orange, as an interactive state on large bold type — not content
   // text on an orange surface. Do not remove it while enforcing the colour
   // rule.
-  const navOpacity = (key, dimmed) => (dimmed ? 0.35 : (navHovered === key ? 0.7 : 1));
+  //
+  // ── UI overhaul F2, the state extraction (plan §5) ──────────────────────
+  // The resolution above is right and stays; what changed is WHERE it lands.
+  // It used to be an inline `opacity` computed from `navHovered`, and an
+  // inline value beats any class — which is the whole defect this comment
+  // documents, one step removed. The state is now a single data attribute
+  // and the two values live in `.wilson-nav-item[data-state]` in index.css,
+  // so hover and dimmed STILL resolve in exactly one place (the property
+  // that mattered) and a later restyle can reach them from a stylesheet.
+  const navState = (key, dimmed) => (dimmed ? 'dimmed' : (navHovered === key ? 'hover' : 'rest'));
   // `hover:` is mouse-only and this nav is keyboard-reachable, so focus feeds
   // the same state rather than leaving a keyboard user with no feedback.
   const navStateProps = (key) => ({
@@ -1675,55 +1750,70 @@ export default function App() {
   const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
   const closeNavAndTrigger = (setter) => { setShowNavMenu(false); setNavResourcesOpen(false); setter(prev => prev + 1); };
 
-  // Main nav strip: always includes HOME + tools + RESOURCES trigger + SYSTEM SETTINGS
-  // (context-aware: omits whichever page the user is currently on)
+  // ── The nav strip, from the registry (F2) ────────────────────────────────
+  // Both columns' PAGES come from `src/layout/pages.js` — one list, in its own
+  // order, filtered for the page you are on and for the admin-only surface
+  // (filtered from the ARRAY, not hidden per button, so keyboard and mouse
+  // share one list — Session 9). The two items that are NOT pages are
+  // assembled around them here: the tool's own settings TRIGGER and the
+  // RESOURCES toggle.
+  //
+  // Q7, ruled: the tool's item and the app's both read "SETTINGS", side by
+  // side in the same column. They are now "Tool settings" and "App settings".
+  // Copy only — every action is the one it was.
+  //
+  // The strip is GROUPED: destinations above the hairline, the two settings
+  // and the resources toggle below. A separator is not a control (C1); it is
+  // Proximity doing the work eleven equal-weight peers were asking the reader
+  // to do (Hick's law — the strip is the app's whole navigation).
   const getNavStripItems = () => {
-    const items = [];
-    items.push({ label: 'HOME', action: () => closeNavAndGo('home') });
+    const primary = navPages('primary', { currentPage });
+    const appSettings = primary.find(p => p.id === 'settings');
+    const items = primary
+      .filter(p => p.id !== 'settings')
+      .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-    if (currentPage !== 'dog')    items.push({ label: 'D.O.G.',    action: () => closeNavAndGo('dog') });
-    if (currentPage !== 'otter')  items.push({ label: 'O.T.T.E.R.',  action: () => closeNavAndGo('otter') });
-    if (currentPage !== 'rabbit') items.push({ label: 'R.A.B.B.I.T.', action: () => closeNavAndGo('rabbit') });
-    if (currentPage !== 'dashboard') items.push({ label: 'DASHBOARD', action: () => closeNavAndGo('dashboard') });
+    const toolSettingsTrigger =
+      isDog ? setOpenSettingsTrigger :
+      isOtter ? setOpenOtterSettingsTrigger :
+      isRabbit ? setOpenRabbitSettingsTrigger : null;
 
-    // Page-specific SETTINGS for tool pages
-    if (isDog)    items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenSettingsTrigger) });
-    if (isOtter)  items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenOtterSettingsTrigger) });
-    if (isRabbit) items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenRabbitSettingsTrigger) });
-
-    // RESOURCES trigger (toggles sub-column; no direct navigation)
-    items.push({ label: 'RESOURCES', isResourcesTrigger: true });
-
-    // SYSTEM SETTINGS (hide when already on Settings)
-    if (currentPage !== 'settings') {
-      items.push({ label: 'SYSTEM SETTINGS', action: () => closeNavAndGo('settings') });
+    const tail = [];
+    if (toolSettingsTrigger) {
+      tail.push({ label: 'Tool settings', action: () => closeNavAndTrigger(toolSettingsTrigger) });
+    }
+    // RESOURCES trigger (toggles the sub-column; no direct navigation)
+    tail.push({ label: 'Resources', isResourcesTrigger: true });
+    if (appSettings) {
+      tail.push({ label: appSettings.navLabel, action: () => closeNavAndGo(appSettings.id) });
     }
 
-    return items;
+    return [...items, { separator: true }, ...tail];
   };
 
   // Sub-column items shown when RESOURCES is expanded
-  const getResourcesNavItems = () => {
-    const all = [
-      { id: 'project-manager', label: 'PROJECTS' },
-      { id: 'rate-card',       label: 'RATE CARD' },
-      { id: 'team-members',    label: 'TEAM MEMBERS' },
-      // Session 9: admin-only surface — filtered from the ARRAY (not hidden
-      // per-button) so keyboard/mouse share one list.
-      ...(perms.role === 'admin' ? [{ id: 'admin-terminal', label: 'ADMIN TERMINAL' }] : []),
-      { id: 'help',            label: 'HELP' },
-    ];
-    return all
-      .filter(i => i.id !== currentPage)
-      .map(i => ({ label: i.label, action: () => closeNavAndGo(i.id) }));
-  };
+  const getResourcesNavItems = () => navPages('resources', {
+    currentPage,
+    isAdmin: perms.role === 'admin',
+  }).map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-  const getNavStripHeight = () => {
-    const mainCount = getNavStripItems().length;
-    const resCount = getResourcesNavItems().length;
-    const count = Math.max(mainCount, resCount);
-    return count * 24 + (count - 1) * 16 + 48;
+  // 🚨 The 24 here was an ASSUMED line box for 16px type (review, nav finding)
+  // and would have been wrong the moment the size changed — which is this
+  // commit. It is now the H1 step's own box: 20px x 1.2 = 24px, named, beside
+  // the value it is derived from. Each column is measured separately and the
+  // taller one sets the strip, rather than one count standing for both.
+  const NAV_ITEM_PX = 24;   // --text-h1 (20px) x --text-h1--line-height (1.2)
+  const NAV_GAP_PX = 16;
+  const NAV_PAD_PX = 24;    // the one page gutter, top and bottom
+  const columnHeight = (rows) => {
+    if (rows.length === 0) return 0;
+    const content = rows.reduce((h, r) => h + (r.separator ? 1 : NAV_ITEM_PX), 0);
+    return content + (rows.length - 1) * NAV_GAP_PX + 2 * NAV_PAD_PX;
   };
+  const getNavStripHeight = () => Math.max(
+    columnHeight(getNavStripItems()),
+    columnHeight(getResourcesNavItems()),
+  );
 
   // Determine bar heights based on transition state
   const isCompressed = transitionState === 'compressing' || transitionState === 'title-hold';
@@ -1738,10 +1828,10 @@ export default function App() {
   // Render ALL pages simultaneously — hide inactive ones to preserve state
   const renderAllPages = () => (
     <>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'home' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      <PageSurface id="home" currentPage={currentPage}>
         <Home onNavigate={navigateTo} currentPage={currentPage} />
-      </div>
-      <div style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
         <DeckOutlineGenerator
           onNavigate={navigateTo}
           showNavMenu={showNavMenu}
@@ -1749,24 +1839,24 @@ export default function App() {
           openSettingsTrigger={openSettingsTrigger}
           zoomLevel={zoomLevel}
         />
-      </div>
-      <div style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="otter" currentPage={currentPage} overflow="hidden">
         <Otter
           onNavigate={navigateTo}
           currentPage={currentPage}
           openSettingsTrigger={openOtterSettingsTrigger}
           onContextChange={setOtterContext}
         />
-      </div>
-      <div style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="rabbit" currentPage={currentPage} overflow="hidden">
         <Rabbit
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
           openSettingsTrigger={openRabbitSettingsTrigger}
         />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent
           petData={petData}
           onPetModeToggle={handlePetModeToggle}
@@ -1780,117 +1870,86 @@ export default function App() {
           newPetStatus={newPetStatus}
           newPetPending={newPetPending}
         />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="project-manager" currentPage={currentPage}>
         <Projects onNavigate={navigateTo} />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'rate-card' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="rate-card" currentPage={currentPage}>
         <RateCardPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="team-members" currentPage={currentPage}>
         <TeamMembersPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'dashboard' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="project-files" currentPage={currentPage} overflow="hidden">
+        {currentPage === 'project-files' && <ProjectFilesExplorer />}
+      </PageSurface>
+      <PageSurface id="dashboard" currentPage={currentPage}>
         <DashboardPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'admin-terminal' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="admin-terminal" currentPage={currentPage}>
         <AdminTerminalPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="help" currentPage={currentPage}>
         <HelpPage />
-      </div>
+      </PageSurface>
     </>
   );
 
-  // What to show in the top bar
+  // ── The one page header (F2; plan §4, review F32) ────────────────────────
+  // This was FOUR blocks: three byte-identical tool headers differing only in
+  // two strings, and an eight-way OR chain listing the pages that get the
+  // plain header — a list a new page had to be added to by hand, and the
+  // third of the three lists 'project-files' had to appear in. Both are the
+  // registry's `chrome` field now.
   const renderTopBarContent = () => {
-    if (isDog) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">D.O.G.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">Deck Outline Generator</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
+    if (page.chrome === 'none') return null; // Home — no bar content
 
-    if (isOtter) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">O.T.T.E.R.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">On-demand Training & Technical Education Resource</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+    return (
+      <PageHeader
+        title={page.title}
+        subtitle={page.subtitle}
+        measure={page.measure}
+        leading={page.chrome === 'tool' ? (
+          <img
+            src={`${import.meta.env.BASE_URL}logo.png`}
+            alt=""
+            className="h-[43.1px] w-auto brightness-0 invert"
+          />
+        ) : null}
+        actions={(
+          <IconButton
+            icon={Menu}
             title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    if (isRabbit) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">R.A.B.B.I.T.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">Resource Allocation, Budgeting & Breakdown Intake Tool</p>
-            </div>
-          </div>
-          <button
+            surface="chrome"
+            aria-expanded={showNavMenu}
             onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'dashboard' || currentPage === 'admin-terminal' || currentPage === 'help') {
-      const pageLabel = PAGE_TITLES[currentPage] || currentPage;
-      return (
-        <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>
-          <h1 className="text-[20px] font-bold tracking-tight uppercase text-white">{pageLabel}</h1>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    return null; // Home page — no bar content
+          />
+        )}
+      />
+    );
   };
 
   return (
     <AgentProvider>
     <RabbitProvider>
-    <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
+    {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
+        manager, replacing five systems in five screen positions). It lives
+        here so a page never mounts a second one; F2's worked example is its
+        first caller and the four tool systems fold in with their lanes.
+
+        `bar` is the current page’s bottom-bar height, so the stack sits 24px
+        above the BAR rather than 24px off the window (F4, D1b §7: two toasts
+        straddled the light pages’ 80px bar). Same `PAGE_BARS` read the pet’s
+        `petBottomOffset` takes, and the RESTING value rather than the
+        compressed one, for the same reason the pet uses it — a toast must not
+        slide during the page transition. */}
+    <ToastProvider bar={pageBars.bottom}>
+    <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
+      {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —
+          `import.meta.env.DEV` is a build-time constant, so `vite build` drops
+          the element and the import with it. */}
+      {import.meta.env.DEV && <DevFixturesBadge />}
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -1899,7 +1958,7 @@ export default function App() {
           <ModelWarningBanner />
 
           {/* ===== TOP ORANGE BAR ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             height: topHeight,
             flexShrink: 0,
@@ -1925,7 +1984,7 @@ export default function App() {
           </div>
 
           {/* ===== NAV STRIP — same orange, bottom edge = header edge ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             overflow: 'hidden',
             height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
@@ -1935,7 +1994,11 @@ export default function App() {
             alignItems: 'center',
             justifyContent: 'flex-end',
             gap: '48px',
-            paddingRight: '48px',
+            // ONE page gutter (plan §3.3). The strip was right-aligned at 48px
+            // while the hamburger that opens it sits at 24px, so every item
+            // slid out 24px short of the control that summoned it — the two
+            // never lined up on any page.
+            paddingRight: 'var(--spacing-gutter)',
             zIndex: 9,
           }}>
             {/* Resources sub-column — slides in from the left of the main strip */}
@@ -1955,13 +2018,9 @@ export default function App() {
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="text-white font-bold uppercase tracking-[0.2em]"
-                  style={{
-                    fontSize: '16px',
-                    whiteSpace: 'nowrap',
-                    opacity: navOpacity(`res:${item.label}`, false),
-                    transition: 'opacity 200ms ease',
-                  }}
+                  className="wilson-nav-item"
+                  data-state={navState(`res:${item.label}`, false)}
+                  style={{ whiteSpace: 'nowrap' }}
                   {...navStateProps(`res:${item.label}`)}
                 >
                   {item.label}
@@ -1976,7 +2035,18 @@ export default function App() {
               alignItems: 'flex-end',
               gap: '16px',
             }}>
-              {getNavStripItems().map((item) => {
+              {getNavStripItems().map((item, i) => {
+                // The group break: a hairline in the frame's own ink, not a
+                // control and not a heading — see getNavStripItems.
+                if (item.separator) {
+                  return (
+                    <div
+                      key={`sep-${i}`}
+                      aria-hidden="true"
+                      style={{ height: '1px', width: '96px', backgroundColor: 'rgba(28,25,23,0.35)' }}
+                    />
+                  );
+                }
                 const isTrigger = item.isResourcesTrigger;
                 const dimmed = navResourcesOpen && !isTrigger;
                 return (
@@ -1994,14 +2064,9 @@ export default function App() {
                       }
                       item.action();
                     }}
-                    className="font-bold uppercase tracking-[0.2em]"
-                    style={{
-                      fontSize: '16px',
-                      whiteSpace: 'nowrap',
-                      color: '#fff',
-                      opacity: navOpacity(`main:${item.label}`, dimmed),
-                      transition: 'opacity 200ms ease',
-                    }}
+                    className="wilson-nav-item"
+                    data-state={navState(`main:${item.label}`, dimmed)}
+                    style={{ whiteSpace: 'nowrap' }}
                     {...navStateProps(`main:${item.label}`)}
                   >
                     {item.label}
@@ -2011,8 +2076,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ===== Dark page border — when on DOG or OTTER page and idle ===== */}
-          {isDarkPage && !isAnimating && (
+          {/* ===== Tool page border — the band under the bars, tools only ===== */}
+          {isToolPage && !isAnimating && (
             <div style={{ height: '4px', backgroundColor: '#44403c', flexShrink: 0 }} />
           )}
 
@@ -2075,7 +2140,12 @@ export default function App() {
               // that instant is precisely this window).
               // A blocked click retries; a swallowed one is just lost.
               pointerEvents: isAnimating ? 'none' : 'auto',
-              padding: (isDarkPage || currentPage === 'help') ? 0 : '3vh 0',
+              // Plan §3.3: nothing in `vh`. This was `3vh 0` — 27px at 900px
+              // tall and 21px at 700 — so the app's one vertical rhythm
+              // changed with the window. A tool owns its whole field (0), and
+              // Help paints its own two-column shell; every other page takes
+              // the one 24px gutter.
+              padding: (isToolPage || currentPage === 'help') ? 0 : 'var(--spacing-gutter) 0',
               display: 'flex',
               flexDirection: 'column',
             }}>
@@ -2084,7 +2154,7 @@ export default function App() {
           </div>
 
           {/* ===== BOTTOM ORANGE BAR — constant container element ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             height: bottomHeight,
             flexShrink: 0,
@@ -2211,77 +2281,97 @@ export default function App() {
         <div style={{
           position: 'fixed', inset: 0, zIndex: 200,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.6)',
+          backgroundColor: BACKDROP,
         }}>
+          {/* ROUND ONE, FINDING 3: "take the whole object or take none of
+              it". The first pass converted ONE hex here — the Close button's
+              fill — and left seven, including a `color: '#ea580c'` three
+              lines above a `SIGNAL_FILL`, in a commit whose thesis was C8.
+              Every value on this surface is a token now. Where a hex had an
+              exact token it kept its value; the two that moved are named
+              where they moved.
+
+              The surface stays hand-rolled rather than becoming the kit's
+              `Dialog`: that component brings a modal stack and an Escape
+              handler, and adding Escape to the quit confirmation is an
+              INTERACTION change (C1). The two controls are the kit's
+              `Button`, which is a pure swap and is what fixes the contrast
+              and the hovers below. */}
           <div style={{
-            backgroundColor: '#1c1917',
-            border: '2px solid #ea580c',
-            borderRadius: '6px',
+            backgroundColor: PAPER,
+            // §3.3: one 1px hairline. The frame keeps the signal — §3.2 gives
+            // `signal` "the frame" as one of its four jobs — and loses the
+            // second pixel, which is the only thing §3.3 objects to.
+            border: `1px solid ${SIGNAL}`,
+            borderRadius: `${RADIUS_FLOAT}px`,
+            boxShadow: SHADOW_FLOAT,
             padding: '32px 36px 28px',
-            maxWidth: '400px',
+            maxWidth: `${DIALOG.confirm}px`,
             width: '90%',
             textAlign: 'center',
           }}>
+            {/* The dialog title is the H2 step (§3.1): 16 / 1.3 / 600 /
+                sentence / no tracking, in the app's sans. It was 16px BOLD
+                UPPERCASE at +0.15em in `monospace` — four emphasis mechanisms
+                on one four-word heading, and the only `monospace` left in
+                this file. The SIZE is unchanged; the leading is not, because
+                it was unset and inheriting Tailwind preflight's 1.5. */}
             <h2 style={{
-              color: '#ea580c',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              letterSpacing: '0.15em',
-              textTransform: 'uppercase',
+              color: SIGNAL,
+              fontSize: `${TYPE.h2}px`,
+              lineHeight: LEADING.h2,
+              fontWeight: WEIGHT.h2,
               marginBottom: '12px',
-              fontFamily: 'monospace',
             }}>Close WILSON</h2>
+            {/* `#a8a29e` was one of the four inks §3.2 retires across 1,277
+                uses; `ink-2` is its replacement and reads 8.49:1 here. */}
             <p style={{
-              color: '#a8a29e',
-              fontSize: '13px',
-              lineHeight: '1.5',
+              color: INK_2,
+              fontSize: `${TYPE.dense}px`,
+              lineHeight: LEADING.dense,
               marginBottom: '24px',
             }}>
               Make sure you have exported your work before closing.
             </p>
+            {/* 🚨 ROUND ONE, FINDING 1, AND IT IS THE ONE THAT MATTERED. The
+                first pass fixed the Close button's 3.56:1 white-on-`#ea580c`
+                and left CANCEL beside it at `#a8a29e` on `#44403c` — 4.07:1
+                resting and **3.03:1 on hover**, both under the 4.5 §3.2 says
+                "does not ship", and both WORSE than the defect that was
+                fixed. It then reported the surface as clean. The hover half
+                is precisely D2's kit request K8, which the kit had already
+                fixed for light ghost buttons ("a light ghost button turned
+                2.10:1 at the exact moment the pointer reached it").
+
+                Both controls are the kit's `Button` now, which is why this is
+                a deletion rather than a repair: the secondary variant is
+                transparent with a hairline and the full ink (15.45:1, and
+                its hover is `--color-hover`, an overlay that cannot drop the
+                ink), the primary is `signal-fill` with white (5.18:1). The
+                type, the 3px control radius and BOTH hover states come from
+                `.ui-btn[data-variant]` in CSS.
+
+                That also settles the protocol's state-extraction step, which
+                round one correctly called a violation: the four
+                `onMouseEnter`/`onMouseLeave` handlers that wrote
+                `e.currentTarget.style.backgroundColor` are gone, and an
+                inline style can no longer beat a hover rule because there is
+                no inline style left to do it. */}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setShowCloseDialog(false)}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  backgroundColor: '#44403c',
-                  color: '#a8a29e',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontFamily: 'monospace',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#57534e'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#44403c'; }}
+                style={{ flex: 1 }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => { setShowCloseDialog(false); window.electronAPI?.forceClose(); }}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  backgroundColor: '#ea580c',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontFamily: 'monospace',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#c2410c'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ea580c'; }}
+                style={{ flex: 1 }}
               >
                 Close
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -2293,6 +2383,7 @@ export default function App() {
         Rabbit page div is display:none. position:fixed, reads
         useRabbit() — must stay the single instance. */}
     <UndoToast />
+    </ToastProvider>
     </RabbitProvider>
     </AgentProvider>
   );

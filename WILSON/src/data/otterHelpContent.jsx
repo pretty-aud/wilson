@@ -1,39 +1,55 @@
 export const OTTER_HELP_SIDEBAR_ITEMS = [
   { id: 'otter-overview', label: 'Overview' },
-  { id: 'otter-getting-started', label: 'Getting Started' },
-  { id: 'otter-courses', label: 'Creating Courses' },
-  { id: 'otter-subjects', label: 'Subjects & Lessons' },
-  { id: 'otter-study', label: 'Study Mode' },
-  { id: 'otter-quizzes', label: 'Quizzes & Challenges' },
-  { id: 'otter-hotkeys', label: 'Hotkey Reference' },
-  { id: 'otter-nodes', label: 'Nodes Reference' },
+  { id: 'otter-getting-started', label: 'Getting started' },
+  { id: 'otter-courses', label: 'Creating courses' },
+  { id: 'otter-subjects', label: 'Subjects & lessons' },
+  { id: 'otter-study', label: 'Study mode' },
+  { id: 'otter-quizzes', label: 'Quizzes & challenges' },
+  { id: 'otter-hotkeys', label: 'Hotkey reference' },
+  { id: 'otter-nodes', label: 'Nodes reference' },
   { id: 'otter-companion', label: 'Companion' },
-  { id: 'otter-import-export', label: 'Import & Export' },
-  { id: 'otter-shortcuts', label: 'Keyboard Shortcuts' },
+  { id: 'otter-import-export', label: 'Import & export' },
+  { id: 'otter-shortcuts', label: 'Keyboard shortcuts' },
 ]
 
-// Light-theme style tokens matching HelpPage's L constants
+// Light-theme style tokens matching HelpPage's L constants.
+// 🚨 They did NOT match until V1 (2026-09-23): D2 converted HelpPage's `L`
+// to the one light ink and the scale, and this twin kept three stone greys
+// on the orange ground — list items at #44403b, 4.08:1, where C6 allows
+// `#1c1917` alone — plus capitals on every section title. V1's walk measured
+// eight such items on Help → O.T.T.E.R. the first time it opened Help's
+// section instead of the tool (its review round one found the old walk
+// clicking the nav). Now key for key HelpPage's values; `notesBox`, which
+// HelpPage has no twin for, keeps its tint.
 const L = {
-  sectionTitle: 'text-sm font-bold text-stone-900 uppercase tracking-wide mb-3',
-  bodyText: 'text-xs text-stone-800 leading-relaxed',
-  card: 'bg-white/40 p-3 rounded-sm border border-stone-400/30',
-  cardTitle: 'text-xs font-bold text-stone-900 mb-2',
-  listItem: 'text-[11px] text-stone-700 leading-relaxed',
-  listBold: 'text-stone-900',
-  notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-sm p-3',
-  notesTitle: 'text-xs font-bold text-stone-900 uppercase tracking-wide mb-2',
+  sectionTitle: 'text-h2 text-ink-light mb-3',
+  bodyText: 'text-body text-ink-light',
+  card: 'bg-well-light border border-rule-light rounded-control p-3',
+  cardTitle: 'text-h3 text-ink-light mb-2',
+  listItem: 'text-dense text-ink-light',
+  listBold: 'font-semibold',
+  // The signal token at the same strengths as the orange-600 it replaces
+  // (#ea580c is the signal; P1-35 takes the raw palette out of the help).
+  notesBox: 'bg-signal/10 border border-signal/30 rounded-control p-3',
+  notesTitle: 'text-label text-ink-light uppercase mb-2',
 }
 
-// Dark-theme style tokens for in-tool help modal
+// Dark-theme style tokens for in-tool help modal.
+// P1-35: onto the kit's tokens, key for key R.A.B.B.I.T.'s help (B6) and
+// D.O.G.'s: the section title was the Label step in capitals (Q2 puts
+// section titles in sentence case, §3.1 at H2), the stone ramp and
+// orange-400 are retired from the prose, and the emphasis was orange-400 at
+// 70%, 4.23:1 on the card at 13px (the walk's contrast census on otter-help,
+// 8 lines) — it is the ink now.
 const D = {
-  sectionTitle: 'text-sm font-bold text-orange-400 uppercase tracking-wide mb-3',
-  bodyText: 'text-xs text-stone-300 leading-relaxed',
-  card: 'bg-stone-900 p-3 rounded-sm border border-stone-700',
-  cardTitle: 'text-xs font-bold text-orange-400 mb-2',
-  listItem: 'text-[11px] text-stone-300 leading-relaxed',
-  listBold: 'text-orange-400/70',
-  notesBox: 'bg-orange-500/10 border border-orange-500/30 rounded-sm p-3',
-  notesTitle: 'text-xs font-bold text-orange-400 uppercase tracking-wide mb-2',
+  sectionTitle: 'text-h2 text-ink mb-3',
+  bodyText: 'text-dense text-ink-2 leading-relaxed',
+  card: 'bg-paper-raised p-3 rounded-control border border-rule',
+  cardTitle: 'text-h3 text-ink mb-2',
+  listItem: 'text-dense text-ink-2 leading-relaxed',
+  listBold: 'text-ink font-semibold',
+  notesBox: 'bg-signal-tint border border-signal rounded-control p-3',
+  notesTitle: 'text-label font-semibold text-ink uppercase mb-2',
 }
 
 export function OtterHelpContent({ helpPage, theme }) {
@@ -41,7 +57,7 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-overview') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>O.T.T.E.R. Overview</h3>
+        <h3 className={T.sectionTitle}>O.T.T.E.R. overview</h3>
         <p className={`${T.bodyText} mb-4`}>
           O.T.T.E.R. (On-demand Training & Technical Education Resource) is an AI-powered learning platform
           for mastering software tools, keyboard shortcuts, and coding languages. Generate structured courses
@@ -49,7 +65,7 @@ export function OtterHelpContent({ helpPage, theme }) {
         </p>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Key Features</h4>
+            <h4 className={T.cardTitle}>Key features</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>AI course generation</span> — Create full course outlines or individual subjects from a single prompt</li>
               <li>• <span className={T.listBold}>Structured lessons</span> — Organized into sections and lessons with content, takeaways, and practice prompts</li>
@@ -69,31 +85,31 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-getting-started') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Getting Started</h3>
+        <h3 className={T.sectionTitle}>Getting started</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Step 1: Sign In</h4>
+            <h4 className={T.cardTitle}>Step 1: Sign in</h4>
             <p className={T.listItem}>
               AI features are included with your workspace sign-in — no API key
               to configure. If generation fails, check with your workspace admin.
             </p>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Step 2: Create a Course</h4>
+            <h4 className={T.cardTitle}>Step 2: Create a course</h4>
             <p className={T.listItem}>
               Click the <span className={T.listBold}>New</span> button in the left sidebar. Choose between creating a
               full course (generates multiple subject outlines) or a single subject (generates detailed lesson content).
             </p>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Step 3: Generate Content</h4>
+            <h4 className={T.cardTitle}>Step 3: Generate content</h4>
             <p className={T.listItem}>
               Enter a prompt describing what you want to learn. For courses, enter the software/language name.
               For subjects, describe the specific topic. O.T.T.E.R. will generate structured content with lessons.
             </p>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Step 4: Study & Quiz</h4>
+            <h4 className={T.cardTitle}>Step 4: Study & quiz</h4>
             <p className={T.listItem}>
               Read through lessons, mark them complete, then test your knowledge with quizzes. The Quiz Center
               lets you select which courses and subjects to be quizzed on.
@@ -107,10 +123,10 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-courses') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Creating Courses</h3>
+        <h3 className={T.sectionTitle}>Creating courses</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Full Course Generation</h4>
+            <h4 className={T.cardTitle}>Full course generation</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Creates multiple subject outlines</span> for a software tool or language</li>
               <li>• <span className={T.listBold}>Choose type:</span> "Software" for tools with shortcuts, "Coding Language" for programming with functions</li>
@@ -119,7 +135,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Single Subject Generation</h4>
+            <h4 className={T.cardTitle}>Single subject generation</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Generates complete lesson content</span> for one specific topic</li>
               <li>• <span className={T.listBold}>Auto-generates hotkeys</span> for software-type courses</li>
@@ -142,10 +158,10 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-subjects') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Subjects & Lessons</h3>
+        <h3 className={T.sectionTitle}>Subjects & lessons</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Subject Structure</h4>
+            <h4 className={T.cardTitle}>Subject structure</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Each course contains subjects</span> — individual topics to study</li>
               <li>• <span className={T.listBold}>Subjects contain sections</span> — groups of related lessons</li>
@@ -154,7 +170,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Managing Subjects</h4>
+            <h4 className={T.cardTitle}>Managing subjects</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Delete subjects</span> by hovering and clicking the trash icon</li>
               <li>• <span className={T.listBold}>Undo/Redo</span> subject deletion via the Edit menu</li>
@@ -169,10 +185,10 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-study') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Study Mode</h3>
+        <h3 className={T.sectionTitle}>Study mode</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Reading Lessons</h4>
+            <h4 className={T.cardTitle}>Reading lessons</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Select a lesson</span> from the lesson sidebar on the right</li>
               <li>• <span className={T.listBold}>Content is rendered as Markdown</span> with syntax highlighting for code blocks</li>
@@ -181,7 +197,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Progress Tracking</h4>
+            <h4 className={T.cardTitle}>Progress tracking</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Mark lessons complete</span> with the checkmark button</li>
               <li>• <span className={T.listBold}>Progress bar</span> shows completion percentage per subject</li>
@@ -196,18 +212,18 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-quizzes') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Quizzes & Challenges</h3>
+        <h3 className={T.sectionTitle}>Quizzes & challenges</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Quiz Types</h4>
+            <h4 className={T.cardTitle}>Quiz types</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Multiple Choice</span> — Answer questions with 4 options, get immediate feedback and explanations</li>
-              <li>• <span className={T.listBold}>Code Identification</span> — Identify what code does or find errors in code snippets</li>
-              <li>• <span className={T.listBold}>Code Writing</span> — Write code solutions in an integrated Monaco editor with hints and solutions</li>
+              <li>• <span className={T.listBold}>Multiple choice</span> — Answer questions with 4 options, get immediate feedback and explanations</li>
+              <li>• <span className={T.listBold}>Code identification</span> — Identify what code does or find errors in code snippets</li>
+              <li>• <span className={T.listBold}>Code writing</span> — Write code solutions in an integrated Monaco editor with hints and solutions</li>
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Quiz Center</h4>
+            <h4 className={T.cardTitle}>Quiz center</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Select courses and subjects</span> to include in your quiz</li>
               <li>• <span className={T.listBold}>Choose quiz type(s)</span> — can combine multiple types in one session</li>
@@ -223,10 +239,10 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-hotkeys') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Hotkey & Function Reference</h3>
+        <h3 className={T.sectionTitle}>Hotkey & function reference</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Keyboard Shortcuts (Software Type)</h4>
+            <h4 className={T.cardTitle}>Keyboard shortcuts (software type)</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Auto-generated</span> when subjects are generated for software-type courses</li>
               <li>• <span className={T.listBold}>Organized by category</span> (e.g., File, Edit, View, Navigation)</li>
@@ -235,7 +251,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Functions Reference (Coding Language Type)</h4>
+            <h4 className={T.cardTitle}>Functions reference (coding language type)</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Auto-generated</span> when subjects are generated for coding language-type courses</li>
               <li>• <span className={T.listBold}>Organized by category</span> with name, syntax, parameters, returns, and description</li>
@@ -250,10 +266,10 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-nodes') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Nodes Reference</h3>
+        <h3 className={T.sectionTitle}>Nodes reference</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>What is the Nodes Page?</h4>
+            <h4 className={T.cardTitle}>What is the Nodes page?</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>A searchable library</span> of node definitions for node-based software (Blender, Houdini, ComfyUI, etc.)</li>
               <li>• <span className={T.listBold}>Documents every node</span> with its description, all inputs, all outputs, and usage requirements</li>
@@ -261,7 +277,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Switching Node Systems</h4>
+            <h4 className={T.cardTitle}>Switching node systems</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Use the dropdown</span> at the top to switch between node-based software entries</li>
               <li>• <span className={T.listBold}>Each node system</span> is a separate course (e.g., "Blender 5.0 (Shaders)" vs "Blender 5.0 (Geometry Nodes)")</li>
@@ -269,7 +285,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Node Cards</h4>
+            <h4 className={T.cardTitle}>Node cards</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Node name</span> displayed prominently at the top</li>
               <li>• <span className={T.listBold}>Inputs section</span> lists each input with name, type badge, and description</li>
@@ -278,7 +294,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>How Nodes are Generated</h4>
+            <h4 className={T.cardTitle}>How nodes are generated</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Auto-generated</span> when subjects are generated for node_software-type courses</li>
               <li>• <span className={T.listBold}>Merged across subjects</span> — new nodes are added to existing categories without duplicates</li>
@@ -296,7 +312,7 @@ export function OtterHelpContent({ helpPage, theme }) {
         <h3 className={T.sectionTitle}>Companion</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>AI Pet Companion</h4>
+            <h4 className={T.cardTitle}>AI pet companion</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Visible on all pages</span> — your companion follows you across the app</li>
               <li>• <span className={T.listBold}>Click the sprite</span> to open/close the chat window (or press Enter)</li>
@@ -305,7 +321,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Pet Lifecycle</h4>
+            <h4 className={T.cardTitle}>Pet lifecycle</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Egg</span> — Pet the egg to hatch it (2-4 pets needed)</li>
               <li>• <span className={T.listBold}>Baby</span> — Hatches with random breed and gender. Evolves to adult over time</li>
@@ -315,11 +331,11 @@ export function OtterHelpContent({ helpPage, theme }) {
             </ul>
           </div>
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Pet Mode</h4>
+            <h4 className={T.cardTitle}>Pet mode</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Toggle in System Settings</span> under the Companion section</li>
-              <li>• <span className={T.listBold}>When ON:</span> Full Tamagotchi experience with hunger, sleep, and mood</li>
-              <li>• <span className={T.listBold}>When OFF:</span> Helper-only chatbot — no mechanics, just a study assistant</li>
+              <li>• <span className={T.listBold}>Toggle in App settings</span> under the Companion section</li>
+              <li>• <span className={T.listBold}>When on:</span> Full Tamagotchi experience with hunger, sleep, and mood</li>
+              <li>• <span className={T.listBold}>When off:</span> Helper-only chatbot — no mechanics, just a study assistant</li>
             </ul>
           </div>
         </div>
@@ -330,12 +346,12 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-import-export') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Import & Export</h3>
+        <h3 className={T.sectionTitle}>Import & export</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Exporting</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Edit menu → Export All</span> — Downloads a JSON file with all courses, subjects, progress, hotkeys, functions, and nodes</li>
+              <li>• <span className={T.listBold}>Edit menu → Export all</span> — Downloads a JSON file with all courses, subjects, progress, hotkeys, functions, and nodes</li>
               <li>• <span className={T.listBold}>Export format</span> is versioned (v2.0) for forward compatibility</li>
               <li>• <span className={T.listBold}>Use for backups</span> or transferring between devices</li>
             </ul>
@@ -343,7 +359,7 @@ export function OtterHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Importing</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Edit menu → Import Subjects</span> — Load a previously exported JSON file</li>
+              <li>• <span className={T.listBold}>Edit menu → Import subjects</span> — Load a previously exported JSON file</li>
               <li>• <span className={T.listBold}>Supports both v2.0 format</span> and legacy single lesson plan exports</li>
               <li>• <span className={T.listBold}>Imported courses are merged</span> into your existing library</li>
             </ul>
@@ -356,7 +372,7 @@ export function OtterHelpContent({ helpPage, theme }) {
   if (helpPage === 'otter-shortcuts') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Keyboard Shortcuts</h3>
+        <h3 className={T.sectionTitle}>Keyboard shortcuts</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Navigation</h4>
@@ -387,8 +403,11 @@ export function OtterHelpContent({ helpPage, theme }) {
     </div>
   )
 
+  // P1 review round two: the fallback kept the stone ramp P1-35 retired
+  // (no test rendered an unknown page); it takes the body role, as
+  // R.A.B.B.I.T.'s does.
   return (
-    <div className="text-center py-8 text-stone-600 text-sm">
+    <div className={`${T.bodyText} text-center py-8`}>
       Select a topic from the sidebar
     </div>
   )

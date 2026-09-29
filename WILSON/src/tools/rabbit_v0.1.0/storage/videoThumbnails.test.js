@@ -1321,8 +1321,19 @@ describe('review fixes — S40', () => {
     // Dragging the native <video> scrub bar and releasing outside the panel
     // dispatches the click on the backdrop, so a plain onClick={onClose} shut
     // the player every time someone scrubbed past the edge.
-    expect(player).toMatch(/onMouseDown=\{\(e\) => \{ backdropPress\.current = e\.target === e\.currentTarget \}\}/)
-    expect(player).toMatch(/e\.target === e\.currentTarget && backdropPress\.current/)
+    //
+    // ⚠️ RE-POINTED BY B4c (2026-09-25), the claim unchanged. The player is
+    // the kit Dialog now, and the hand-rolled `backdropPress` ref is gone
+    // with the hand-rolled backdrop: the kit's backdrop (src/ui/Dialog.jsx)
+    // closes only on a press whose target IS the backdrop — a drag that began
+    // on the scrub bar starts inside the surface, so it never closes — and
+    // only for a caller that passes `dismissOnBackdrop`. So the pin is that
+    // prop, plus the kit's own rule it relies on. Proved mounted in
+    // views/rabbitVideoRender.test.jsx.
+    expect(player).toMatch(/<Dialog[\s\S]*?\bdismissOnBackdrop\b/)
+    const kit = executable(readRepo('src', 'ui', 'Dialog.jsx'))
+    expect(kit).toMatch(/onMouseDown=\{\(e\) => \{\s*if \(e\.target !== e\.currentTarget\) return/)
+    expect(kit).toMatch(/if \(!dismissOnBackdrop\) return/)
   })
 
   it('🚨 a successful load refills the re-mint budget', () => {

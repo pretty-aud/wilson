@@ -1,0 +1,103 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wilson-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5203
+    },
+    {
+      "name": "wilson-operator-console",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:admin"
+      ],
+      "port": 5203
+    },
+    {
+      "_comment": "Serves the built bundle from dist/. Use this rather than wilson-dev when measuring network behaviour: `vite` dev serves every module unbundled, which fills the browser's 250-entry resource-timing buffer before the app has finished booting and makes any later request invisible. Run `npm run build` first.",
+      "name": "wilson-preview-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview"
+      ],
+      "port": 4173
+    },
+    {
+      "name": "t0-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/elated-jennings-4c5d33/WILSON",
+        "--port",
+        "5241",
+        "--strictPort"
+      ],
+      "port": 5241
+    },
+    {
+      "name": "t2-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/laughing-cannon-eb6d7f/WILSON",
+        "--port",
+        "5243",
+        "--strictPort"
+      ],
+      "port": 5243
+    },
+    {
+      "name": "t1-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/silly-snyder-ee69bb/WILSON",
+        "--port",
+        "5242",
+        "--strictPort"
+      ],
+      "port": 5242
+    },
+    {
+      "name": "t3-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/frosty-sanderson-de90d2/WILSON",
+        "--port",
+        "5244",
+        "--strictPort"
+      ],
+      "port": 5244
+    },
+    {
+      "name": "v1-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/quirky-dewdney-93d080/WILSON",
+        "--port",
+        "5245",
+        "--strictPort"
+      ],
+      "port": 5245
+    },
+    {
+      "_comment": "V1: the SIGN-IN screens, without editing .env.local. Vite ranks a variable already in the process environment above .env files, so this sets VITE_DEV_AUTOLOGIN to a value the app ignores (App.jsx signs in only on the exact string tester) and the auth screens render while .env.local still says tester. Port 5246; the signed-in server stays on 5245.",
+      "name": "v1-auth",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_AUTOLOGIN=off&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/quirky-dewdney-93d080/WILSON --port 5246 --strictPort"
+      ],
+      "port": 5246
+    }
+  ]
+}

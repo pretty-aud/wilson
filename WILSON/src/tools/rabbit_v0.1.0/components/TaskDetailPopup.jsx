@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import {
-  ListChecks, X, Trash2, DollarSign,
+  Trash2, DollarSign,
   ChevronDown, ChevronRight, Film, Clapperboard,
   Gamepad2, Sparkles, Boxes, FolderOpen,
 } from 'lucide-react'
@@ -24,6 +24,12 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
+import { Dialog, Button, Field, EmptyState, StatusBadge, StatusDot, statusMeta } from '../../../ui'
+// Priority as a status TONE, from the one place that decides it: the
+// Dashboard renders this popup over its own task table, and the two must
+// not disagree about which priorities are marked.
+import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
+import '../views/rabbitTasks.css'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -32,28 +38,10 @@ const TASK_STATUSES = [
 ]
 const PRIORITIES = ['low','medium','high','urgent']
 
-function statusColor(status) {
-  switch (status) {
-    case 'in_progress':    return '#fb923c'
-    case 'pending_review': return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':       return '#4ade80'
-    case 'final':          return '#22c55e'
-    case 'blocked':        return '#ef4444'
-    case 'on_hold':        return '#fcd34d'
-    case 'omitted':        return '#57534e'
-    default:               return '#a8a29e'
-  }
-}
-function priorityColor(p) {
-  switch (p) {
-    case 'urgent': return '#ef4444'
-    case 'high':   return '#fb923c'
-    case 'medium': return '#fbbf24'
-    case 'low':    return '#78716c'
-    default:       return '#a8a29e'
-  }
-}
+// Status: the kit's one source (StatusBadge / StatusDot / statusMeta), so the
+// words and the dot match the Tasks table and the Dashboard. Priority: its
+// tone from priorityTone(), its word sentence case (Q2).
+const PRIORITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' }
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
 // ═════════════════════════════════════════════════════
@@ -142,14 +130,18 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
   // Collapsible left-column sections
   const [collapsed, setCollapsed] = useState({})
+
+  // The files column holds FileManager (lane B4's), read-only here. The one
+  // layer it opens, its VideoPreview, is the kit Dialog on the modal stack
+  // since B4c, so an Escape there is the player's alone and this popup needs
+  // no guard (B2 §4: `filesLayerOpen` is gone). Its notes editor marks its
+  // own Escape (K4's mark, B4).
   function toggleCollapse(key) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
   if (!task) return null
 
-  const sc = statusColor(task.status)
-  const pc = priorityColor(task.priority)
   const linkedAsset = task.asset_id ? assets.find(a => a.id === task.asset_id) : null
   const linkedScene = task.scene_id ? scenes.find(s => s.id === task.scene_id) : null
   const linkedShot = task.shot_id ? shots.find(s => s.id === task.shot_id) : null
@@ -168,441 +160,443 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const hasLeftColumn = linkedAsset || linkedShot || scenesOn || levelsOn || experiencesOn
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      {/* Modal — wider when left column is shown */}
-      <div
-        className={`fixed z-50 top-1/2 left-1/2 w-full rounded overflow-hidden flex flex-col ${hasLeftColumn ? 'max-w-4xl' : 'max-w-2xl'}`}
-        style={{ backgroundColor: '#292524', border: '2px solid #f97316', maxHeight: '85vh', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* ── Header — spans full width over both columns ── */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
-          <div className="flex items-center gap-2.5">
-            <ListChecks className="w-4 h-4" style={{ color: '#fb923c' }} />
-            <span className="text-[14px] font-mono font-bold" style={{ color: '#fb923c' }}>
-              {task.title || 'Untitled task'}
-            </span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* ── Two-column body ── */}
-        <div className="flex-1 overflow-auto flex">
-
-          {/* ── LEFT COLUMN — files & relations ── */}
-          {hasLeftColumn && (
-            <div className="flex-shrink-0 overflow-auto" style={{ width: 400, borderRight: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-              <div className="p-3 flex flex-col gap-1">
-
-                {/* Asset files */}
-                {linkedAsset && (
-                  <CollapsibleSection
-                    icon={Boxes}
-                    label={`Asset: ${linkedAsset.name || 'Untitled'}`}
-                    collapsed={collapsed.asset}
-                    onToggle={() => toggleCollapse('asset')}
-                    accentColor="#fb923c"
-                  >
-                    <FileNameEditor
-                      fileNameOverride={fileNameOverride}
-                      editingFileName={editingFileName}
-                      fileNameDraft={fileNameDraft}
-                      setEditingFileName={setEditingFileName}
-                      setFileNameDraft={setFileNameDraft}
-                      setFileNameOverride={setFileNameOverride}
-                    />
-                    <FileManager
-                      files={ctx?.managedFiles || []}
-                      assetId={linkedAsset.id}
-                      assetName={linkedAsset.name}
-                      projectId={ctx?.activeProjectId}
-                      project={project}
-                      mode="readonly"
-                      taskTitle={fileNameOverride || null}
-                      taskId={task.id}
-                      onFileAdded={() => ctx?.refreshManagedFiles?.()}
-                    />
-                  </CollapsibleSection>
-                )}
-
-                {/* Shot files */}
-                {linkedShot && (
-                  <CollapsibleSection
-                    icon={Clapperboard}
-                    label={`Shot: ${linkedShot.name || 'Untitled'}`}
-                    collapsed={collapsed.shot}
-                    onToggle={() => toggleCollapse('shot')}
-                    accentColor="#f97316"
-                  >
-                    <FileNameEditor
-                      fileNameOverride={fileNameOverride}
-                      editingFileName={editingFileName}
-                      fileNameDraft={fileNameDraft}
-                      setEditingFileName={setEditingFileName}
-                      setFileNameDraft={setFileNameDraft}
-                      setFileNameOverride={setFileNameOverride}
-                    />
-                    <FileManager
-                      files={ctx?.managedFiles || []}
-                      assetId={linkedShot.id}
-                      assetName={linkedShot.name}
-                      projectId={ctx?.activeProjectId}
-                      project={project}
-                      mode="readonly"
-                      taskTitle={fileNameOverride || null}
-                      taskId={task.id}
-                      onFileAdded={() => ctx?.refreshManagedFiles?.()}
-                    />
-                  </CollapsibleSection>
-                )}
-
-                {/* Scene relation */}
-                {scenesOn && linkedScene && !linkedShot && (
-                  <CollapsibleSection
-                    icon={Film}
-                    label={`Scene: ${linkedScene.name || 'Untitled'}`}
-                    collapsed={collapsed.scene_files}
-                    onToggle={() => toggleCollapse('scene_files')}
-                    accentColor="#ea580c"
-                  >
-                    <FileNameEditor
-                      fileNameOverride={fileNameOverride}
-                      editingFileName={editingFileName}
-                      fileNameDraft={fileNameDraft}
-                      setEditingFileName={setEditingFileName}
-                      setFileNameDraft={setFileNameDraft}
-                      setFileNameOverride={setFileNameOverride}
-                    />
-                    <FileManager
-                      files={ctx?.managedFiles || []}
-                      assetId={linkedScene.id}
-                      assetName={linkedScene.name}
-                      projectId={ctx?.activeProjectId}
-                      project={project}
-                      mode="readonly"
-                      taskTitle={fileNameOverride || null}
-                      taskId={task.id}
-                      onFileAdded={() => ctx?.refreshManagedFiles?.()}
-                    />
-                  </CollapsibleSection>
-                )}
-
-                {/* No relations hint */}
-                {!linkedAsset && !linkedShot && !(scenesOn && linkedScene) && (
-                  <div className="px-3 py-6 text-center">
-                    <FolderOpen className="w-5 h-5 mx-auto mb-2" style={{ color: '#44403c' }} />
-                    <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
-                      Link an asset, scene, or shot to see files here
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── RIGHT COLUMN — task properties ── */}
-          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
-
-            {/* Title (editable) */}
-            <div className="mb-5">
-              <FieldLabel>Title</FieldLabel>
-              <PopupInlineText
-                value={task.title || ''}
-                placeholder="Untitled task"
-                onCommit={v => handleUpdate({ title: v })}
-              />
-            </div>
-
-            {/* Properties grid */}
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-5">
-              <div>
-                <FieldLabel>Status</FieldLabel>
-                <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
-                  {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
-                </select>
-              </div>
-              <div>
-                <FieldLabel>Priority</FieldLabel>
-                <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: pc, border: '1px solid #44403c' }}>
-                  {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
-                </select>
-              </div>
-              <div>
-                <FieldLabel>Asset</FieldLabel>
-                {task.asset_id && !assets.some(a => a.id === task.asset_id) ? (
-                  // Current asset not in ctx.assets (the Dashboard's
-                  // cross-project reuse keeps the list empty so the
-                  // FileManager column can't mount): show the embedded name
-                  // read-only. A select here would render blank and its
-                  // only option would write asset_id = NULL into a
-                  // NOT NULL column (Session 8 review finding).
-                  <div className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', opacity: 0.85 }}
-                    title="Open the project in R.A.B.B.I.T. to re-link this task">
-                    {task.asset?.name || 'Linked asset'}
-                  </div>
-                ) : (
-                  <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                    <option value="">--</option>
-                    {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
-                  </select>
-                )}
-              </div>
-              <div>
-                <FieldLabel>Phase</FieldLabel>
-                <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                  <option value="">--</option>
-                  {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
-                </select>
-              </div>
-
-              {/* ── Conditional relation fields ── */}
-              {scenesOn && (
-                <div>
-                  <FieldLabel>Scene</FieldLabel>
-                  <select value={task.scene_id || ''} onChange={e => {
-                    const v = e.target.value || null
-                    // Clear shot if scene changed
-                    handleUpdate({ scene_id: v, shot_id: null })
-                  }}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                    <option value="">--</option>
-                    {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
-                  </select>
-                </div>
-              )}
-              {scenesOn && (
-                <div>
-                  <FieldLabel>Shot</FieldLabel>
-                  <select value={task.shot_id || ''} onChange={e => handleUpdate({ shot_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                    <option value="">--</option>
-                    {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
-                  </select>
-                </div>
-              )}
-              {levelsOn && (
-                <div>
-                  <FieldLabel>Level</FieldLabel>
-                  <select value={task.level_id || ''} onChange={e => handleUpdate({ level_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                    <option value="">--</option>
-                    {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
-                  </select>
-                </div>
-              )}
-              {experiencesOn && (
-                <div>
-                  <FieldLabel>Experience</FieldLabel>
-                  <select value={task.experience_id || ''} onChange={e => handleUpdate({ experience_id: e.target.value || null })}
-                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: task.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                    <option value="">--</option>
-                    {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <FieldLabel>Assignee</FieldLabel>
-                <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                  <option value="">--</option>
-                  {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <FieldLabel>Reviewer</FieldLabel>
-                <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.reviewer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                  <option value="">--</option>
-                  {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <FieldLabel>Role</FieldLabel>
-                <select
-                  value={task.assigned_role_slug || ''}
-                  onChange={e => {
-                    const slug = e.target.value || null
-                    const entry = roleEntries.find(r => r.role_slug === slug)
-                    handleUpdate({
-                      assigned_role_slug: slug,
-                      assigned_position: entry ? entry.role_label : null,
-                    })
-                  }}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                  <option value="">--</option>
-                  {roleEntries.map(r => (
-                    <option key={r.role_slug} value={r.role_slug}>
-                      {r.role_label}{r.day_rate != null ? ` ($${Number(r.day_rate).toLocaleString()}/day)` : ''}
-                    </option>
-                  ))}
-                </select>
-                {task.assigned_role_slug && !currentRoleEntry && (
-                  <div className="text-[9px] font-mono mt-0.5" style={{ color: '#fca5a5' }}>
-                    Role "{fmt(task.assigned_role_slug)}" not found in rate card
-                  </div>
-                )}
-              </div>
-              <div>
-                <FieldLabel>Bid days</FieldLabel>
-                <input type="number" value={task.bid_days ?? ''} min={0} step={0.5}
-                  onChange={e => { const n = parseFloat(e.target.value); handleUpdate({ bid_days: isNaN(n) ? null : n }) }}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.bid_days != null ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
-                  placeholder="--" />
-              </div>
-              <div>
-                <FieldLabel>Bid total</FieldLabel>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-mono rounded"
-                  style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: bidTotal != null ? '#4ade80' : '#57534e', minHeight: 34 }}>
-                  <DollarSign className="w-3 h-3 flex-shrink-0" style={{ opacity: 0.6 }} />
-                  {bidTotal != null
-                    ? `${bidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : dayRate != null ? `${Number(dayRate).toLocaleString()}/day \u00D7 --`
-                    : '--'}
-                </div>
-                {dayRate != null && (
-                  <div className="text-[9px] font-mono mt-0.5" style={{ color: '#57534e' }}>
-                    {fmt(task.assigned_role_slug || '')} @ ${Number(dayRate).toLocaleString()}/day
-                  </div>
-                )}
-              </div>
-              <div>
-                <FieldLabel>Start date</FieldLabel>
-                <input type="date" value={task.start_date || ''} onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
-              </div>
-              <div>
-                <FieldLabel>End date</FieldLabel>
-                <input type="date" value={task.end_date || ''} onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.end_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
-              </div>
-            </div>
-
-            {/* Description */}
-            <div className="mb-5">
-              <FieldLabel>Description</FieldLabel>
-              {editingDesc ? (
-                <textarea
-                  autoFocus
-                  value={descDraft}
-                  onChange={e => setDescDraft(e.target.value)}
-                  onBlur={() => {
-                    setEditingDesc(false)
-                    if (descDraft !== (task.description || '')) handleUpdate({ description: descDraft })
-                  }}
-                  onKeyDown={e => { if (e.key === 'Escape') { setDescDraft(task.description || ''); setEditingDesc(false) } }}
-                  rows={4}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
-                />
-              ) : (
-                <button type="button" onClick={() => { setDescDraft(task.description || ''); setEditingDesc(true) }}
-                  className="w-full text-left px-3 py-2 text-[12px] font-mono rounded hover:bg-stone-700/40 transition-colors min-h-[60px]"
-                  style={{ color: task.description ? '#f4a261' : '#57534e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-                  {task.description || 'Click to add a description...'}
-                </button>
-              )}
-            </div>
-
-            {/* Notes */}
-            <div className="mb-5">
-              <FieldLabel>Notes</FieldLabel>
-              {editingNotes ? (
-                <textarea
-                  autoFocus
-                  value={notesDraft}
-                  onChange={e => setNotesDraft(e.target.value)}
-                  onBlur={() => {
-                    setEditingNotes(false)
-                    if (notesDraft !== (task.notes || '')) handleUpdate({ notes: notesDraft })
-                  }}
-                  onKeyDown={e => { if (e.key === 'Escape') { setNotesDraft(task.notes || ''); setEditingNotes(false) } }}
-                  rows={3}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
-                />
-              ) : (
-                <button type="button" onClick={() => { setNotesDraft(task.notes || ''); setEditingNotes(true) }}
-                  className="w-full text-left px-3 py-2 text-[12px] font-mono rounded hover:bg-stone-700/40 transition-colors min-h-[48px]"
-                  style={{ color: task.notes ? '#f4a261' : '#57534e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
-                  {task.notes || 'Click to add notes...'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
+    <Dialog
+      // The header is the dialog's H2, read-only; the Title FIELD below is
+      // where the title is edited, at the field's own 14px / 400. The two
+      // stop being the same typographic object (review R17, as the critic
+      // reframed it: both stay).
+      title={task.title || 'Untitled task'}
+      // The status, where the 3px status-coloured rule under the header used
+      // to say it (one border weight, and never colour alone).
+      subtitle={<StatusBadge status={task.status || 'waiting_to_start'} />}
+      // Wider when the files column is shown.
+      width={hasLeftColumn ? 'workbench' : 'reading'}
+      // The backdrop closed it before, and still does. Escape now closes it
+      // too (Q17), after an open editor's own Escape has reverted (W2).
+      dismissOnBackdrop
+      onClose={onClose}
+      className="rb-task-detail"
+      footer={(
+        <>
           {/* Session 29 — was `canWrite ? <button/> : <span/>`, i.e. the
-              control vanished with no explanation. Audrey: "keep button gray
-              and explain why." */}
+              control vanished with no explanation. Audrey: "keep button
+              gray and explain why." */}
           <GatedAction allowed={canWrite} reason={writeReason}>
             {/* Soft delete — no confirm in RABBIT; the shell-level undo toast
                 covers it. A ctx.deleteTask returning false means the caller
                 vetoed the delete (Dashboard's confirm) — keep the popup open. */}
-            <button type="button"
-              onClick={() => { if (ctx?.deleteTask?.(task.id) !== false) onClose() }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
-              <Trash2 className="w-3.5 h-3.5" /> Delete task
-            </button>
+            <Button variant="danger" Icon={Trash2}
+              onClick={() => { if (ctx?.deleteTask?.(task.id) !== false) onClose() }}>
+              Delete task
+            </Button>
           </GatedAction>
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+          <Button variant="primary" onClick={onClose}>
             Done
-          </button>
+          </Button>
+        </>
+      )}
+    >
+      <div className="rb-task-detail-body">
+
+        {/* ── LEFT COLUMN — files & relations ── */}
+        {hasLeftColumn && (
+          <div className="rb-task-detail-files">
+            {/* Asset files */}
+            {linkedAsset && (
+              <CollapsibleSection
+                icon={Boxes}
+                label={`Asset: ${linkedAsset.name || 'Untitled'}`}
+                collapsed={collapsed.asset}
+                onToggle={() => toggleCollapse('asset')}
+              >
+                <FileNameEditor
+                  fileNameOverride={fileNameOverride}
+                  editingFileName={editingFileName}
+                  fileNameDraft={fileNameDraft}
+                  setEditingFileName={setEditingFileName}
+                  setFileNameDraft={setFileNameDraft}
+                  setFileNameOverride={setFileNameOverride}
+                />
+                <FileManager
+                  files={ctx?.managedFiles || []}
+                  assetId={linkedAsset.id}
+                  assetName={linkedAsset.name}
+                  projectId={ctx?.activeProjectId}
+                  project={project}
+                  mode="readonly"
+                  taskTitle={fileNameOverride || null}
+                  taskId={task.id}
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                />
+              </CollapsibleSection>
+            )}
+
+            {/* Shot files */}
+            {linkedShot && (
+              <CollapsibleSection
+                icon={Clapperboard}
+                label={`Shot: ${linkedShot.name || 'Untitled'}`}
+                collapsed={collapsed.shot}
+                onToggle={() => toggleCollapse('shot')}
+              >
+                <FileNameEditor
+                  fileNameOverride={fileNameOverride}
+                  editingFileName={editingFileName}
+                  fileNameDraft={fileNameDraft}
+                  setEditingFileName={setEditingFileName}
+                  setFileNameDraft={setFileNameDraft}
+                  setFileNameOverride={setFileNameOverride}
+                />
+                <FileManager
+                  files={ctx?.managedFiles || []}
+                  assetId={linkedShot.id}
+                  assetName={linkedShot.name}
+                  projectId={ctx?.activeProjectId}
+                  project={project}
+                  mode="readonly"
+                  taskTitle={fileNameOverride || null}
+                  taskId={task.id}
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                />
+              </CollapsibleSection>
+            )}
+
+            {/* Scene relation */}
+            {scenesOn && linkedScene && !linkedShot && (
+              <CollapsibleSection
+                icon={Film}
+                label={`Scene: ${linkedScene.name || 'Untitled'}`}
+                collapsed={collapsed.scene_files}
+                onToggle={() => toggleCollapse('scene_files')}
+              >
+                <FileNameEditor
+                  fileNameOverride={fileNameOverride}
+                  editingFileName={editingFileName}
+                  fileNameDraft={fileNameDraft}
+                  setEditingFileName={setEditingFileName}
+                  setFileNameDraft={setFileNameDraft}
+                  setFileNameOverride={setFileNameOverride}
+                />
+                <FileManager
+                  files={ctx?.managedFiles || []}
+                  assetId={linkedScene.id}
+                  assetName={linkedScene.name}
+                  projectId={ctx?.activeProjectId}
+                  project={project}
+                  mode="readonly"
+                  taskTitle={fileNameOverride || null}
+                  taskId={task.id}
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                />
+              </CollapsibleSection>
+            )}
+
+            {/* No relations hint */}
+            {!linkedAsset && !linkedShot && !(scenesOn && linkedScene) && (
+              <EmptyState
+                compact
+                Icon={FolderOpen}
+                title="Link an asset, scene, or shot to see files here"
+              />
+            )}
+          </div>
+        )}
+
+        {/* ── RIGHT COLUMN — task properties ── */}
+        <div className="rb-task-detail-props">
+
+          {/* Title (editable) */}
+          <TextField label="Title">
+            <PopupInlineText
+              value={task.title || ''}
+              placeholder="Untitled task"
+              onCommit={v => handleUpdate({ title: v })}
+            />
+          </TextField>
+
+          {/* Properties: every field in its order, chunked into four groups
+              under a hairline and a Label-step heading (review R18). */}
+          <PropertyGroup title="Workflow">
+            <Field label="Status">
+              <span className="rb-task-status-select">
+                <StatusDot status={task.status || 'waiting_to_start'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
+                  className="ui-input rb-task-status-input">
+                  {TASK_STATUSES.map(s => <option key={s} value={s}>{statusMeta(s).label}</option>)}
+                </select>
+              </span>
+            </Field>
+            <Field label="Priority">
+              <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
+                className="ui-input rb-task-prop"
+                data-tone={priorityTone(task.priority || 'medium')}>
+                {PRIORITIES.map(p => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
+              </select>
+            </Field>
+          </PropertyGroup>
+
+          <PropertyGroup title="Placement">
+            <Field label="Asset">
+              {task.asset_id && !assets.some(a => a.id === task.asset_id) ? (
+                // Current asset not in ctx.assets (the Dashboard's
+                // cross-project reuse keeps the list empty so the
+                // FileManager column can't mount): show the embedded name
+                // read-only. A select here would render blank and its
+                // only option would write asset_id = NULL into a
+                // NOT NULL column (Session 8 review finding).
+                <div className="rb-task-readout"
+                  title="Open the project in R.A.B.B.I.T. to re-link this task">
+                  {task.asset?.name || 'Linked asset'}
+                </div>
+              ) : (
+                <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
+                  className="ui-input rb-task-prop"
+                  data-empty={task.asset_id ? 'false' : 'true'}>
+                  <option value="">—</option>
+                  {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
+                </select>
+              )}
+            </Field>
+            <Field label="Phase">
+              <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
+                className="ui-input rb-task-prop"
+                data-empty={task.phase_id ? 'false' : 'true'}>
+                <option value="">—</option>
+                {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
+              </select>
+            </Field>
+
+            {/* ── Conditional relation fields ── */}
+            {scenesOn && (
+              <Field label="Scene">
+                <select value={task.scene_id || ''} onChange={e => {
+                  const v = e.target.value || null
+                  // Clear shot if scene changed
+                  handleUpdate({ scene_id: v, shot_id: null })
+                }}
+                  className="ui-input rb-task-prop"
+                  data-empty={task.scene_id ? 'false' : 'true'}>
+                  <option value="">—</option>
+                  {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
+                </select>
+              </Field>
+            )}
+            {scenesOn && (
+              <Field label="Shot">
+                <select value={task.shot_id || ''} onChange={e => handleUpdate({ shot_id: e.target.value || null })}
+                  className="ui-input rb-task-prop"
+                  data-empty={task.shot_id ? 'false' : 'true'}>
+                  <option value="">—</option>
+                  {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
+                </select>
+              </Field>
+            )}
+            {levelsOn && (
+              <Field label="Level">
+                <select value={task.level_id || ''} onChange={e => handleUpdate({ level_id: e.target.value || null })}
+                  className="ui-input rb-task-prop"
+                  data-empty={task.level_id ? 'false' : 'true'}>
+                  <option value="">—</option>
+                  {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
+                </select>
+              </Field>
+            )}
+            {experiencesOn && (
+              <Field label="Experience">
+                <select value={task.experience_id || ''} onChange={e => handleUpdate({ experience_id: e.target.value || null })}
+                  className="ui-input rb-task-prop"
+                  data-empty={task.experience_id ? 'false' : 'true'}>
+                  <option value="">—</option>
+                  {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
+                </select>
+              </Field>
+            )}
+          </PropertyGroup>
+
+          <PropertyGroup title="People">
+            <Field label="Assignee">
+              <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
+                className="ui-input rb-task-prop"
+                data-empty={task.assignee_id ? 'false' : 'true'}>
+                <option value="">—</option>
+                {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Reviewer">
+              <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
+                className="ui-input rb-task-prop"
+                data-empty={task.reviewer_id ? 'false' : 'true'}>
+                <option value="">—</option>
+                {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </Field>
+            <Field
+              label="Role"
+              hint={task.assigned_role_slug && !currentRoleEntry
+                ? <span className="rb-task-hint-danger">Role "{fmt(task.assigned_role_slug)}" not found in rate card</span>
+                : null}
+            >
+              <select
+                value={task.assigned_role_slug || ''}
+                onChange={e => {
+                  const slug = e.target.value || null
+                  const entry = roleEntries.find(r => r.role_slug === slug)
+                  handleUpdate({
+                    assigned_role_slug: slug,
+                    assigned_position: entry ? entry.role_label : null,
+                  })
+                }}
+                className="ui-input rb-task-prop"
+                data-empty={task.assigned_role_slug ? 'false' : 'true'}>
+                <option value="">—</option>
+                {roleEntries.map(r => (
+                  <option key={r.role_slug} value={r.role_slug}>
+                    {r.role_label}{r.day_rate != null ? ` ($${Number(r.day_rate).toLocaleString()}/day)` : ''}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </PropertyGroup>
+
+          <PropertyGroup title="Schedule and cost">
+            <Field label="Bid days">
+              <input type="number" value={task.bid_days ?? ''} min={0} step={0.5}
+                onChange={e => { const n = parseFloat(e.target.value); handleUpdate({ bid_days: isNaN(n) ? null : n }) }}
+                className="ui-input rb-task-prop rb-task-prop-number"
+                data-empty={task.bid_days != null ? 'false' : 'true'}
+                placeholder="—" />
+            </Field>
+            <Field
+              label="Bid total"
+              hint={dayRate != null
+                ? <span className="rb-task-hint-figure">{fmt(task.assigned_role_slug || '')} @ ${Number(dayRate).toLocaleString()}/day</span>
+                : null}
+            >
+              <div className="rb-task-readout rb-task-readout-figure" data-empty={bidTotal != null ? 'false' : 'true'}>
+                <DollarSign className="rb-task-readout-icon" aria-hidden="true" />
+                {bidTotal != null
+                  ? `${bidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : dayRate != null ? `${Number(dayRate).toLocaleString()}/day × —`
+                  : '—'}
+              </div>
+            </Field>
+            <Field label="Start date">
+              <input type="date" value={task.start_date || ''} onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                className="ui-input rb-task-prop rb-task-prop-date"
+                data-empty={task.start_date ? 'false' : 'true'} />
+            </Field>
+            <Field label="End date">
+              <input type="date" value={task.end_date || ''} onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                className="ui-input rb-task-prop rb-task-prop-date"
+                data-empty={task.end_date ? 'false' : 'true'} />
+            </Field>
+          </PropertyGroup>
+
+          {/* Description */}
+          <TextField label="Description">
+            {editingDesc ? (
+              <textarea
+                autoFocus
+                value={descDraft}
+                aria-label="Description"
+                onChange={e => setDescDraft(e.target.value)}
+                onBlur={() => {
+                  setEditingDesc(false)
+                  if (descDraft !== (task.description || '')) handleUpdate({ description: descDraft })
+                }}
+                // W2: Escape reverts the edit first and closes on the second
+                // press, so it must not reach the Dialog on the first one.
+                onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setDescDraft(task.description || ''); setEditingDesc(false) } }}
+                rows={4}
+                className="ui-input rb-task-textarea"
+              />
+            ) : (
+              <button type="button" onClick={() => { setDescDraft(task.description || ''); setEditingDesc(true) }}
+                className="rb-task-textblock"
+                data-size="lg"
+                data-empty={task.description ? 'false' : 'true'}>
+                {task.description || 'Click to add a description…'}
+              </button>
+            )}
+          </TextField>
+
+          {/* Notes */}
+          <TextField label="Notes">
+            {editingNotes ? (
+              <textarea
+                autoFocus
+                value={notesDraft}
+                aria-label="Notes"
+                onChange={e => setNotesDraft(e.target.value)}
+                onBlur={() => {
+                  setEditingNotes(false)
+                  if (notesDraft !== (task.notes || '')) handleUpdate({ notes: notesDraft })
+                }}
+                onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setNotesDraft(task.notes || ''); setEditingNotes(false) } }}
+                rows={3}
+                className="ui-input rb-task-textarea"
+              />
+            ) : (
+              <button type="button" onClick={() => { setNotesDraft(task.notes || ''); setEditingNotes(true) }}
+                className="rb-task-textblock"
+                data-size="md"
+                data-empty={task.notes ? 'false' : 'true'}>
+                {task.notes || 'Click to add notes…'}
+              </button>
+            )}
+          </TextField>
         </div>
       </div>
-    </>
+    </Dialog>
+  )
+}
+
+
+// ─── A group of properties: a hairline, a Label-step heading, a grid ───
+function PropertyGroup({ title, children }) {
+  return (
+    <section className="rb-task-prop-group" aria-label={title}>
+      <h3 className="rb-task-prop-group-title">{title}</h3>
+      <div className="rb-task-prop-grid">{children}</div>
+    </section>
+  )
+}
+
+// ─── A field whose control is a BUTTON (an inline editor at rest) ───
+// The kit's Field is a <label>, and a <label> around a button forwards a
+// click on its caption to the button: clicking "Title" would start an edit
+// that clicking it never did (C1). Same anatomy and metrics, a <div>. Kit
+// request K3 in the B2 hand-off.
+function TextField({ label, className = '', children }) {
+  return (
+    <div className={`rb-task-textfield ${className}`.trim()}>
+      <span className="rb-task-textfield-label text-label uppercase">{label}</span>
+      {children}
+    </div>
   )
 }
 
 
 // ─── Collapsible section for left column ───
-function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColor, children }) {
+function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, children }) {
   return (
-    <div className="rounded overflow-hidden mb-1" style={{ border: '1px solid #292524' }}>
+    <div className="rb-task-section">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-stone-800/50 transition-colors"
-        style={{ backgroundColor: '#292524' }}
+        aria-expanded={!collapsed}
+        className="rb-task-section-head"
       >
         {collapsed
-          ? <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
-          : <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />}
-        {Icon && <Icon className="w-3 h-3 flex-shrink-0" style={{ color: accentColor || '#fb923c' }} />}
-        <span className="text-[10px] font-mono uppercase tracking-wider truncate" style={{ color: accentColor || '#fb923c' }}>
+          ? <ChevronRight className="rb-task-section-chevron" aria-hidden="true" />
+          : <ChevronDown className="rb-task-section-chevron" aria-hidden="true" />}
+        {Icon && <Icon className="rb-task-section-icon" aria-hidden="true" />}
+        <span className="rb-task-section-label">
           {label}
         </span>
       </button>
       {!collapsed && (
-        <div className="px-3 py-2" style={{ backgroundColor: '#1c1917' }}>
+        <div className="rb-task-section-body">
           {children}
         </div>
       )}
@@ -614,43 +608,33 @@ function CollapsibleSection({ icon: Icon, label, collapsed, onToggle, accentColo
 // ─── File name editor (reused per section) ───
 function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setEditingFileName, setFileNameDraft, setFileNameOverride }) {
   return (
-    <div className="mb-2">
-      <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
-        Upload file name
-      </div>
+    <TextField label="Upload file name">
       {editingFileName ? (
         <input autoFocus
           value={fileNameDraft}
+          aria-label="Upload file name"
           onChange={e => setFileNameDraft(e.target.value)}
           onBlur={() => { setEditingFileName(false); setFileNameOverride(fileNameDraft) }}
           onKeyDown={e => {
             if (e.key === 'Enter') { setEditingFileName(false); setFileNameOverride(fileNameDraft) }
-            if (e.key === 'Escape') { setEditingFileName(false); setFileNameDraft(fileNameOverride) }
+            if (e.key === 'Escape') { e.stopPropagation(); setEditingFileName(false); setFileNameDraft(fileNameOverride) }
           }}
-          className="w-full px-2 py-1 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-          style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
+          className="ui-input"
+          data-size="sm"
         />
       ) : (
         <button type="button"
           onClick={() => { setFileNameDraft(fileNameOverride); setEditingFileName(true) }}
-          className="w-full text-left px-2 py-1 text-[11px] font-mono rounded hover:bg-stone-700/40 transition-colors truncate"
-          style={{ color: fileNameOverride ? '#f4a261' : '#57534e', border: '1px dashed #44403c' }}>
+          className="rb-task-textblock"
+          data-size="sm"
+          data-empty={fileNameOverride ? 'false' : 'true'}>
           {fileNameOverride || 'Uses original file name'}
         </button>
       )}
-    </div>
+    </TextField>
   )
 }
 
-
-// ── Field label ──
-function FieldLabel({ children }) {
-  return (
-    <div className="text-[10px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
-      {children}
-    </div>
-  )
-}
 
 // ── Inline text editor ──
 function PopupInlineText({ value, placeholder, onCommit }) {
@@ -664,17 +648,18 @@ function PopupInlineText({ value, placeholder, onCommit }) {
   if (editing) {
     return (
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
+        aria-label="Title"
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-2.5 py-1.5 text-[14px] font-mono font-bold rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.stopPropagation(); setDraft(value); setEditing(false) } }}
+        className="ui-input rb-task-title-input" />
     )
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-[14px] font-mono font-bold text-left w-full hover:bg-stone-700/40 px-2.5 py-1.5 rounded transition-colors"
-      style={{ color: value ? '#fb923c' : '#57534e' }}>
-      {value || placeholder || '\u2014'}
+      className="rb-task-textblock"
+      data-size="line"
+      data-empty={value ? 'false' : 'true'}>
+      {value || placeholder || '—'}
     </button>
   )
 }

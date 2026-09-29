@@ -315,10 +315,93 @@ function fileHasBytes(p) {
   try { return fs.statSync(p).size > 0; } catch { return false; }
 }
 
+// ── Bins (demo 2026-09-11): the rest of what `ffmpeg -i` already says ────────
+//
+// probeDurationSec runs ffmpeg once and reads one number off stderr. The same
+// stderr carries the video stream line ("Stream #0:0: Video: h264 (High) …,
+// 1920x1080 [SAR 1:1 DAR 16:9], 24 fps, 24 tbr"), the audio stream line, the
+// container and a `timecode` metadata tag — which is every technical column
+// the bin system shows (docs/BINS_DESIGN.md §4.1). One process, not five.
+//
+// The parser is pure and exported so it is tested on captured stderr rather
+// than on a claim. Shapes it must survive: a stream id like `[0x1]` and a
+// fourcc like `(avc1 / 0x31637661)` both contain "0x1…" and must NOT read as a
+// frame size (both sides need two or more digits); a still image reports a
+// Video stream with no fps and no Duration; ProRes reports `prores (apch)`.
+const STREAM_VIDEO_RE = /Stream #\d+:\d+.*?:\s*Video:\s*([A-Za-z0-9_-]+)([^\n]*)/;
+const STREAM_AUDIO_RE = /Stream #\d+:\d+.*?:\s*Audio:\s*([A-Za-z0-9_-]+)([^\n]*)/;
+const FRAME_SIZE_RE = /\b(\d{2,5})x(\d{2,5})\b/;
+const FPS_RE = /(\d+(?:\.\d+)?)\s*fps\b/;
+const TBR_RE = /(\d+(?:\.\d+)?)\s*tbr\b/;
+const TIMECODE_RE = /^\s*timecode\s*:\s*(\d{2}:\d{2}:\d{2}[:;]\d{2})\s*$/m;
+const CONTAINER_RE = /Input #0,\s*([^\n]+?),\s*from\b/;
+const SAMPLE_RATE_RE = /(\d{4,6})\s*Hz/;
+const CHANNELS_RE = /\d+\s*Hz,\s*([^,\n]+)/;
+
+function parseFfmpegInfo(stderr) {
+  const text = String(stderr || '');
+  const out = {
+    duration_sec: null, codec: null, width: null, height: null, fps: null,
+    audio_codec: null, sample_rate: null, channels: null,
+    timecode_start: null, container: null,
+  };
+  const d = DURATION_RE.exec(text);
+  if (d) {
+    const secs = Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]);
+    if (Number.isFinite(secs) && secs > 0) out.duration_sec = secs;
+  }
+  const v = STREAM_VIDEO_RE.exec(text);
+  if (v) {
+    out.codec = v[1].toLowerCase();
+    const rest = v[2] || '';
+    const size = FRAME_SIZE_RE.exec(rest);
+    if (size) { out.width = Number(size[1]); out.height = Number(size[2]); }
+    const fps = FPS_RE.exec(rest) || TBR_RE.exec(rest);
+    if (fps) {
+      const n = Number(fps[1]);
+      if (Number.isFinite(n) && n > 0) out.fps = n;
+    }
+  }
+  const a = STREAM_AUDIO_RE.exec(text);
+  if (a) {
+    out.audio_codec = a[1].toLowerCase();
+    const rest = a[2] || '';
+    const sr = SAMPLE_RATE_RE.exec(rest);
+    if (sr) out.sample_rate = Number(sr[1]);
+    const ch = CHANNELS_RE.exec(rest);
+    if (ch) out.channels = ch[1].trim();
+  }
+  const tc = TIMECODE_RE.exec(text);
+  if (tc) out.timecode_start = tc[1];
+  const c = CONTAINER_RE.exec(text);
+  if (c) out.container = c[1].trim();
+  return out;
+}
+
+/**
+ * Everything parseFfmpegInfo can read about `input`, or `{ ok:false, reason }`
+ * when there is no binary or it timed out. Never rejects; the caller is a
+ * probe route that must answer for every file.
+ */
+async function probeMediaInfo(input, timeoutMs = PROBE_TIMEOUT_MS) {
+  if (!hasFfmpeg()) return { ok: false, reason: 'ffmpeg_missing', info: null };
+  if (!(timeoutMs > 0)) return { ok: false, reason: 'timeout', info: null };
+  const res = await runFfmpeg(['-hide_banner', '-i', input], timeoutMs);
+  // Non-zero exit is the expected shape ("At least one output file must be
+  // specified"); a timeout or a missing decoder is not.
+  if (res.reason === 'timeout') return { ok: false, reason: 'timeout', info: null };
+  const info = parseFfmpegInfo(res.stderr);
+  const sawStream = /Stream #\d+:\d+/.test(res.stderr);
+  if (!sawStream) return { ok: false, reason: 'unreadable', info };
+  return { ok: true, reason: null, info };
+}
+
 module.exports = {
   resolveFfmpegPath,
   hasFfmpeg,
   probeDurationSec,
+  parseFfmpegInfo,
+  probeMediaInfo,
   seekTimestampFor,
   extractFrame,
   // Exported for the unit tests: the two rules that cost a session are asserted

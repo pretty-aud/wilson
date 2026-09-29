@@ -6,10 +6,14 @@
 // Persists JSON bundles under {userData}/rabbit-data/projects/.
 //
 // Single-user / offline-first. No realtime, no auth.
-// File payloads are sent as base64 inside JSON to keep the surface
-// area off a multipart parser dependency. The 50mb express.json
-// limit is the upper bound; larger files should be added in v0.2
-// when streaming uploads are wired.
+// File bodies STREAM to PUT …/files-stream (electron/projectFileStream.cjs,
+// demo 2026-09-11) as application/octet-stream — the File is read from disk
+// by Chromium, never buffered here. Until that night they travelled as
+// base64 inside a JSON POST, which the server's 50mb json limit capped at
+// roughly 37 MB of file: Audrey's "[localServer] HTTP 413" adding one clip.
+
+import { streamPutJson } from '../storage/localServerProvider';
+import { describeSourceFile } from '../storage/mediaMetadata';
 
 const BASE = '/api/rabbit';
 
@@ -21,12 +25,20 @@ async function jfetch(url, init) {
     const res = await fetch(url, init);
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
+      let code = null;
       try {
         const body = await res.json();
         if (body?.error) msg = body.error;
+        if (body?.code) code = String(body.code);
       } catch { /* ignore */ }
       lastError = msg;
-      throw new Error(`[localServer] ${msg}`);
+      // The status and the route's `code` ride on the error (review round 2:
+      // a caller branching on "offline" had only the sentence to read, and
+      // the sentence does not contain the word).
+      const err = new Error(`[localServer] ${msg}`);
+      err.status = res.status;
+      if (code) err.code = code;
+      throw err;
     }
     lastError  = null;
     lastSyncAt = new Date();
@@ -40,15 +52,7 @@ async function jfetch(url, init) {
   }
 }
 
-function arrayBufferToBase64(buf) {
-  let binary = '';
-  const bytes = new Uint8Array(buf);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
+
 
 // Session 26: the folder tree is returned in path order on BOTH backends.
 // Supabase does it with `.order('path')`; the local bundle is a plain array,
@@ -116,6 +120,13 @@ export function localServerAdapter() {
         // missing key reset the array — real data loss on every reload,
         // project switch and realtime refetch.
         milestones:      bundle.milestones || [],
+        // The bin system (demo 2026-09-11) — same reason as every key above.
+        // `binFiles` here carry no `online` flag (the bundle is read raw); the
+        // provider refreshes through listBins, whose route stats every path.
+        bins:            bundle.bins || [],
+        binFiles:        bundle.binFiles || [],
+        binRoots:        bundle.binRoots || [],
+        shotTakes:       bundle.shotTakes || [],
       };
     },
 
@@ -173,20 +184,37 @@ export function localServerAdapter() {
     deleteTaskLink: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/task-links/${id}`, { method: 'DELETE' }),
 
     // ── Files ─────────────────────────────────────────────────
-    async uploadFile(projectId, scope, file) {
-      const buf = await file.arrayBuffer();
-      const base64 = arrayBufferToBase64(buf);
-      return jfetch(`${BASE}/projects/${projectId}/files`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          name:      file.name,
-          mimeType:  file.type,
-          sizeBytes: file.size,
-          base64,
-          scope,
-        }),
+    // Demo 2026-09-11 (Audrey: "[localServer] HTTP 413" adding a file to a
+    // project). The body STREAMS to the server — Chromium reads the File
+    // from disk in chunks; nothing is buffered here or there — with the
+    // metadata in the query string. Same row, same directories, same
+    // 'uploaded' event as the base64 POST it replaces (which stays mounted
+    // for anything else that calls it). `onProgress` rides XHR when given.
+    async uploadFile(projectId, scope, file, opts = {}) {
+      // Demo 2026-09-11: the file's own facts ride along — duration (audio
+      // / video, read by a media element, best-effort) and the source's
+      // modified time — so the local row says the same as the cloud row.
+      const facts = await describeSourceFile(file);
+      const q = new URLSearchParams({
+        name:      file?.name || 'file',
+        mimeType:  file?.type || '',
+        sizeBytes: file?.size == null ? '' : String(file.size),
+        scope:     JSON.stringify(scope || {}),
+        durationSec:      facts.durationSec == null ? '' : String(facts.durationSec),
+        sourceModifiedAt: facts.sourceModifiedAt || '',
       });
+      try {
+        const row = await streamPutJson(`${BASE}/projects/${projectId}/files-stream?${q}`, file, {
+          onProgress: opts.onProgress,
+          label: '[localServer] upload failed',
+        });
+        lastError = null;
+        lastSyncAt = new Date();
+        return row;
+      } catch (err) {
+        lastError = err.message || String(err);
+        throw err;
+      }
     },
 
     listFiles: async (projectId) => (await jfetch(`${BASE}/projects/${projectId}`)).files || [],
@@ -561,5 +589,112 @@ export function localServerAdapter() {
     // so callers can wire it the same way as Supabase without
     // branching on adapter mode.
     subscribeProjectChanges: () => () => {},
+
+    // --- bins ---
+    //
+    // The bin system (demo 2026-09-11, docs/BINS_DESIGN.md). Local Server
+    // ONLY: bin files are references to paths on this machine, the dialogs
+    // open in the main process, and the bytes are served by the loopback
+    // server. Neither the Supabase nor the Drive adapter defines any of
+    // these; the provider feature-detects `listBins` and exposes
+    // `supportsBins`. Every method takes projectId first.
+    listBins: (projectId) => jfetch(`${BASE}/projects/${projectId}/bins`),
+    createBin: (projectId, bin) => jfetch(`${BASE}/projects/${projectId}/bins`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bin),
+    }),
+    updateBin: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/bins/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }),
+    // mode 'move' needs target (the bin that receives the files); 'remove'
+    // drops the references. Returns { removedBins, movedFiles, removedFiles }.
+    deleteBin: (projectId, id, { mode = 'remove', target = null } = {}) =>
+      jfetch(`${BASE}/projects/${projectId}/bins/${id}?mode=${mode}${target ? `&target=${encodeURIComponent(target)}` : ''}`, { method: 'DELETE' }),
+    reorderBins: (projectId, order) => jfetch(`${BASE}/projects/${projectId}/bins/reorder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }),
+    }),
+    pickBinFiles: (projectId) => jfetch(`${BASE}/projects/${projectId}/bins/pick-files`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
+    pickBinFolder: (projectId, title) => jfetch(`${BASE}/projects/${projectId}/bins/pick-folder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    }),
+    // opts.folderAsBin (default true): a picked folder becomes a nested bin named after itself.
+    prepareBinFiles: (projectId, paths, opts = {}) => jfetch(`${BASE}/projects/${projectId}/bins/prepare`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths, ...opts }),
+    }),
+    // roots (optional): the folders the batch was picked or dropped from, as
+    // `prepare` reported them — the server records those as the known roots.
+    addBinFiles: (projectId, binId, items, createSubBins = true, roots = null) =>
+      jfetch(`${BASE}/projects/${projectId}/bins/${binId}/files`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, createSubBins, ...(roots ? { roots } : {}) }),
+      }),
+    updateBinFile: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }),
+    bulkUpdateBinFiles: (projectId, ids, patch) => jfetch(`${BASE}/projects/${projectId}/bin-files/bulk`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, patch }),
+    }),
+    // sortOrders (optional, { id: n }): an undo puts rows back at their old positions.
+    moveBinFiles: (projectId, ids, binId, sortOrders = null) => jfetch(`${BASE}/projects/${projectId}/bin-files/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sortOrders ? { ids, binId, sortOrders } : { ids, binId }),
+    }),
+    copyBinFiles: (projectId, ids, binId) => jfetch(`${BASE}/projects/${projectId}/bin-files/copy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, binId }),
+    }),
+    removeBinFiles: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/bin-files/remove`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    // → { restored, skipped: [{ id, reason }], affectedShotIds, shotTakes, orphanTakes }
+    restoreBinFiles: (projectId, rows) => jfetch(`${BASE}/projects/${projectId}/bin-files/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
+    }),
+    probeBinFile: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/probe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
+    // reveal:true shows the file in Explorer; otherwise the OS default app opens it.
+    openBinFile: (projectId, id, reveal = false) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/open`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reveal }),
+    }),
+    postBinFileThumbnail: (projectId, id, base64) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/thumbnail`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base64 }),
+    }),
+    // URL builders, not fetches: <img>, <video> and <audio> take a src.
+    binFileThumbnailUrl: (projectId, id, rev = 0) =>
+      `${BASE}/projects/${projectId}/bin-files/${id}/thumbnail${rev ? `?v=${rev}` : ''}`,
+    binFileStreamUrl: (projectId, id, { probe = false } = {}) =>
+      `${BASE}/projects/${projectId}/bin-files/${id}/stream${probe ? '?probe=1' : ''}`,
+    binRelinkScan: (projectId, folderPath = null) => jfetch(`${BASE}/projects/${projectId}/bins/relink-scan`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(folderPath ? { folderPath } : {}),
+    }),
+    binRelinkApply: (projectId, mappings) => jfetch(`${BASE}/projects/${projectId}/bins/relink-apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings }),
+    }),
+    // Roots are recorded by the pick and add routes; this forgets one.
+    removeBinRoot: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bins/roots/${id}`, { method: 'DELETE' }),
+
+    // Shot takes (milestone 2): bin files assigned to shots, many-to-many.
+    // Every mutation answers { affectedShotIds, shotTakes } — the FULL row set
+    // of the shots it touched, because a role change or a removal renumbers
+    // and re-roles the siblings; the provider replaces those shots' rows. The
+    // rows themselves arrive with listBins (`shotTakes`); there is no separate
+    // list method because nothing needs one.
+    // assignments: [{ shot_id, bin_file_id, role?, notes? }] → { created, skipped, … }
+    assignShotTakes: (projectId, assignments) => jfetch(`${BASE}/projects/${projectId}/shot-takes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignments }),
+    }),
+    // patch: { role?, notes?, position? } → { take, … }
+    updateShotTake: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/shot-takes/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }),
+    removeShotTakes: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/shot-takes/remove`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    reorderShotTakes: (projectId, shotId, ids) => jfetch(`${BASE}/projects/${projectId}/shot-takes/reorder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shot_id: shotId, ids }),
+    }),
+    // The undo primitive: the given shots' rows become exactly `rows`.
+    replaceShotTakes: (projectId, shotIds, rows) => jfetch(`${BASE}/projects/${projectId}/shot-takes/replace`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shotIds, rows }),
+    }),
   };
 }

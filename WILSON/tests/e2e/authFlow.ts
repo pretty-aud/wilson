@@ -55,7 +55,11 @@ if (!PASSWORD) {
 // shape-checks the slug and advances — so there is nothing to wait on beyond
 // the step cross-fade; waiting for the Username field covers it.
 export async function clearCompanyStep(page: Page, workspace = WORKSPACE) {
-  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 15_000 })
+  // UI overhaul D2: the title is sentence case now (Q2 — uppercase survives
+  // only in the transition title and the 11px Label step), so this regex is
+  // case-insensitive. It is a LOOSENING: it matches the old LOGIN and the new
+  // Login, so it cannot regress while the restyle rolls through the lanes.
+  await expect(page.getByText(/^login$/i)).toBeVisible({ timeout: 15_000 })
   await page.getByLabel('Company').fill(workspace)
   await page.getByRole('button', { name: /^continue$/i }).click()
   await expect(page.getByLabel('Username')).toBeVisible({ timeout: 10_000 })

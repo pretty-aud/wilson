@@ -679,7 +679,11 @@ describe('review fixes', () => {
     // a re-sign yields new URLs, so every visible tile reloads.
     const src = executable(read('components', 'FileManager.jsx'))
     expect(src).toMatch(/const signThumbnails = ctx\?\.thumbnailUrls/)
-    expect(src).toMatch(/\}, \[signThumbnails, thumbKeys\]\)/)
+    // (2026-09-11) localThumbs joined the deps: a memoised list of the
+    // private-project previews the local server serves — still a stable
+    // value keyed on assetFiles, never ctx.
+    expect(src).toMatch(/\}, \[signThumbnails, thumbKeys, localThumbs\]\)/)
+    expect(src).not.toMatch(/\}, \[signThumbnails, thumbKeys, localThumbs, ctx\]\)/)
   })
 
   it('🚨 the GC restorability check fails CLOSED on a read error', () => {

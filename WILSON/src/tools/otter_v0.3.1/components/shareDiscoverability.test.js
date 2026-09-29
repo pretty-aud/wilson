@@ -38,6 +38,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+import { allRules, decls } from '../../../../scripts/ui-css-rules.mjs'
+
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url))
 const read = (rel) => readFileSync(here(rel), 'utf8')
 
@@ -82,16 +84,29 @@ const DIALOG_RAW = read('./ShareCourseDialog.jsx')
 const OTTER_RAW  = read('../Otter.jsx')
 
 const MENU   = stripComments(MENU_RAW)
+// A3 (2026-09-24): the trigger's colour and hover moved out of its className
+// into O.T.T.E.R.'s sheet, so that is where contrast and concealment are read.
+const SHEET_RAW = read('../otter.css')
+const SHEET = SHEET_RAW.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+/** Every rule in otter.css whose selector names the trigger, as [selector, body]. */
+function triggerRules() {
+  return [...SHEET.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, sel]) => /\.otter-row-menu-trigger(?![\w-])/.test(sel))
+    .map(([, sel, body]) => [sel.trim(), body])
+}
+/** The kit's own stylesheet: the IconButton the trigger became rests on it. */
+const KIT_CSS = read('../../../index.css')
 const DIALOG = stripComments(DIALOG_RAW)
 const OTTER  = stripComments(OTTER_RAW)
 
-/** The className string of CourseRowMenu's "⋯" trigger, executable form only. */
-function triggerClassName() {
-  const anchor = MENU.indexOf('hover:text-orange-400 hover:bg-stone-700')
+/** CourseRowMenu's "⋯" trigger, executable form only: since A3 the kit's
+ *  <IconButton … /> element carrying `otter-row-menu-trigger`. */
+function triggerMarkup() {
+  const anchor = MENU.indexOf('otter-row-menu-trigger')
   if (anchor === -1) return null
-  const open = MENU.lastIndexOf('className={`', anchor)
+  const open = MENU.lastIndexOf('<IconButton', anchor)
   if (open === -1) return null
-  const close = MENU.indexOf('`}', anchor)
+  const close = MENU.indexOf('/>', anchor)
   return close === -1 ? null : MENU.slice(open, close)
 }
 
@@ -120,8 +135,8 @@ describe('the instrument works', () => {
     expect(OTTER, 'comments were not stripped').not.toContain('PHASE 5')
   })
 
-  it('finds the trigger className', () => {
-    expect(triggerClassName(), 'the "⋯" trigger className must be locatable').not.toBeNull()
+  it('finds the trigger', () => {
+    expect(triggerMarkup(), 'the "⋯" trigger must be locatable').not.toBeNull()
   })
 
   it('does not silently eat code mid-file', () => {
@@ -166,7 +181,10 @@ describe('the "⋯" trigger is findable', () => {
   // defect this suite exists for come back through `hidden`, `invisible`,
   // `sr-only` or `scale-0` — all verified to leave the old assertion green.
   // The lookarounds stop `overflow-hidden` and `opacity-100` matching.
-  const CONCEALED = /(?<![\w-])(opacity-0|hidden|invisible|sr-only|scale-0)(?![\w-])/
+  // A3 review round 2: the kit's own `ui-hover-actions` (opacity 0 until an
+  // li, a tr or a `.ui-hover-host` is hovered) is concealment under the kit's
+  // name, and `opacity-10` dims without hiding.
+  const CONCEALED = /(?<![\w-])(opacity-(0|5|10|20|25|30|40|50)|hidden|invisible|sr-only|scale-0|ui-hover-actions|w-0|h-0)(?![\w-])/
 
   it('is not concealed until hover at any render site', () => {
     let from = 0
@@ -177,38 +195,201 @@ describe('the "⋯" trigger is findable', () => {
       const wrapper = OTTER.slice(Math.max(0, at - 260), at)
       expect(wrapper, `CourseRowMenu site ${checked + 1} is hidden until hover`)
         .not.toMatch(CONCEALED)
+      // A3: the wrappers are styled from otter.css now (scanned below); an
+      // inline style beside the site is the one path no sheet scan sees.
+      expect(wrapper, `CourseRowMenu site ${checked + 1} has an inline style beside it`)
+        .not.toMatch(/\sstyle=\{/)
       checked++
       from = at + 1
     }
     expect(checked, 'expected three CourseRowMenu render sites').toBe(3)
+    // …and each site's wrapper is EXACTLY its own class, or none: a class
+    // added beside it (a utility, the kit's hover wrapper) is how the trigger
+    // went back to hiding in round two, past every class list above.
+    expect(OTTER, 'the sidebar site').toMatch(/<span className="otter-course-menu">\s*<CourseRowMenu/)
+    expect(OTTER, 'the course page site').toMatch(/\{cloudMode && activeCourseRow && \(\s*<CourseRowMenu/)
+    expect(OTTER, 'the library card site').toMatch(/<div className="otter-course-card-menu">\s*<CourseRowMenu/)
+    expect(OTTER, 'a CourseRowMenu inside HoverActions').not.toMatch(/<HoverActions\b[^>]*>\s*(\{[^}]*\(\s*)?<CourseRowMenu/)
   })
 
   it('is not concealed by the trigger\'s own classes either', () => {
     // The wrappers live in Otter.jsx, but nothing stops the concealment moving
     // INTO CourseRowMenu — where the previous version of this suite never
     // looked, so the trigger could be invisible at rest with all tests green.
-    expect(triggerClassName()).not.toMatch(CONCEALED)
+    expect(triggerMarkup()).not.toMatch(CONCEALED)
+  })
+
+  /* A3 review round 1 (tests): moving the styling into otter.css opened
+     paths the class scans cannot see — the wrappers' own rules, a descendant
+     selector on the kit class, a sub-24px size, a repainted glyph, a
+     redefined token, an inline style. EVERY rule in otter.css that can reach
+     the trigger or its wrappers is read here, lower-cased (CSS property
+     names are case-insensitive), and may not hide, dim, clip, transform or
+     shrink it. The first version read only the trigger's own rule, and
+     `.otter-course-menu { opacity: 0 }` with a hover rule beside it — the
+     exact PHASE 5 defect — stayed green. */
+  /* A3 review round 2: the scan is BRACE-WALKED (scripts/ui-css-rules.mjs),
+     so a nested `& > * { opacity: 0 }` inside the wrapper's rule is read in
+     the context of that rule; it reads the course page header's wrapper,
+     the kit's `.ui-section-actions`; and a rule whose last compound is
+     generic — `*`, a pseudo-class, a bare element, an attribute — under a
+     row, a card or a view title reaches the trigger without naming it
+     (`.otter-course-row:not(:hover) > :last-child { visibility: hidden }`). */
+  const REACH = /\.ui-iconbtn|\.otter-row-menu-trigger|\.otter-course-menu|\.otter-course-card-menu|\.ui-section-actions/
+  const HOST = /\.otter-course-row|\.otter-course-card(?![\w-])|\.otter-view-title/
+  const GENERIC_TAIL = /(^|[\s>+~])(\*|:[\w-]+(\([^)]*\))?|span|div|button|svg|path|\[[^\]]+\])+\s*$/
+  const reachRules = (source = SHEET_RAW) => allRules(source).filter((r) => !r.sel.startsWith('@'))
+    .map((r) => [[...r.parents.filter((q) => !q.startsWith('@')), r.sel].join(' ').toLowerCase(), r.body.toLowerCase(), r.sel.toLowerCase()])
+    .filter(([chain, , sel]) => REACH.test(chain) || (HOST.test(chain) && GENERIC_TAIL.test(sel.replace(/^&/, ''))))
+  const declarations = (body) => decls(body)
+  const SIZE_PROP = /^(min-|max-)?(width|height)$|^(min-|max-)?(inline|block)-size$/
+  function whyItHides(prop, value) {
+    // `opacity: 10%` is 0.1: parseFloat read it as 10 (round two).
+    if (prop === 'opacity') return (value.endsWith('%') ? parseFloat(value) / 100 : parseFloat(value)) >= 1 ? null : 'opacity below 1'
+    if (prop === 'visibility' || prop === 'content-visibility') return /^visible$/.test(value) ? null : prop
+    if (prop === 'display' && /none|contents/.test(value)) return `display: ${value}`
+    if (prop === 'pointer-events' && value === 'none') return 'not clickable'
+    if (/^(clip|clip-path|mask|mask-image|-webkit-mask)$/.test(prop)) return 'clipped'
+    if (/^(transform|scale|translate|rotate|zoom)$/.test(prop)) return 'transformed'
+    if (/^(left|right|top|bottom|inset(-(block|inline)(-(start|end))?)?|margin(-[\w-]+)?|text-indent)$/.test(prop)
+      && Math.abs(parseFloat(value)) >= 100) return `moved off by ${value}`
+    if (/^(stroke|fill)(-[\w-]+)?$/.test(prop) || prop === 'filter') return 'the glyph repainted'
+    if (SIZE_PROP.test(prop) && !/^(var\(--control-(sm|md)\)|auto|100%|none)$/.test(value)
+      && !(/px$/.test(value) && parseFloat(value) >= 24)) return `a size of ${value}`
+    if (prop === 'color' && !/^var\(--color-ink(-2|-3)?\)$/.test(value)) return `the ink ${value}`
+    if (/^background(-color)?$/.test(prop)
+      && !/^(var\(--color-(hover|signal-tint)\)|transparent|none)$/.test(value)) return `a ground of ${value}`
+    return null
+  }
+
+  it('is not concealed, dimmed, clipped or shrunk by any rule that can reach it', () => {
+    const rules = reachRules()
+    expect(rules.length, 'no otter.css rule reaches the trigger — the scan read nothing').toBeGreaterThan(0)
+    const bad = []
+    for (const [chain, body] of rules) {
+      for (const [prop, value] of declarations(body)) {
+        const why = whyItHides(prop, value)
+        if (why) bad.push(`${chain} — ${prop}: ${value} (${why})`)
+      }
+    }
+    expect(bad, `rules that can hide or dim the "⋯" trigger:\n${bad.join('\n')}`).toEqual([])
+  })
+
+  it('no kit rule on the IconButton hides it or takes it under 24px at rest (A3 review round 2)', () => {
+    // The trigger IS the kit's IconButton, and the kit was read through two
+    // exact regexes only: `.ui-iconbtn:not(:hover):not(:focus-visible) {
+    // opacity: .35 }` and `.ui-panel .ui-iconbtn[data-size="sm"] { width:
+    // 20px }` in index.css both stayed green. Every kit rule that names it at
+    // rest (a state rule — hover, open, disabled, a surface, danger, active —
+    // is not the resting glyph, unless the state is negated) is judged.
+    const judge = (source) => {
+      const bad = []
+      for (const r of allRules(source)) {
+        if (!/\.ui-iconbtn/.test(r.sel)) continue
+        const positive = r.sel.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, '')
+        if (/:hover|\[data-open|:disabled|\[data-surface|\[data-danger|\[data-active|:active|:focus/.test(positive)) continue
+        for (const [prop, value] of decls(r.body)) {
+          const why = /^(opacity|visibility|content-visibility|display|pointer-events|clip|clip-path|mask|transform|scale|translate|left|right|top|bottom|inset|stroke|fill|filter)/.test(prop) ? whyItHides(prop, value) : null
+          if (why) bad.push(`${r.sel} — ${prop}: ${value} (${why})`)
+          if (/^(min-|max-)?(width|height)$/.test(prop) && /px$/.test(value) && parseFloat(value) < 24 && !/>\s*svg/.test(r.sel)) bad.push(`${r.sel} — ${prop}: ${value} (under 24px)`)
+        }
+      }
+      return bad
+    }
+    const bad = judge(KIT_CSS)
+    expect(bad, bad.join('\n')).toEqual([])
+    expect(judge(`
+      .ui-iconbtn:not(:hover):not(:focus-visible) { opacity: .35; }
+      .ui-panel .ui-iconbtn[data-size="sm"] { width: 20px; height: 20px; }
+      .ui-iconbtn:hover:not(:disabled) { opacity: .9; }
+      .ui-iconbtn > svg { width: var(--icon-md); }
+    `)).toHaveLength(3)
+  })
+
+  it('no rule in otter.css redefines a kit colour, control or icon token', () => {
+    // `--color-ink-2: var(--color-rule)` on any ancestor dims the trigger
+    // (and everything else of the kit's) without naming it; `--control-sm:
+    // 16px` shrinks it. Kit tokens are @theme's alone.
+    const redefined = [...SHEET.matchAll(/(?<![\w-])(--(?:color|control|icon)-[\w-]+)\s*:/gi)].map((m) => m[1])
+    expect(redefined).toEqual([])
+  })
+
+  it('CONTROL: the reach scan fires on every way round it found in review', () => {
+    // [prop, value] pairs, each one a mutant that survived the first version.
+    for (const [p, v] of [['opacity', '0'], ['opacity', '0.0'], ['opacity', '.5'], ['visibility', 'hidden'],
+      ['visibility', 'collapse'], ['display', 'none'], ['clip-path', 'inset(50%)'], ['transform', 'scale(0)'],
+      ['stroke', 'var(--color-rule)'], ['width', '16px'], ['height', '16px'], ['min-width', '0'],
+      ['color', 'var(--color-rule)'], ['color', 'oklch(0.444 0.011 73.639)'], ['background-color', 'var(--color-ink-2)']]) {
+      expect(whyItHides(p, v), `${p}: ${v}`).not.toBeNull()
+    }
+    for (const [p, v] of [['opacity', '1'], ['display', 'inline-flex'], ['color', 'var(--color-ink)'],
+      ['background-color', 'var(--color-hover)'], ['width', 'var(--control-sm)'], ['height', '28px']]) {
+      expect(whyItHides(p, v), `${p}: ${v}`).toBeNull()
+    }
+    expect(REACH.test('.otter-course-row .ui-iconbtn'), 'a descendant rule on the kit class reaches it').toBe(true)
+    expect(declarations('COLOR: var(--color-rule);'), 'case-insensitive').toEqual([['color', 'var(--color-rule)']])
+    // Round two's survivors, through the same reach scan and judge.
+    for (const [p, v] of [['opacity', '10%'], ['right', '-9999px'], ['stroke-width', '0'], ['stroke-opacity', '0.1'],
+      ['pointer-events', 'none'], ['content-visibility', 'hidden'], ['display', 'contents']]) {
+      expect(whyItHides(p, v), `${p}: ${v}`).not.toBeNull()
+    }
+    const planted = reachRules(`
+      @layer components {
+        .otter-course-menu { display: inline-flex; & > * { opacity: 0; } }
+        .otter-course-row:not(:hover) > :last-child { visibility: hidden; }
+        .otter-view-title .ui-section-actions { opacity: 0; }
+        .otter-course-row:hover { background-color: var(--color-hover); }
+      }
+    `)
+    const hides = planted.flatMap(([chain, body]) => declarations(body).filter(([p, v]) => whyItHides(p, v)).map(([p]) => `${chain} ${p}`))
+    expect(hides, hides.join('\n')).toHaveLength(3)
+  })
+
+  it('carries no prop that could dim or hide it on the element itself', () => {
+    const markup = triggerMarkup()
+    expect(markup, "the trigger's class is exactly its own")
+      .toMatch(/\sclassName="otter-row-menu-trigger"(?=[\s/>]|$)/)
+    expect((markup.match(/className=/g) || []).length, 'one className only').toBe(1)
+    expect(markup, 'no inline style, light surface, danger or active state on the trigger')
+      .not.toMatch(/\s(style|surface|danger|active)(?=[\s=/>]|$)/)
+    // A disabled trigger reads as there and does nothing (round two).
+    expect(markup, 'the trigger can be disabled').not.toMatch(/\sdisabled(?=[\s=/>]|$)/)
   })
 
   it('meets the 3:1 contrast minimum for a UI component', () => {
-    const cls = triggerClassName()
-    // stone-600 (#57534e) on the hovered stone-700 sidebar row measures 1.35:1.
-    // stone-400 (#a8a29e) measures 4.08:1 there and higher on the darker two.
-    expect(cls, 'the trigger must not go back to stone-600').not.toContain('text-stone-600')
-    expect(cls).toContain('text-stone-400')
+    // stone-600 (#57534e) on the hovered stone-700 sidebar row measured
+    // 1.35:1 (PHASE 5). A3: the trigger is the kit's IconButton, which rests
+    // on ink-2 (8.49:1 on paper; every ink/ground pair is asserted by
+    // tokens.test.js). Nothing here may dim it: no colour utility on the
+    // element (one would out-rank the kit), and no rule in otter.css may set
+    // its ink to anything but an ink token.
+    const markup = triggerMarkup()
+    expect(markup, 'the trigger is the kit IconButton').toMatch(/^<IconButton\b/)
+    expect(markup, 'a text colour utility on the trigger would override the kit')
+      .not.toMatch(/(?<![\w:-])text-(stone|orange|white|black|red|gray|neutral)/)
+    expect(KIT_CSS, 'the kit IconButton rests on ink-2')
+      .toMatch(/\.ui-iconbtn \{[^}]*\n\s*color: var\(--color-ink-2\);/)
+    for (const [sel, body] of triggerRules()) {
+      for (const [, value] of body.matchAll(/(?<![-\w])color\s*:\s*([^;]+)/g)) {
+        expect(value.trim(), `${sel} sets the trigger's ink to something other than an ink token`)
+          .toMatch(/^var\(--color-ink(-2|-3)?\)$/)
+      }
+    }
   })
 
   it('meets the 24x24 target-size minimum in both densities', () => {
-    // BOTH terms of the sum, or this pins half an arithmetic and calls it a
-    // target size: padding lives on the button, the icon size on <MoreHorizontal>,
-    // and shrinking the icon alone drops compact to 20x20 with the old assertion
-    // still green.
-    // compact: 12px icon + p-1.5 (6px each side) = 24. default: 14px + p-2 = 30.
-    // The old p-0.5 / p-1 gave 16x16 and 22x22.
-    expect(triggerClassName(), 'padding half of the target size')
-      .toMatch(/compact \? 'p-1\.5' : 'p-2'/)
-    expect(MENU, 'icon half of the target size')
-      .toMatch(/compact \? 'w-3 h-3' : 'w-3\.5 h-3\.5'/)
+    // A3: the hit box is the kit IconButton's own square, not an
+    // icon-plus-padding sum — sm (compact, the 200px sidebar) and md. BOTH
+    // terms are pinned: the size the trigger asks for, and the square the kit
+    // gives each size. (PHASE 5's sum gave 24x24 and 30x30; 16x16 and 22x22
+    // before it.)
+    expect(triggerMarkup(), 'the size the trigger asks for')
+      .toMatch(/size=\{compact \? 'sm' : 'md'\}/)
+    expect(KIT_CSS).toMatch(/\.ui-iconbtn\[data-size="sm"\] \{ width: var\(--control-sm\); height: var\(--control-sm\); \}/)
+    expect(KIT_CSS).toMatch(/\.ui-iconbtn \{[^}]*width: var\(--control-md\);\s*height: var\(--control-md\);/)
+    const px = (name) => Number((KIT_CSS.match(new RegExp(`--${name}:\\s*(\\d+)px`)) || [])[1])
+    expect(px('control-sm'), 'the compact trigger is at least 24px square').toBeGreaterThanOrEqual(24)
+    expect(px('control-md'), 'the full trigger is at least 24px square').toBeGreaterThanOrEqual(24)
   })
 
   it('names only the actions the menu actually contains', () => {

@@ -48,10 +48,10 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
-  CalendarDays, GitBranch, ZoomIn, ZoomOut, Layers, Boxes, ListChecks,
-  AlertTriangle, Plus, X, Trash2, Save, ChevronRight, ChevronDown,
+  CalendarDays, Layers, Boxes, ListChecks,
+  AlertTriangle, Plus, X, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown,
   Settings as SettingsIcon, HelpCircle, Lock, Unlock, Crosshair,
-  Undo2, Redo2, Maximize2, Briefcase, Upload, Download, Check,
+  Undo2, Redo2, Maximize2, Upload, Download, Check,
   Users, Film, Gamepad2, Sparkles, Diamond,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
@@ -84,6 +84,22 @@ import {
   parseHolidayCSV, exportHolidayCSV,
   countWorkingDays,
 } from '../holidays.js'
+// UI overhaul B3: every state this file used to decide inline (hover, drop
+// target, selected, locked, dragging, a bar's tone) is a named variant there.
+import './rabbitTimeline.css'
+// UI overhaul B3 (Q22, the minimap as a priority): the minimap's rows, axis,
+// span readout and snap marks, computed and tested outside this file.
+import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth } from './timelineMinimap.js'
+import { IconButton } from '../../../ui/IconButton'
+import { Button } from '../../../ui/Button'
+import { Toolbar } from '../../../ui/Toolbar'
+import { Tabs } from '../../../ui/Tabs'
+import { Stat } from '../../../ui/Stat'
+import { Dialog } from '../../../ui/Dialog'
+import { Drawer } from '../../../ui/Drawer'
+import { Switch } from '../../../ui/Switch'
+import { EmptyState } from '../../../ui/EmptyState'
+import { Card } from '../../../ui/Card'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -108,12 +124,12 @@ const ROW_PX_BY_ZOOM = {
 const DEFAULT_ROW_PX  = 30
 const HEADER_PX        = 44
 const LABEL_W          = 240
-const OVERVIEW_HEIGHT  = 160
+// The minimap: a 24px axis, a body sized by minimapLayout() (124px, the old
+// fixed body, up to five phases; taller past that so no phase is ever cut,
+// timelineMinimap.js), a 10px scrollbar and 2px of border: 160px at rest.
 const OVERVIEW_HEADER  = 24
 const OVERVIEW_SCROLLBAR_H = 10                   // infinite-wrap horizontal scrollbar
 const OVERVIEW_ROW_PX       = 14                  // legacy fallback / OverviewBar baseline
-const OVERVIEW_PHASE_ROW_PX = 22                  // taller rows for phase bars in minimap
-const OVERVIEW_TASK_ROW_PX  = 11                  // shorter rows for task bars in minimap
 const EDGE_GRAB_PX     = 6
 const MIN_DRAG_PX      = 4
 
@@ -661,12 +677,12 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   }, [])
 
   // ── early return: no project ─────────────────────────────
+  // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
+  // draws it; it was a capitalised span in two inline hexes.
   if (!project) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
-          No project loaded
-        </span>
+      <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--color-paper)' }}>
+        <EmptyState Icon={CalendarDays} title="No project loaded" />
       </div>
     )
   }
@@ -691,11 +707,11 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           it covers every gesture on the pane at once. */}
       {!canWrite && writeReason && (
         <div
-          className="flex items-center gap-2 px-3 py-1.5 text-[10.5px] font-mono"
+          className="flex items-center gap-2 px-3 py-1.5 text-dense"
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
         >
           <Lock className="w-3 h-3 shrink-0" style={{ color: '#78716c' }} />
-          <span className="uppercase tracking-widest shrink-0" style={{ color: '#78716c' }}>Read only</span>
+          <span className="text-label uppercase shrink-0" style={{ color: '#78716c' }}>Read only</span>
           <span className="truncate" title={writeReason}>{writeReason}</span>
         </div>
       )}
@@ -707,11 +723,11 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           this is a transient event rather than a property of the project. */}
       {depError && (
         <div
-          className="flex items-center gap-2 px-3 py-1.5 text-[10.5px] font-mono"
+          className="flex items-center gap-2 px-3 py-1.5 text-dense"
           style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #7f1d1d', color: '#fca5a5' }}
         >
           <AlertTriangle className="w-3 h-3 shrink-0" />
-          <span className="uppercase tracking-widest shrink-0">Not saved</span>
+          <span className="text-label uppercase shrink-0">Not saved</span>
           <span className="truncate" title={depError.detail}>{depError.message}</span>
           <button
             type="button"
@@ -770,6 +786,9 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         writeReason={writeReason}
         milestones={allMilestones}
       />
+
+      {/* ── The legend, once, for both charts (B3c) ── */}
+      <TimelineLegend />
 
       {/* ── Detail-pane zoom toolbar (sits between minimap + gantt) ── */}
       <DetailZoomToolbar
@@ -933,8 +952,23 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
 // ============================================================
 // OverviewPane — minimap + frame
 // ============================================================
+//
+// UI overhaul B3 (Q22, "every phase drawn, no silent truncation after six,
+// legible labels"). Exported so timelineMinimapRender.test.jsx can mount it
+// and count what it draws against the data. What that test reads, and so
+// what this component must keep writing:
+//   data-minimap-body        the body, its inline height = minimapLayout().bodyH
+//   data-minimap-row=<id>    one per phase, inline top / height, inside the body
+//   data-minimap-bar         the phase's bar (OverviewBar)
+//   data-minimap-edge        before | after: a phase wholly off the window,
+//                            marked at that edge instead of an empty row
+//   data-minimap-name        a phase's name, Caption step, while rows are 18px+
+//   data-minimap-tick-label  an axis label, Caption step, in a parent whose
+//                            inline `left` is the tick's
+// scripts/timeline-minimap-count.mjs counts the same in the running app, at
+// every zoom; it finds the bars by their `title`, which is unchanged.
 
-const OverviewPane = forwardRef(function OverviewPane({
+export const OverviewPane = forwardRef(function OverviewPane({
   groupBy, phases, assets, tasks, schedule, criticalSet,
   span, dayPx, sortOrder,
   visibleStartDate, visibleEndDate,
@@ -1123,70 +1157,71 @@ const OverviewPane = forwardRef(function OverviewPane({
   const frameOffLeft  = frameRightDays < 0
   const frameOffRight = frameLeftDays  > span.days
 
-  // Variable-height layout for the minimap — phase rows are taller
-  // than task rows so the phase bars read as "bigger / more
-  // important" at a glance. We pre-compute each row's top and
-  // height so the containment overlay can share the same layout.
+  // Every phase gets a row (Q22). The minimap draws phases only
+  // (buildOverviewRows emits no task rows), so every row has the one
+  // height minimapLayout() gives this many phases: 22px up to five, the
+  // old picture; shorter, then a taller body, past that — never a row
+  // below the body's bottom edge, which is how the sixth phase used to
+  // vanish. The containment overlay shares the same layout.
+  const layout = useMemo(() => minimapLayout(overviewRows.length), [overviewRows.length])
   const rowLayouts = useMemo(() => {
-    const out = []
-    let y = 0
-    for (let i = 0; i < overviewRows.length; i++) {
-      const r = overviewRows[i]
-      const h = r.kind === 'phase' ? OVERVIEW_PHASE_ROW_PX : OVERVIEW_TASK_ROW_PX
-      out.push({ top: y, height: h })
-      y += h
-    }
-    return { items: out, totalHeight: y }
-  }, [overviewRows])
+    const items = overviewRows.map((_, i) => ({ top: i * layout.rowH, height: layout.rowH }))
+    return { items, totalHeight: items.length * layout.rowH }
+  }, [overviewRows, layout.rowH])
   const innerH = rowLayouts.totalHeight
-  const ticks = useMemo(() => buildOverviewTicks(span.start, span.days), [span.start, span.days])
+  const bodyW = span.days * dayPx
+  // A line at every month, a label on a stride that leaves every label its
+  // own room, the year written where it changes (V1-07: the labels used to
+  // print over each other at the default span).
+  const { ticks } = useMemo(() => minimapTicks(span.start, span.days, dayPx), [span.start, span.days, dayPx])
+  // The hover card, for a phase's bar and for its edge marker alike.
+  const phaseHover = (r) => ({
+    enter: (e) => { if (r.kind === 'phase') setHoverPopup({ row: r, x: e.clientX, y: e.clientY }) },
+    move: (e) => { if (r.kind === 'phase') setHoverPopup({ row: r, x: e.clientX, y: e.clientY }) },
+    leave: () => { setHoverPopup(prev => (prev && prev.row.key === r.key) ? null : prev) },
+  })
 
   return (
     <div
       ref={forwardedRef}
-      className="flex-shrink-0 relative"
+      className="flex-shrink-0 relative rb-tl-ov"
       style={{
-        height: OVERVIEW_HEIGHT,
-        backgroundColor: '#1c1917',
-        borderBottom: '1px solid #292524',
+        height: OVERVIEW_HEADER + layout.bodyH + OVERVIEW_SCROLLBAR_H + 2,
         overflow: 'hidden',
       }}
     >
       {/* Axis header */}
       <div
-        className="relative w-full"
-        style={{
-          height: OVERVIEW_HEADER,
-          backgroundColor: '#1c1917',
-          borderBottom: '1px solid #292524',
-        }}
+        className="relative w-full rb-tl-ov-axis"
+        style={{ height: OVERVIEW_HEADER }}
       >
         {ticks.map(tick => (
           <div
             key={tick.key}
-            className="absolute top-0 bottom-0 flex flex-col justify-end pb-0.5 px-1"
+            className="absolute top-0 bottom-0 flex flex-col justify-end pb-0.5 px-1 rb-tl-ov-tick"
+            data-major={tick.major ? 'true' : 'false'}
             style={{
               left: tick.offset * dayPx,
-              borderLeft: tick.major ? '1px solid #44403c' : '1px solid #292524',
             }}
           >
-            <span className="text-[9.5px] font-mono whitespace-nowrap" style={{ color: tick.major ? '#a8a29e' : '#57534e' }}>
-              {tick.label}
-            </span>
+            {tick.label && (
+              <span data-minimap-tick-label className="text-caption whitespace-nowrap rb-tl-ov-tick-label">
+                {tick.label}
+              </span>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Body — bars + frame + pan cursor.
-          Height = OVERVIEW_HEIGHT − header − scrollbar − 2 (pane
-          border-bottom), so the frame's orange border and the row
-          bars are never clipped by the bottom pane border. */}
+      {/* Body — bars + frame + pan cursor. Its height is minimapLayout()'s
+          bodyH: every row lies wholly inside it, whatever the phase count. */}
       <div
         ref={bgRef}
-        className="relative w-full"
+        data-minimap-body
+        className="relative w-full rb-tl-ov-body"
+        data-panning={isPanning ? 'true' : 'false'}
         style={{
-          height: OVERVIEW_HEIGHT - OVERVIEW_HEADER - OVERVIEW_SCROLLBAR_H - 2,
-          cursor: isPanning ? 'grabbing' : 'grab',
+          height: layout.bodyH,
           overflow: 'hidden',
         }}
         onMouseDown={handleBackgroundMouseDown}
@@ -1199,12 +1234,11 @@ const OverviewPane = forwardRef(function OverviewPane({
           {ticks.map(tick => (
             <div
               key={`mb-${tick.key}`}
-              className="absolute top-0 bottom-0 pointer-events-none"
+              className="absolute top-0 bottom-0 pointer-events-none rb-tl-ov-grid"
+              data-major={tick.major ? 'true' : 'false'}
               style={{
                 left: tick.offset * dayPx,
                 width: 1,
-                backgroundColor: tick.major ? '#44403c' : '#292524',
-                opacity: tick.major ? 0.7 : 0.5,
               }}
             />
           ))}
@@ -1213,34 +1247,33 @@ const OverviewPane = forwardRef(function OverviewPane({
               minimap's current visible span. */}
           {todayLeft >= 0 && todayLeft <= span.days * dayPx && (
             <div
-              className="absolute top-0 bottom-0 pointer-events-none"
-              style={{ left: todayLeft, width: 1, backgroundColor: '#fca5a5', zIndex: 4 }}
+              className="absolute top-0 bottom-0 pointer-events-none rb-tl-ov-today"
+              style={{ left: todayLeft, width: 1 }}
             />
           )}
 
-          {/* Milestone lines in minimap */}
+          {/* Milestone lines in minimap. A key date's colour is data: it
+              reaches the sheet as --rb-tl-ms (warning amber without one). They
+              sit above the frame's outline (7), which sits above the bars. */}
           {milestones.map(ms => {
             const msDate = parseDate(ms.date)
             if (!msDate) return null
             const msDays = daysBetween(span.start, msDate)
             if (msDays < 0 || msDays > span.days) return null
             const msX = msDays * dayPx
-            const msColor = ms.color || '#f59e0b'
             return (
-              <div key={`ovr-ms-${ms.id}`} className="absolute top-0 bottom-0" style={{ left: msX, width: 1, zIndex: 7 }}>
-                <div className="absolute top-0 bottom-0 pointer-events-none" style={{ width: 1, backgroundColor: msColor, opacity: 0.5 }} />
+              <div key={`ovr-ms-${ms.id}`} className="absolute top-0 bottom-0" style={{ left: msX, width: 1, zIndex: 8 }}>
+                <div className="absolute top-0 bottom-0 pointer-events-none rb-tl-ov-ms-line" style={{ width: 1, '--rb-tl-ms': ms.color }} />
                 <div
                   data-minimap-nojump="1"
-                  className="pointer-events-auto cursor-pointer"
+                  className="pointer-events-auto cursor-pointer rb-tl-ov-ms"
                   onMouseEnter={(e) => setHoverPopup({ row: { kind: 'milestone', label: ms.title, milestone: ms, start: msDate }, x: e.clientX, y: e.clientY })}
                   onMouseMove={(e) => setHoverPopup(prev => prev?.row?.kind === 'milestone' && prev.row.milestone?.id === ms.id ? { ...prev, x: e.clientX, y: e.clientY } : prev)}
                   onMouseLeave={() => setHoverPopup(prev => prev?.row?.milestone?.id === ms.id ? null : prev)}
                   style={{
                     position: 'absolute', top: -2, left: -5, width: 11, height: 11,
-                    backgroundColor: msColor,
                     transform: 'rotate(45deg)',
-                    border: '1.5px solid rgba(0,0,0,0.4)',
-                    boxShadow: `0 0 3px ${msColor}66`,
+                    '--rb-tl-ms': ms.color,
                   }}
                 />
               </div>
@@ -1258,24 +1291,38 @@ const OverviewPane = forwardRef(function OverviewPane({
             dayPx={dayPx}
           />
 
-          {/* Rows */}
+          {/* Rows — one per phase (data-minimap-row), each wholly inside
+              the body. A phase on the window draws its bar; a phase wholly
+              off it draws an edge marker at the side it went to (never an
+              empty row); a phase without dates keeps its name. Names ride
+              the row while rows are 18px or taller (the hover card keeps
+              every name at any size). */}
           {overviewRows.map((r, i) => {
-            const layout = rowLayouts.items[i]
+            const rowLayout = rowLayouts.items[i]
+            const box = r.start && r.end ? overviewBarBox(r, span, dayPx) : null
+            // offWindow() by date, and by pixel for a bar that meets an edge
+            // without a visible pixel of its own.
+            const side = box && (offWindow(r.start, r.end, span.start, span.end)
+              || (box.left + box.width <= 0 ? 'before' : box.left >= bodyW ? 'after' : null))
+            const name = r.label || 'Untitled phase'
+            const hover = phaseHover(r)
+            const place = layout.named && box && !side ? minimapNamePlace(box, bodyW, name) : null
             return (
               <div
                 key={r.key}
+                data-minimap-row={r.phaseId}
                 className="absolute left-0 right-0"
                 style={{
-                  top: layout.top,
-                  height: layout.height,
+                  top: rowLayout.top,
+                  height: rowLayout.height,
                 }}
               >
-                {r.start && r.end && (
+                {box && !side && (
                   <OverviewBar
                     row={r}
                     span={span}
                     dayPx={dayPx}
-                    rowH={layout.height}
+                    rowH={rowLayout.height}
                     critical={r.kind === 'task' && criticalSet.has(r.task?.id)}
                     onUpdateTask={onUpdateTask}
                     onUpdatePhase={onUpdatePhase}
@@ -1283,20 +1330,41 @@ const OverviewPane = forwardRef(function OverviewPane({
                     onEditPhase={onEditPhase}
                     canWrite={canWrite}
                     writeReason={writeReason}
-                    onHoverEnter={(e) => {
-                      if (r.kind === 'phase') {
-                        setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                    onHoverMove={(e) => {
-                      if (r.kind === 'phase') {
-                        setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                    onHoverLeave={() => {
-                      setHoverPopup(prev => (prev && prev.row.key === r.key) ? null : prev)
-                    }}
+                    onHoverEnter={hover.enter}
+                    onHoverMove={hover.move}
+                    onHoverLeave={hover.leave}
                   />
+                )}
+                {side && (
+                  <MinimapEdge
+                    row={r}
+                    side={side}
+                    rowH={rowLayout.height}
+                    name={layout.named ? name : null}
+                    onHoverEnter={hover.enter}
+                    onHoverMove={hover.move}
+                    onHoverLeave={hover.leave}
+                  />
+                )}
+                {place && (
+                  <span
+                    data-minimap-name
+                    className="absolute text-caption truncate rb-tl-ov-name"
+                    data-place={place.where}
+                    style={place.style}
+                  >
+                    {name}
+                  </span>
+                )}
+                {!box && layout.named && (
+                  <span
+                    data-minimap-name
+                    className="absolute text-caption truncate rb-tl-ov-name"
+                    data-place="undated"
+                    style={{ left: 6, maxWidth: Math.max(0, bodyW - 12) }}
+                  >
+                    {name} · no dates
+                  </span>
                 )}
               </div>
             )
@@ -1307,26 +1375,39 @@ const OverviewPane = forwardRef(function OverviewPane({
               current minimap span. When it's off-screen we hide
               the frame entirely and show an edge arrow instead. */}
           {!frameOffLeft && !frameOffRight && (
-            <div
-              data-minimap-nojump="1"
-              className="absolute cursor-grab active:cursor-grabbing"
-              style={{
-                left: frameLeft,
-                width: Math.max(8, frameWidth),
-                // Leave a 1px gutter top and bottom so the 2px
-                // orange border is fully visible (the old top:0 /
-                // bottom:0 layout let the bottom border get clipped
-                // under the OverviewPane's own border-bottom).
-                top: 1,
-                bottom: 1,
-                border: '1px solid rgba(251, 146, 60, 0.5)',
-                backgroundColor: 'rgba(251, 146, 60, 0.06)',
-                borderRadius: 2,
-                zIndex: 5,
-              }}
-              onMouseDown={handleFrameMouseDown}
-              title="Drag to scroll the detail pane"
-            />
+            <>
+              {/* The frame you DRAG: below the bars (zIndex 5), so a bar
+                  inside the window still takes its own click and drag
+                  (review risk 5); it carries the window's tint. 1px in
+                  from the body's top and bottom, as it always was: that
+                  is its hit area, unchanged. */}
+              <div
+                data-minimap-nojump="1"
+                className="absolute cursor-grab active:cursor-grabbing rb-tl-ov-frame"
+                style={{
+                  left: frameLeft,
+                  width: Math.max(8, frameWidth),
+                  top: 1,
+                  bottom: 1,
+                  zIndex: 5,
+                }}
+                onMouseDown={handleFrameMouseDown}
+                title="Drag to scroll the detail pane"
+              />
+              {/* The frame you SEE (TL-18): its outline, a separate layer
+                  ABOVE the bars that takes no pointer events, so it reads
+                  over them and changes no hit test. The same box. */}
+              <div
+                aria-hidden="true"
+                className="absolute rb-tl-ov-frame-edge"
+                style={{
+                  left: frameLeft,
+                  width: Math.max(8, frameWidth),
+                  top: 1,
+                  bottom: 1,
+                }}
+              />
+            </>
           )}
         </div>
       </div>
@@ -1338,8 +1419,8 @@ const OverviewPane = forwardRef(function OverviewPane({
           the center visually — but the timeline keeps scrolling in
           the same direction, giving an "infinite" feel. This is
           what Notion's timeline scrollbar does. The bar sits at
-          exactly OVERVIEW_SCROLLBAR_H pixels tall so the sibling
-          body + scrollbar + 2px pane border add up to OVERVIEW_HEIGHT. */}
+          exactly OVERVIEW_SCROLLBAR_H pixels tall; the pane's height
+          is the axis + the body + this bar + 2px of border. */}
       <MinimapScrollbar
         dayPx={dayPx}
         height={OVERVIEW_SCROLLBAR_H}
@@ -1350,99 +1431,96 @@ const OverviewPane = forwardRef(function OverviewPane({
           window is completely outside the minimap's current view,
           show a small arrow at the corresponding edge so the user
           knows which way to pan/zoom to find it. Clicking the
-          arrow centers the minimap on the detail window. */}
+          arrow centers the minimap on the detail window. The kit's
+          IconButton (its title is its name), on a docked chip so it
+          reads over the bars (review TL-13: never an orange fill).
+          B3d (review round 2): the chip sits at the top, over the date
+          axis, where it sat 4px into the rows and covered the first two
+          rows' names and off-window wedges ("Development" read
+          "elopment"). */}
       {frameOffLeft && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
-          }}
-          title="Detail view is off-screen (left) — click to pan"
-          className="absolute flex items-center justify-center rounded-sm"
-          style={{
-            left: 4,
-            top: OVERVIEW_HEADER + 4,
-            width: 22,
-            height: 22,
-            color: '#fff7ed',
-            backgroundColor: '#ea580c',
-            border: '1px solid #c2410c',
-            zIndex: 7,
-          }}
-        >
-          <ChevronRight className="w-3.5 h-3.5" style={{ transform: 'rotate(180deg)' }} />
-        </button>
+        <span className="absolute rb-tl-ov-away" data-side="before" style={{ top: 0 }}>
+          <IconButton
+            size="sm"
+            icon={ChevronLeft}
+            title="Detail view is off-screen (left) — click to pan"
+            onClick={(e) => {
+              e.stopPropagation()
+              onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
+            }}
+          />
+        </span>
       )}
       {frameOffRight && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
-          }}
-          title="Detail view is off-screen (right) — click to pan"
-          className="absolute flex items-center justify-center rounded-sm"
-          style={{
-            right: 4,
-            top: OVERVIEW_HEADER + 4,
-            width: 22,
-            height: 22,
-            color: '#fff7ed',
-            backgroundColor: '#ea580c',
-            border: '1px solid #c2410c',
-            zIndex: 7,
-          }}
-        >
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+        <span className="absolute rb-tl-ov-away" data-side="after" style={{ top: 0 }}>
+          <IconButton
+            size="sm"
+            icon={ChevronRight}
+            title="Detail view is off-screen (right) — click to pan"
+            onClick={(e) => {
+              e.stopPropagation()
+              onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
+            }}
+          />
+        </span>
       )}
 
       {/* Phase hover tooltip — fixed-position popup anchored to
           the cursor. Shows the phase name, task count, and date
           range. Only renders when the user is hovering a phase
-          row in this minimap. */}
+          row (its bar or its edge marker) or a key date in this
+          minimap. B3 (TL-38): the kit's floating surface, one
+          chrome for both; the hovered object's colour is a mark
+          inside it (a phase's tone, a key date's own diamond),
+          never the card's border. The name is sans; the count and
+          the dates are figures, so they keep the mono (Q4). */}
       {hoverPopup && (hoverPopup.row?.kind === 'phase' || hoverPopup.row?.kind === 'milestone') && (
         <div
-          className="fixed pointer-events-none rounded-sm shadow-lg"
+          className="fixed pointer-events-none rb-tl-pop"
+          data-kind={hoverPopup.row.kind === 'milestone' ? 'milestone' : 'phase'}
           style={{
             left: hoverPopup.x + 14,
             top:  hoverPopup.y + 14,
-            backgroundColor: '#1c1917',
-            border: `1px solid ${hoverPopup.row.kind === 'milestone' ? (hoverPopup.row.milestone?.color || '#f59e0b') : '#fb923c'}`,
-            padding: '6px 10px',
-            zIndex: 9999,
-            maxWidth: 320,
-            fontFamily: 'monospace',
+            // A key date's own colour is user data: handed to the sheet, which
+            // falls back to the warning amber when there is none.
+            '--rb-tl-ms': hoverPopup.row.milestone?.color,
           }}
         >
           {hoverPopup.row.kind === 'milestone' ? (
             <>
-              <div className="flex items-center gap-1.5">
-                <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }} />
-                <div className="text-[11.5px] font-bold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
+              <div className="flex items-center gap-2">
+                <Diamond className="w-3 h-3 flex-shrink-0 rb-tl-pop-ms" aria-hidden="true" />
+                <div className="text-dense font-semibold truncate rb-tl-pop-title">
                   {hoverPopup.row.label || 'Untitled milestone'}
                 </div>
               </div>
               {hoverPopup.row.milestone?.description && (
-                <div className="text-[10.5px] mt-1 truncate" style={{ color: '#d6d3d1' }}>{hoverPopup.row.milestone.description}</div>
+                <div className="text-caption mt-1 truncate rb-tl-pop-text">{hoverPopup.row.milestone.description}</div>
               )}
-              <div className="text-[10.5px] mt-0.5" style={{ color: '#a8a29e' }}>
+              <div className="text-caption font-mono tabular-nums mt-0.5 rb-tl-pop-meta">
                 {hoverPopup.row.start ? formatTooltipDate(hoverPopup.row.start) : '— no date —'}
               </div>
               {hoverPopup.row.milestone?.isProjectBound && (
-                <div className="text-[9.5px] mt-0.5 uppercase" style={{ color: '#78716c' }}>project bound</div>
+                <div className="text-label mt-1 uppercase rb-tl-pop-meta">project bound</div>
               )}
             </>
           ) : (
             <>
-              <div className="text-[11.5px] font-bold uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
-                {hoverPopup.row.label || 'Untitled phase'}
+              <div className="flex items-center gap-2">
+                <span
+                  className="flex-shrink-0 rb-tl-tone rb-tl-pop-dot"
+                  data-shape="phase"
+                  data-status={hoverPopup.row.phase?.status || undefined}
+                  aria-hidden="true"
+                />
+                <div className="text-dense font-semibold truncate rb-tl-pop-title">
+                  {hoverPopup.row.label || 'Untitled phase'}
+                </div>
               </div>
-              <div className="text-[10.5px] mt-1" style={{ color: '#d6d3d1' }}>
+              <div className="text-caption font-mono tabular-nums mt-1 rb-tl-pop-text">
                 {hoverPopup.row.taskCount ?? 0} task{(hoverPopup.row.taskCount ?? 0) === 1 ? '' : 's'}
               </div>
-              <div className="text-[10.5px]" style={{ color: '#a8a29e' }}>
+              <div className="text-caption font-mono tabular-nums rb-tl-pop-meta">
                 {hoverPopup.row.start && hoverPopup.row.end
                   ? `${formatTooltipDate(hoverPopup.row.start)} → ${formatTooltipDate(hoverPopup.row.end)}`
                   : '— no dates —'}
@@ -1454,6 +1532,66 @@ const OverviewPane = forwardRef(function OverviewPane({
     </div>
   )
 })
+
+// ── Minimap geometry, shared so the bar and its name cannot disagree ──
+
+/** A minimap bar's box in the body's pixels (OverviewBar draws exactly this). */
+function overviewBarBox(row, span, dayPx) {
+  const offsetDays = daysBetween(span.start, row.start)
+  const lengthDays = Math.max(0.5, daysBetween(row.start, row.end))
+  return { left: offsetDays * dayPx, width: Math.max(2, lengthDays * dayPx) }
+}
+
+/** Where a drawn bar's name goes: inside the bar's visible part when it fits
+    there with 6px either side (by estimateWidth(), which is at or above the
+    real width, so a name placed inside never overflows), else after the bar,
+    else before it, else wherever there is most room, truncated. Returns the
+    inline geometry and which it chose (the sheet inks a name on a bar and a
+    name on the paper differently). */
+const NAME_PAD = 6
+function minimapNamePlace(box, bodyW, name) {
+  const need = estimateWidth(name)
+  const visL = Math.max(0, box.left)
+  const visR = Math.min(bodyW, box.left + box.width)
+  const room = {
+    inside: visR - visL - 2 * NAME_PAD,
+    after: bodyW - visR - 2 * NAME_PAD,
+    before: visL - 2 * NAME_PAD,
+  }
+  const where = ['inside', 'after', 'before'].find((k) => room[k] >= need)
+    || ['inside', 'after', 'before'].reduce((a, b) => (room[b] > room[a] ? b : a))
+  const maxWidth = Math.max(0, room[where])
+  if (where === 'before') return { where, style: { right: bodyW - visL + NAME_PAD, maxWidth } }
+  return { where, style: { left: (where === 'inside' ? visL : visR) + NAME_PAD, maxWidth } }
+}
+
+/** A phase wholly outside the minimap window: a mark in its tone at the edge
+    it went past, and its name beside the mark while rows are 18px or taller.
+    Not a control: it takes the hover card, and a press on it pans or jumps
+    exactly as the empty row under it always did (no data-minimap-nojump). */
+function MinimapEdge({ row, side, rowH, name, onHoverEnter, onHoverMove, onHoverLeave }) {
+  const barH = Math.max(4, rowH - 4)
+  return (
+    <div
+      data-minimap-edge={side}
+      className="absolute flex items-center rb-tl-ov-edge"
+      data-side={side}
+      style={{ top: 2, height: barH }}
+      onMouseEnter={onHoverEnter}
+      onMouseMove={onHoverMove}
+      onMouseLeave={onHoverLeave}
+    >
+      <span
+        className="rb-tl-tone rb-tl-ov-edge-mark"
+        data-shape="phase"
+        data-status={row.phase?.status || undefined}
+      />
+      {name && (
+        <span data-minimap-name className="text-caption truncate rb-tl-ov-edge-name">{name}</span>
+      )}
+    </div>
+  )
+}
 
 // Short human date for hover popups: "Apr 8, 2026"
 function formatTooltipDate(d) {
@@ -1548,27 +1686,21 @@ function MinimapScrollbar({ dayPx, height, onPan }) {
       ref={trackRef}
       onMouseDown={onTrackMouseDown}
       data-minimap-nojump="1"
-      className="relative w-full"
+      className="relative w-full rb-tl-mm-track"
       style={{
         height,
-        backgroundColor: '#0c0a09',
-        borderTop: '1px solid #292524',
-        cursor: 'default',
         userSelect: 'none',
       }}
     >
       <div
         onMouseDown={onThumbMouseDown}
-        className="absolute rounded-full"
+        className="absolute rounded-full rb-tl-mm-thumb"
+        data-dragging={dragging ? 'true' : 'false'}
         style={{
           top: 2,
           bottom: 2,
           left: `calc(50% + ${thumbOffset}px - ${THUMB_W / 2}px)`,
           width: THUMB_W,
-          backgroundColor: dragging ? '#fb923c' : '#57534e',
-          border: '1px solid #44403c',
-          cursor: dragging ? 'grabbing' : 'grab',
-          transition: dragging ? 'none' : 'background-color 0.15s ease',
         }}
         title="Drag to pan the timeline — keeps scrolling past the edges"
       />
@@ -1622,7 +1754,9 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
   const totalH = rowLayouts?.totalHeight ?? rows.length * OVERVIEW_ROW_PX
   // The SVG covers the entire body area; child x positions come
   // from row.start dates × dayPx.
-  const RAIL_COLOR = '#a8a29e'
+  // B3c: the gantt's containment rail (a 40% screen of the ink). The
+  // minimap emits phase rows only, so this draws nothing today (B3b).
+  const RAIL_COLOR = 'color-mix(in srgb, var(--color-ink) 40%, var(--color-paper))'
   const RAIL_WIDTH = 1
 
   // Helper: compute the X pixel of a row's bar left edge.
@@ -1716,10 +1850,9 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
 // ============================================================
 
 function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdatePhase, onEditTask, onEditPhase, canWrite = true, writeReason = null, onHoverEnter, onHoverMove, onHoverLeave }) {
-  const offsetDays = daysBetween(span.start, row.start)
-  const lengthDays = Math.max(0.5, daysBetween(row.start, row.end))
-  const left  = offsetDays * dayPx
-  const width = Math.max(2, lengthDays * dayPx)
+  // The box OverviewPane placed this bar's name against (one helper, so the
+  // name and the bar cannot disagree).
+  const { left, width } = overviewBarBox(row, span, dayPx)
   // Fall back to legacy constant if the parent didn't pass a row
   // height (e.g. during the first paint or from legacy callers).
   const effectiveRowH = rowH || OVERVIEW_ROW_PX
@@ -1727,10 +1860,12 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
   // 2px gutter top and bottom.
   const barH = Math.max(4, effectiveRowH - 4)
 
-  // Lifecycle palette — picks active / upcoming / completed based
-  // on the row's dates + status. Phase bars use the phaseStyle
-  // variant which is slightly more prominent.
-  const tone = barTone(row, critical, row.kind === 'phase')
+  // The bar's tone, named: a phase bar or a task bar (data-shape), its
+  // status (data-status) and, for a task, whether it is on the critical
+  // path (data-critical). The palette those name is `.rb-tl-tone` in
+  // rabbitTimeline.css (UI overhaul B3), transcribed unchanged from the
+  // barTone() it replaces. An unset status is the default tone.
+  const toneStatus = (row.kind === 'phase' ? row.phase?.status : row.task?.status) || undefined
 
   function onMouseDown(e) {
     if (e.button !== 0) return
@@ -1797,23 +1932,22 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
       onMouseMove={onHoverMove}
       onMouseLeave={onHoverLeave}
       data-minimap-nojump="1"
-      className="absolute rounded-sm"
+      data-minimap-bar
+      className="absolute rounded-control rb-tl-tone rb-tl-ov-bar"
+      data-shape={isPhase ? 'phase' : 'task'}
+      data-status={toneStatus}
+      data-critical={critical ? 'true' : 'false'}
+      data-writable={canWrite ? 'true' : 'false'}
       style={{
         left, width,
         top: 2,
         height: barH,
-        backgroundColor: tone.bg,
-        border: isPhase
-          ? `2px solid ${tone.border}`
-          : `1px solid ${tone.border}`,
-        boxShadow: isPhase
-          ? '0 1px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
-          : undefined,
-        cursor: canWrite ? 'grab' : 'pointer',
         // Lift bars above the visible-window frame (zIndex 5) so
         // hover/click still hit the bar even when it sits inside
-        // the orange frame rectangle. The frame's empty whitespace
+        // the frame rectangle. The frame's empty whitespace
         // remains draggable because it still occupies the gaps.
+        // The frame's OUTLINE (zIndex 7) is drawn above the bars
+        // and takes no pointer events (B3, TL-18).
         zIndex: 6,
       }}
       title={canWrite
@@ -2053,9 +2187,12 @@ function DetailPane({
       previewEl.style.position = 'absolute'
       previewEl.style.top = '4px'
       previewEl.style.bottom = '4px'
-      previewEl.style.borderRadius = '2px'
-      previewEl.style.backgroundColor = 'rgba(234, 88, 12, 0.25)'
-      previewEl.style.border = '1px dashed #fb923c'
+      // The drawn task's preview, on the kit's tokens (B3c): a tint of the
+      // signal in a 1px dashed signal line, the control radius. Built
+      // imperatively because it lives only for the drag.
+      previewEl.style.borderRadius = 'var(--radius-control)'
+      previewEl.style.backgroundColor = 'color-mix(in srgb, var(--color-signal) 25%, transparent)'
+      previewEl.style.border = '1px dashed var(--color-signal)'
       previewEl.style.pointerEvents = 'none'
       previewEl.style.zIndex = '6'
       containerEl.appendChild(previewEl)
@@ -2107,6 +2244,15 @@ function DetailPane({
   const [reparentHoverPhaseId, setReparentHoverPhaseId] = useState(null)
   const [reparentGhost, setReparentGhost] = useState(null)  // { x, y, label }
   const [dropZoneHover, setDropZoneHover] = useState(null)  // { phaseId, mouseX }
+  // The row under the pointer, by its key, so the label half and the chart
+  // half of a phase or task row light up together (TL-03: one row, one
+  // hover — the label row's hover never painted, the chart row had none).
+  // A visual state only: no click, drag or drop reads it. The drop-zone
+  // rows keep their own shared hover, dropZoneHover above.
+  const [hoverRowKey, setHoverRowKey] = useState(null)
+  // W9 (B3c): the dependency a click asked to remove, while the kit Dialog
+  // asks "Remove this dependency?" (it was window.confirm inside the SVG).
+  const [askUnlinkId, setAskUnlinkId] = useState(null)
   const suppressNextClickRef = useRef(false)
 
   // ─── Drag preview state for ghost overlays ───────────────
@@ -2263,42 +2409,33 @@ function DetailPane({
   }
 
   return (
+    <>
     <div
       ref={scrollRef}
-      className="flex-1 overflow-auto relative"
-      style={{ backgroundColor: '#1c1917' }}
+      id={DETAIL_PANEL_ID}
+      role="tabpanel"
+      aria-label="Gantt"
+      className="flex-1 overflow-auto relative rb-tl-gantt"
     >
       <div className="flex" style={{ minWidth: LABEL_W + effectiveChartW }}>
-        {/* Sticky label column */}
+        {/* Sticky label column. Its edge is the rule (TL-03: it was
+            #292524 on #1c1917, 1.15:1 — no edge at all). */}
         <div
-          className="flex-shrink-0 sticky left-0 z-20"
-          style={{
-            width: LABEL_W,
-            backgroundColor: '#1c1917',
-            borderRight: '1px solid #292524',
-          }}
+          className="flex-shrink-0 sticky left-0 z-20 rb-tl-gutter"
+          style={{ width: LABEL_W }}
         >
           <div
-            className="flex items-end px-3 pb-2 sticky top-0 z-10"
-            style={{
-              height: HEADER_PX,
-              borderBottom: '1px solid #292524',
-              backgroundColor: '#1c1917',
-            }}
+            className="flex items-end px-3 pb-2 sticky top-0 z-10 rb-tl-gutter-head"
+            style={{ height: HEADER_PX }}
           >
-            <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#57534e' }}>
+            <span className="text-label uppercase rb-tl-gutter-title">
               Phase / Task
             </span>
           </div>
           {rows.length === 0 ? (
             <div
-              className="flex items-center justify-center text-center px-4"
-              style={{
-                height: 80,
-                color: '#78716c',
-                fontSize: 11,
-                fontFamily: 'monospace',
-              }}
+              className="flex items-center justify-center text-center px-4 text-dense rb-tl-gutter-empty"
+              style={{ height: 80 }}
             >
               {canWrite ? 'No phases yet — click + Phase' : 'No phases yet'}
             </div>
@@ -2326,16 +2463,14 @@ function DetailPane({
                     // the editor with no preset dates.
                     onNewTaskInPhase?.(dzPhaseId, null, null)
                   }}
-                  className={`relative flex items-center transition-colors ${canWrite ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                  className="relative flex items-center transition-colors rb-tl-dz"
+                  data-writable={canWrite ? 'true' : 'false'}
+                  data-hover={isDzHover ? 'true' : 'false'}
+                  data-drop-hover={isReparentHoverDz ? 'true' : 'false'}
                   style={{
                     height: rowPx,
-                    borderBottom: '1px solid transparent',
-                    backgroundColor: isReparentHoverDz
-                      ? '#7c2d12'
-                      : (isDzHover && canWrite ? 'rgba(234, 88, 12, 0.06)' : 'transparent'),
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
-                    outline: isReparentHoverDz ? '2px dashed #fb923c' : undefined,
                     // Session 29: denied stays dimmed and never lights up on
                     // hover, so it reads as unavailable rather than as
                     // something that failed to respond.
@@ -2356,21 +2491,23 @@ function DetailPane({
                     // (the colours below keep it faint, which is what she asked
                     // for — "the faint + new task in the left side table"), and
                     // denied keeps the dimming, so the two finally differ.
-                    opacity: canWrite ? 1 : 0.4,
+                    // (The dimming, the hover tint, the drop-target fill and
+                    // the rule under the row are `.rb-tl-dz` in
+                    // rabbitTimeline.css: B3 moved them there unchanged, B3c
+                    // put them on tokens — allowed reads ink-2, denied the
+                    // disabled ink, so the two still differ.)
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
                   title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
                 >
-                  {/* Icon stays stone-500 (3.65:1 — a glyph, so the 3:1 floor
-                      applies); the LABEL is stone-400 (6.8:1) because 4.5:1 is
-                      the floor for text. Both are existing palette values. */}
+                  {/* The icon is a glyph (the 3:1 floor), the LABEL text
+                      (4.5:1): their inks are the sheet's, `.rb-tl-dz-icon`
+                      and `.rb-tl-dz-label`. */}
                   <Plus
-                    className="w-3 h-3 mr-1.5"
-                    style={{ color: isDzHover && canWrite ? '#fb923c' : '#78716c' }}
+                    className="w-3 h-3 mr-1.5 rb-tl-dz-icon"
                   />
                   <span
-                    className="text-[11.5px] font-mono italic"
-                    style={{ color: isDzHover && canWrite ? '#fdba74' : '#a8a29e' }}
+                    className="text-dense italic rb-tl-dz-label"
                   >
                     New task…
                   </span>
@@ -2393,21 +2530,19 @@ function DetailPane({
                 key={r.key}
                 data-phase-drop-target={dropTargetId || undefined}
                 draggable={false}
-                className={`relative flex items-center hover:bg-stone-800/50 transition-colors ${isTaskRow && canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+                className="relative flex items-center transition-colors rb-tl-row"
+                data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
+                data-grab={isTaskRow && canWrite ? 'true' : 'false'}
+                data-drop-hover={isHoverTarget ? 'true' : 'false'}
+                data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                 style={{
                   height: rowPx,
-                  borderBottom: r.kind === 'phase' ? '1px solid #292524' : '1px solid #1c1917',
-                  backgroundColor: isHoverTarget
-                    ? '#7c2d12'
-                    : 'transparent',
-                  borderLeft: r.kind === 'phase'
-                    ? (r.isSubgroup ? '2px solid #78716c' : '2px solid #fb923c')
-                    : '2px solid transparent',
                   paddingLeft: (6 + depth * INDENT_UNIT + 20),
                   paddingRight: 8,
-                  outline: isHoverTarget ? '2px dashed #fb923c' : undefined,
                   userSelect: 'none',
                 }}
+                onMouseEnter={() => setHoverRowKey(r.key)}
+                onMouseLeave={() => setHoverRowKey(k => (k === r.key ? null : k))}
                 onMouseDown={isTaskRow ? (e) => startTaskDrag(e, r.task) : undefined}
                 onClick={() => handleRowClick(r)}
                 title={isTaskRow
@@ -2427,13 +2562,12 @@ function DetailPane({
                       e.stopPropagation()
                       onToggleCollapse?.(r.phase)
                     }}
-                    className="absolute flex items-center justify-center rounded-sm hover:bg-stone-800"
+                    className="absolute flex items-center justify-center rounded-control rb-tl-row-chevron"
                     style={{
                       left: 4 + depth * INDENT_UNIT,
                       top: (rowPx - 16) / 2,
                       width: 16,
                       height: 16,
-                      color: r.isSubgroup ? '#78716c' : '#fb923c',
                       zIndex: 2,
                     }}
                     title={r.collapsed ? 'Expand' : 'Collapse'}
@@ -2444,12 +2578,7 @@ function DetailPane({
                   </button>
                 )}
                 <span
-                  className={`text-[11.5px] font-mono truncate ${
-                    r.kind === 'phase'
-                      ? (r.isSubgroup ? 'font-medium' : 'font-semibold')
-                      : ''
-                  }`}
-                  style={{ color: r.kind === 'phase' ? '#fb923c' : '#78716c' }}
+                  className="text-dense truncate rb-tl-row-label"
                 >
                   {r.label}
                 </span>
@@ -2462,40 +2591,34 @@ function DetailPane({
         <div className="relative" style={{ width: effectiveChartW }}>
           {/* Time axis */}
           <div
-            className="relative sticky top-0 z-10"
-            style={{
-              height: HEADER_PX,
-              borderBottom: '1px solid #292524',
-              backgroundColor: '#1c1917',
-            }}
+            className="relative sticky top-0 z-10 rb-tl-axis"
+            style={{ height: HEADER_PX }}
           >
             {ticks.map(tick => {
               if (dayMask && dayMask.mask[tick.offset]?.hidden) return null
               return (
                 <div
                   key={tick.key}
-                  className="absolute top-0 bottom-0 px-1"
+                  className="absolute top-0 bottom-0 px-1 rb-tl-axis-tick"
+                  data-major={tick.major ? 'true' : 'false'}
                   style={{
                     left: dayToX(tick.offset),
                     display: 'flex',
                     flexDirection: 'column',
-                    borderLeft: tick.major
-                      ? '1px solid #44403c'
-                      : '1px solid #292524',
                   }}
                 >
                   {tick.topLabel && (
                     <span
-                      className="text-[9.5px] font-mono font-medium whitespace-nowrap"
-                      style={{ color: '#fb923c', marginTop: 4, lineHeight: 1 }}
+                      className="text-dense whitespace-nowrap rb-tl-axis-top"
+                      style={{ marginTop: 4, lineHeight: 1 }}
                     >
                       {tick.topLabel}
                     </span>
                   )}
                   <span style={{ flex: 1 }} />
                   <span
-                    className="text-[9.5px] font-mono whitespace-nowrap"
-                    style={{ color: tick.major ? '#78716c' : '#57534e', marginBottom: 4 }}
+                    className="text-dense whitespace-nowrap rb-tl-axis-label"
+                    style={{ marginBottom: 4 }}
                   >
                     {tick.label}
                   </span>
@@ -2524,11 +2647,11 @@ function DetailPane({
                 return (
                   <div
                     key={`wk-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-weekend"
+                    data-day={dow === 0 ? 'sun' : 'sat'}
                     style={{
                       left: dayToX(i),
                       width: dayPx,
-                      backgroundColor: dow === 0 ? 'rgba(120, 113, 108, 0.10)' : 'rgba(120, 113, 108, 0.06)',
                     }}
                   />
                 )
@@ -2544,12 +2667,10 @@ function DetailPane({
                 return (
                   <div
                     key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#57534e',
-                      opacity: 0.5,
                     }}
                   />
                 )
@@ -2560,12 +2681,10 @@ function DetailPane({
                 return (
                   <div
                     key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none"
+                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-month"
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#44403c',
-                      opacity: 0.4,
                     }}
                   />
                 )
@@ -2574,12 +2693,11 @@ function DetailPane({
               return (
                 <div
                   key={`g-${i}`}
-                  className="absolute top-0 bottom-0 pointer-events-none"
+                  className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid"
+                  data-week={isWeek ? 'true' : 'false'}
                   style={{
                     left: dayToX(i),
                     width: 1,
-                    backgroundColor: isWeek ? '#44403c' : '#292524',
-                    opacity: 0.4,
                   }}
                 />
               )
@@ -2588,11 +2706,10 @@ function DetailPane({
             {/* Today line */}
             {todayDays >= 0 && todayDays <= totalDays && (!dayMask || !dayMask.mask[todayDays]?.hidden) && (
               <div
-                className="absolute top-0 bottom-0 pointer-events-none"
+                className="absolute top-0 bottom-0 pointer-events-none rb-tl-today"
                 style={{
                   left: dayToX(todayDays),
                   width: Math.max(2, dayPx > 8 ? 2 : 1),
-                  backgroundColor: '#fca5a5',
                   zIndex: 5,
                 }}
                 title="Today"
@@ -2607,25 +2724,27 @@ function DetailPane({
               if (msDays < 0 || msDays > totalDays) return null
               if (dayMask && dayMask.mask[msDays]?.hidden) return null
               const msX = dayToX(msDays)
-              const msColor = ms.color || '#f59e0b'
+              // B3c: the key date's own colour reaches the sheet as data
+              // (`--rb-tl-ms`, the minimap's spelling); the warning amber
+              // without one is the sheet's fallback. The glow and the dark
+              // 1.5px edge went (§3.3; TL-20).
               return (
                 <div key={`ms-${ms.id}`} className="absolute top-0 pointer-events-none" style={{ left: msX, zIndex: 8 }}>
                   {/* Vertical dashed line */}
                   <div
-                    className="absolute"
+                    className="absolute rb-tl-ms-line"
                     style={{
                       top: 0,
                       bottom: 0,
                       left: 0,
                       width: 1.5,
                       height: rows.length * rowPx,
-                      backgroundImage: `repeating-linear-gradient(to bottom, ${msColor} 0, ${msColor} 4px, transparent 4px, transparent 8px)`,
-                      opacity: 0.5,
+                      '--rb-tl-ms': ms.color,
                     }}
                   />
                   {/* Diamond marker at top */}
                   <div
-                    className="pointer-events-auto cursor-pointer"
+                    className="pointer-events-auto cursor-pointer rb-tl-ms"
                     onClick={() => !ms.isProjectBound && onEditMilestone?.(ms)}
                     title={`${ms.title}${ms.description ? ' — ' + ms.description : ''}${ms.isProjectBound ? ' (project bound)' : ''}`}
                     style={{
@@ -2634,11 +2753,9 @@ function DetailPane({
                       left: -6,
                       width: 13,
                       height: 13,
-                      backgroundColor: msColor,
-                      border: '1.5px solid rgba(0,0,0,0.5)',
                       transform: 'rotate(45deg)',
-                      boxShadow: `0 0 4px ${msColor}66`,
                       zIndex: 9,
+                      '--rb-tl-ms': ms.color,
                     }}
                   />
                 </div>
@@ -2648,8 +2765,7 @@ function DetailPane({
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
-                className="absolute inset-0 flex items-center justify-center text-center px-6"
-                style={{ color: '#57534e', fontSize: 11, fontFamily: 'monospace', fontStyle: 'italic' }}
+                className="absolute inset-0 flex items-center justify-center text-center px-6 text-dense italic rb-tl-chart-empty"
               >
                 {/* Session 29 — the empty state was instructions. Telling a
                     read-only user to "drag on the overview to draw a task" and
@@ -2711,14 +2827,13 @@ function DetailPane({
                       const endDate   = addDays(startDate, 7)
                       onNewTaskInPhase?.(dzPhaseId, startDate, endDate)
                     }}
-                    className={`absolute left-0 right-0 ${canWrite ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                    className="absolute left-0 right-0 rb-tl-chart-dz"
+                    data-writable={canWrite ? 'true' : 'false'}
+                    data-hover={isDzHover ? 'true' : 'false'}
+                    data-drop-hover={isReparentHoverDz ? 'true' : 'false'}
                     style={{
                       top: i * rowPx,
                       height: rowPx,
-                      borderBottom: '1px dashed #44403c',
-                      backgroundColor: isReparentHoverDz
-                        ? 'rgba(124, 45, 18, 0.35)'
-                        : (isDzHover && canWrite ? 'rgba(234, 88, 12, 0.05)' : 'transparent'),
                     }}
                     aria-disabled={canWrite ? undefined : 'true'}
                     title={canWrite ? undefined : writeReason || undefined}
@@ -2732,7 +2847,7 @@ function DetailPane({
                         the reason. */}
                     {(isDzHover || isReparentHoverDz) && canWrite && (
                       <div
-                        className="absolute rounded-sm flex items-center justify-center pointer-events-none"
+                        className="absolute rounded-control flex items-center justify-center pointer-events-none rb-tl-dz-ghost"
                         style={{
                           left: mouseXInChart != null
                             ? Math.max(0, mouseXInChart - ghostWidth / 2)
@@ -2742,13 +2857,10 @@ function DetailPane({
                           width: ghostWidth,
                           top: 4,
                           height: rowPx - 8,
-                          backgroundColor: 'rgba(234, 88, 12, 0.22)',
-                          border: '1.5px dashed #fb923c',
                         }}
                       >
                         <span
-                          className="text-[10.5px] font-mono italic truncate px-2"
-                          style={{ color: '#fdba74' }}
+                          className="text-dense italic truncate px-2 rb-tl-dz-ghost-label"
                         >
                           + New task
                         </span>
@@ -2776,19 +2888,16 @@ function DetailPane({
                 <div
                   key={r.key}
                   data-phase-drop-target={chartDropTargetId || undefined}
-                  className="absolute left-0 right-0"
+                  className="absolute left-0 right-0 rb-tl-chart-row"
+                  data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
+                  data-drop-hover={isChartHoverTarget ? 'true' : 'false'}
+                  data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                   style={{
                     top: i * rowPx,
                     height: rowPx,
-                    borderBottom: '1px solid #1c1917',
-                    backgroundColor: isChartHoverTarget
-                      ? 'rgba(124, 45, 18, 0.45)'
-                      : (r.kind === 'phase'
-                          ? (r.isSubgroup ? 'rgba(51, 48, 45, 0.45)' : 'rgba(68, 64, 60, 0.55)')
-                          : 'transparent'),
-                    outline: isChartHoverTarget ? '2px dashed #fb923c' : undefined,
-                    cursor: r.kind === 'asset' ? 'default' : 'crosshair',
                   }}
+                  onMouseEnter={() => setHoverRowKey(r.key)}
+                  onMouseLeave={() => setHoverRowKey(k => (k === r.key ? null : k))}
                   onMouseDown={r.kind === 'asset' ? undefined : makeBackgroundMouseDown(r)}
                 >
                   {r.kind === 'phase' && r.start && r.end && (
@@ -2868,14 +2977,12 @@ function DetailPane({
                   return (
                     <div
                       key={`pdg-${r.key}`}
-                      className="absolute rounded-sm"
+                      className="absolute rounded-control rb-tl-ghost"
                       style={{
                         top:  i * rowPx + (isPhase ? 3 : 5),
                         height: isPhase ? rowPx - 6 : rowPx - 10,
                         left,
                         width,
-                        backgroundColor: 'rgba(234, 88, 12, 0.18)',
-                        border: `${isPhase ? 2 : 1}px dashed #fb923c`,
                       }}
                     />
                   )
@@ -2902,14 +3009,12 @@ function DetailPane({
                 const width = Math.max(6, right - left)
                 return (
                   <div
-                    className="absolute rounded-sm pointer-events-none"
+                    className="absolute rounded-control pointer-events-none rb-tl-reparent-ghost"
                     style={{
                       top: targetIdx * rowPx + 5,
                       height: rowPx - 10,
                       left,
                       width,
-                      backgroundColor: 'rgba(234, 88, 12, 0.32)',
-                      border: '1.5px dashed #fb923c',
                       zIndex: 9,
                     }}
                   />
@@ -2946,6 +3051,7 @@ function DetailPane({
               depDrag={depDrag}
               depRewire={depRewire}
               onUnlinkDependency={canWrite ? onUnlinkDependency : null}
+              onAskUnlink={canWrite ? setAskUnlinkId : null}
               onBeginDepRewire={canWrite ? beginDependencyRewire : null}
               canWrite={canWrite}
               taskDragPreview={reparentTaskPreview}
@@ -2960,16 +3066,11 @@ function DetailPane({
           the user is dragging a task onto another phase row. */}
       {reparentGhost && (
         <div
-          className="fixed pointer-events-none rounded-sm shadow-lg"
+          className="fixed pointer-events-none rounded-control text-dense rb-tl-reparent-chip"
           style={{
             left: reparentGhost.x + 12,
             top:  reparentGhost.y + 12,
-            backgroundColor: '#7c2d12',
-            border: '1px dashed #fb923c',
-            color: '#fff7ed',
             padding: '4px 10px',
-            fontSize: 11,
-            fontFamily: 'monospace',
             zIndex: 9999,
             maxWidth: 280,
             whiteSpace: 'nowrap',
@@ -2981,6 +3082,34 @@ function DetailPane({
         </div>
       )}
     </div>
+
+    {/* W9 (B3c): "Remove this dependency?" on the kit Dialog, a sibling of
+        the pane so no click inside it reaches the pane's handlers. Still
+        INSIDE the write gate (S29): the arrow asks only when canWrite, and
+        the answer is checked against it again before anything is removed. */}
+    {askUnlinkId && (
+      <Dialog
+        width="confirm"
+        title="Remove this dependency?"
+        onClose={() => setAskUnlinkId(null)}
+        footer={(
+          <>
+            <Button autoFocus onClick={() => setAskUnlinkId(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const id = askUnlinkId
+                setAskUnlinkId(null)
+                if (canWrite) onUnlinkDependency?.(id)
+              }}
+            >
+              Remove dependency
+            </Button>
+          </>
+        )}
+      />
+    )}
+    </>
   )
 }
 
@@ -3012,9 +3141,13 @@ function DetailPane({
 // to them).
 function ContainmentOverlay({ rows, span, dayPx, rowPx, dayToX, chartW, chartH }) {
   if (!dayToX) dayToX = (d) => d * dayPx
-  const LINE_COLOR = '#d6d3d1'     // stone-300 — high contrast on dark
+  // B3c: a 40% screen of the ink into the paper (3.5:1), the structure
+  // receding under the dependency links (ink-2, 8.49:1) it shares the chart
+  // with — it was stone-300, brighter than any link, and at ink-3 the two
+  // grey line families read as one.
+  const LINE_COLOR = 'color-mix(in srgb, var(--color-ink) 40%, var(--color-paper))'
   const LINE_WIDTH = 1.6
-  const SHADOW_COLOR = '#1c1917'
+  const SHADOW_COLOR = 'var(--color-paper)'
   const RAIL_INSET = 22            // how far inside the phase bar the rail starts
   const ARROW_GAP  = 4             // gap between elbow tip and child bar
 
@@ -3193,19 +3326,26 @@ function ContainmentOverlay({ rows, span, dayPx, rowPx, dayToX, chartW, chartH }
 // The rubber-band preview (while dragging a new dep) is a
 // dashed line following the cursor.
 //
-// Colors:
-//   task → task  : orange (#fb923c)    — RABBIT's primary accent
-//   phase → phase: cyan   (#22d3ee)    — high contrast vs orange
+// Colors (UI overhaul B3c, TL-14 — the palette decision is in the hand-off):
+//   a link is ink-2 (the ink at 72%), keyed on its kind in THIS component,
+//   never by a CSS `stroke` rule (which would override the attribute):
+//   task → task   solid
+//   phase → phase dashed (5 3)
+//   They were orange (#fb923c) and cyan (#22d3ee); cyan was the one cool hue
+//   in the chrome. The rubber band while a link is drawn is the signal: the
+//   one active state.
 function DependencyOverlay({
   visibleDeps, rows, span, dayPx, rowPx, dayToX, chartW, chartH,
   depDrag, depRewire,
-  onUnlinkDependency, onBeginDepRewire,
+  onUnlinkDependency, onBeginDepRewire, onAskUnlink,
   canWrite = true,
   taskDragPreview, phaseDragPreview, phaseDragAffectedIds,
 }) {
   if (!dayToX) dayToX = (d) => d * dayPx
-  const TASK_COLOR  = '#fb923c'
-  const PHASE_COLOR = '#22d3ee'
+  const TASK_COLOR  = 'var(--color-ink-2)'
+  const PHASE_COLOR = 'var(--color-ink-2)'
+  const DASH_BY_KIND = { phase: '5 3', task: undefined }
+  const DRAW_COLOR  = 'var(--color-signal)'
 
   // Live drag delta (days) to apply to a row's endpoints so the
   // dependency line follows the ghost of a moving task / phase.
@@ -3316,14 +3456,14 @@ function DependencyOverlay({
             is near-white, fading through the kind's accent
             color, fading to fully transparent at the edge. */}
         <radialGradient id="rabbit-pulse-glow-task" cx="50%" cy="50%" r="50%">
-          <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-          <stop offset="25%"  stopColor="#fff7ed" stopOpacity="0.95" />
+          <stop offset="0%"   stopColor="var(--color-ink)" stopOpacity="1" />
+          <stop offset="25%"  stopColor="var(--color-ink)" stopOpacity="0.95" />
           <stop offset="55%"  stopColor={TASK_COLOR} stopOpacity="0.75" />
           <stop offset="100%" stopColor={TASK_COLOR} stopOpacity="0" />
         </radialGradient>
         <radialGradient id="rabbit-pulse-glow-phase" cx="50%" cy="50%" r="50%">
-          <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-          <stop offset="25%"  stopColor="#ecfeff" stopOpacity="0.95" />
+          <stop offset="0%"   stopColor="var(--color-ink)" stopOpacity="1" />
+          <stop offset="25%"  stopColor="var(--color-ink)" stopOpacity="0.95" />
           <stop offset="55%"  stopColor={PHASE_COLOR} stopOpacity="0.75" />
           <stop offset="100%" stopColor={PHASE_COLOR} stopOpacity="0" />
         </radialGradient>
@@ -3349,7 +3489,7 @@ function DependencyOverlay({
             <path
               d={d}
               fill="none"
-              stroke="#1c1917"
+              stroke="var(--color-paper)"
               strokeWidth={3.2}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -3360,11 +3500,14 @@ function DependencyOverlay({
               d={d}
               fill="none"
               stroke={stroke}
+              strokeDasharray={DASH_BY_KIND[e.kind]}
               strokeWidth={1.8}
               strokeLinecap="round"
               strokeLinejoin="round"
               markerEnd={marker}
-              style={{ pointerEvents: 'stroke', cursor: canWrite ? 'pointer' : 'default' }}
+              className="rb-tl-dep"
+              data-writable={canWrite ? 'true' : 'false'}
+              style={{ pointerEvents: 'stroke' }}
               onClick={(ev) => {
                 ev.stopPropagation()
                 // Session 29 — the confirm() must be INSIDE the gate. Asking
@@ -3372,7 +3515,9 @@ function DependencyOverlay({
                 // nothing is the S23 "the button does nothing" bug with an
                 // extra step.
                 if (!canWrite) return
-                if (confirm('Remove this dependency?')) onUnlinkDependency?.(e.id)
+                // W9 (B3c): asked on the kit Dialog DetailPane renders (an
+                // SVG cannot hold one); still inside the gate above.
+                onAskUnlink?.(e.id)
               }}
             >
               <title>{canWrite ? 'Click to remove dependency' : 'Dependency (read only)'}</title>
@@ -3434,8 +3579,8 @@ function DependencyOverlay({
                     repeatCount="indefinite"
                   />
                 </circle>
-                {/* Tiny solid white core so the head reads sharp */}
-                <circle r={1.3} fill="#ffffff">
+                {/* Tiny solid core in the ink so the head reads sharp */}
+                <circle r={1.3} fill="var(--color-ink)">
                   <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
                   <animate
                     attributeName="opacity"
@@ -3458,7 +3603,7 @@ function DependencyOverlay({
           y1={depDrag.startY}
           x2={depDrag.curX}
           y2={depDrag.curY}
-          stroke={depDrag.fromKind === 'phase' ? PHASE_COLOR : TASK_COLOR}
+          stroke={DRAW_COLOR}
           strokeWidth={1.8}
           strokeDasharray="4 4"
           strokeLinecap="round"
@@ -3559,12 +3704,18 @@ function DetailBar({
   const right = dayToX(offsetDays + lengthDays)
   const width = Math.max(6, right - left)
 
-  // Lifecycle palette — picks active / upcoming / completed based
-  // on the row's (live, drag-aware) dates + status. Phases use the
-  // phaseStyle variant which carries a touch more visual weight.
-  // Subgroups get a distinct cool-toned palette to separate them
-  // visually from real phases.
-  const tone = barTone({ ...row, start, end }, critical, phaseStyle, subgroupStyle)
+  // The bar's tone, named: its shape (data-shape), its status
+  // (data-status), whether a task is on the critical path
+  // (data-critical) and, for a subgroup with no status of its own, its
+  // lifecycle from the row's live, drag-aware dates (data-life). A
+  // subgroup is status-driven when it has a status and date-driven when
+  // it has none, so it carries one of the two, never both. The palette
+  // those name is `.rb-tl-tone` in rabbitTimeline.css (UI overhaul B3),
+  // transcribed unchanged from the barTone() it replaces.
+  const toneStatus = (subgroupStyle
+    ? (row?.assetRef?.status || row?.phase?.status)
+    : (phaseStyle ? row?.phase?.status : row?.task?.status)) || undefined
+  const toneLife = subgroupStyle && !toneStatus ? lifecycleState(start, end) : undefined
 
   function onMouseDown(e) {
     if (e.button !== 0) return
@@ -3775,15 +3926,16 @@ function DetailBar({
       onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
       onMouseLeave={scheduleHoverOff}
       data-row-bar={dataRowBar}
-      className={`absolute flex items-center px-2 rounded-sm ${canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      className="absolute flex items-center px-2 rounded-control rb-tl-tone rb-tl-bar"
+      data-shape={subgroupStyle ? 'subgroup' : phaseStyle ? 'phase' : 'task'}
+      data-status={toneStatus}
+      data-life={toneLife}
+      data-critical={critical ? 'true' : 'false'}
+      data-writable={canWrite ? 'true' : 'false'}
       style={{
         left, width,
         top: subgroupStyle ? 4 : (phaseStyle ? 3 : 5),
         height: subgroupStyle ? rowPx - 8 : (phaseStyle ? rowPx - 6 : rowPx - 10),
-        backgroundColor: tone.bg,
-        border: `${subgroupStyle ? 1.5 : (phaseStyle ? 2 : 1)}px solid ${tone.border}`,
-        boxShadow: subgroupStyle ? undefined : (phaseStyle ? '0 0 0 1px rgba(0,0,0,0.4)' : undefined),
-        borderStyle: subgroupStyle ? 'dashed' : 'solid',
       }}
       title={canWrite
         ? `${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`
@@ -3791,23 +3943,90 @@ function DetailBar({
     >
       {/* Edge resize cursor hints — the ew-resize cursor is a promise that the
           edge can be dragged, so it must not be shown to a read-only caller. */}
-      <div className="absolute left-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
-      <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
+      <div className="absolute left-0 top-0 bottom-0 rb-tl-bar-edge" style={{ width: EDGE_GRAB_PX }} />
+      <div className="absolute right-0 top-0 bottom-0 rb-tl-bar-edge" style={{ width: EDGE_GRAB_PX }} />
       {width > 32 && (
+        /* 🚨 THE TWO TRUE-ARMS ARE IDENTICAL AND THE TERNARY STAYS. T0 left it
+           as the marker that a distinction was intended: phase bars used to be
+           set at 700 weight, in capitals, with wide tracking — a combination
+           §3.1 retires, because capitals belong to the Label step alone and a
+           phase NAME is not a label. (Spelled out in words rather than as the
+           three class names, so this comment does not move three rows of the
+           §7 audit; that table greps raw source and counts prose.) Choosing a
+           replacement is design work on the surface B3 owns, so T2 measured
+           the problem instead of inventing one.
+
+           MEASURED, and it changes the question. A phase bar and a subgroup
+           bar are NOT typographically identical twins with nothing else
+           between them — four other channels still separate them, and all
+           four are in this component:
+
+             border-style   subgroup DASHED, phase solid          (:3787)
+             border-width   1.5px vs 2px                          (:3785)
+             box-shadow     phase carries a 1px dark ring, subgroup none (:3786)
+             geometry       phase `top: 3 / height: rowPx - 6`,
+                            subgroup `top: 4 / height: rowPx - 8` (:3782)
+
+           ⚠️ A FIFTH CHANNEL WAS CLAIMED HERE AND IT DOES NOT HOLD IN THE
+           DEFAULT CASE, AND THE LINE NUMBER TOOK THREE GOES. `barTone` is at
+           :5808 — an earlier draft of this comment cited :5762, a blank line
+           inside another function's header, and its correction cited :5790,
+           which is a comment line inside `lifecycleState`. It does branch on
+           `subgroupStyle` first, but two of its arms are byte-identical: a
+           subgroup with an UNRECOGNISED status string (:5820) and a phase with
+           the default `not_started` (:5835) both return
+           `{ bg:'#1c1917', border:'#78716c', fg:'#d6d3d1' }`.
+           ⚠️ That is the only collision, and an earlier draft generalised it
+           into "the palette separates them only once a status is set", which
+           is backwards: a subgroup with NO status falls through to the
+           date-based ladder at :5823, and all three of its outcomes differ
+           from the phase default on at least the foreground. So the palette
+           does separate them in the common case; it collides in one narrow
+           combination. The four channels above were verified and stand.
+
+           The dashed border alone reads at a glance. So what the old capitals
+           and wide tracking added was a FIFTH signal, not the only one, and
+           the app is not short of one here.
+
+           📌 AND WALKTHROUGH 30 SAYS SOMETHING STRONGER THAN ANYONE
+           MEASURED: that the change left phase and TASK bars looking "the
+           same". Live on Salt Hours they differ on five channels — weight 600
+           against 400 (this very ternary), border 2px against 1px, the dark
+           ring, height 28 against 24, and a different palette. Walkthrough 34
+           corrects it for her.
+
+           What this expression does still say — and it is the part worth
+           keeping — is that a PARENT bar (phase or subgroup) is 600 and a TASK
+           bar is 400. That distinction is live, it is the one §3.1 can
+           express with two weights, and collapsing the ternary to
+           `(phaseStyle || subgroupStyle) ? 'font-semibold' : ''` would say it
+           more plainly at the cost of the marker. Audrey rules; walkthrough 34
+           asks her. Until then, nothing here is silently tidied away.
+
+           📌 UI overhaul B3 (stage 1, the state extraction): the ternary is
+           now two NAMED rules in rabbitTimeline.css, one per arm (the label
+           of a `[data-shape="subgroup"]` bar and of a `[data-shape="phase"]`
+           bar, both 600), so the marker survives un-collapsed. The four
+           channels above and barTone's palette moved there too, values
+           unchanged; the line numbers above are the pre-B3 file's.
+
+           📌 B3c (stage 2): the 2px phase edge, its dark ring and the
+           subgroup's 1.5px went (§3.3, one hairline; a subgroup keeps its
+           DASH). A phase is now told from a task by its row's band on both
+           halves, its taller box, this 600 and its palette; the ternary and
+           its two named rules stay, the marker unchanged. */
         <span
-          className={`text-[10.5px] font-mono truncate pointer-events-none overflow-hidden ${
-            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-bold uppercase tracking-wider' : '')
-          }`}
-          style={{ color: tone.fg }}
+          className="text-dense truncate pointer-events-none overflow-hidden rb-tl-bar-label"
         >
           {label}
         </span>
       )}
       {/* Dependency-drag handle — sits OUTSIDE the bar, just past
           its right edge, so it no longer overlaps the 6px resize
-          grab zone at the bar's right edge. Color matches the kind
-          of dependency it will create: orange for task→task, cyan
-          for phase→phase. */}
+          grab zone at the bar's right edge. B3c: the signal for either
+          kind (it was orange for task→task and cyan for phase→phase);
+          the kind shows in the link it draws, solid or dashed. Its look
+          is `.rb-tl-dep-handle` in rabbitTimeline.css. */}
       {/* Session 29 — withheld from a read-only caller. This is a hover-revealed
           GRIP, not a persistent control: a greyed dot that only materialises
           when you hover and then refuses to drag teaches nothing, and the bar's
@@ -3830,18 +4049,15 @@ function DetailBar({
           onMouseDown={onDepHandleDown}
           onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
           onMouseLeave={scheduleHoverOff}
-          className="absolute rounded-full"
+          className="absolute rounded-full rb-tl-dep-handle"
           style={{
             right: -22,
             top: '50%',
             transform: 'translateY(-50%)',
             width: 14,
             height: 14,
-            backgroundColor: phaseStyle ? '#22d3ee' : '#fb923c',
-            border: '2px solid #1c1917',
             cursor: 'crosshair',
             zIndex: 6,
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
           }}
           title="Drag to link a dependency"
         />
@@ -3887,7 +4103,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="rounded-sm flex flex-col w-full max-w-md"
+        className="rounded-control flex flex-col w-full max-w-md"
         style={{ backgroundColor: '#292524', border: '1px solid #fb923c' }}
       >
         <div
@@ -3895,11 +4111,11 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           style={{ borderBottom: '1px solid #fb923c', backgroundColor: '#7c2d12' }}
         >
           <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#fed7aa' }} />
-          <span className="text-[10.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fed7aa' }}>
+          <span className="text-label uppercase font-semibold" style={{ color: '#fed7aa' }}>
             Task outside phase window
           </span>
         </div>
-        <div className="px-4 py-4 flex flex-col gap-3 text-[11.5px] font-mono" style={{ color: '#d6d3d1' }}>
+        <div className="px-4 py-4 flex flex-col gap-3 text-dense" style={{ color: '#d6d3d1' }}>
           <p>
             <span style={{ color: '#fb923c' }}>{pendingExtend.taskTitle}</span> sits outside
             the dates of its phase <span style={{ color: '#fb923c' }}>{pendingExtend.phaseName}</span>.
@@ -3913,7 +4129,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onClampTask}
-            className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
             style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
           >
             Clamp task
@@ -3921,8 +4137,11 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onExtendPhase}
-            className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+            className="px-3 py-1.5 text-dense rounded-control transition-colors"
+            // V2 (C6): cream #fff7ed on the signal #ea580c is 3.35:1. The
+            // kit primary's own pair — white on signal-fill, 5.18:1 — until
+            // this dialog's chrome is decided (B3d question 6).
+            style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}
           >
             Extend phase
           </button>
@@ -4094,34 +4313,40 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     }
   }
 
-  async function handleDelete() {
+  // W9 (B3c): the four deletes ask on the kit Dialog, not window.confirm.
+  // Each question is the old confirm's, word for word, as the title; the
+  // second sentence two of them carried is the body. Nothing is deleted
+  // until the answer, exactly as before; an editor with no id to delete
+  // closes as it always did.
+  const [askDelete, setAskDelete] = useState(null)
+  const DELETE_ASK = {
+    milestone: { id: editor.milestoneId, title: 'Delete this milestone?', body: null, label: 'Delete milestone' },
+    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Tasks linked to it will lose their asset reference.', label: 'Delete asset' },
+    phase:     { id: editor.phaseId,     title: 'Delete this phase?', body: 'Tasks linked to it will become orphans.', label: 'Delete phase' },
+    task:      { id: editor.taskId,      title: 'Delete this task?', body: null, label: 'Delete task' },
+  }
+
+  function handleDelete() {
+    if (!canWrite) { setError(writeReason); return }
+    setError(null)
+    const ask = DELETE_ASK[editor.mode]
+    if (!ask?.id) { onClose(); return }
+    setAskDelete(ask)
+  }
+
+  async function performDelete() {
+    setAskDelete(null)
     if (!canWrite) { setError(writeReason); return }
     setSaving(true)
     setError(null)
     try {
       if (editor.mode === 'milestone' && editor.milestoneId) {
-        if (!confirm('Delete this milestone?')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteMilestone(editor.milestoneId)
       } else if (editor.mode === 'asset' && editor.assetId) {
-        if (!confirm('Delete this asset? Tasks linked to it will lose their asset reference.')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteAsset(editor.assetId)
       } else if (editor.mode === 'phase' && editor.phaseId) {
-        if (!confirm('Delete this phase? Tasks linked to it will become orphans.')) {
-          setSaving(false)
-          return
-        }
         await ctx.deletePhase(editor.phaseId)
       } else if (editor.mode === 'task' && editor.taskId) {
-        if (!confirm('Delete this task?')) {
-          setSaving(false)
-          return
-        }
         await ctx.deleteTask(editor.taskId)
       }
       onClose()
@@ -4133,18 +4358,24 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ backgroundColor: 'rgba(28, 25, 23, 0.75)' }}
       onClick={() => !saving && onClose()}
     >
+      {/* V2 (2026-09-27): the kit Dialog's cap, 88vh, and the body scrolls
+          between a head and a foot that stay. Uncapped, "New task" measured
+          815px at 1280x700 with its title 57px above the window and nothing
+          to scroll (B3d §4.2: 950px at 900). The chrome itself waits on
+          question 6. */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="rounded-sm flex flex-col w-full max-w-md"
-        style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
+        className="rounded-control flex flex-col w-full max-w-md"
+        style={{ backgroundColor: '#292524', border: '1px solid #44403c', maxHeight: '88vh' }}
       >
         <div
-          className="flex items-center gap-2 px-3 py-2"
+          className="flex items-center gap-2 px-3 py-2 shrink-0"
           style={{ borderBottom: '1px solid #44403c', backgroundColor: '#44403c' }}
         >
           {isMilestone
@@ -4153,7 +4384,9 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-[10.5px] font-mono uppercase tracking-widest font-bold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
+          {/* P1 §7 audit: a title is not data, so not the mono (Q4). Its step
+              and case wait on the editor's look (P1-31, walkthrough 42 Q6). */}
+          <span className="text-label uppercase font-semibold rb-tl-ed-title">
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset
@@ -4165,26 +4398,32 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
           <button
             type="button"
             onClick={() => !saving && onClose()}
-            className="ml-auto p-0.5 rounded-sm hover:bg-stone-700"
+            className="ml-auto p-0.5 rounded-control hover:bg-stone-700"
             style={{ color: '#a8a29e' }}
+            aria-label="Close"
+            title="Close"
           >
-            <X className="w-3 h-3" />
+            <X className="w-3 h-3" aria-hidden="true" />
           </button>
         </div>
 
         {!canWrite && writeReason && (
           <div
-            className="flex items-start gap-2 px-4 py-2.5 text-[10.5px] font-mono leading-relaxed"
+            className="flex items-start gap-2 px-4 py-2.5 text-dense leading-relaxed shrink-0"
             style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
           >
             <Lock className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#78716c' }} />
             <span>
-              <span className="uppercase tracking-wider" style={{ color: '#78716c' }}>Read only — </span>
+              <span className="text-label uppercase" style={{ color: '#78716c' }}>Read only — </span>
               {writeReason}
             </span>
           </div>
         )}
 
+        {/* V2 review round one: the SCROLLER wraps the inert fields — an
+            inert element cannot be hit-tested, so a read-only viewer could
+            not scroll a body that was both. */}
+        <div className="min-h-0 overflow-y-auto scroll-py-1">
         <div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>
           {isMilestone ? (
             <>
@@ -4195,7 +4434,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.title}
                   onChange={(e) => patch('title', e.target.value)}
                   placeholder="e.g. Alpha Delivery"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4205,7 +4444,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.date}
                     onChange={(e) => patch('date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                     style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4215,10 +4454,10 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                       type="color"
                       value={draft.color || '#f59e0b'}
                       onChange={(e) => patch('color', e.target.value)}
-                      className="w-8 h-8 rounded-sm border-0 cursor-pointer"
+                      className="w-8 h-8 rounded-control border-0 cursor-pointer"
                       style={{ backgroundColor: '#1c1917' }}
                     />
-                    <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>{draft.color || '#f59e0b'}</span>
+                    <span className="text-dense" style={{ color: '#78716c' }}>{draft.color || '#f59e0b'}</span>
                   </div>
                 </Field>
               </div>
@@ -4226,7 +4465,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase — project-level)</option>
@@ -4239,7 +4478,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.description}
                   onChange={(e) => patch('description', e.target.value)}
                   placeholder="What does this milestone mark?"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4253,7 +4492,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.name}
                   onChange={(e) => patch('name', e.target.value)}
                   placeholder="e.g. Hero Character Model"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4263,7 +4502,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4272,7 +4511,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.due_date || ''}
                     onChange={(e) => patch('due_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4282,7 +4521,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.status || 'not_started'}
                     onChange={(e) => patch('status', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
@@ -4302,7 +4541,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     value={draft.type || ''}
                     onChange={(e) => patch('type', e.target.value)}
                     placeholder="e.g. 3D Model, Texture"
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4311,7 +4550,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase)</option>
@@ -4324,7 +4563,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.description || ''}
                   onChange={(e) => patch('description', e.target.value)}
                   placeholder="Asset description"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4338,7 +4577,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.name}
                   onChange={(e) => patch('name', e.target.value)}
                   placeholder="e.g. Pre-production"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4346,7 +4585,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.parent_phase_id || ''}
                   onChange={(e) => patch('parent_phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(top-level)</option>
@@ -4362,7 +4601,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     required
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4372,13 +4611,13 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     required
                     value={draft.end_date || ''}
                     onChange={(e) => patch('end_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
               </div>
               <div
-                className="text-[10.5px] font-mono"
+                className="text-dense"
                 style={{ color: '#78716c' }}
               >
                 Phases always have a start and end date — the bar you see
@@ -4388,7 +4627,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.status || 'not_started'}
                   onChange={(e) => patch('status', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
@@ -4402,7 +4641,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   rows={3}
                   value={draft.description}
                   onChange={(e) => patch('description', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500 resize-y"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4416,7 +4655,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.title}
                   onChange={(e) => patch('title', e.target.value)}
                   placeholder="e.g. Storyboard pass 1"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4424,7 +4663,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase)</option>
@@ -4437,7 +4676,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.asset_id || ''}
                   onChange={(e) => patch('asset_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no asset — task lives directly under the phase)</option>
@@ -4458,7 +4697,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     <select
                       value={draft.scene_id || ''}
                       onChange={(e) => { patch('scene_id', e.target.value); patch('shot_id', '') }}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                       style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                     >
                       <option value="">(no scene)</option>
@@ -4469,7 +4708,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     <select
                       value={draft.shot_id || ''}
                       onChange={(e) => patch('shot_id', e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                       style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                     >
                       <option value="">(no shot)</option>
@@ -4484,7 +4723,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.level_id || ''}
                     onChange={(e) => patch('level_id', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">(no level)</option>
@@ -4497,7 +4736,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.experience_id || ''}
                     onChange={(e) => patch('experience_id', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">(no experience)</option>
@@ -4511,7 +4750,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4520,7 +4759,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.end_date || ''}
                     onChange={(e) => patch('end_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4533,7 +4772,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     step="0.5"
                     value={draft.bid_days}
                     onChange={(e) => patch('bid_days', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4541,7 +4780,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.assignee_id || ''}
                     onChange={(e) => patch('assignee_id', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">-- unassigned --</option>
@@ -4556,7 +4795,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.priority}
                     onChange={(e) => patch('priority', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="low" style={{ color: '#a8a29e' }}>Low</option>
@@ -4569,7 +4808,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.status}
                     onChange={(e) => patch('status', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-dense rounded-control focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="waiting_to_start" style={{ color: '#a8a29e' }}>Waiting to start</option>
@@ -4591,7 +4830,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 if (!parentAsset) return null
                 return (
                   <div className="mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
-                    <div className="text-[9.5px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+                    <div className="text-label uppercase mb-1" style={{ color: '#78716c' }}>
                       Asset: {parentAsset.name || 'Untitled'}
                     </div>
                     <FileManager
@@ -4610,19 +4849,28 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               })()}
             </>
           )}
+        </div>
+        </div>
 
-          {error && (
+        {/* V2 review round one: the error is a strip of its own between the
+            fields and the footer, so it shows whatever the scroll — as the
+            body's last child it landed below the fold and Save seemed to do
+            nothing. Round two: a rule above it, so it does not sit against a
+            half-scrolled field, and `role="alert"`, as the kit Dialog's error
+            has, so a screen reader hears it too. */}
+        {error && (
+          <div role="alert" className="px-4 py-3 shrink-0" style={{ borderTop: '1px solid #44403c' }}>
             <div
-              className="text-[11.5px] font-mono p-2 rounded-sm"
+              className="text-dense p-2 rounded-control"
               style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
             >
               {error}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div
-          className="flex items-center gap-2 px-4 py-3"
+          className="flex items-center gap-2 px-4 py-3 shrink-0"
           style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
         >
           {isEditingExisting && (
@@ -4631,7 +4879,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 type="button"
                 onClick={handleDelete}
                 disabled={saving}
-                className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+                className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
                 style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
               >
                 <Trash2 className="w-3 h-3" />
@@ -4644,7 +4892,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
               type="button"
               onClick={() => !saving && onClose()}
               disabled={saving}
-              className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+              className="px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
               style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
             >
               {canWrite ? 'Cancel' : 'Close'}
@@ -4654,8 +4902,10 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                className="flex items-center gap-1 px-3 py-1.5 text-dense rounded-control transition-colors disabled:opacity-30"
+                // V2 (C6): cream on the signal was 3.35:1; the kit primary's
+                // pair, white on signal-fill (5.18:1), until question 6.
+                style={{ color: 'var(--color-on-fill)', backgroundColor: 'var(--color-signal-fill)', border: '1px solid var(--color-signal-fill)' }}
               >
                 <Save className="w-3 h-3" />
                 {saving ? 'Saving…' : 'Save'}
@@ -4665,6 +4915,25 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         </div>
       </div>
     </div>
+
+    {/* W9 (B3c): the delete question, a sibling of the editor so a click in
+        it never reaches the editor's backdrop (which closes the editor). */}
+    {askDelete && (
+      <Dialog
+        width="confirm"
+        title={askDelete.title}
+        onClose={() => setAskDelete(null)}
+        footer={(
+          <>
+            <Button autoFocus onClick={() => setAskDelete(null)}>Cancel</Button>
+            <Button variant="danger" onClick={performDelete}>{askDelete.label}</Button>
+          </>
+        )}
+      >
+        {askDelete.body && <p className="text-body rb-tl-ask-body">{askDelete.body}</p>}
+      </Dialog>
+    )}
+    </>
   )
 }
 
@@ -4681,7 +4950,7 @@ function emptyMilestoneDraft({ date, phase_id } = {}) {
 function Field({ label, children }) {
   return (
     <div>
-      <label className="block text-[10.5px] font-mono uppercase tracking-widest mb-1" style={{ color: '#a8a29e' }}>
+      <label className="block text-label uppercase mb-1" style={{ color: '#a8a29e' }}>
         {label}
       </label>
       {children}
@@ -4816,175 +5085,94 @@ function DetailZoomToolbar({
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
 }) {
+  // UI overhaul B3b: the kit Toolbar (44px, the 24px gutter, one 28px
+  // control height), and ONE segmented idiom for the three selectors
+  // (TL-01) — the kit Tabs, an underline and no fill — where the zoom chips
+  // were a filled orange chip, and the grouping and the sort were orange
+  // text. Every control stays, with the same title and the same click (C1).
+  const groupItems = [
+    { id: 'phase',      icon: Layers,   title: 'Group by phase' },
+    { id: 'team',       icon: Users,    title: 'Group by team member' },
+    { id: 'asset',      icon: Boxes,    title: 'Group by asset' },
+    ...(project?.scenes_enabled ? [{ id: 'scene', icon: Film, title: 'Group by scene' }] : []),
+    ...(project?.levels_enabled ? [{ id: 'level', icon: Gamepad2, title: 'Group by level' }] : []),
+    ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
+  ].map(({ id, icon: Icon, title }) => ({ id, title, label: <Icon className="w-3.5 h-3.5" aria-hidden="true" /> }))
   return (
-    <div
-      className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
-      style={{ borderBottom: '1px solid #292524', backgroundColor: '#1c1917' }}
+    /* `wrap` (B3c): the kit's second line for a window narrower than the
+       bar. Its two groups are 1007px, so at the 1024px the window allows
+       the create buttons overprinted the sort pair by 31px (measured); at
+       1280 and up it is one line at the same 44px, unchanged. */
+    <Toolbar
+      wrap
+      right={
+        <>
+          {groupBy === 'phase' && (
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <Button size="sm" variant="ghost" icon={Plus} onClick={onNewPhase}>
+              Phase
+            </Button>
+          </GatedAction>
+          )}
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <Button size="sm" variant="ghost" icon={Diamond} onClick={onNewMilestone}>
+              Key date
+            </Button>
+          </GatedAction>
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <Button size="sm" variant="primary" icon={Plus} onClick={onNewTask}>
+              Task
+            </Button>
+          </GatedAction>
+        </>
+      }
     >
       {/* Undo / redo */}
-      <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={onUndo}
-          disabled={!canUndo}
-          className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
-          style={{
-            color: canUndo ? '#d6d3d1' : '#44403c',
-            cursor: canUndo ? 'pointer' : 'not-allowed',
-          }}
-          title="Undo (Ctrl+Z)"
-        >
-          <Undo2 className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onRedo}
-          disabled={!canRedo}
-          className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
-          style={{
-            color: canRedo ? '#d6d3d1' : '#44403c',
-            cursor: canRedo ? 'pointer' : 'not-allowed',
-          }}
-          title="Redo (Ctrl+Shift+Z)"
-        >
-          <Redo2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      <IconButton size="sm" icon={Undo2} onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" />
+      <IconButton size="sm" icon={Redo2} onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" />
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
-      <div className="flex items-center gap-1">
-        {ZOOM_LEVELS.map(z => (
-          <button
-            key={z.id}
-            type="button"
-            onClick={() => onChange(z.id)}
-            className="px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{
-              color: zoomId === z.id ? '#fff7ed' : '#78716c',
-              backgroundColor: zoomId === z.id ? '#ea580c' : 'transparent',
-            }}
-            title={`Switch the detail gantt to ${z.label} zoom`}
-          >
-            {z.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Detail zoom"
+        panelId={DETAIL_PANEL_ID}
+        items={ZOOM_LEVELS.map(z => ({ id: z.id, label: z.label, title: `Switch the detail gantt to ${z.label} zoom` }))}
+        value={zoomId}
+        onChange={onChange}
+      />
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
-      <button
-        type="button"
-        onClick={onCenterToday}
-        className="flex items-center gap-1 px-2 py-1 rounded-sm hover:bg-stone-800 transition-colors"
-        style={{ color: '#78716c' }}
-        title="Center the detail timeline on today"
-      >
-        <Crosshair className="w-3 h-3" />
-        <span className="text-[10.5px] font-mono uppercase tracking-wider">Today</span>
-      </button>
+      <Button size="sm" variant="ghost" icon={Crosshair} onClick={onCenterToday} title="Center the detail timeline on today">
+        Today
+      </Button>
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
       {/* Group-by selector */}
       {onGroupByChange && (
-        <div className="flex items-center gap-0.5">
-          {[
-            { id: 'phase',      icon: Layers,   title: 'Group by phase' },
-            { id: 'team',       icon: Users,    title: 'Group by team member' },
-            { id: 'asset',      icon: Boxes,    title: 'Group by asset' },
-            ...(project?.scenes_enabled ? [{ id: 'scene', icon: Film, title: 'Group by scene' }] : []),
-            ...(project?.levels_enabled ? [{ id: 'level', icon: Gamepad2, title: 'Group by level' }] : []),
-            ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
-          ].map((g) => {
-            const Icon = g.icon
-            return (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => onGroupByChange(g.id)}
-                className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
-                style={{
-                  color: groupBy === g.id ? '#fb923c' : '#57534e',
-                }}
-                title={g.title}
-              >
-                <Icon className="w-3.5 h-3.5" />
-              </button>
-            )
-          })}
-        </div>
+        <Tabs label="Group by" panelId={DETAIL_PANEL_ID} items={groupItems} value={groupBy} onChange={onGroupByChange} />
       )}
 
-      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+      <span className="rb-tl-tb-sep" aria-hidden="true" />
 
       {/* Sort */}
-      <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={() => onSortOrderChange?.('asc')}
-          className="px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
-          style={{
-            color: sortOrder === 'asc' ? '#fb923c' : '#57534e',
-          }}
-          title="Sort phases and tasks by start date, earliest first"
-        >
-          ↑ Date
-        </button>
-        <button
-          type="button"
-          onClick={() => onSortOrderChange?.('desc')}
-          className="px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
-          style={{
-            color: sortOrder === 'desc' ? '#fb923c' : '#57534e',
-          }}
-          title="Sort phases and tasks by start date, latest first"
-        >
-          ↓ Date
-        </button>
-      </div>
-
-      {/* + Phase / + Task */}
-      <div className="ml-auto flex items-center gap-1.5">
-        {groupBy === 'phase' && (
-        <GatedAction allowed={canWrite} reason={writeReason}>
-          <button
-            type="button"
-            onClick={onNewPhase}
-            className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
-            style={{ color: '#78716c' }}
-          >
-            <Plus className="w-3 h-3" />
-            Phase
-          </button>
-        </GatedAction>
-        )}
-        <GatedAction allowed={canWrite} reason={writeReason}>
-          <button
-            type="button"
-            onClick={onNewMilestone}
-            className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
-            style={{ color: '#f59e0b' }}
-          >
-            <Diamond className="w-3 h-3" />
-            Key Date
-          </button>
-        </GatedAction>
-        <GatedAction allowed={canWrite} reason={writeReason}>
-          <button
-            type="button"
-            onClick={onNewTask}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
-          >
-            <Plus className="w-3 h-3" />
-            Task
-          </button>
-        </GatedAction>
-      </div>
-    </div>
+      <Tabs
+        label="Sort by start date"
+        panelId={DETAIL_PANEL_ID}
+        items={[
+          { id: 'asc',  label: '↑ Date', title: 'Sort phases and tasks by start date, earliest first' },
+          { id: 'desc', label: '↓ Date', title: 'Sort phases and tasks by start date, latest first' },
+        ]}
+        value={sortOrder}
+        onChange={(o) => onSortOrderChange?.(o)}
+      />
+    </Toolbar>
   )
 }
+
+/** The region the toolbar's three tab sets switch (Tabs' panelId): the gantt. */
+const DETAIL_PANEL_ID = 'rb-tl-detail'
 
 // ============================================================
 // HolidaysEditor — inline editor inside SettingsPanel for
@@ -4993,8 +5181,23 @@ function DetailZoomToolbar({
 //   • Importing a CSV (one YYYY-MM-DD per line)
 //   • Exporting the current list as CSV
 //   • Removing individual dates
+// B3d: the kit's Card, Button and IconButton, its colours in the sheet.
+// `locked` is the Settings tab's lock: every control is disabled while it
+// holds, where the old tab went to opacity 60% with pointer-events off —
+// which a keyboard walked straight through.
+// 🚨 The two fields wear the kit's `ui-input` on a NATIVE input, as D.O.G.'s
+// and O.T.T.E.R.'s settings fields do, not the kit `Input`: that one blurs
+// on Enter, and the app's window-level Enter (App.jsx) then finds nothing
+// focused and toggles the companion; and it reverts on Escape (review
+// round 1). They keep Escape to themselves (`keepEscape`), as they did.
 // ============================================================
-function HolidaysEditor({ holidays, onChange }) {
+/** A settings field keeps Escape as it always did: it answers the key (the
+    kit Drawer's contract: a layer that answers Escape marks it) so the
+    drawer does not close under it. For the prompt editor that is the
+    difference between keeping and losing an unsaved draft, which lives only
+    in this panel. */
+const keepEscape = (e) => { if (e.key === 'Escape') e.preventDefault() }
+function HolidaysEditor({ holidays, onChange, locked = false }) {
   // holidays is a Map<date, title>
   const [newDate, setNewDate] = useState('')
   const [newTitle, setNewTitle] = useState('')
@@ -5042,108 +5245,113 @@ function HolidaysEditor({ holidays, onChange }) {
   }
 
   return (
-    <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-      <label className="block text-sm font-bold mb-1 text-orange-400">
-        Holidays / Blocked Days
-      </label>
-      <p className="text-[10.5px] text-stone-500 mb-3">
+    <Card title="Holidays / blocked days">
+      <p className="text-dense mb-3 rb-tl-set-desc">
         Dates listed here are excluded from the working-day count.
         Import a CSV (YYYY-MM-DD,Title per line) or add individual dates.
       </p>
 
-      {/* Add individual date + title */}
+      {/* Add individual date + title. The date field keeps its own width:
+          `.ui-input` is width 100%, which gave it the row and left the name
+          18px (review round 1). */}
       <div className="flex items-center gap-2 mb-3">
         <input
           type="date"
           value={newDate}
           onChange={(e) => setNewDate(e.target.value)}
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:outline-none focus:border-orange-500"
+          onKeyDown={keepEscape}
+          disabled={locked}
+          aria-label="Holiday date"
+          className="ui-input w-auto flex-none"
+          data-size="sm"
+          data-surface="dark"
         />
         <input
           type="text"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={keepEscape}
           placeholder="Holiday name"
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:outline-none focus:border-orange-500 flex-1 min-w-0"
+          disabled={locked}
+          aria-label="Holiday name"
+          className="ui-input flex-1 min-w-0"
+          data-size="sm"
+          data-surface="dark"
         />
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="primary"
+          icon={Plus}
+          disabled={locked}
           onClick={() => { if (newDate) { addDate(newDate, newTitle); setNewDate(''); setNewTitle('') } }}
-          className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+          className="flex-shrink-0"
         >
-          <Plus className="w-3 h-3" />
           Add
-        </button>
+        </Button>
       </div>
 
       {/* Import / Export */}
       <div className="flex items-center gap-2 mb-3">
         <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleImport} className="hidden" />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <Upload className="w-3 h-3" />
+        <Button size="sm" icon={Upload} disabled={locked} onClick={() => fileRef.current?.click()}>
           Import CSV
-        </button>
-        <button
-          type="button"
-          onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <Download className="w-3 h-3" />
+        </Button>
+        <Button size="sm" icon={Download} disabled={locked} onClick={handleExport}>
           Export CSV
-        </button>
-        <span className="text-[10.5px] font-mono text-stone-500 ml-auto">
+        </Button>
+        <span className="text-dense font-mono ml-auto rb-tl-hol-count">
           {sorted.length} date{sorted.length === 1 ? '' : 's'}
         </span>
       </div>
 
       {/* Date list */}
-      <div
-        className="overflow-y-auto border border-stone-700 rounded-sm"
-        style={{ maxHeight: 200, backgroundColor: '#0c0a09' }}
-      >
+      {/* `scroll-py-1` here and on the tab panel: Tab stops 4px in from a
+          scroller's edge, so a ring it scrolls to is not cut (O.T.T.E.R.'s
+          fix; review round 2). */}
+      <div className="overflow-y-auto scroll-py-1 rounded-control rb-tl-hol-list" style={{ maxHeight: 200 }}>
         {sorted.length === 0 ? (
-          <div className="px-3 py-4 text-[10.5px] text-stone-600 text-center font-mono">
+          <div className="px-3 py-4 text-dense text-center rb-tl-hol-empty">
             No holidays configured
           </div>
         ) : (
           sorted.map(([iso, title]) => (
-            <div
-              key={iso}
-              className="flex items-center gap-2 px-3 py-1 border-b border-stone-800 last:border-b-0 hover:bg-stone-900"
-            >
-              <span className="text-[11.5px] font-mono text-stone-400 flex-shrink-0" style={{ width: 90 }}>
+            <div key={iso} className="flex items-center gap-2 px-3 py-1 rb-tl-hol-row">
+              <span className="text-dense flex-shrink-0 rb-tl-hol-date" style={{ width: 90 }}>
                 {iso}
               </span>
-              <span className="text-[11.5px] font-mono text-stone-300 truncate flex-1 min-w-0">
+              <span className="text-dense truncate flex-1 min-w-0 rb-tl-hol-name">
                 {title || ''}
               </span>
-              <button
-                type="button"
-                onClick={() => removeDate(iso)}
-                className="p-0.5 hover:bg-stone-700 rounded-sm transition-colors flex-shrink-0"
-                title="Remove this date"
-              >
-                <X className="w-3 h-3 text-stone-500 hover:text-red-400" />
-              </button>
+              <IconButton size="sm" icon={X} title="Remove this date" disabled={locked} onClick={() => removeDate(iso)} />
             </div>
           ))
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
 // ============================================================
 // SettingsPanel — slide-out from the right with two tabs:
 // Settings + System Prompts (matches DOG/OTTER pattern).
+// B3d: the kit's Drawer (xl, a backdrop), Tabs, Toolbar, Switch, Card,
+// Button and IconButton, and its fields native in the kit's `ui-input` (see
+// HolidaysEditor), laid out as D.O.G.'s and O.T.T.E.R.'s settings drawers
+// are. The title bar is the Drawer's `--titlebar-offset`
+// (TL-24); the panel no longer pads itself 32px under Electron. The lock
+// is the disabled token (every control disabled, the text a step dimmer),
+// where the Settings tab went to opacity 60% (the walk measured 80 lines
+// of it). TaskTemplateManager, B2's kit Dialog, renders BESIDE the drawer:
+// the kit Dialog does not portal (B3c trap 4).
 // ============================================================
+const SETTINGS_PANEL_ID = 'rb-tl-settings-panel'
+/** The project-type columns, with the word each checkbox is named by (the
+    head abbreviates the third). */
+const TYPE_FIELDS = [
+  { field: 'scenes_enabled', name: 'Scenes' },
+  { field: 'levels_enabled', name: 'Levels' },
+  { field: 'experiences_enabled', name: 'Experiences' },
+]
 export function SettingsPanel({ settings, patchSettings, settingsTab, setSettingsTab, holidays, onHolidaysChange, onClose, onOpenHelp }) {
   const [promptsLocked, setPromptsLocked] = useState(true)
   const [toolsLocked, setToolsLocked]     = useState(true)
@@ -5175,170 +5383,168 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
     { key: 'phaseGenerator',  title: 'Phase Generator',  desc: 'Proposes high-level phases from a project description',      defaultVal: RABBIT_PHASE_GENERATOR_PROMPT },
   ]
 
+  function toggleLock() {
+    if (settingsTab === 'prompts') setPromptsLocked(!promptsLocked)
+    else setToolsLocked(!toolsLocked)
+  }
+
   return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/50 transition-opacity" onClick={onClose} />
-      <div
-        className="absolute top-0 right-0 h-full bg-stone-800 border-l-2 border-stone-600 shadow-2xl flex flex-col"
-        style={{
-          width: '40%',
-          minWidth: '420px',
-          paddingTop: typeof window !== 'undefined' && window.electronAPI ? '32px' : '0px',
-          animation: 'slideInRight 0.3s ease-out',
-        }}
-      >
-        {/* Header */}
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
-          <div className="flex items-center gap-2">
-            <SettingsIcon className="w-5 h-5 text-orange-400" />
-            <span className="font-bold text-orange-400 uppercase tracking-wide">RABBIT Settings</span>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded transition-colors">
-            <X className="w-5 h-5 text-stone-400" />
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex shrink-0">
-          <button
-            onClick={() => setSettingsTab('settings')}
-            className={`flex-1 px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
-              settingsTab === 'settings'
-                ? 'text-orange-400 border-orange-500 bg-stone-900'
-                : 'text-stone-400 border-transparent bg-stone-700'
-            }`}
-          >
-            Settings
-          </button>
-          <button
-            onClick={() => setSettingsTab('prompts')}
-            className={`flex-1 px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
-              settingsTab === 'prompts'
-                ? 'text-orange-400 border-orange-500 bg-stone-900'
-                : 'text-stone-400 border-transparent bg-stone-700'
-            }`}
-          >
-            System Prompts
-          </button>
-        </div>
-
-        {/* Lock bar */}
-        <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-2">
-            {isLocked
-              ? <Lock className="w-4 h-4 text-stone-500" />
-              : <Unlock className="w-4 h-4 text-orange-400" />}
-            <span className={`text-xs font-bold uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
-              {isLocked ? 'Locked' : 'Unlocked'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`text-[10.5px] uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
-              {isLocked ? 'Read Only' : 'Editable'}
-            </span>
-            <button
-              onClick={() => {
-                if (settingsTab === 'prompts') setPromptsLocked(!promptsLocked)
-                else setToolsLocked(!toolsLocked)
-              }}
-              className={`relative w-11 h-6 rounded-full transition-colors ${isLocked ? 'bg-stone-600' : 'bg-orange-500'}`}
-            >
-              <span
-                className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${isLocked ? 'left-1' : 'left-6'}`}
+    <>
+      <Drawer
+        open
+        onClose={onClose}
+        backdrop
+        side="right"
+        width="xl"
+        label="RABBIT settings"
+        className="rb-tl-settings"
+        title={(
+          <>
+            <SettingsIcon className="rb-tl-set-icon" aria-hidden="true" />
+            RABBIT settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={onClose} />}
+        footer={(
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-dense flex-1 min-w-0 rb-tl-set-note">
+              Changes are applied immediately. Use &quot;Reset to default&quot; to restore
+              original settings.
+            </p>
+            {/* D.O.G.'s and O.T.T.E.R.'s footer Help: the kit IconButton,
+                named by its title (a text button wrapped the note at 1440). */}
+            {onOpenHelp && (
+              <IconButton
+                size="sm"
+                icon={HelpCircle}
+                onClick={onOpenHelp}
+                title="Open RABBIT help & documentation"
               />
-            </button>
+            )}
           </div>
-        </div>
+        )}
+      >
+        {/* The two tabs, halves of the drawer as they were. */}
+        <Tabs
+          items={[{ id: 'settings', label: 'Settings' }, { id: 'prompts', label: 'System prompts' }]}
+          value={settingsTab}
+          onChange={setSettingsTab}
+          label="Settings sections"
+          panelId={SETTINGS_PANEL_ID}
+          className="rb-tl-set-tabs"
+        />
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* The lock bar: the open tab's lock. "Editable" is the switch's name
+            and its state is the switch's; the words beside it are unchanged. */}
+        <Toolbar
+          className="rb-tl-lock-bar"
+          data-locked={isLocked ? 'true' : 'false'}
+          right={(
+            <>
+              <span className="text-label font-semibold uppercase rb-tl-lock-hint">
+                {isLocked ? 'Read Only' : 'Editable'}
+              </span>
+              <Switch checked={!isLocked} onChange={toggleLock} aria-label="Editable" />
+            </>
+          )}
+        >
+          {isLocked
+            ? <Lock className="rb-tl-lock-icon" aria-hidden="true" />
+            : <Unlock className="rb-tl-lock-icon" aria-hidden="true" />}
+          <span className="text-label font-semibold uppercase rb-tl-lock-label">
+            {isLocked ? 'Locked' : 'Unlocked'}
+          </span>
+        </Toolbar>
+
+        {/* Content: the one part of the drawer that scrolls. */}
+        <div
+          id={SETTINGS_PANEL_ID}
+          role="tabpanel"
+          aria-label={settingsTab === 'prompts' ? 'System prompts' : 'Settings'}
+          className="flex-1 min-h-0 overflow-y-auto scroll-py-1"
+        >
+          {/* Settings: kit Cards 16px apart on their own 12px, as O.T.T.E.R.'s
+              tool settings are; the prompts run edge to edge, as both
+              siblings' do (review round 1). */}
           {settingsTab === 'settings' && (
-            <div className={toolsLocked ? 'opacity-60 pointer-events-none' : ''}>
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-sm font-bold mb-2 text-orange-400">Timeline Display</label>
-                <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 p-3 rb-tl-set-body" data-locked={toolsLocked ? 'true' : 'false'}>
+              <Card title="Timeline display">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs font-bold text-stone-300">Show weekends</div>
-                    <p className="text-[10.5px] text-stone-500 mt-1">
+                    <div className="text-dense font-semibold rb-tl-set-label">Show weekends</div>
+                    <p className="text-dense mt-1 rb-tl-set-desc">
                       When OFF, Saturday + Sunday columns are hidden from the day-view gantt entirely.
                       When ON, weekends get a soft tint so they read as non-work days.
                     </p>
                   </div>
-                  <button
-                    onClick={() => patchSettings({ showWeekends: !settings.showWeekends })}
-                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${settings.showWeekends ? 'bg-orange-500' : 'bg-stone-600'}`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 bg-stone-200 rounded-full transition-transform ${settings.showWeekends ? 'left-6' : 'left-1'}`}
-                    />
-                  </button>
+                  <Switch
+                    checked={Boolean(settings.showWeekends)}
+                    onChange={(on) => patchSettings({ showWeekends: on })}
+                    disabled={toolsLocked}
+                    aria-label="Show weekends"
+                    className="flex-shrink-0"
+                  />
                 </div>
-              </div>
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-sm font-bold mb-2 text-orange-400">About</label>
-                <p className="text-[10.5px] text-stone-500">
+              </Card>
+              <Card title="About">
+                <p className="text-dense rb-tl-set-desc">
                   RABBIT is WILSON's resource allocation tool. Settings are scoped to the
                   current browser profile and persist via localStorage.
                 </p>
-              </div>
+              </Card>
 
-              {/* ── Task Templates ── */}
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-sm font-bold mb-2 text-orange-400">Task Templates</label>
-                <p className="text-[10.5px] text-stone-500 mb-3">
+              {/* ── Task Templates: opens B2's TaskTemplateManager, as it did ── */}
+              <Card title="Task templates">
+                <p className="text-dense mb-3 rb-tl-set-desc">
                   Create and manage reusable task templates that can be applied when creating new assets.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowTemplateManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
-                  style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                >
-                  <ListChecks className="w-3.5 h-3.5" />
-                  Manage Task Templates
-                </button>
-              </div>
+                {/* `self-start`: the kit Card is a column, which stretched the
+                    button across the card (review round 2). */}
+                <Button size="sm" icon={ListChecks} disabled={toolsLocked} onClick={() => setShowTemplateManager(true)} className="self-start">
+                  Manage task templates
+                </Button>
+              </Card>
 
               {/* ── Project Type Defaults ── */}
-              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-                <label className="block text-sm font-bold mb-2 text-orange-400">Project Type Defaults</label>
-                <p className="text-[10.5px] text-stone-500 mb-3">
+              <Card title="Project type defaults">
+                <p className="text-dense mb-3 rb-tl-set-desc">
                   When creating a new project, these databases will be toggled on by default based on the project type.
                   You can override these per-project in the Project Control Panel.
                 </p>
-                <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+                <div className="rounded-control overflow-hidden rb-tl-type-table">
                   {/* Header row */}
-                  <div className="flex items-center px-3 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                    <span className="flex-1 text-[10.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Type</span>
-                    <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Scenes</span>
-                    <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Levels</span>
-                    <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Exp.</span>
+                  <div className="flex items-center px-3 py-2 rb-tl-type-head">
+                    <span className="flex-1 text-label uppercase font-semibold">Type</span>
+                    <span className="w-16 text-label uppercase font-semibold text-center">Scenes</span>
+                    <span className="w-16 text-label uppercase font-semibold text-center">Levels</span>
+                    <span className="w-16 text-label uppercase font-semibold text-center">Exp.</span>
                   </div>
                   {/* Rows — one per project type */}
                   {PROJECT_TYPE_LIST.map(type => {
                     const tpl = settings.projectTypeTemplates?.[type] || DEFAULT_PROJECT_TYPE_TEMPLATES[type] || {}
+                    const typeName = type.replace(/_/g, ' ')
                     return (
-                      <div key={type} className="flex items-center px-3 py-1.5 hover:bg-stone-800/40 transition-colors"
-                        style={{ borderBottom: '1px solid #292524' }}>
-                        <span className="flex-1 text-[11.5px] font-mono capitalize" style={{ color: '#d6d3d1' }}>
-                          {type.replace(/_/g, ' ')}
+                      <div key={type} className="flex items-center px-3 py-1.5 rb-tl-type-row">
+                        <span className="flex-1 text-dense capitalize rb-tl-type-name">
+                          {typeName}
                         </span>
-                        {['scenes_enabled', 'levels_enabled', 'experiences_enabled'].map(field => (
+                        {TYPE_FIELDS.map(({ field, name }) => (
                           <span key={field} className="w-16 flex justify-center">
                             <button
                               type="button"
+                              role="checkbox"
+                              aria-checked={tpl[field] ? 'true' : 'false'}
+                              aria-label={`${name}: ${typeName}`}
+                              disabled={toolsLocked}
                               onClick={() => {
                                 const templates = { ...(settings.projectTypeTemplates || DEFAULT_PROJECT_TYPE_TEMPLATES) }
                                 templates[type] = { ...(templates[type] || {}), [field]: !tpl[field] }
                                 patchSettings({ projectTypeTemplates: templates })
                               }}
-                              className="w-4 h-4 rounded-sm flex items-center justify-center transition-colors"
-                              style={{
-                                backgroundColor: tpl[field] ? '#ea580c' : 'transparent',
-                                border: `1px solid ${tpl[field] ? '#ea580c' : '#57534e'}`,
-                              }}
+                              className="w-4 h-4 rounded-control flex items-center justify-center rb-tl-type-check"
+                              data-checked={tpl[field] ? 'true' : 'false'}
                             >
-                              {tpl[field] && <Check className="w-2.5 h-2.5 text-white" />}
+                              {tpl[field] && <Check className="w-2.5 h-2.5" aria-hidden="true" />}
                             </button>
                           </span>
                         ))}
@@ -5346,68 +5552,80 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     )
                   })}
                 </div>
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={toolsLocked}
                   onClick={() => patchSettings({ projectTypeTemplates: { ...DEFAULT_PROJECT_TYPE_TEMPLATES } })}
-                  className="text-[10.5px] text-orange-400 hover:text-orange-300 transition-colors mt-2"
+                  className="self-start mt-2 -ml-2.5"
                 >
                   Reset to defaults
-                </button>
-              </div>
+                </Button>
+              </Card>
 
               {/* ── Holidays / blocked days ── */}
               <HolidaysEditor
                 holidays={holidays}
                 onChange={onHolidaysChange}
+                locked={toolsLocked}
               />
             </div>
           )}
 
           {settingsTab === 'prompts' && (
-            <div className={promptsLocked ? 'opacity-60' : ''}>
+            <div>
               {promptSections.map(s => (
-                <div key={s.key} className="border-b border-stone-700 overflow-hidden">
+                <div key={s.key} className="overflow-hidden rb-tl-prompt">
                   <button
+                    type="button"
                     onClick={() => setOpenSection(openSection === s.key ? null : s.key)}
-                    className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors"
+                    aria-expanded={openSection === s.key}
+                    className="flex items-center justify-between gap-2 w-full px-3 py-2 rb-tl-prompt-head"
                   >
-                    <div className="text-left">
-                      <span className={`text-xs font-bold uppercase tracking-wide ${promptsLocked ? 'text-stone-500' : 'text-orange-400'}`}>
+                    <div className="text-left min-w-0">
+                      <span className="block text-label font-semibold uppercase rb-tl-prompt-title" data-locked={promptsLocked ? 'true' : 'false'}>
                         {s.title}
                       </span>
-                      <p className="text-[10.5px] text-stone-500">{s.desc}</p>
+                      <p className="text-dense rb-tl-prompt-desc">{s.desc}</p>
                     </div>
                     <ChevronRight
-                      className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${openSection === s.key ? 'rotate-90' : ''}`}
+                      className="w-4 h-4 flex-shrink-0 rb-tl-prompt-chevron"
+                      aria-hidden="true"
+                      data-open={openSection === s.key ? 'true' : 'false'}
                     />
                   </button>
                   {openSection === s.key && (
                     <div className="px-3 pb-3 pt-2">
+                      {/* A native textarea in the kit's `ui-input`, as both
+                          siblings' prompt editors are: the kit TextArea
+                          reverts on Escape, which wiped an unsaved draft
+                          (review round 1). */}
                       <textarea
                         value={editingPrompts[s.key] || ''}
                         onChange={(e) =>
                           setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))
                         }
+                        onKeyDown={keepEscape}
                         disabled={promptsLocked}
-                        className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none ${promptsLocked ? 'cursor-not-allowed' : ''}`}
+                        aria-label={`${s.title} prompt`}
+                        className="ui-input w-full h-48 resize-none"
+                        data-surface="dark"
                       />
                       <div className="flex gap-3 mt-1">
-                        <button
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={promptsLocked}
+                          className="-ml-2.5 focus-visible:-outline-offset-2"
                           onClick={() =>
                             setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))
                           }
-                          disabled={promptsLocked}
-                          className={`text-[10.5px] ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
                         >
                           Reset to default
-                        </button>
-                        <button
-                          onClick={savePrompts}
-                          disabled={promptsLocked}
-                          className={`text-[10.5px] ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
-                        >
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={promptsLocked} onClick={savePrompts}>
                           Save
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -5416,137 +5634,126 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
             </div>
           )}
         </div>
+      </Drawer>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between gap-3">
-          <p className="text-[10.5px] text-stone-500 flex-1">
-            Changes are applied immediately. Use &quot;Reset to default&quot; to restore
-            original settings.
-          </p>
-          {onOpenHelp && (
-            <button
-              type="button"
-              onClick={onOpenHelp}
-              title="Open RABBIT help & documentation"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[10.5px] font-bold uppercase tracking-wide transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-              Help
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Task Template Manager popup ── */}
+      {/* ── Task Template Manager popup: B2's kit Dialog, a SIBLING of the
+          drawer — the kit Dialog does not portal, and inside the drawer it
+          would share the drawer's stacking context (60) under its own 70 ── */}
       {showTemplateManager && (
         <TaskTemplateManager onClose={() => setShowTemplateManager(false)} />
       )}
-    </div>
+    </>
   )
 }
 
 // ============================================================
-// HelpModal — 850×82vh modal with sidebar + content (DOG/OTTER pattern)
-// Exported so Rabbit.jsx can render it outside TimelineView.
+// HelpModal — the kit's Dialog (reading, 720), the one D.O.G.'s Help
+// uses (UI overhaul B3c): a sidebar of pages and the page, two columns
+// that scroll on their own at a fixed height, so changing page does not
+// resize it. It was an 850px hand-rolled modal with its own backdrop,
+// header and close button; the Dialog brings Escape (Q17, ruled), the
+// modal stack and focus management, and keeps the backdrop click that
+// closed it. Exported so Rabbit.jsx can render it outside TimelineView.
 // ============================================================
 export function HelpModal({ helpPage, setHelpPage, onClose }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div
-        className="relative bg-stone-800 border-2 border-stone-600 rounded-sm shadow-2xl flex flex-col"
-        style={{ width: '850px', height: '82vh' }}
-      >
-        <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <HelpCircle className="w-5 h-5 text-orange-400" />
-            <span className="font-bold text-orange-400 uppercase tracking-wide">
-              Help & Documentation
-            </span>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-600 rounded transition-colors">
-            <X className="w-5 h-5 text-stone-400" />
-          </button>
+    <Dialog
+      title="Help & documentation"
+      onClose={onClose}
+      dismissOnBackdrop
+      width="reading"
+      className="rb-tl-help"
+    >
+      <nav className="rb-tl-help-side" aria-label="Help contents">
+        <div className="rb-tl-help-list">
+          {RABBIT_HELP_SIDEBAR_ITEMS.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setHelpPage(item.id)}
+              className="rb-tl-help-item"
+              data-active={helpPage === item.id ? 'true' : 'false'}
+              aria-current={helpPage === item.id ? 'page' : undefined}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
-        <div className="flex-1 flex overflow-hidden">
-          <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto py-2 flex flex-col">
-            <div className="flex-1">
-              {RABBIT_HELP_SIDEBAR_ITEMS.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setHelpPage(item.id)}
-                  className={`w-full text-left px-3 py-1.5 text-[11.5px] transition-colors ${
-                    helpPage === item.id
-                      ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
-                      : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="px-3 py-2 border-t border-stone-800">
-              <span className="text-xs text-stone-500 font-mono">RABBIT v0.1.0</span>
-            </div>
-          </nav>
-          <div className="flex-1 overflow-y-auto p-5">
-            <RabbitHelpContent helpPage={helpPage} theme="dark" />
-          </div>
-        </div>
+        <div className="rb-tl-help-version">RABBIT v0.1.0</div>
+      </nav>
+      <div className="rb-tl-help-content">
+        <RabbitHelpContent helpPage={helpPage} theme="dark" />
       </div>
-    </div>
+    </Dialog>
   )
 }
 
-// ============================================================
-// ZoomControls (legacy — kept for compatibility, no longer
-// rendered. The new DetailZoomToolbar replaced it.)
-// ============================================================
+// ZoomControls — the legacy zoom strip DetailZoomToolbar replaced — had no
+// caller and carried a sixth active-state idiom; B3b deleted it (TL-36).
 
-function ZoomControls({ zoomId, onChange }) {
-  const idx = ZOOM_LEVELS.findIndex(z => z.id === zoomId)
-  const canZoomIn  = idx > 0
-  const canZoomOut = idx < ZOOM_LEVELS.length - 1
+// ============================================================
+// TimelineLegend — what the bars' tones and the chart's marks mean
+// (UI overhaul B3c; plan §5 B3, "the legend, once"). ONE component,
+// drawn once, on its own line between the minimap and the detail toolbar,
+// so it serves both charts. Every swatch wears `.rb-tl-tone` with the very
+// attributes a bar carries, so the legend reads the bars' own rules and
+// cannot disagree with a bar. A list of words, not a control: nothing in it
+// takes a click (C1).
+//
+// Placement, measured (hand-off §3): the detail toolbar has 385px free at
+// 1440x900, 225 at 1280 and is already 31px over at 1024; the summary band
+// fits one line at 1280 only with 16px between figures (B3b). The legend is
+// about 900px, so neither holds it and it takes its own line; it wraps
+// rather than clip on a window narrower than it.
+// ============================================================
+const LEGEND_TONES = [
+  { key: 'not-started', label: 'Not started', shape: 'task',  status: undefined,        critical: 'false', title: 'Not started or waiting to start; a phase with no status' },
+  { key: 'in-progress', label: 'In progress', shape: 'task',  status: 'in_progress',    critical: 'false', title: 'In progress; an active phase' },
+  { key: 'critical',    label: 'Critical',    shape: 'task',  status: 'in_progress',    critical: 'true',  title: 'In progress on the critical path' },
+  { key: 'review',      label: 'Review',      shape: 'task',  status: 'pending_review', critical: 'false', title: 'Pending review; needs revisions is the stronger fill' },
+  { key: 'on-hold',     label: 'On hold',     shape: 'task',  status: 'on_hold',        critical: 'false', title: 'On hold; a delayed phase' },
+  { key: 'blocked',     label: 'Blocked',     shape: 'task',  status: 'blocked',        critical: 'false', title: 'Blocked' },
+  { key: 'done',        label: 'Done',        shape: 'task',  status: 'approved',       critical: 'false', title: 'Approved; final is the stronger fill' },
+  { key: 'completed',   label: 'Completed',   shape: 'phase', status: 'completed',      critical: 'false', title: 'A completed phase or group' },
+]
+const LEGEND_LINKS = [
+  { key: 'task-link',  label: 'Task link',  dash: undefined, title: 'A dependency between two tasks' },
+  { key: 'phase-link', label: 'Phase link', dash: '5 3',     title: 'A dependency between two phases' },
+]
+
+function TimelineLegend() {
   return (
-    <div className="ml-auto flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => canZoomIn && onChange(ZOOM_LEVELS[idx - 1].id)}
-        disabled={!canZoomIn}
-        className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30"
-        title="Zoom in"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-      >
-        <ZoomIn className="w-3 h-3" />
-      </button>
-      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
-        {ZOOM_LEVELS.map(z => (
-          <button
-            key={z.id}
-            type="button"
-            onClick={() => onChange(z.id)}
-            className="px-2 py-0.5 text-[10.5px] font-mono uppercase tracking-wider"
-            style={{
-              color: zoomId === z.id ? '#fff7ed' : '#a8a29e',
-              backgroundColor: zoomId === z.id ? '#ea580c' : '#1c1917',
-              borderRight: '1px solid #44403c',
-            }}
-          >
-            {z.label}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={() => canZoomOut && onChange(ZOOM_LEVELS[idx + 1].id)}
-        disabled={!canZoomOut}
-        className="p-1 rounded-sm hover:bg-stone-700 disabled:opacity-30"
-        title="Zoom out"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-      >
-        <ZoomOut className="w-3 h-3" />
-      </button>
-    </div>
+    <ul className="text-caption rb-tl-legend" aria-label="Legend">
+      {LEGEND_TONES.map(t => (
+        <li key={t.key} className="rb-tl-legend-item" title={t.title}>
+          <span
+            aria-hidden="true"
+            className="rounded-control rb-tl-tone rb-tl-legend-swatch"
+            data-shape={t.shape}
+            data-status={t.status}
+            data-critical={t.critical}
+          />
+          {t.label}
+        </li>
+      ))}
+      <li className="rb-tl-legend-item" title="A key date, in its own colour when it has one">
+        <span aria-hidden="true" className="rb-tl-legend-ms" />
+        Key date
+      </li>
+      <li className="rb-tl-legend-item" title="Today">
+        <span aria-hidden="true" className="rb-tl-legend-today" />
+        Today
+      </li>
+      {LEGEND_LINKS.map(l => (
+        <li key={l.key} className="rb-tl-legend-item" title={l.title}>
+          <svg aria-hidden="true" className="rb-tl-legend-link" width="20" height="8" viewBox="0 0 20 8">
+            <line x1="0" y1="4" x2="15" y2="4" stroke="var(--color-ink-2)" strokeWidth="1.5" strokeDasharray={l.dash} />
+            <path d="M 14 1 L 19 4 L 14 7 z" fill="var(--color-ink-2)" />
+          </svg>
+          {l.label}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -5581,68 +5788,70 @@ function SummaryBand({
     onMinimapZoomChange?.(snapped)
   }
 
-  // Friendly label for the current zoom level.
-  let zoomLabel = ''
-  if (minimapZoomDays != null) {
-    if (minimapZoomDays <= 200)       zoomLabel = `${Math.round(minimapZoomDays / 30)} mo`
-    else if (minimapZoomDays <= 800)  zoomLabel = `${(minimapZoomDays / 365).toFixed(1)} yr`
-    else                               zoomLabel = `${Math.round(minimapZoomDays / 365)} yr`
-  }
+  // The span the minimap draws, as a reader would say it, to one decimal
+  // (spanLabel): it used to round 2.35 years to "2 yr", and Fit on a
+  // 137-day project — under the slider's own six-month end, where the
+  // thumb pins — to "5 mo". Fit's behaviour is unchanged (C1); the readout
+  // now says what is drawn.
+  const zoomLabel = minimapZoomDays != null ? spanLabel(minimapZoomDays) : ''
 
   return (
-    <div
-      className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
-      style={{ borderBottom: '1px solid #292524', backgroundColor: '#1c1917' }}
-    >
+    <div className="flex items-center gap-2 px-6 py-2 flex-shrink-0 rb-tl-band">
       {/* Title */}
-      <CalendarDays className="w-4 h-4 flex-shrink-0" style={{ color: '#57534e' }} />
-      <span className="text-[11.5px] font-mono uppercase tracking-widest font-medium flex-shrink-0" style={{ color: '#78716c' }}>
+      <CalendarDays className="w-4 h-4 flex-shrink-0 rb-tl-band-icon" aria-hidden="true" />
+      <span className="text-label uppercase flex-shrink-0 rb-tl-band-title">
         Timeline
       </span>
 
-      <div className="flex items-center gap-2 flex-wrap min-w-0 ml-4">
-        <SummaryTile icon={Layers}        label="Phases"        value={summary.phases} />
-        <SummaryTile icon={Boxes}         label="Assets"        value={summary.assets} />
-        <SummaryTile icon={ListChecks}    label="Tasks"         value={summary.tasks} />
-        <SummaryTile icon={GitBranch}     label="Critical"      value={summary.critical} />
-        <SummaryTile icon={AlertTriangle} label="Blocked"       value={summary.blocked} tone={summary.blocked > 0 ? 'danger' : undefined} />
-        <SummaryTile icon={CalendarDays}  label="Span"          value={`${summary.spanDays} d`} />
-        <SummaryTile icon={Briefcase}     label="Working"       value={`${summary.workingDays} d`} />
-        <SummaryTile icon={CalendarDays}  label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
+      {/* The eight figures on the kit's Stat (TL-07; its third caller after
+          the Summary and Tasks views): the name above at the Label step, the
+          figure below in the mono at tabular figures, so the numbers read as
+          figures and not as one more line of chrome. No icons — one glyph
+          used to stand for three metrics. Blocked above zero puts its figure
+          in the danger tone, as the tile did. */}
+      <div className="flex items-center gap-x-4 gap-y-2 flex-wrap min-w-0 ml-4">
+        <Stat label="Phases"        value={summary.phases} />
+        <Stat label="Assets"        value={summary.assets} />
+        <Stat label="Tasks"         value={summary.tasks} />
+        <Stat label="Critical"      value={summary.critical} />
+        <Stat label="Blocked"       value={summary.blocked} valueTone={summary.blocked > 0 ? 'danger' : undefined} />
+        <Stat label="Span"          value={`${summary.spanDays} d`} />
+        <Stat label="Working"       value={`${summary.workingDays} d`} />
+        <Stat label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
       </div>
 
       {/* Minimap controls — right-aligned. Fit + Today buttons sit
           on the LEFT of the slider so the mouse travels the same
           distance from the summary tiles to reach them. Slider is
           ~half the previous width (120px) with snap tick marks
-          rendered above the track at 1y/2y/5y. */}
+          rendered above the track at 1y/2y/5y. Fit and Today are the
+          kit's secondary Button, their titles unchanged. */}
       {onMinimapZoomChange && (
         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            onClick={onMinimapFitProject}
-            title="Fit minimap to project start/end"
-            className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
-          >
-            <Maximize2 className="w-3 h-3" />
+          <Button size="sm" icon={Maximize2} onClick={onMinimapFitProject} title="Fit minimap to project start/end">
             Fit
-          </button>
-          <button
-            type="button"
-            onClick={onMinimapCenterToday}
-            title="Center minimap on today"
-            className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
-          >
-            <Crosshair className="w-3 h-3" />
+          </Button>
+          <Button size="sm" icon={Crosshair} onClick={onMinimapCenterToday} title="Center minimap on today">
             Today
-          </button>
-          <span className="text-[9.5px] font-mono uppercase tracking-wider ml-1" style={{ color: '#78716c' }}>
+          </Button>
+          <span className="text-label uppercase ml-1 rb-tl-span-label">
             Zoom
           </span>
-          <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>6mo</span>
-          <div className="relative" style={{ width: 195, height: 22 }}>
+          <span className="text-caption rb-tl-span-end">{spanLabel(minimapMinDays)}</span>
+          <div className="relative" style={{ width: SPAN_TRACK_W, height: 22 }}>
+            {/* Snap stop lines at 1 / 2 / 5 years — BEHIND the input, each
+                placed by snapLeft() from the thumb's styled width
+                (SPAN_THUMB_W, which the sheet gives the thumb), so a mark
+                and the value it marks are the same pixel; the thumb covers
+                a mark when it lands on it. The old overlay guessed "the
+                typical thumb half-width" (8px) on a native thumb. */}
+            {(minimapSnapDays || []).map(s => (
+              <div
+                key={`line-${s}`}
+                className="absolute pointer-events-none rb-tl-span-snap"
+                style={{ left: snapLeft(s, minimapMinDays, minimapMaxDays, SPAN_TRACK_W, SPAN_THUMB_W) }}
+              />
+            ))}
             <input
               type="range"
               min={minimapMinDays}
@@ -5651,57 +5860,12 @@ function SummaryBand({
               value={minimapZoomDays ?? minimapMinDays}
               onInput={handleSliderInput}
               onChange={handleSliderInput}
-              className="absolute inset-x-0 inset-y-0 w-full h-full"
-              style={{ accentColor: '#fb923c' }}
+              className="absolute inset-x-0 inset-y-0 rb-tl-span-range"
               title={`Minimap span: ${zoomLabel}`}
             />
-            {/* Snap stop lines — short vertical marks contained
-                inside the slider track. Drawn on top of the input
-                with pointer-events:none so the slider stays fully
-                interactive. The thumb visibly "absorbs" each line
-                when the value lands on a snap point. Padding on
-                the sides matches the typical thumb half-width so
-                the lines align with the track, not the container
-                edges. */}
-            {/* Snap stop lines — thin orange vertical lines
-                fully contained within the track height. No fill,
-                no glow — just a 1px orange stroke. */}
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                left: 8,
-                right: 8,
-                top: '50%',
-                height: 8,
-                transform: 'translateY(-50%)',
-              }}
-            >
-              {(minimapSnapDays || []).map(s => {
-                const range = Math.max(1, minimapMaxDays - minimapMinDays)
-                const pct = ((s - minimapMinDays) / range) * 100
-                return (
-                  <div
-                    key={`line-${s}`}
-                    className="absolute"
-                    style={{
-                      left: `${pct}%`,
-                      top: 0,
-                      bottom: 0,
-                      width: 1,
-                      transform: 'translateX(-50%)',
-                      backgroundColor: '#fb923c',
-                      opacity: 0.7,
-                    }}
-                  />
-                )
-              })}
-            </div>
           </div>
-          <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>5yr</span>
-          <span
-            className="text-[11.5px] font-mono tabular-nums"
-            style={{ color: '#fb923c', minWidth: 48, textAlign: 'right' }}
-          >
+          <span className="text-caption rb-tl-span-end">{spanLabel(minimapMaxDays)}</span>
+          <span className="text-dense font-mono tabular-nums rb-tl-span-value">
             {zoomLabel}
           </span>
         </div>
@@ -5710,18 +5874,12 @@ function SummaryBand({
   )
 }
 
-function SummaryTile({ icon: Icon, label, value, tone }) {
-  const colors = tone === 'danger'
-    ? { value: '#fca5a5', icon: '#ef4444', label: '#fca5a5' }
-    : { value: '#fb923c', icon: '#57534e', label: '#d6d3d1' }
-  return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1">
-      <Icon className="w-3 h-3" style={{ color: colors.icon }} />
-      <span className="text-[11.5px] font-mono font-medium" style={{ color: colors.value }}>{value}</span>
-      <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: colors.label }}>{label}</span>
-    </div>
-  )
-}
+/** The minimap zoom slider's track and thumb, in px. The thumb's width is
+    also set in rabbitTimeline.css (`.rb-tl-span-range`'s thumb), and
+    rabbitTimelineCss.test.js holds the two to the same number: snapLeft()
+    is exact only while they agree. */
+const SPAN_TRACK_W = 195
+const SPAN_THUMB_W = 14
 
 // ─── Lifecycle state classification ───────────────────────────
 //
@@ -5745,74 +5903,12 @@ function lifecycleState(start, end, status) {
   return 'active'
 }
 
-// barTone — pick a palette for a phase or task bar.
-// Args:
-//   row           — { start, end, task?, phase?, assetRef? }
-//   critical      — true if this task is on the critical path
-//   phaseStyle    — true for phase bars (phases + subgroups)
-//   subgroupStyle — true for subgroup bars (assets, team, scenes, etc.)
-//
-// Color mapping aligns with statusColor() in ProjectTasksView so the
-// timeline and task table speak the same visual language.
-function barTone(row, critical, phaseStyle, subgroupStyle) {
-  // ── Subgroup bars (assets, team members, scenes, etc.) ────────
-  // Status-driven when an explicit status is available (assets carry
-  // status via assetRef). Falls back to date-based lifecycle for
-  // subgroups without an explicit status field.
-  if (subgroupStyle) {
-    const status = row?.assetRef?.status || row?.phase?.status || null
-    if (status) {
-      if (status === 'in_progress')  return { bg: '#451a03', border: '#fb923c', fg: '#fff7ed' }
-      if (status === 'completed')    return { bg: '#052e16', border: '#22c55e', fg: '#dcfce7' }
-      if (status === 'on_hold')      return { bg: '#1c1917', border: '#d97706', fg: '#fcd34d' }
-      // not_started or unrecognized
-      return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
-    }
-    // No explicit status — fall back to date-based lifecycle
-    const state = lifecycleState(row?.start, row?.end)
-    if (state === 'completed') return { bg: '#292524', border: '#57534e', fg: '#78716c' }
-    if (state === 'upcoming')  return { bg: '#1c1917', border: '#78716c', fg: '#a8a29e' }
-    return { bg: '#451a03', border: '#f59e0b', fg: '#fef3c7' }
-  }
-
-  // ── Phase bars ────────────────────────────────────────────────
-  if (phaseStyle) {
-    const phaseStatus = row?.phase?.status || 'not_started'
-    if (phaseStatus === 'completed') return { bg: '#27272a', border: '#52525b', fg: '#a1a1aa' }
-    if (phaseStatus === 'delayed')   return { bg: '#1c1917', border: '#b45309', fg: '#fcd34d' }
-    if (phaseStatus === 'active')    return { bg: '#7c2d12', border: '#fb923c', fg: '#fff7ed' }
-    return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
-  }
-
-  // ── Task bars — status-driven ─────────────────────────────────
-  const status = row?.task?.status
-
-  switch (status) {
-    case 'in_progress':
-      if (critical) return { bg: '#9a3412', border: '#fb923c', fg: '#fff7ed' }
-      return { bg: '#7c2d12', border: '#fb923c', fg: '#fed7aa' }
-    case 'pending_review':
-      return { bg: '#451a03', border: '#fbbf24', fg: '#fef3c7' }
-    case 'needs_revisions':
-      return { bg: '#4a1942', border: '#e879f9', fg: '#fae8ff' }
-    case 'approved':
-      return { bg: '#052e16', border: '#4ade80', fg: '#dcfce7' }
-    case 'final':
-      return { bg: '#14532d', border: '#22c55e', fg: '#bbf7d0' }
-    case 'blocked':
-      return { bg: '#1c1917', border: '#ef4444', fg: '#fca5a5' }
-    case 'on_hold':
-      return { bg: '#1c1917', border: '#d97706', fg: '#fcd34d' }
-    case 'omitted':
-      return { bg: '#1c1917', border: '#292524', fg: '#57534e' }
-    case 'waiting_to_start':
-      return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
-    default: {
-      // Unknown or unset status — stone neutral
-      return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
-    }
-  }
-}
+// barTone() — the palette of a phase, task or subgroup bar — lives in
+// rabbitTimeline.css since UI overhaul B3 (stage 1, the state
+// extraction): `.rb-tl-tone`, keyed on the data-shape, data-status,
+// data-life and data-critical that OverviewBar and DetailBar now carry,
+// with every branch a named rule and every value transcribed unchanged.
+// lifecycleState() above still decides data-life.
 
 // ============================================================
 // Schedule + row builders
@@ -7033,23 +7129,10 @@ function buildAxisTicks(start, totalDays, zoom) {
   return out
 }
 
-// Overview ticks: month boundaries with year labels.
-// Does NOT force-emit a tick at i === 0 — that created ugly stub
-// labels when the minimap span started mid-month.
-function buildOverviewTicks(start, totalDays) {
-  const out = []
-  for (let i = 0; i <= totalDays; i++) {
-    const d = addDays(start, i)
-    if (d.getDate() !== 1) continue
-    out.push({
-      key: i,
-      offset: i,
-      label: formatMonth(d),
-      major: d.getMonth() === 0,
-    })
-  }
-  return out
-}
+// Overview ticks: timelineMinimap.js's minimapTicks() since B3 (a line at
+// every month boundary, as before, and a label on a stride that leaves every
+// label its own room). Like the function it replaces, it does not force a
+// tick at i === 0, which made stub labels when a span started mid-month.
 
 // Aggregates for the SummaryBand.
 function buildSummary({ phases, assets, tasks, schedule, criticalSet, holidays }) {

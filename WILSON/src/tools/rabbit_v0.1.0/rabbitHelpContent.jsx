@@ -3,43 +3,93 @@
 // DOG/OTTER help-modal pattern (light + dark theme tokens).
 
 import React from 'react';
+import { Kbd } from '../../ui';
+
+// The Bins tab's keyboard, as BinsView's document handler binds it (and the
+// preview's Space). UI overhaul Q10 ("no shortcut bar anywhere") removed the
+// footer bar that showed these on the tab; every hint it carried is here, and
+// the controls that act on a selection name their key in their title.
+// `keys` are the caps a person presses together; `or` separates alternatives.
+export const BINS_SHORTCUTS = [
+  { keys: [['↑'], ['↓']], does: 'Move (in the frame view ← and → too)' },
+  { keys: [['Home'], ['End']], does: 'First and last file' },
+  { keys: [['Shift', '↑'], ['Shift', '↓']], does: 'Extend the selection' },
+  { keys: [['Ctrl', 'A']], does: 'Select every file shown' },
+  { keys: [['Esc']], does: 'Clear the selection' },
+  { keys: [['S']], does: 'Select (the review mark)' },
+  { keys: [['R']], does: 'Reject' },
+  { keys: [['U']], does: 'Unflag' },
+  { keys: [['C']], does: 'Circle, or uncircle' },
+  { keys: [['1'], ['8']], range: true, does: 'Colour; 0 clears it' },
+  { keys: [['A']], does: 'Assign to shot' },
+  { keys: [['Space']], does: 'Play or pause the preview' },
+  { keys: [['F2'], ['Enter']], does: 'Rename' },
+  { keys: [['Del'], ['Backspace']], does: 'Remove from the bin (undo in the toast)' },
+  { keys: [['Ctrl', 'Z']], does: 'Undo' },
+  { keys: [['Ctrl', 'Shift', 'Z'], ['Ctrl', 'Y']], does: 'Redo' },
+];
+
+function KeyCombos({ keys, range, surface }) {
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      {keys.map((combo, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span className={`text-caption ${surface === 'light' ? 'text-ink-light' : 'text-ink-3'}`}>{range ? '–' : 'or'}</span>}
+          {combo.map((k) => <Kbd key={k} surface={surface}>{k}</Kbd>)}
+        </React.Fragment>
+      ))}
+    </span>
+  );
+}
 
 export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-overview',     label: 'Overview' },
   { id: 'rabbit-projects',     label: 'Projects' },
-  { id: 'rabbit-intake',       label: 'Intake Wizard' },
+  { id: 'rabbit-intake',       label: 'Intake wizard' },
   { id: 'rabbit-assets',       label: 'Assets' },
   { id: 'rabbit-timeline',     label: 'Timeline' },
-  { id: 'rabbit-phases',       label: 'Phases & Tasks' },
+  { id: 'rabbit-phases',       label: 'Phases & tasks' },
   { id: 'rabbit-dependencies', label: 'Dependencies' },
-  { id: 'rabbit-zoom',         label: 'Zoom & Weekends' },
+  { id: 'rabbit-zoom',         label: 'Zoom & weekends' },
   { id: 'rabbit-budget',       label: 'Budget' },
   { id: 'rabbit-settings',     label: 'Settings' },
-  { id: 'rabbit-shortcuts',    label: 'Shortcuts & Tips' },
+  { id: 'rabbit-shortcuts',    label: 'Shortcuts & tips' },
 ];
 
-// Light-theme style tokens (used by an external help page if any)
+// Light-theme style tokens (used by an external help page if any).
+// P1-35: key for key HelpPage's `L` — one ink on the orange (the stone greys
+// here were the rule's exact failure), the section title at H2 in sentence
+// case, the card title at H3.
 const L = {
-  sectionTitle: 'text-sm font-bold text-stone-900 uppercase tracking-wide mb-3',
-  bodyText: 'text-xs text-stone-800 leading-relaxed',
-  card: 'bg-white/40 p-3 rounded-sm border border-stone-400/30',
-  cardTitle: 'text-xs font-bold text-stone-900 mb-2',
-  listItem: 'text-[11px] text-stone-700 leading-relaxed',
-  listBold: 'text-stone-900',
-  notesBox: 'bg-orange-600/10 border border-orange-600/30 rounded-sm p-3',
-  notesTitle: 'text-xs font-bold text-stone-900 uppercase tracking-wide mb-2',
+  sectionTitle: 'text-h2 text-ink-light mb-3',
+  bodyText: 'text-body text-ink-light',
+  card: 'bg-well-light border border-rule-light rounded-control p-3',
+  cardTitle: 'text-h3 text-ink-light mb-2',
+  listItem: 'text-dense text-ink-light',
+  listBold: 'font-semibold',
+  notesBox: 'bg-signal/10 border border-signal/30 rounded-control p-3',
+  notesTitle: 'text-label text-ink-light uppercase mb-2',
 };
 
 // Dark-theme style tokens for the in-tool help modal
+// UI overhaul B6 (review round 1): onto the kit's tokens — #fb923c (orange-400)
+// and the stone ramp retired from chrome. A card's title is the H3 step in the
+// ink; emphasis is the ink, not a faded orange; the notes box is the signal
+// tint with the ink. The section title is the ink too (round 2): the Help
+// modal's own ground is #292524 (TimelineView's, B3's), where the signal
+// measures 4.26:1 at 11px — round one had measured it on the paper.
+// P1-35: the section title leaves the Label step for H2 in sentence case
+// (Q2, §3.1), as D.O.G.'s and O.T.T.E.R.'s now are; it was capitals at 11px
+// ABOVE a 14px card title, an inverted hierarchy.
 const D = {
-  sectionTitle: 'text-sm font-bold text-orange-400 uppercase tracking-wide mb-3',
-  bodyText: 'text-xs text-stone-300 leading-relaxed',
-  card: 'bg-stone-900 p-3 rounded-sm border border-stone-700',
-  cardTitle: 'text-xs font-bold text-orange-400 mb-2',
-  listItem: 'text-[11px] text-stone-300 leading-relaxed',
-  listBold: 'text-orange-400/80',
-  notesBox: 'bg-orange-500/10 border border-orange-500/30 rounded-sm p-3',
-  notesTitle: 'text-xs font-bold text-orange-400 uppercase tracking-wide mb-2',
+  sectionTitle: 'text-h2 text-ink mb-3',
+  bodyText: 'text-dense text-ink-2 leading-relaxed',
+  card: 'bg-paper-raised p-3 rounded-control border border-rule',
+  cardTitle: 'text-h3 font-semibold text-ink mb-2',
+  listItem: 'text-dense text-ink-2 leading-relaxed',
+  listBold: 'text-ink font-semibold',
+  notesBox: 'bg-signal-tint border border-signal rounded-control p-3',
+  notesTitle: 'text-label font-semibold text-ink uppercase mb-2',
 };
 
 export function RabbitHelpContent({ helpPage, theme }) {
@@ -48,7 +98,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-overview') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>R.A.B.B.I.T. Overview</h3>
+        <h3 className={T.sectionTitle}>R.A.B.B.I.T. overview</h3>
         <p className={`${T.bodyText} mb-4`}>
           R.A.B.B.I.T. (Resource Allocation, Budgeting, Bidding & Intake Tracker)
           is WILSON's project planning tool. It ingests intake documents,
@@ -58,7 +108,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
         </p>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Key Features</h4>
+            <h4 className={T.cardTitle}>Key features</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Document intake</span> — Drop a brief or SOW; RABBIT extracts assets, tasks, and rough phases.</li>
               <li>• <span className={T.listBold}>Two-pane timeline</span> — A zoomed-out minimap up top and a zoomable gantt below.</li>
@@ -80,7 +130,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
         <h3 className={T.sectionTitle}>Projects</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Picking & Creating</h4>
+            <h4 className={T.cardTitle}>Picking & creating</h4>
             <p className={T.listItem}>
               Project picking and creation live exclusively in the
               <span className={T.listBold}> Summary tab</span>. The context bar
@@ -105,7 +155,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-intake') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Intake Wizard</h3>
+        <h3 className={T.sectionTitle}>Intake wizard</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>How it works</h4>
@@ -185,7 +235,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-phases') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Phases & Tasks</h3>
+        <h3 className={T.sectionTitle}>Phases & tasks</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Containment</h4>
@@ -265,7 +315,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-zoom') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Zoom & Weekends</h3>
+        <h3 className={T.sectionTitle}>Zoom & weekends</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Zoom levels</h4>
@@ -316,7 +366,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Click the gear icon in the timeline header (or the settings
               entry on the WILSON nav strip) to open the slide-out. It has
               two tabs: <span className={T.listBold}>Settings</span> for
-              persistent toggles and <span className={T.listBold}>System Prompts</span>
+              persistent toggles and <span className={T.listBold}>System prompts</span>
               {' '}for editing the LLM prompts that drive the scheduler /
               recommender / phase generator.
             </p>
@@ -343,7 +393,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
   if (helpPage === 'rabbit-shortcuts') return (
     <div className="space-y-5">
       <section>
-        <h3 className={T.sectionTitle}>Shortcuts & Tips</h3>
+        <h3 className={T.sectionTitle}>Shortcuts & tips</h3>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitle}>Tips</h4>
@@ -355,6 +405,20 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• In day view, taller rows + weekend tints make scheduling crew-day-by-crew-day easy.</li>
               <li>• Drag a task's gutter row onto another phase to reparent it.</li>
             </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Bins: the keyboard</h4>
+            <p className={`${T.bodyText} mb-2`}>
+              On the files pane, with a file selected. Click selects one file, Shift-click extends, Ctrl-click adds or removes one.
+            </p>
+            <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
+              {BINS_SHORTCUTS.map((s) => (
+                <React.Fragment key={s.does}>
+                  <dt><KeyCombos keys={s.keys} range={s.range} surface={theme === 'dark' ? 'dark' : 'light'} /></dt>
+                  <dd className={T.listItem}>{s.does}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
           </div>
         </div>
       </section>

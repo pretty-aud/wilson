@@ -37,6 +37,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from '../cloud/auth/supabaseClient'
 import { can as canDo } from './roleMatrix'
+import { devFixtures } from '../dev/devFixtures'
 
 // Extract the app_metadata block from a Supabase session's JWT. We decode
 // the access_token payload directly rather than calling getUser() because
@@ -83,6 +84,15 @@ export function usePermissions() {
 
   useEffect(() => {
     let cancelled = false
+
+    // Dev fixtures (2026-09-11, dev builds only): the reviewer is the dataset's
+    // admin. No session is read and no auth listener is attached.
+    const fx = import.meta.env.DEV ? devFixtures() : null
+    if (fx?.permissions) {
+      setState({ ...EMPTY, ...fx.permissions })
+      setReady(true)
+      return undefined
+    }
 
     // Prime from the current session synchronously if possible.
     supabase.auth.getSession().then(({ data }) => {

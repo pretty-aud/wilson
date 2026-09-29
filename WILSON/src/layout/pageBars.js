@@ -34,10 +34,21 @@
 // Three properties matter, and each one is load-bearing:
 //
 //  1. THE CAP IS THE OLD NUMBER, so a tall display is byte-for-byte unchanged.
-//     Home resolves to exactly 268px on any viewport >= 1076px. Every other row
-//     is small enough that its cap wins at every window size the app can be
-//     opened at (Electron's minimum is 700px), so Home is the only page whose
-//     geometry actually moves.
+//     Home resolves to exactly 268px on any viewport >= 1076px.
+//
+//     ⚠️ It is NOT true that every other row is capped at every size the app
+//     can be opened at, which this note used to say. Measured 2026-09-13
+//     against the three rows that now exist (F4):
+//
+//       bars(268, 268)   Home (1 page)                          cap from 1076px
+//       bars(120, 80)    the seven data and reading pages        cap from  740px
+//       bars(95, 8)      the four tool pages, Files included     cap from  644px
+//
+//     Electron's minimum is 700px, so only the tool rows are genuinely at
+//     their resting height at every window the app can open at. A 700-739px
+//     window collapses the 120/80 rows as well, and Home moves anywhere
+//     below 1076px. The 200/150 row this note was written against no longer
+//     exists: Team Members was the last one and C3 moved it to 120/80.
 //
 //  2. THE ORDER IS min(cap, max(floor, …)), NOT max(floor, min(cap, …)).
 //     🚨 The outermost function is the one that wins. With `min` outermost the
@@ -55,17 +66,32 @@
 //     give way at genuinely tiny windows.
 //
 //  3. BOTH SIDES SHARE ONE BUDGET, so an asymmetric row keeps its ratio.
-//     Settings is 200/150 and stays 4:3 the whole way down.
+//     Settings is 120/80 and stays 3:2 the whole way down (D1b moved it;
+//     the shares are 0.6 and 0.4 exactly, so that ratio is held to the pixel
+//     rather than to the 4-decimal rounding the other rows take).
 //
-// ⚠️ Below ~740px the floors take over and content drops under 540px. Home
-// then scrolls internally — `justify-content: safe center` plus `overflow-y:
-// auto` on its own column, which already handles this. That is the documented
-// degradation, not a second bug.
+// ⚠️ Below the floor crossover the bars stop shrinking and content drops under
+// 540px. That happens at a DIFFERENT height per row, not at one ~740px for all
+// of them (measured 2026-09-13, F4): Home at 781px, the 120/80 rows at 630px,
+// the tool rows at 586px. Home is therefore the only one that degrades inside
+// Electron's range at all — at the 700px minimum it has 458.8px of content
+// against the 444px its button stack needs. It then scrolls internally —
+// `justify-content: safe center` plus `overflow-y: auto` on its own column,
+// which already handles this. That is the documented degradation, not a
+// second bug.
 // =============================================================================
 
-// Content the bars must never eat into. Home's 444px stack + 6vh of wrapper
-// padding + ~40px of slack, which is what turns "just barely fits" into
-// "obviously fits" on the machines Audrey actually uses.
+// Content the bars must never eat into. Home's 444px stack + the content
+// wrapper's padding + ~40px of slack, which is what turns "just barely fits"
+// into "obviously fits" on the machines Audrey actually uses.
+//
+// 📌 UI overhaul F2: that wrapper padding was `3vh 0` and is now a flat 24px
+// (plan §3.3, "nothing in vh" — 3vh was 27px at 900px tall and 21px at 700,
+// so the app's vertical rhythm changed with the window). 540 was derived
+// against 6vh, which is 54px at 900px and more above it, so the reserve is now
+// CONSERVATIVE rather than tight: Home fits with more room to spare than the
+// number was chosen for, never less. Left at 540 deliberately — lowering it
+// would give the bars back space this phase took from them for a reason.
 const CONTENT_RESERVE_PX = 540;
 
 // How far a bar may collapse, as a fraction of its own resting height.
@@ -79,33 +105,24 @@ function barSide(capPx, totalPx) {
 }
 
 // `top` and `bottom` are the resting heights on a tall display — i.e. the caps.
-function bars(top, bottom) {
+//
+// Exported for `pages.js`, which owns the per-page table: geometry is defined
+// here, ASSIGNED there, so a page and its bars are written in one place
+// (UI overhaul F2, review F32).
+export function bars(top, bottom) {
   const total = top + bottom;
   return { top: barSide(top, total), bottom: barSide(bottom, total) };
 }
 
-// Bar height configs per page. Content fills whatever space remains between.
-export const PAGE_BARS = {
-  home:               bars(268, 268),
-  dog:                bars(95, 8),
-  otter:              bars(95, 8),
-  rabbit:             bars(95, 8),
-  settings:           bars(200, 150),
-  'project-manager':  bars(200, 150),
-  'rate-card':        bars(200, 150),
-  'team-members':     bars(200, 150),
-  dashboard:          bars(200, 150),
-  'admin-terminal':   bars(200, 150),
-  help:               bars(140, 100),
-};
-
-// 🚨 THE SIGN-IN SEAM. AuthShell's reveal settles its bars at this exact value
-// and App's `playWelcome` picks them straight up from there, so the two
-// animations read as one continuous movement: the bars close, say WELCOME, and
-// open onto Home. It was a literal '268px' in AuthShell and a literal '268px'
-// in App's PAGE_BARS table — two copies of one number, and the first thing
-// anyone sees after signing in is the two disagreeing.
+// ── The per-page table moved to `pages.js` (UI overhaul F2, review F32) ──────
 //
-// Same reason Session 43 made TRANSITION a shared constant. One definition,
-// both consumers.
-export const HOME_BAR_HEIGHT = PAGE_BARS.home.top;
+// It lived here as its own object, and a page could be added to App.jsx's
+// PAGE_TITLES, to the nav and to the header's OR chain while silently missing
+// from this table — which is exactly what 'project-files' did for three weeks
+// (review F-R04). The table is now DERIVED from the one page registry, where
+// a missing `bars` throws at module load.
+//
+// `PAGE_BARS` and `HOME_BAR_HEIGHT` are exported from `./pages`. This file
+// keeps the geometry and its rationale, which is what the three properties
+// above are about; `pageBars.test.js` still proves them, against the derived
+// table.

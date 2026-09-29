@@ -2258,6 +2258,218 @@ carries the install and which build to download. Packaged by
 - **`.ts` is deliberately NOT a video extension.** MPEG transport streams use
   it and so does every TypeScript file; this tool sees far more of the latter.
 
+### 12.8 The local demo folder (demo sprint, 2026-09-10)
+
+Audrey, 2026-09-08: *"for demo-ing i need the ability to use the system and
+not need a server or a cloud solution. I want to be able to setup a local
+folder on my local storage just to demo the system."* And on 2026-09-10,
+after the first cut put an entry on the sign-in screen: *"remove the work
+locally button at login. user still needs to login no matter what."*
+
+**What it is.** ONE user-chosen folder that holds everything R.A.B.B.I.T.
+writes on the desktop in Local Server mode — chosen after sign-in from
+Settings → Storage → *Local demo folder*, remembered per machine, copyable.
+
+```
+<folder>/
+  wilson-demo.json          manifest: format, kind, created_at/with, last_opened_at/with
+  projects/<slug>/          the project folders (the existing folder_slug layout)
+  .wilson/rabbit-data/      bundles, thumbnails, rate cards, team, templates
+```
+
+**Where it lives in code.** `electron/localDemoRoot.cjs` is the whole
+model, pure and unit-tested (`src/lib/localDemoRoot.test.js`, real temp
+folders): `makeLocalDemoRoot({ userDataDir, appVersion })` →
+`load / open / close / forget / getState / isKnownFolder / contains /
+rootDir / dataDir / projectsDir`. `electron/main.cjs` keeps its helper
+NAMES AND SIGNATURES and asks the module where they resolve:
+
+- `getRabbitDataDir()` → `localDemoDataDir() || userData/rabbit-data`.
+  Everything that hangs off it follows — `getThumbCacheDir()`, the project
+  bundles, rate cards, team members, task templates. NOT `files-config.json`:
+  that is per-machine configuration and stays in userData (review round 2,
+  M4 — a copied folder must not carry another machine's files root).
+- `resolveConfiguredRootDir()` → `localDemoProjectsDir()` first, then the
+  S34 chain (workspace root → machine default). Computed from the open
+  folder, never stored, so a copied folder still resolves.
+- `folderRootRefusal()` treats the open folder as the boundary (a project
+  folder must sit strictly inside it), ahead of the workspace-root arm.
+- `isUserAuthorizedRelinkDir()` counts the open folder as user-chosen (it
+  was picked in the OS dialog, or remembered from that pick).
+- `readRabbitBundle()` re-slugifies `folder_slug` on read (review round 1,
+  H3: `resolveProjectFolder`, `ensureProjectFolders`, `mirrorProjectDatabases`
+  and `resolveProjectFilesDir` join the RAW value; S40 hardened only
+  `resolveProjectFolderRoot`, and a copied demo folder is a bundle somebody
+  else wrote), and rebases a stored `folder_root` that points OUTSIDE the
+  open folder **and no longer exists** to `<folder>/projects/<slug>`,
+  logging a `relinked` event in the bundle. A live folder elsewhere keeps
+  its pointer (L9) but is NOT followed while a demo folder is open (review
+  round 2, H3: `storedRootUsable` → `storedRootAllowed`, by real path) —
+  the project resolves to `<folder>/projects/<slug>` instead, and the record
+  stays for the day the folder is opened on the machine it came from.
+- `getRabbitProjectDir()` and `DELETE /api/rabbit/projects/:id` contain the
+  project id with `resolveContainedFilePath` — Express 5 decodes `..%2F` in
+  route params, and the base is now a user-chosen folder.
+
+**The adopt / initialise / ask rule** (`classifyFolder`): a folder with a
+current manifest is adopted (never reinitialised); an empty folder (OS
+litter ignored) is initialised; a folder holding other files, or a manifest
+that cannot be read, ASKS — `open()` returns `needsConfirm` and writes
+nothing until the caller passes `allowForeign: true`; a manifest from a
+newer WILSON is refused with a sentence.
+
+**Per machine:** `userData/local-demo.json` = `{ activeFolder, recent[] }`
+(eight most recent, case-folded dedupe). `load()` runs FIRST in
+`app.whenReady()`, before the legacy cleanups derive a data dir. A
+remembered folder that is not on disk is reported as `missing` — the card
+shows *Locate it… / Forget it* — and is NEVER silently replaced by userData:
+`localDemoMissingGuard`, mounted once ahead of the `/api/rabbit` routes,
+answers 503 with the sentence until the person locates, forgets or closes
+the folder (review round 1, M6). Every folder is stored by its REAL path
+(`fs.realpathSync.native`), and `reset()` re-checks the real path of each
+subtree before `rmSync` — containment in pathContainment.cjs is lexical, and
+a junction planted inside a shared folder would otherwise reach outside
+(M7). `reset()` also refuses unless the manifest's `created_layout` says
+WILSON made `projects/` itself — a folder adopted with its own `projects/`
+is never emptied behind a confirm that promises the opposite (H2).
+
+**The IPC** (`local-demo:get-state / pick / open / close / forget / reset /
+open-in-explorer`, preload `electronAPI.localDemo`): IPC, not Express, for
+the S34 reason — the Express server answers any local origin, and a drive-by
+page must not repoint where the machine keeps its data. `open` accepts only a
+folder the user picked in the demo dialog THIS session (`demoAuthorizedDirs`
+— its own set, because a pick made for the files root is not consent to
+open a demo folder, M5) or one `local-demo.json` already remembers; the
+renderer's reopen path asks before initialising a remembered folder that
+now holds other files (M4).
+
+**The renderer** (`src/components/local/localDemoClient.js`,
+`StorageConnections.jsx`): the card shows the open folder in full with
+*Change folder… / Open in Explorer / Close folder* and the recent folders
+with *Open / Forget*; the old per-machine *Project files root* line stays
+only while no folder is open. Opening or closing a folder pins
+`otter-settings.rabbit.adapterMode = 'local_server'` (clearing
+`activeProjectId`) and RELOADS the window — RabbitProvider boots once per
+root; WorkspaceSwitcher's precedent. The machine-root gate (S34,
+TPN-AUTH-009: admins only while signed in to a workspace) covers every
+repoint. `localDemoWiring.test.js` pins every seam to its caller, and pins
+that `LoginScreen.jsx` and `App.jsx` carry nothing of this feature.
+
+**What stays in userData on purpose:** the pet, O.T.T.E.R.'s library and
+settings (including the adapter-mode switch itself), agent skills, the
+encrypted session. Local Server projects already in userData are not moved
+when a folder is opened; adoption, if wanted, is an explicit action.
+
+**Dev-only knobs** (both gated on `!app.isPackaged`): `WILSON_USER_DATA=<dir>`
+points a second instance at a scratch userData; `WILSON_DEV_OFFLINE=1`
+cancels every non-loopback request in `createWindow` — the "cable pulled"
+measurement; `WILSON_DEV_OFFLINE=stall` leaves them pending instead, the
+stalled network. The session restore at boot is bounded to 15 s
+(`withTimeout`, `c5e5a77`); measured 2026-09-10 on a staging build with a
+real saved sign-in: `=1` fails the restore in 10 ms and the sign-in screen is
+up 4.5 s after the page loads, `=stall` times out at 15.0 s and the sign-in
+screen follows 4.3 s later — never an orange window.
+
+**Not this feature (Audrey, 2026-09-10, after the build):** *"local file
+storage should be solely for media and files, database entries and data
+should still be cloud based."* Cloud rows with local file bodies exist in no
+mode — Supabase mode refuses uploads for a workspace on its own server, NAS
+or local folder (S36, `supabaseAdapter.js` `uploadFile`), and managed files,
+thumbnails on disk and the bins are `local_server`-only. The folder above
+moves the DATA local; it stays for the Friday demo, which runs in two parts
+(`DEMO_LOCAL_STORAGE_BRIEF.md` §7). The target model is the `network`
+provider's second half (`NETWORK_STORAGE_DESIGN.md` §4a2b): a post-Friday
+session.
+
+**Limits, stated.** Sign-in is required, and a LAUNCH needs the auth
+server however fresh the saved sign-in: restoring it goes through
+`supabase.auth.setSession()`, and `@supabase/auth-js` 2.101.1
+(`GoTrueClient._setSession`) confirms an unexpired token with a `_getUser`
+request, so an offline launch lands on the sign-in screen (corrected
+2026-09-10; `OUTSTANDING.md` carries the fix shape). An OPEN window keeps
+its session in memory: a refresh that fails with a network error keeps the
+session (`_callRefreshToken` removes it only on a non-retryable error), so
+after about an hour only the cloud features report unavailable. Open/close
+reload the window. `npm run dev` (browser) cannot run Local Server mode at
+all; a desktop build Audrey can sign into is `npx vite build --mode staging
+&& npx electron .` (dev builds point at wilson-dev, where her username is a
+different account). Walkthrough: `docs/walkthroughs/18_local_demo_folder.md`.
+
+**Review round 2 (2026-09-10, `src/lib/localDemoBoundary.test.js`).** The
+verdict was "the boundary does not hold", and every finding was fixed the
+same day: per-id files (rate cards, team members, task templates, the
+thumbnail cache) joined a client-chosen id raw — `dataFilePath` in
+`pathContainment.cjs` now contains them, and an escape is answered 404 by an
+error handler registered after the SPA fallback (H1/H2); a bundle's
+`thumbnail_image` is only opened from under a folder the person chose (H2);
+a stored `folder_root` / `files_dir` outside the open folder is not followed
+even when it exists (H3, above); `files-config.json` is per machine (M4);
+`reset()` refuses when either `projects/` or `.wilson/rabbit-data`
+pre-existed (M5); a folder that vanishes while open flips to *missing* on
+the next root question instead of being recreated (M6, `checkPresence`); a
+pick is recorded by real path too, so a junction-reached foreign folder can
+be confirmed (L7); and inside an open demo folder `folderRootRefusal` uses
+the folder's own posix-capable shape check (N8). Out of scope and recorded
+in `OUTSTANDING.md`: the O.T.T.E.R. software routes join `req.params` onto
+`getSoftwareDir()` the same way.
+
+### 12.8a Private projects — cloud rows, media on this computer (2026-09-11)
+
+**Audrey, 2026-09-11, verbatim:** *"all databases need to live in the
+supabase storage at all times. the only thing local storage should be
+related to is just the media files and asset of the project. … lets also
+just give users the ability to setup private projects for themselves."*
+Built the same night (`4c10387`); `DEMO_LOCAL_STORAGE_BRIEF.md` §8 records
+the decision, walkthrough 18's last section the clicks.
+
+**The model.** A private project is a cloud project row with
+`projects.is_private = true` (migration 0072). `projects_select` keeps
+0020's three conditions and gains one arm: `NOT is_private OR created_by =
+auth.uid() OR current_app_role() = 'admin'`. Every child table's SELECT
+policy already hops through `EXISTS (SELECT 1 FROM public.projects …)`
+under the caller's RLS (0014's live-parent rule), so files, assets, tasks,
+scenes, shots, folders and the realtime topic gate (0016) follow without a
+policy change of their own; pgTAP suite 80 pins the owner, the member, the
+admin and the child hop. `created_by` is stamped by `fn_audit_touch`, so the
+owner is the inserting caller by construction.
+
+**Where the media goes.** `uploadFile` (`supabaseAdapter.js`) decides the
+provider beside the money pin: a non-financial upload on a private project
+takes `FILE_PROVIDERS.LOCAL_SERVER`; everything else takes the S37
+workspace read exactly as before, and the S36 refusal of a whole workspace on
+`network` stands. `local_server` is now a REGISTERED provider on every
+surface — `storage/localServerProvider.js`, five functions over `fetch`
+against the desktop's own Express server, plus `getUrl` for playback and
+download — and off the desktop each function refuses with a sentence
+(`NOT_HERE`) instead of the registry's generic throw. The routes are
+`electron/localMedia.cjs` (`/api/rabbit/local-media`: describe / put /
+get with Range and `?download=` / head / delete), mounted from `main.cjs`
+with one line after the missing-folder guard and before the SPA fallback.
+The root is `getLocalMediaRoot()`: `<demo folder>\media` while a folder is
+open, `rabbit-data\local-media` under app data otherwise; a MISSING folder
+refuses (never a silent fallback). Thumbnails follow the body (S44's rule,
+`putThumbnailTo(storageProvider, …)` unchanged) and FileManager reads a
+`local_server` row's preview from the local URL instead of asking Petal to
+sign it. The client probes `is_private` once per session (42703 → absent),
+so a build ahead of the database lists projects as before and shows no
+checkbox; `createProject` drops the flag in that case.
+
+**The key is untrusted.** A `files` row is inserted by any project member
+through PostgREST, so the `storage_path` that reaches these routes is
+input, not our output: `checkMediaKey` admits only the shape `uploadFile`
+writes (`projects/<id>/<entity>/<entity id>/<leaf>`, plain segments, no
+dot-segments, separators, drive letters or device names), the disk path goes
+through `resolveContainedFilePath`, and the nearest existing ancestor is
+re-checked by REAL path so a junction inside the root cannot lead out
+(`localMedia.test.js`). Loopback, unauthenticated — the Local Server stance.
+
+**Stated limits.** A local body is not purged when its row is hard-deleted
+or GC'd — the desktop is out of the cloud sweep's reach (`OUTSTANDING.md`);
+the folder's *Reset demo folder* leaves `media\` alone on purpose (its rows
+outlive the folder); the bins remain Local Server only (Audrey: next week).
+Opening a demo folder no longer pins Local Server mode (§12.8's "choosing a
+folder switches the backend" is gone).
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
@@ -2558,6 +2770,74 @@ entity attachments, all three adapters, plus the FileAudit drawer) and
 **managed files** (a local-disk folder mirror under `ASSETS/`, `SCENES/`,
 `SHOTS/`, driven through Electron IPC and available only on
 `localServerAdapter`).
+
+**Bins** (demo 2026-09-11, `docs/BINS_DESIGN.md`): the tab beside Scenes,
+visible under the same `scenes_enabled` toggle, Local Server only
+(`ctx.supportsBins`). A bin is a container inside the project — a tree
+(`bundle.bins`, `parent_bin_id`, hand-ordered) with a kind and a colour — and
+a bin file (`bundle.binFiles`) is a **reference** to a file where it sits on
+the machine (`source_path`), never copied, renamed or moved; a folder of
+numbered frames is one row (`is_sequence`); "copy to bin" makes a second row
+on the same path (an instance). Each row carries the logging an assistant
+editor types (display name, slate, take and modifier, camera, roll, shoot day,
+scene and shot links, tags, description, notes), the review marks
+(`review_flag` select / reject / unflagged, `circled`, an eight-colour label)
+and the technical columns read once by `ffmpeg -i` or `sharp`
+(`electron/ffmpeg.cjs` `probeMediaInfo`) — or, with no decoder on the
+machine, by the renderer's own hidden `<video>` / `<audio>` / `<img>`
+(`bins/binProbeFallback.js`), which the provider runs wherever the server
+answers `unavailable` and once per project after `refreshBins`, so a poster
+reaches the Scenes tab's chips without Bins being opened. `electron/rabbitBins.cjs` holds every
+route (bins, bin-files, prepare / add, probe, poster, stream, relink, roots),
+mounted from `main.cjs` with its helpers injected and gated to same-origin
+requests because every route takes or serves a path; the OS dialogs open in
+the main process through the same routes, and dropped files reach the
+renderer through `webUtils.getPathForFile` in the preload. Offline is a
+computed state on the list route; relink walks a picked or known folder
+(`bundle.binRoots` — one root per folder picked or dropped from, recorded by
+the add route from `prepare`'s `roots`, a covering folder replacing the ones
+under it, forgettable from the relink dialog) and matches by name and size
+through the existing `relinkMatcher`, automatically on open for known roots.
+After a relink the provider reads every relinked row again in the background
+(`rowsToReprobeAfterRelink`, both relink paths land in `binRelinkApply`):
+the poster cache is keyed by path + mtime, so under the new path there is no
+poster until a probe draws one, and without a decoder only the renderer's
+probe can. That probe waits for a presented frame after its seek and draws a
+blank frame again, a second further in if it stays black (`isBlankFrame`) —
+`seeked` alone drew black posters under load. The add dialog's name
+suggestions (`parseNameSuggestions`) read a modifier glued to the take
+(`24A_2_T3PU_B` → take 3 PU of shot 2, `24A-3PU` → take 3 PU).
+Every failure the adapter throws carries the route's `status` and `code`.
+The view is `views/BinsView.jsx` with `views/bins/*` — its keys and the OS
+drop are bound on the document while the tab is mounted, so they survive
+the focused control unmounting; the pure logic is `bins/binMedia.js`
+(the vocabulary, mirrored from the server and pinned by a parity test) and
+`bins/binSelectors.js`. **Shot takes** (milestone 2, `bundle.shotTakes`)
+assign bin files to shots many-to-many: a row per (shot, file) with a `role`
+(`primary` — one per shot that has any — `part` or `alt`), a `position` and
+`notes`; the routes live under the gated `…/shot-takes` prefix in
+`rabbitBins.cjs` (assign, patch, remove, reorder, and `replace`, the undo
+primitive that puts a shot's rows back verbatim), invariants re-established by
+`normalizeShotTakes` after every write, orphans (their shot or file gone)
+never pruned and carried on every read as `orphanTakes` beside the live,
+presented `shotTakes`, so the renderer's state keeps them and undoing a shot
+or file deletion restores its takes; while the stored primary's file is out,
+reads present the first live take as primary without writing, and nothing
+materialises that until a live take is explicitly promoted. The provider's
+`assignShotTakes` / `updateShotTake` / `removeShotTakes` / `reorderShotTakes`
+push snapshot undo entries (`replaceShotTakes` both ways); every mutator a
+history op names must be in the `mutationsRef` registry, pinned by
+`state/mutationsRegistry.test.js`. `bins/shotTakeSelectors.js` joins takes to
+files and shots (orphans skipped) and ranks files for a shot's picker.
+`ScenesView.jsx` adds a Takes chip strip per shot row in both content modes
+and on gallery cards, the primary take's poster standing in for an EMPTY shot
+thumbnail only, the ordered takes list in the shot popup (`views/bins/
+ShotTakesPanel.jsx`), the picker (`TakePickerDialog.jsx`, same scene first)
+and a one-click "use take length" (frame_count is never written otherwise).
+`BinsView.jsx` adds "Assign to shot…" (`AssignToShotDialog.jsx`, scene → shot,
+omitted hidden and counted, several shots at once), "Used in shots" on the
+inspector and a usage badge on tiles and rows. `state/rabbitNavigate.js`
+carries open-in-Scenes / show-in-Bins across the shell's tabs.
 
 ### 13.4 The shell and the shared surfaces
 

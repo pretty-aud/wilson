@@ -22,13 +22,15 @@
 // file list in the detail panel. Media files are auto-detected
 // by MIME type. Files can be marked as core and classified.
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
-import { LIGHT_INK } from '../lightSurface'
+import { Banner, Button, Field, Input } from '../../ui'
+import { hasLocalServer } from '../../lib/localData'
+import '../Resources/resources.css'
 
 function newFileId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -62,6 +64,26 @@ export default function ProjectsPage({ onNavigate }) {
   const [view, setView] = useState('list') // 'list' | 'create' | 'detail'
   const [activeId, setActiveId] = useState(null)
   const [newTitle, setNewTitle] = useState('')
+  // Demo 2026-09-11: a PRIVATE project (migration 0072) — its rows in
+  // Supabase, its media on this computer, visible to nobody else. The
+  // checkbox shows only where it can work: a cloud session whose database
+  // has the column (the adapter probes it) on the desktop (the media needs
+  // a home on this computer).
+  const [newPrivate, setNewPrivate] = useState(false)
+  const [privateOk, setPrivateOk] = useState(false)
+  const getAdapter = ctx?.getAdapter
+  useEffect(() => {
+    let cancelled = false
+    const adapter = getAdapter?.()
+    if (!cloud || !hasLocalServer() || typeof adapter?.supportsPrivateProjects !== 'function') {
+      setPrivateOk(false)
+      return
+    }
+    adapter.supportsPrivateProjects()
+      .then(ok => { if (!cancelled) setPrivateOk(!!ok) })
+      .catch(() => { if (!cancelled) setPrivateOk(false) })
+    return () => { cancelled = true }
+  }, [cloud, getAdapter])
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [saveError, setSaveError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -80,8 +102,10 @@ export default function ProjectsPage({ onNavigate }) {
         status:       'active',
         documents:    [],
         visualAssets: [],
+        ...(privateOk && newPrivate ? { is_private: true } : {}),
       })
       setNewTitle('')
+      setNewPrivate(false)
       if (created?.id) {
         setActiveId(created.id)
         setActiveProject?.(created.id)
@@ -230,6 +254,12 @@ export default function ProjectsPage({ onNavigate }) {
           name:            file.name,
           content:         reader.result,
           type:            file.type,
+          // The `files` column's name (B4): ProjectFilesTable reads one field.
+          size_bytes:      file.size,
+          // 🚨 …and `size`, the saved shape's own name: D.O.G. reads a
+          // project's documents and visual assets from these two arrays by
+          // `doc.size` (DeckOutlineGenerator's project files), so a row
+          // written with `size_bytes` alone reached it as 0 bytes.
           size:            file.size,
           is_image:        isImg,
           is_core_definer: false,
@@ -312,45 +342,60 @@ export default function ProjectsPage({ onNavigate }) {
   }, [activeProject, updateActive, cloudFiles, ctx, loadCloudFiles])
 
   // ── Create prompt view ────────────────────────────────────
+  //
+  // UI overhaul C1. Tokens and kit components only, the shape untouched:
+  // Track C carries +207 lines on this file unmerged (plan Q13), so the merge
+  // must conflict on lines rather than on structure. One field, one checkbox,
+  // two buttons, one error — exactly as before.
+  //
+  // The title is gone from here too (F-R06): the orange bar already says
+  // "Projects". The field was a BLACK well (`#1c1917` with `#f4a261` text) on
+  // the light orange page, which is one of the two the review named as the
+  // clearest sign the page class was fighting the page (F-R08); on `paper` it
+  // is simply the one input. `#ea580c` with white measured 3.56:1 and is now
+  // `signal-fill` (5.18:1, Q16); `#44403c`/`#a8a29e` and `text-red-400` go
+  // with it (F-R14).
   if (view === 'create') {
     return (
-      <div className="h-full flex items-center justify-center px-8">
-        <div className="w-full max-w-md">
-          <h2 className="text-lg font-bold uppercase tracking-widest mb-6 text-center" style={{ color: LIGHT_INK }}>
-            Create New Project
-          </h2>
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateProject() }}
-            placeholder="Enter project title..."
-            autoFocus
-            className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
-          />
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => { setView('list'); setNewTitle('') }}
-              className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
-              style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
+      <div className="rs-page pj-create">
+        <div className="pj-create-inner">
+          <Field label="Project title">
+            <Input
+              value={newTitle}
+              onChange={setNewTitle}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateProject() }}
+              placeholder="Enter a project title"
+              autoFocus
+            />
+          </Field>
+          {privateOk && (
+            <label className="pj-private" data-private-project>
+              <input
+                type="checkbox"
+                checked={newPrivate}
+                onChange={(e) => setNewPrivate(e.target.checked)}
+              />
+              <span>
+                <strong>Private project.</strong> Only you (and workspace admins) can see it, and its media is stored on this computer — not in the cloud — so it cannot be shared. Its database stays in Supabase. For demos.
+              </span>
+            </label>
+          )}
+          <div className="pj-create-actions">
+            <Button
+              variant="ghost"
+              onClick={() => { setView('list'); setNewTitle(''); setNewPrivate(false) }}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleCreateProject}
               disabled={busy || !newTitle.trim()}
-              className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors disabled:opacity-40"
-              style={{ backgroundColor: '#ea580c', color: '#fff' }}
             >
-              {busy ? 'Creating...' : 'Create'}
-            </button>
+              {busy ? 'Creating…' : 'Create project'}
+            </Button>
           </div>
-          {saveError && (
-            <div className="mt-3 text-xs text-red-400 px-3 py-2 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #991b1b' }}>
-              {saveError}
-            </div>
-          )}
+          {saveError && <Banner tone="danger">{saveError}</Banner>}
         </div>
       </div>
     )
@@ -389,21 +434,24 @@ export default function ProjectsPage({ onNavigate }) {
     // shrinks toward the single store on its own rather than by a migration
     // nobody asked for.
     //
-    // ProjectFilesTable keys on `name`, `size`, `type` and `is_image`; a cloud
-    // row spells two of those differently, so it is mapped rather than spread.
+    // ProjectFilesTable keys on `name`, `size_bytes`, `type` and `is_image`
+    // (B4: one size field, the `files` column's). A cloud row spells `type`
+    // differently, so it is mapped rather than spread. A legacy row written
+    // before B4 holds its size as `size`: that saved shape is read here, once.
     const allFiles = [
       ...normalized.documents.map(f => ({
         ...f,
+        size_bytes: f.size_bytes ?? f.size ?? null,
         is_image: f.is_image ?? isMediaMime(f.type),
       })),
       ...normalized.visualAssets.map(f => ({
         ...f,
+        size_bytes: f.size_bytes ?? f.size ?? null,
         is_image: f.is_image ?? true,
       })),
       ...cloudFiles.map(f => ({
         ...f,
         type:       f.mime_type || '',
-        size:       f.size_bytes ?? null,
         is_image:   isMediaMime(f.mime_type),
         created_at: f.uploaded_at || f.created_at || null,
         storage:    'cloud',

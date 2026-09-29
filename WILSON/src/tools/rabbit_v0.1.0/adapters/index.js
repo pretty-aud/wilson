@@ -18,6 +18,7 @@
 import { supabaseAdapter }    from './supabaseAdapter';
 import { localServerAdapter } from './localServerAdapter';
 import { googleDriveAdapter } from './googleDriveAdapter';
+import { devFixtures } from '../../../dev/devFixtures';
 
 /**
  * @typedef {Object} ProjectIndexEntry
@@ -207,6 +208,51 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  *   shape and opts contract as subscribeProjectChanges.
  */
 
+// --- bins ---
+//
+// The bin system (demo 2026-09-11, docs/BINS_DESIGN.md §4). LOCAL SERVER
+// ONLY, and feature-detected: the provider checks `typeof adapter.listBins ===
+// 'function'` and exposes `supportsBins`; the Supabase and Drive adapters
+// define none of these, and the Bins tab shows an honest empty state there.
+// Bin files are REFERENCES to paths on this machine (never copied); the OS
+// dialogs open in the main process; the bytes and posters are served by the
+// loopback server. Every method takes projectId first.
+//
+//   listBins(projectId)                          → { bins, binFiles (with `online`), binRoots, shotTakes, orphanTakes, ffmpeg }
+//   createBin(projectId, bin) / updateBin(projectId, id, patch)
+//   deleteBin(projectId, id, { mode: 'move'|'remove', target })
+//                                                → { removedBins, movedFiles, removedFiles }
+//   reorderBins(projectId, [{ id, parent_bin_id, sort_order }])
+//   pickBinFiles(projectId) → { paths, canceled } ; pickBinFolder(projectId, title) → { path, canceled }
+//   prepareBinFiles(projectId, paths)            → { items, folders, truncated, roots } (the add dialog's plan)
+//   addBinFiles(projectId, binId, items, createSubBins, roots) → { created, bins, results }
+//   updateBinFile(projectId, id, patch) ; bulkUpdateBinFiles(projectId, ids, patch) → { updated }
+//   moveBinFiles / copyBinFiles(projectId, ids, binId) ; removeBinFiles(projectId, ids) → { removed }
+//   restoreBinFiles(projectId, rows) → { restored, skipped: [{ id, reason }], affectedShotIds, shotTakes, orphanTakes }
+//   probeBinFile(projectId, id)                  → the row with its technical columns filled
+//   binFileThumbnailUrl(projectId, id, rev) / binFileStreamUrl(projectId, id, { probe })  (URLs, not fetches)
+//   postBinFileThumbnail(projectId, id, base64)  (the renderer decoded a frame; no ffmpeg)
+//   binRelinkScan(projectId, folderPath?) → { offline, candidates, truncated } ; binRelinkApply(projectId, mappings)
+//   removeBinRoot(projectId, id)                 (roots are recorded by the pick and add routes)
+//
+// Every failure throws an Error carrying `status` and, where the route sends
+// one, `code` (offline, cross_origin, unauthorized_folder, bad_ids, …) —
+// branch on those, never on the sentence.
+//
+// Shot takes (milestone 2): bin files assigned to shots, many-to-many, ordered,
+// with a role (primary | part | alt) and notes; `bundle.shotTakes`. Every
+// mutation answers { affectedShotIds, shotTakes, orphanTakes } — the full row
+// set of the shots it touched — because siblings are re-roled and renumbered.
+// The rows arrive with listBins: `shotTakes` are the LIVE rows (shot and file
+// both exist) presented with positions 0..n-1 and exactly one primary per
+// shot; `orphanTakes` are the rows whose shot or file is gone, verbatim, so
+// state keeps them for the undo that brings the shot or file back.
+//   assignShotTakes(projectId, [{ shot_id, bin_file_id, role?, notes? }]) → { created, skipped, … }
+//   updateShotTake(projectId, id, { role?, notes?, position? }) → { take, … }
+//   removeShotTakes(projectId, ids)                → { removed, … }
+//   reorderShotTakes(projectId, shotId, ids)
+//   replaceShotTakes(projectId, shotIds, rows)     (the undo primitive: those shots' rows become exactly `rows`)
+
 /** @type {Record<string, () => RabbitAdapter>} */
 const ADAPTERS = {
   supabase:     supabaseAdapter,
@@ -224,6 +270,14 @@ const ADAPTERS = {
  * @returns {RabbitAdapter}
  */
 export function selectAdapter(mode) {
+  // Dev fixtures (2026-09-11, dev builds only): with VITE_DEV_FIXTURES=1 the
+  // cloud slot is served by the in-memory fixtures adapter (src/dev/fixtures),
+  // so `adapterMode` stays 'supabase' and every `=== 'supabase'` gate in the
+  // provider, the Dashboard, the Projects page and the drawers opens onto
+  // fake data. `import.meta.env.DEV` is a build-time constant: `vite build`
+  // has no such branch (src/dev/devFixtures.test.js pins the shape).
+  const fx = import.meta.env.DEV && mode === 'supabase' ? devFixtures() : null;
+  if (fx?.rabbitAdapter) return fx.rabbitAdapter();
   const factory = ADAPTERS[mode];
   if (!factory) {
     throw new Error(
@@ -243,5 +297,6 @@ export const ADAPTER_MODES = Object.keys(ADAPTERS);
  * mutator UI when running against a read-only backend.
  */
 export function adapterSupportsWrites(mode) {
-  return mode === 'supabase' || mode === 'local_server';
+  return mode === 'supabase' || mode === 'local_server'
+    || (import.meta.env.DEV && mode === 'fixtures'); // the dev fixtures adapter reports mode 'fixtures'
 }

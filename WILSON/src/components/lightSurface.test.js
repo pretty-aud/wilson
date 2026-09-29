@@ -12,10 +12,8 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import {
-  LIGHT_INK, LIGHT_RULE, LIGHT_WELL,
-  LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW, LIGHT_TABLE_HEAD_CELL,
-} from './lightSurface'
+import * as lightSurface from './lightSurface'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from './lightSurface'
 
 // The surface every light page paints (App.jsx: isDarkPage ? '#1c1917' : '#f4a261').
 const PAGE = '#f4a261'
@@ -90,17 +88,17 @@ describe('the light-page ink survives the orange it sits on', () => {
 })
 
 describe('the shared table treatment (§B3)', () => {
-  it('is one definition, so Team Members / Users / Logs cannot drift', () => {
-    // Three local copies is exactly how they became three different tables.
-    expect(LIGHT_TABLE_FRAME.border).toContain(LIGHT_RULE)
-    expect(LIGHT_TABLE_HEAD_ROW.backgroundColor).toBe(LIGHT_WELL)
-    expect(LIGHT_TABLE_HEAD_CELL.color).toBe(LIGHT_INK)
-  })
-
-  it('carries emphasis with WEIGHT, not with a second colour', () => {
-    // §B2: once everything is legible, the hierarchy that used to come from
-    // "darker grey vs lighter grey" has to come from somewhere else.
-    expect(LIGHT_TABLE_HEAD_CELL.fontWeight).toBeGreaterThanOrEqual(600)
+  it('is the kit Table now: the four LIGHT_TABLE_* objects are gone (P1, §7 caller audit)', () => {
+    // Team Members, Users and Logs moved onto the kit's Table, which left the
+    // four objects with no reader but this file (V1-15). They are deleted
+    // from src/ui/tokens.js and from the aliases here; a fifth table
+    // treatment must not come back through this door.
+    const leftovers = Object.keys(lightSurface).filter((k) => /^LIGHT_TABLE_/i.test(k))
+    expect(leftovers).toEqual([])
+    // The aliases that DO have callers stay.
+    expect(Object.keys(lightSurface).sort()).toEqual(
+      ['LIGHT_ACCENT', 'LIGHT_INK', 'LIGHT_RULE', 'LIGHT_SURFACE_SOLID', 'LIGHT_WELL'],
+    )
   })
 
   it('the header is NOT a near-white card — that was the actual complaint', () => {

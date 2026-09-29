@@ -66,6 +66,8 @@ import {
 } from '../storage';
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
+import { createLocalServerStorageProvider } from '../storage/localServerProvider';
+import { describeSourceFile } from '../storage/mediaMetadata';
 import {
   generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
   signedThumbnailUrls,
@@ -110,6 +112,8 @@ export function resetSupabaseAdapter() {
   cachedClient = null;
   lastError    = null;
   lastSyncAt   = null;
+  privateColumnKnown = null;
+  fileMetaKnown = null;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -179,6 +183,56 @@ registerStorageProvider(
   FILE_PROVIDERS.S3,
   createS3StorageProvider(presignStorage),
 );
+// Demo 2026-09-11: the desktop's own disk, for PRIVATE projects (see
+// uploadFile). Registered on EVERY surface so a row that names it resolves
+// to a sentence off the desktop (localServerProvider.js NOT_HERE) instead of
+// the registry's "no storage provider registered".
+registerStorageProvider(
+  FILE_PROVIDERS.LOCAL_SERVER,
+  createLocalServerStorageProvider(),
+);
+
+// ── Demo 2026-09-11: private projects — cloud rows, media on this computer ──
+// Migration 0072 adds projects.is_private. The column is PROBED once per
+// session rather than assumed, so a client ahead of the database (staging
+// before the push, an older environment) shows no checkbox and lists
+// projects exactly as before, instead of failing every list on 42703.
+let privateColumnKnown = null; // null = not probed yet
+async function privateProjectsAvailable(client) {
+  if (privateColumnKnown !== null) return privateColumnKnown;
+  const { error } = await client.from('projects').select('is_private').limit(1);
+  if (!error) { privateColumnKnown = true; return true; }
+  if (error.code === '42703' || /is_private/.test(error.message || '')) {
+    privateColumnKnown = false;
+    return false;
+  }
+  // Any other failure (network, RLS) says nothing about the column: answer
+  // "not now" and probe again next time.
+  return false;
+}
+// Demo 2026-09-11 (Audrey: "the name of the file, file type, creation date
+// and time, file size, if its an audio or video file the duration as well"):
+// files.duration_sec / files.source_modified_at arrive with migration 0081
+// and are probed the same way — a client ahead of the database writes the
+// row exactly as before.
+let fileMetaKnown = null;
+async function fileMetaAvailable(client) {
+  if (fileMetaKnown !== null) return fileMetaKnown;
+  const { error } = await client.from('files').select('duration_sec').limit(1);
+  if (!error) { fileMetaKnown = true; return true; }
+  if (error.code === '42703' || /duration_sec/.test(error.message || '')) {
+    fileMetaKnown = false;
+    return false;
+  }
+  return false;
+}
+async function projectIsPrivate(client, projectId) {
+  if (!(await privateProjectsAvailable(client))) return false;
+  const { data, error } = await client
+    .from('projects').select('is_private').eq('id', projectId).maybeSingle();
+  if (error) throw new Error(`[supabase] ${error.message}`);
+  return !!data?.is_private;
+}
 
 function sanitize(obj, drop = []) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -295,6 +349,10 @@ const PROJECT_COLUMNS = new Set([
   // folder_slug deliberately stays OUT — nothing in cloud mode writes it,
   // and an allowlist entry without a writer is the dead-feature shape.
   'folder_root',
+  // 0072 (demo 2026-09-11) — a private project: visible to its creator and
+  // to admins, media on the creator's computer. createProject drops it where
+  // the column has not landed yet (privateProjectsAvailable).
+  'is_private',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
@@ -303,7 +361,7 @@ const PROJECT_COLUMNS = new Set([
 // Every one of these needs an allowlist entry, not because of the columns it
 // HAS but because of the keys the UI sends that are not columns:
 //   * addLevel / addExperience send `files` — an array of picked files from
-//     the create dialog (LevelsView.jsx:1009). It has no column and belongs
+//     the create dialog (EntityListView.jsx:1159). It has no column and belongs
 //     to the folder/files work in S26.
 //   * RabbitProvider re-sends whole rows on update (`{ ...existing, ...patch }`,
 //     RabbitProvider.jsx:1333), so created_at/updated_at ride along.
@@ -424,6 +482,8 @@ const FILE_COLUMNS = new Set([
   'storage_provider', 'storage_path', 'thumbnail_url',
   'kind', 'is_core_definer', 'is_financial',
   'uploaded_at',
+  // 0081 (demo 2026-09-11) — the file's own duration and modified time.
+  'duration_sec', 'source_modified_at',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
@@ -835,9 +895,12 @@ export function supabaseAdapter() {
     // ── Projects ──────────────────────────────────────────────
     async listProjects() {
       const client = await requireClient();
+      // Demo 2026-09-11: is_private joins the list only where 0072 has
+      // landed — naming a column the database lacks fails the WHOLE list.
+      const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';
       return unwrap(await client
         .from('projects')
-        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url')
+        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol)
         .order('updated_at', { ascending: false }));
     },
 
@@ -936,6 +999,10 @@ export function supabaseAdapter() {
       const { row, droppedAttachments } = mapDogProjectFields(
         sanitize(payload, ['id', 'workspace_id', 'created_at', 'updated_at']),
       );
+      // Demo 2026-09-11: the private flag rides only where 0072 has landed;
+      // elsewhere it is dropped so a create never fails on an unknown column
+      // (ProjectsPage hides the checkbox in that case — this is the backstop).
+      if (row.is_private !== undefined && !(await privateProjectsAvailable(client))) delete row.is_private;
       // Session 15: createProject used to discard droppedAttachments entirely,
       // so D.O.G.'s create-with-attachments modal lost every file WITHOUT any
       // error at all in cloud mode. A create carrying real attachments now
@@ -1206,23 +1273,39 @@ export function supabaseAdapter() {
       // cannot be determined, the upload is refused with a sentence rather
       // than guessed at — a guess of 'petal' would silently route media to a
       // store the customer may have explicitly moved away from.
-      const storageChoice = await getWorkspaceStorageCached();
-      const activeProvider = activeWorkspaceProvider(storageChoice);
-      // The one workspace provider with no cloud-side implementation
-      // (S36's review): 'network' bodies live on the customer's own
-      // filesystem, which only the desktop's Local Server path can reach.
-      // Refused with a sentence, never routed — and financial files are
-      // exempt because their body never leaves Supabase anyway.
-      if (activeProvider === WORKSPACE_PROVIDERS.NETWORK && !scope.financial) {
-        throw new Error(
-          'this workspace stores media on its own server or NAS — add files from ' +
-          'the desktop app in Local Server mode; the cloud backend cannot write ' +
-          'to a network drive',
-        );
+      // ── Demo 2026-09-11: a PRIVATE project keeps its media on this computer ──
+      // Audrey: "all databases need to live in the supabase storage at all
+      // times … the only thing local storage should be related to is just
+      // the media files and asset of the project." The row is a cloud row
+      // like any other; the body goes to the desktop's own disk through the
+      // local_server provider (storage/localServerProvider.js; routes in
+      // electron/localMedia.cjs). Decided HERE, beside the money pin, and
+      // the money pin still wins: an invoice on a private project stays in
+      // Supabase (0050's files_money_provider_chk agrees). Off the desktop
+      // the provider's put() refuses with a sentence — a private project's
+      // media can only be added on the computer that holds it.
+      let storageProvider;
+      if (!scope.financial && await projectIsPrivate(client, projectId)) {
+        storageProvider = FILE_PROVIDERS.LOCAL_SERVER;
+      } else {
+        const storageChoice = await getWorkspaceStorageCached();
+        const activeProvider = activeWorkspaceProvider(storageChoice);
+        // The one workspace provider with no cloud-side implementation
+        // (S36's review): 'network' bodies live on the customer's own
+        // filesystem, which only the desktop's Local Server path can reach.
+        // Refused with a sentence, never routed — and financial files are
+        // exempt because their body never leaves Supabase anyway.
+        if (activeProvider === WORKSPACE_PROVIDERS.NETWORK && !scope.financial) {
+          throw new Error(
+            'this workspace stores media on its own server or NAS — add files from ' +
+            'the desktop app in Local Server mode; the cloud backend cannot write ' +
+            'to a network drive',
+          );
+        }
+        storageProvider = fileProviderFor(activeProvider, {
+          financial: !!scope.financial,
+        });
       }
-      const storageProvider = fileProviderFor(activeProvider, {
-        financial: !!scope.financial,
-      });
       try {
         await getStorageProvider(storageProvider).put(storagePath, file, {
           contentType: file?.type,
@@ -1336,6 +1419,15 @@ export function supabaseAdapter() {
         // readable.
         is_financial:     !!scope.financial,
       };
+      // Demo 2026-09-11: the file's own facts — its source's modified time
+      // and, for audio/video, its duration (storage/mediaMetadata.js,
+      // bounded and best-effort) — where 0081 has landed. Read from the
+      // File we already hold, never by downloading anything back.
+      if (await fileMetaAvailable(client)) {
+        const facts = await describeSourceFile(file);
+        row.duration_sec = facts.durationSec;
+        row.source_modified_at = facts.sourceModifiedAt;
+      }
       const ins = await client.from('files').insert(row).select().single();
       if (ins.error) {
         // The blob landed but the row didn't — remove our own object so a
@@ -2599,6 +2691,16 @@ export function supabaseAdapter() {
           try { client?.removeChannel?.(channel); } catch { /* already gone */ }
         }
       };
+    },
+    // ── private projects (demo 2026-09-11) ──────────────────────────────────
+    // Whether THIS database has 0072's column — ProjectsPage shows the
+    // "private project" checkbox only when it does (and only on the desktop,
+    // where the media has a home). Probed once per session; see
+    // privateProjectsAvailable above.
+    async supportsPrivateProjects() {
+      const client = await getClient();
+      if (!client) return false;
+      return privateProjectsAvailable(client);
     },
   };
 }

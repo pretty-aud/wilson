@@ -12,10 +12,13 @@
 //   update → { col: { old, new }, ... }  (audit-noise columns excluded)
 // =============================================================================
 
+// The action's colour is the drawer's CSS (`.rb-hist-action[data-action]` on
+// the success / ink-2 / danger tokens); P1-66 deleted the `color` hexes this
+// table carried and nothing read.
 export const ACTION_META = {
-  create: { label: 'Created', color: '#4ade80' },
-  update: { label: 'Edited',  color: '#fb923c' },
-  delete: { label: 'Deleted', color: '#fca5a5' },
+  create: { label: 'Created' },
+  update: { label: 'Edited' },
+  delete: { label: 'Deleted' },
 }
 
 // Soft delete / restore (Session 6, migration 0014): the deleted_at flip is
@@ -23,7 +26,7 @@ export const ACTION_META = {
 // raw deleted_at/deleted_by lines — without the entryActionMeta() relabel
 // the row would render as an empty edit. RESTORE_META has no matching DB
 // action; it exists only for this client-side relabel.
-export const RESTORE_META = { label: 'Restored', color: '#4ade80' }
+export const RESTORE_META = { label: 'Restored' }
 
 // Friendly singular labels for the 13 RABBIT entity_type table names.
 export const ENTITY_LABELS = {
@@ -98,7 +101,7 @@ export function entryActionMeta(entry) {
   const transition = softDeleteTransition(entry)
   if (transition === 'deleted')  return ACTION_META.delete
   if (transition === 'restored') return RESTORE_META
-  return ACTION_META[entry?.action] || { label: entry?.action || '', color: '#a8a29e' }
+  return ACTION_META[entry?.action] || { label: entry?.action || '' }
 }
 
 /**

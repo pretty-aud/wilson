@@ -22,6 +22,7 @@
 import { parseOtterRoute } from './otterRoutes.js'
 import { supabaseOtterAdapter, OtterCloudError } from './supabaseOtterAdapter.js'
 import { supabase } from '../../../cloud/auth/supabaseClient.js'
+import { devFixtures } from '../../../dev/devFixtures.js'
 
 /** 'auto' follows the session; 'local'/'supabase' pin it (Settings override). */
 let modeOverride = 'auto'
@@ -47,6 +48,8 @@ function isBrowserBuild() {
 async function cloudActive() {
   if (modeOverride === 'local') return false
   if (modeOverride === 'supabase') return true
+  // Dev fixtures (dev builds only): the cloud UI (tiers, sharing chrome) over fake data.
+  if (import.meta.env.DEV && devFixtures()?.otter) return true
   try {
     const { data } = await supabase.auth.getSession()
     const token = data?.session?.access_token
@@ -95,6 +98,14 @@ export async function otterFetch(input, init) {
 
   const route = parseOtterRoute(url, method)
   if (!route) return fetch(input, init)
+
+  // Dev fixtures (2026-09-11, dev builds only): every O.T.T.E.R. content route
+  // is answered from src/dev/fixtures in memory; nothing reaches Supabase.
+  const fx = import.meta.env.DEV ? devFixtures() : null
+  if (fx?.otter) {
+    const answer = fx.otter.handle(route, parseBody(init))
+    return jsonResponse(answer.body, answer.status)
+  }
 
   if (!(await cloudActive())) {
     if (route.cloudOnly) {
