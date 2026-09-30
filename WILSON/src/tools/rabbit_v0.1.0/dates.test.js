@@ -12,14 +12,14 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { parseIsoDate, toIsoDate, showDate } from './dates.js'
+import { parseIsoDate, toIsoDate, showDate, calendarDaysBetween } from './dates.js'
 import { jsCode } from './rabbitCssGuards.js'
 
-const ORIGINAL_TZ = process.env.TZ
-afterAll(() => {
-  if (ORIGINAL_TZ === undefined) delete process.env.TZ
-  else process.env.TZ = ORIGINAL_TZ
-})
+// The zone to go back to, read BEFORE any switch. Deleting TZ does not
+// restore it (Node keeps the zone it last applied — review round 1 measured
+// it), and an empty TZ is UTC, so the zone's own name is assigned back.
+const ORIGINAL_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+afterAll(() => { process.env.TZ = ORIGINAL_ZONE })
 
 /** Zone → its offset on 1 Dec 2026 (minutes WEST of UTC, as getTimezoneOffset
     reports), so a switch that did not take is caught rather than trusted. */
@@ -62,7 +62,7 @@ describe('parseIsoDate: a date-only string is the local midnight of the day it n
     // The brief's control, on the machine's own zone when the runner cannot
     // switch: meaningful only where the offset is positive (west of UTC).
     if (!inZone('America/New_York')) {
-      process.env.TZ = ORIGINAL_TZ ?? ''
+      process.env.TZ = ORIGINAL_ZONE
       if (!(new Date().getTimezoneOffset() > 0)) ctx.skip('the machine is not west of UTC and the zone could not be switched')
     }
     expect(new Date('2026-12-01').getDate()).not.toBe(1)
@@ -81,6 +81,18 @@ describe('parseIsoDate: a date-only string is the local midnight of the day it n
     expect(copy.getTime()).toBe(local.getTime())
   })
 
+  it('reads the shorter date-only forms locally too, keeps a year below 100, and writes four-digit years (review round 1)', () => {
+    inZone('America/New_York')
+    // 'YYYY-MM' and 'YYYY' are the other two forms the language reads as UTC.
+    expect(new Date('2026-12').getDate()).toBe(30)
+    expect(toIsoDate(parseIsoDate('2026-12'))).toBe('2026-12-01')
+    expect(toIsoDate(parseIsoDate('2026'))).toBe('2026-01-01')
+    // `new Date(26, 11, 1)` is 1926; the helper keeps year 26.
+    expect(parseIsoDate('0026-12-01').getFullYear()).toBe(26)
+    expect(toIsoDate(parseIsoDate('0026-12-01'))).toBe('0026-12-01')
+    expect(toIsoDate(parseIsoDate('0999-01-01'))).toBe('0999-01-01')
+  })
+
   it('answers null — never an Invalid Date — for nothing, garbage and a day the calendar does not have', () => {
     for (const v of [null, undefined, '', 'soon', '2026-02-30', '2026-13-01', '2026-00-10', new Date(NaN)]) {
       expect(parseIsoDate(v), String(v)).toBeNull()
@@ -97,6 +109,22 @@ describe('toIsoDate: the local y-m-d a DATE column stores', () => {
     const evening = new Date(2026, 8, 30, 21, 30) // 21:30 Eastern is 01:30 UTC the next day
     expect(evening.toISOString().slice(0, 10)).toBe('2026-10-01') // what `toISOString().slice(0, 10)` stored
     expect(toIsoDate(evening)).toBe('2026-09-30')
+  })
+})
+
+describe('calendarDaysBetween: whole days on the local calendar (the Tasks view\'s "Days remaining" and "Days passed")', () => {
+  it('counts across both daylight-saving changes exactly, from stored dates or Dates', () => {
+    inZone('America/New_York')
+    expect(calendarDaysBetween('2026-10-15', '2026-12-18')).toBe(64)   // across 1 Nov (an hour gained)
+    expect(calendarDaysBetween('2027-03-01', '2027-03-15')).toBe(14)   // across 14 Mar (an hour lost)
+    expect(calendarDaysBetween(new Date(2026, 8, 30, 21, 30), '2026-12-18')).toBe(79) // an evening "today"
+    expect(calendarDaysBetween('2026-12-18', '2026-10-15')).toBe(-64)
+    expect(calendarDaysBetween(null, '2026-12-18')).toBeNull()
+  })
+  it('CONTROL: the arithmetic it replaced (Math.ceil of the milliseconds between two local midnights) counts the gained hour as a day', () => {
+    inZone('America/New_York')
+    const [a, b] = [new Date(2026, 9, 15), new Date(2026, 11, 18)]
+    expect(Math.ceil((b - a) / 86400000)).toBe(65)
   })
 })
 
@@ -124,10 +152,12 @@ const CONSUMERS = {
   'the Projects page (P1-20)': '../../components/Projects/ProjectListPanel.jsx',
 }
 const source = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
-/** The defect's two spellings in code (comments stripped): a stored date
-    handed to `new Date(…)`, and a date cut out of the UTC `toISOString()`. */
+/** The defect's spellings in code (comments stripped): a stored date handed
+    to `new Date(…)` — directly, or through the Timeline's `startOfDay` /
+    `addDays`, which clone with `new Date(d)` (review round 1) — and a date
+    cut out of the UTC `toISOString()`. */
 const rawDateReads = (src) => [...jsCode(src).matchAll(
-  /new Date\(\s*(?:[\w?]+(?:\.|\?\.))*(?:start_date|end_date|due_date|date|startDate|endDate|value|iso)\s*\)|toISOString\(\)\s*\.\s*(?:slice|split|substring|substr)\(/g,
+  /new Date\(\s*(?:[\w?]+(?:\.|\?\.))*(?:start_date|end_date|due_date|date|startDate|endDate|value|iso)\s*\)|(?:startOfDay|addDays)\(\s*(?:[\w?]+(?:\.|\?\.))+(?:start_date|end_date|due_date|date)\s*[,)]|toISOString\(\)\s*\.\s*(?:slice|split|substring|substr)\(/g,
 )].map((m) => m[0])
 const importsHelper = (src) => /import\s*\{[^}]*\}\s*from\s*'(?:\.\.?\/)+(?:tools\/rabbit_v0\.1\.0\/)?dates\.js'/.test(jsCode(src))
 
@@ -155,8 +185,10 @@ describe('the Timeline, the Tasks view and the Projects page read dates through 
     expect(rawDateReads("const end = new Date(project.end_date)\nconst s = new Date(project?.start_date)")).toHaveLength(2)
     expect(rawDateReads("ctx.addMilestone({ date: new Date().toISOString().slice(0, 10) })")).toHaveLength(1)
     expect(rawDateReads("return new Date(iso).toLocaleDateString('en-US')")).toHaveLength(1)
-    // …and what the files keep is not: now, a Date copied, a timestamp's getTime.
-    expect(rawDateReads('const t = new Date()\nconst x = new Date(d)\nnew Date(today.getTime() + 1)')).toEqual([])
+    // A stored string through the Timeline's cloning helpers is the same read.
+    expect(rawDateReads('const s = addDays(task.start_date, 2)\nconst x = startOfDay(ms.date)')).toHaveLength(2)
+    // …and what the files keep is not: now, a Date copied, a timestamp's getTime, a Date's arithmetic.
+    expect(rawDateReads('const t = new Date()\nconst x = new Date(d)\nnew Date(today.getTime() + 1)\naddDays(span.start, 3)\nstartOfDay(new Date())\naddDays(startDate, 7)')).toEqual([])
     // A comment that names the defect is not code.
     expect(rawDateReads('// `new Date(value)` read it as UTC midnight')).toEqual([])
     expect(importsHelper("import { showDate } from '../../tools/rabbit_v0.1.0/dates.js'")).toBe(true)

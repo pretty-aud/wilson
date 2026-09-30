@@ -210,13 +210,14 @@
     border-right-width: 2px;
     border-radius: var(--radius-control);
   }
-  /* Post-overhaul S1 (ruling B7): for one --duration-response after the
-     gantt's zoom changes — the four zoom tabs, or the arrow keys on them —
-     both layers slide and stretch to the new box instead of jumping.
-     Everything else that moves the window (scroll-follow, its drag, Fit,
-     Today, the zoom slider, Ctrl+wheel, click-to-jump) stays instant:
-     data-animate is "false" then. The reduced-motion twin is the sheet's
-     one block, at its end. */
+  /* Post-overhaul S1 (ruling B7): after the gantt's zoom changes — the four
+     zoom tabs, by pointer or keyboard — both layers slide and stretch to the
+     new box over one --duration-response instead of jumping; the flag drops
+     when the slide ends. Everything else that moves the window
+     (scroll-follow, its drag, Fit, Today, the zoom slider, Ctrl+wheel,
+     click-to-jump) stays instant: data-animate is "false" then (a move that
+     lands while it slides slides with it). The reduced-motion twin is the
+     sheet's one block, at its end. */
   .rb-tl-ov-frame[data-animate="true"],
   .rb-tl-ov-frame-edge[data-animate="true"] {
     transition: left var(--duration-response) var(--ease-response), width var(--duration-response) var(--ease-response);

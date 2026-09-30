@@ -48,7 +48,7 @@ import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import MilestoneTrashModal from '../components/MilestoneTrashModal'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
-import { parseIsoDate, toIsoDate, showDate } from '../dates.js'
+import { calendarDaysBetween, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
   HoverActions, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus,
@@ -528,27 +528,15 @@ export default function ProjectTasksView() {
 
     // Post-overhaul S1 (rulings B3, B5): the project's dates are read as the
     // local day they name (dates.js; `new Date('2026-12-01')` is the 30th
-    // here), and the difference of two local midnights is ROUNDED to whole
-    // days — it is a whole number of days give or take the hour a daylight-
-    // saving change adds or removes, which `Math.ceil` turned into an extra
-    // day (the two errors cancelled for a December end seen in September).
-    if (project?.end_date) {
-      const end = parseIsoDate(project.end_date)
-      if (end) {
-        end.setHours(0, 0, 0, 0)
-        const diff = Math.round((end - today) / (1000 * 60 * 60 * 24))
-        daysRemaining = Math.max(diff, 0)
-      }
-    }
+    // here), and the days between are counted on the local calendar
+    // (`calendarDaysBetween` rounds; `Math.ceil` made the hour a daylight-
+    // saving change adds an extra day, and for a December end seen in
+    // September the two errors cancelled).
+    const remainingDays = calendarDaysBetween(today, project?.end_date)
+    if (remainingDays != null) daysRemaining = Math.max(remainingDays, 0)
 
-    if (project?.start_date) {
-      const start = parseIsoDate(project.start_date)
-      if (start) {
-        start.setHours(0, 0, 0, 0)
-        const diff = Math.round((today - start) / (1000 * 60 * 60 * 24))
-        daysPassed = Math.max(diff, 0)
-      }
-    }
+    const passedDays = calendarDaysBetween(project?.start_date, today)
+    if (passedDays != null) daysPassed = Math.max(passedDays, 0)
 
     return { remaining, completed, daysRemaining, daysPassed }
   }, [tasks, project?.start_date, project?.end_date])

@@ -199,7 +199,9 @@ export function offWindow(rowStart, rowEnd, winStart, winEnd) {
 // the paper (rabbitTimeline.css), so a line that crosses one is covered.
 // With weekends hidden, a month whose 1st is a weekend takes its label and
 // its bold line on its first shown day. A label the chart's end would cut is
-// not drawn (the minimap's B3d rule). The claim this function's old header
+// not drawn (the minimap's B3d rule) — except a month's start's, which always
+// print, as they always did (a chart that ends on a 1st, 18 months past the
+// project, prints it past the end). The claim this function's old header
 // made — "the first tick always gets a full Mon YYYY label" — was never what
 // it did, and it is not what it does.
 // =============================================================================
@@ -229,8 +231,11 @@ export const axisLabelWidth = (label) => [...String(label ?? '')]
   .reduce((w, ch) => w + (AXIS_GLYPH_PX[ch] ?? AXIS_GLYPH_WIDEST), 0)
 
 /**
- * The clear space a gantt label keeps before the next tick's line: the same
- * 4px it keeps from its own (LABEL_PAD, the tick's `px-1`). Not the
+ * The clear space a gantt label keeps before the next tick's line, in the
+ * rule's arithmetic: the same 4px it keeps from its own (LABEL_PAD, the
+ * tick's `px-1`). The tick's own 1px line sits before that padding, so the
+ * drawn text starts 5px after its line and ends at least 3px before the
+ * next (review round 1 measured no line touching text). Not the
  * minimap's LABEL_GAP: the minimap's labels float on a stride between month
  * lines, while every gantt tick is a line with a label in its own column,
  * and at Day zoom a column is 56px — "May 20" (45.03px drawn) + 4 + 12 would

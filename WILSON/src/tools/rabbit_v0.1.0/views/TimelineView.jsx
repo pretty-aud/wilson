@@ -494,11 +494,19 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   const detailRef = useRef(null)
   const [detailScrollLeft, setDetailScrollLeft] = useState(0)
   const [detailViewportW, setDetailViewportW]   = useState(800)
+  // The gantt's scroll as of the last scroll event, in the scale it was made
+  // in. Post-overhaul S1 (review round 1): the re-anchoring below must read
+  // the scroll from BEFORE a zoom or span change, and the DOM's cannot give
+  // it — by the time a layout effect runs, a narrower chart (zooming out) has
+  // already clamped `scrollLeft` to its new maximum, so the anchor day was
+  // wrong and the gantt jumped (Week → Quarter moved the left edge from
+  // 15 Sep 2026 to 16 May, measured).
+  const lastScrollRef = useRef(0)
 
   useEffect(() => {
     const el = detailRef.current
     if (!el) return
-    function onScroll() { setDetailScrollLeft(el.scrollLeft) }
+    function onScroll() { lastScrollRef.current = el.scrollLeft; setDetailScrollLeft(el.scrollLeft) }
     function onResize() { setDetailViewportW(el.clientWidth) }
     onResize()
     el.addEventListener('scroll', onScroll)
@@ -549,9 +557,10 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     const currStart = overviewSpan.start
     const currPx    = DAY_PX
 
-    // Day at the left edge of the visible window before this update.
-    const visibleDayBefore = (el.scrollLeft / Math.max(1, prevPx)) +
-      (prevStart && currStart ? 0 : 0)
+    // Day at the left edge of the visible window before this update: from
+    // the scroll recorded BEFORE it (lastScrollRef), never the DOM's, which a
+    // narrower chart has already clamped by now (S1 review round 1).
+    const visibleDayBefore = lastScrollRef.current / Math.max(1, prevPx)
 
     // Where that same calendar day lands AFTER the update.
     const startDeltaDays = (prevStart && currStart) ? daysBetween(currStart, prevStart) : 0
@@ -565,7 +574,9 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       const zoomChanged = prevPx !== currPx
       if (startMoved || zoomChanged) {
         el.scrollLeft = newScrollLeft
-        // Read back: the browser clamps to the new scroll width.
+        // Read back: the browser clamps to the new scroll width. It is the
+        // baseline for the next change too.
+        lastScrollRef.current = el.scrollLeft
         setDetailScrollLeft(el.scrollLeft)
       }
     }
@@ -580,12 +591,14 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // render with the new scale and the old scroll puts the minimap's window
   // in a wrong box — measured, Day → Quarter put it past the minimap's right
   // edge, which unmounts it, and a remounted window has nothing to animate
-  // from (it jumped). The layout effect above then only confirms the value
-  // (and reads back the browser's clamp).
+  // from (it jumped). The click is the last moment the DOM's scroll is in
+  // the old scale, so it is recorded here too, and the layout effect above
+  // re-anchors from exactly this value and reads back the browser's clamp.
   const changeZoom = useCallback((id) => {
     const next = ZOOM_LEVELS.find((z) => z.id === id)
     const el = detailRef.current
     if (next && el && next.dayPx !== DAY_PX) {
+      lastScrollRef.current = el.scrollLeft
       setDetailScrollLeft((el.scrollLeft / Math.max(1, DAY_PX)) * next.dayPx)
     }
     setZoomId(id)
@@ -1048,22 +1061,34 @@ export const OverviewPane = forwardRef(function OverviewPane({
   // window animates to its new size (below).
   detailZoom = null,
 }, forwardedRef) {
-  // S1 (B7): the window animates for one --duration-response after the
-  // gantt's zoom changes, and at no other time — scroll-follow, the frame's
-  // drag, Fit, Today, the zoom slider, Ctrl+wheel and click-to-jump move it
-  // instantly. The flag is raised in the SAME render as the new zoom (an
-  // update during render, React's pattern for state that follows a prop),
-  // so the window's new box is first drawn under the transition.
+  // S1 (B7): after the gantt's zoom changes, the window slides to its new
+  // box over one --duration-response (200ms); otherwise scroll-follow, the
+  // frame's drag, Fit, Today, the zoom slider, Ctrl+wheel and click-to-jump
+  // move it instantly (a move that lands while it slides — a scroll straight
+  // after the click — slides with it; review round 1 measured it). The flag
+  // is raised in the SAME render as the new zoom (an update during render,
+  // React's pattern for state that follows a prop), so the window's new box
+  // is first drawn under the transition.
   const [frameAnimate, setFrameAnimate] = useState(false)
   const [animatedZoom, setAnimatedZoom] = useState(detailZoom)
+  const frameEdgeRef = useRef(null)
   if (detailZoom !== animatedZoom) {
     setAnimatedZoom(detailZoom)
     setFrameAnimate(true)
   }
+  // The flag drops when the slide ENDS — the outline's transitionend — so it
+  // never cuts a slide short (review round 1: a timer started at the commit
+  // dropped it before a slide that began a frame or two later had finished,
+  // and the window jumped 1–10px). Nothing slides under reduced motion or
+  // when the box did not change; then a fallback of three response
+  // durations drops it.
   useEffect(() => {
     if (!frameAnimate) return undefined
-    const t = setTimeout(() => setFrameAnimate(false), DURATION.response)
-    return () => clearTimeout(t)
+    const el = frameEdgeRef.current
+    const done = (e) => { if (!e || e.target === el) setFrameAnimate(false) }
+    el?.addEventListener('transitionend', done)
+    const t = setTimeout(done, DURATION.response * 3)
+    return () => { el?.removeEventListener('transitionend', done); clearTimeout(t) }
   }, [frameAnimate, animatedZoom])
 
   // The minimap ALWAYS shows phases regardless of the active
@@ -1451,11 +1476,13 @@ export const OverviewPane = forwardRef(function OverviewPane({
             )
           })}
 
-          {/* Visible-window frame — only drawn when at least part
-              of the detail pane's visible window intersects the
-              current minimap span. When it's off-screen we hide
-              the frame entirely and show an edge arrow instead. */}
-          {!frameOffLeft && !frameOffRight && (
+          {/* Visible-window frame. Post-overhaul S1 (review round 1): it
+              is ALWAYS drawn — the body clips it (overflow hidden), and an
+              edge arrow still says where it went when it is wholly off the
+              minimap. It was drawn only while it touched the minimap, so a
+              zoom-tab change that moved it off or back on popped instead of
+              sliding (a new element has nothing to animate from). */}
+          {(
             <>
               {/* The frame you DRAG: below the bars (zIndex 5), so a bar
                   inside the window still takes its own click and drag
@@ -1480,6 +1507,7 @@ export const OverviewPane = forwardRef(function OverviewPane({
                   ABOVE the bars that takes no pointer events, so it reads
                   over them and changes no hit test. The same box. */}
               <div
+                ref={frameEdgeRef}
                 aria-hidden="true"
                 className="absolute rb-tl-ov-frame-edge"
                 data-animate={frameAnimate ? 'true' : 'false'}
@@ -2044,7 +2072,10 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
 // DetailPane — zoomed gantt with drag affordances
 // ============================================================
 
-function DetailPane({
+// Exported for its render test (timelineMinimapRender.test.jsx: the header's
+// ticks and the grid's month lines, with weekends shown and hidden), as
+// OverviewPane is; TimelineView is its one caller.
+export function DetailPane({
   scrollRef, rows, span, totalDays, chartW, dayPx, rowPx, zoom, zoomId,
   hideWeekends,
   criticalSet, todayDays,
@@ -2315,13 +2346,17 @@ function DetailPane({
         window.removeEventListener('mouseup', onUp)
         previewEl.remove()
         if (!preview || preview.hi - preview.lo < MIN_DRAG_PX) return
-        // S1 (ruling B8a): the task starts on the day under the press and
-        // ends on the day under the release — the cell under the pointer,
-        // not the nearest column edge, and the weekend mask honoured — at
-        // least one day long. Like every bar it is drawn up to the start of
-        // its end day.
+        // S1 (ruling B8a, review round 1): the task covers every day cell
+        // the drag swept, from the cell under one end of it to the cell
+        // under the other (the weekend mask honoured), at least one day.
+        // Its end date is the day AFTER the last cell, because a bar is drawn
+        // up to the start of its end day (how the Timeline has always drawn
+        // an end). It rounded each end to the nearest column edge; floored
+        // (S1's first cut), the cell you let go on was never drawn and a drag
+        // across two cells made a one-day task. `hi - 1`: letting go exactly
+        // on a column edge does not take the next day.
         const startIdx  = dayIndexAtX(preview.lo, dayPx, dayMask?.mask)
-        const endIdx    = Math.max(startIdx + 1, dayIndexAtX(preview.hi, dayPx, dayMask?.mask))
+        const endIdx    = Math.max(startIdx + 1, dayIndexAtX(preview.hi - 1, dayPx, dayMask?.mask) + 1)
         const startDate = addDays(span.start, startIdx)
         const endDate   = addDays(span.start, endIdx)
         // Asset row without a bar: set the asset's dates instead of creating a task
@@ -2702,8 +2737,11 @@ function DetailPane({
             style={{ height: HEADER_PX }}
           >
             {ticks.map(tick => {
-              // A hidden day is never a tick (buildAxisTicks skips it); a
+              // A hidden day is never a tick (buildAxisTicks skips it, given
+              // the mask); this skip stays as well, so a call that lost the
+              // mask cannot draw a hidden day's tick (S1 review round 1). A
               // label that does not fit is null and its line stays.
+              if (dayMask && dayMask.mask[tick.offset]?.hidden) return null
               return (
                 <div
                   key={tick.key}
@@ -2901,13 +2939,17 @@ function DetailPane({
                 const dzPhaseId = r.phase?.id || null
                 const isDzHover = dropZoneHover?.phaseId === dzPhaseId
                 const isReparentHoverDz = reparentHoverPhaseId === dzPhaseId
-                // Ghost width is a fixed 7-day default; X position
-                // follows the mouse cursor so the user can pick
-                // where in the timeline the task should start.
-                const ghostWidth = Math.max(60, 7 * dayPx)
+                // The ghost is the task a click here makes. Post-overhaul S1
+                // (review round 1, ruling B8a's picture): it starts on the day
+                // cell under the pointer and spans the seven days "+ New task"
+                // proposes, the weekend mask honoured, so it shows where the
+                // click lands. It was centred on the pointer and 7 × dayPx
+                // wide. (At least 60px, as it was, so its label fits.)
                 const mouseXInChart = isDzHover && dropZoneHover?.mouseX != null
                   ? dropZoneHover.mouseX
                   : null
+                const ghostDay = mouseXInChart != null ? dayIndexAtX(mouseXInChart, dayPx, dayMask?.mask) : null
+                const ghostWidth = Math.max(60, ghostDay != null ? dayToX(ghostDay + 7) - dayToX(ghostDay) : 7 * dayPx)
                 return (
                   <div
                     key={r.key}
@@ -2966,8 +3008,8 @@ function DetailPane({
                       <div
                         className="absolute rounded-control flex items-center justify-center pointer-events-none rb-tl-dz-ghost"
                         style={{
-                          left: mouseXInChart != null
-                            ? Math.max(0, mouseXInChart - ghostWidth / 2)
+                          left: ghostDay != null
+                            ? dayToX(ghostDay)
                             : (isReparentHoverDz
                                 ? Math.max(0, todayDays * dayPx - ghostWidth / 2)
                                 : 0),

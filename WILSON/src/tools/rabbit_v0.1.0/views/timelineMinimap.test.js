@@ -251,6 +251,21 @@ describe('dayIndexAtX: a click lands on the day cell under the pointer (S1, ruli
     expect(mask[last].hidden).toBe(false)
   })
 
+  it('weekends hidden, the two edges (review round 1): left of a chart that opens on a weekend is its first shown day; past a chart that ends on one, its last', () => {
+    const P = ZOOMS.day.dayPx
+    const toMask = (start, days) => {
+      const m = weekendMask(start, days, P)
+      return Array.from({ length: days + 1 }, (_, i) => ({ offsetPx: m.xOf(i), hidden: m.hidden(i) }))
+    }
+    const opens = toMask(new Date(2026, 7, 1), 20)  // Sat 1 Aug: indices 0 and 1 hidden
+    expect(dayIndexAtX(-5, P, opens)).toBe(2)         // Mon 3 Aug
+    expect(dayIndexAtX(0, P, opens)).toBe(2)
+    const ends = toMask(new Date(2026, 7, 3), 6)      // Mon 3 … Sun 9 Aug: indices 5 and 6 hidden
+    expect(ends[6].hidden).toBe(true)
+    expect(dayIndexAtX(10000, P, ends)).toBe(4)       // Fri 7 Aug, never the hidden Sunday
+    expect(dayIndexAtX(4 * P + 1, P, ends)).toBe(4)
+  })
+
   it('CONTROL: the rounding it replaces put a click past a cell\'s middle on the NEXT day, and x / dayPx ignored the hidden weekends', () => {
     const P = ZOOMS.day.dayPx
     expect(Math.round((P * 1.5 + 1) / P)).toBe(2)

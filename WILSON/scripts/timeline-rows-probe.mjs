@@ -125,6 +125,10 @@ const measure = () => page.evaluate(() => {
     ruleLabel: rule(task), ruleChart: rule(charts[labels.indexOf(task)]),
     phaseRuleLabel: rule(phase), phaseRuleChart: phase ? rule(charts[labels.indexOf(phase)]) : '-',
     dzRuleLabel: rule(dz), dzRuleChart: dz ? rule(charts[labels.indexOf(dz)]) : '-',
+    // S1 review round 1: EVERY row, not the first of each kind — its rule on
+    // both halves, and a name's computed colour (not only its contrast).
+    allRules: labels.map((l, i) => ({ i, kind: l.classList.contains('rb-tl-dz') ? 'dz' : l.dataset.shape, label: rule(l), chart: rule(charts[i]) })),
+    inks: labels.filter((l) => l.classList.contains('rb-tl-row')).map((l, i) => ({ i, shape: l.dataset.shape, color: hex(parse(getComputedStyle(l.querySelector('.rb-tl-row-label')).color)) })),
     edge: `${getComputedStyle(gutter).borderRightWidth} ${hex(over(edge, PAPER))} ${ratio(over(edge, PAPER), PAPER).toFixed(2)}:1`,
     taskInk: ink(task), phaseInk: ink(phase),
     phaseBandLabel: phase ? hex(ground(phase)) : '-', phaseBandChart: phase ? getComputedStyle(charts[labels.indexOf(phase)]).backgroundColor : '-',
@@ -208,9 +212,19 @@ for (const z of ZOOMS) {
   // alone; a phase or group row keeps it on both halves.
   const RULE = /^1px solid /;
   const NONE = /^0px none /;
-  const ruleOk = RULE.test(m.ruleLabel) && NONE.test(m.ruleChart)
-    && RULE.test(m.phaseRuleLabel) && m.phaseRuleLabel === m.phaseRuleChart
-    && (m.dzRuleLabel === '-' || (RULE.test(m.dzRuleLabel) && NONE.test(m.dzRuleChart)));
+  const badRules = m.allRules.filter((r) => ((r.kind === 'phase' || r.kind === 'subgroup')
+    ? !(RULE.test(r.label) && r.label === r.chart)
+    : !(RULE.test(r.label) && NONE.test(r.chart))));
+  const INK = { task: '#f5f0ec', phase: '#fb923c', subgroup: '#fb923c' };
+  const badInks = m.inks.filter((x) => x.color !== INK[x.shape]);
+  // The phase grouping always has "+ New task" rows under its expanded
+  // phases: none found means the check above never saw one.
+  const noDz = GROUP === 'phase' && !m.allRules.some((r) => r.kind === 'dz');
+  const ruleOk = badRules.length === 0 && badInks.length === 0 && !noDz;
+  if (badRules.length) console.log(`         ✗ ${badRules.length} rows break the rule: ${badRules.slice(0, 3).map((r) => `row ${r.i} ${r.kind} "${r.label}" | "${r.chart}"`).join('; ')}`);
+  if (badInks.length) console.log(`         ✗ ${badInks.length} names in the wrong ink: ${badInks.slice(0, 3).map((x) => `row ${x.i} ${x.shape} ${x.color}`).join('; ')}`);
+  if (noDz) console.log('         ✗ no "+ New task" row in the phase grouping');
+  console.log(`         every row: ${m.allRules.length} rules, ${m.inks.length} names checked`);
   console.log(`         rule task: label "${m.ruleLabel}"  chart "${m.ruleChart}"`);
   console.log(`         rule group: label "${m.phaseRuleLabel}"  chart "${m.phaseRuleChart}"`);
   console.log(`         rule + new task: label "${m.dzRuleLabel}"  chart "${m.dzRuleChart}"${ruleOk ? '' : '   ✗ not the S1 rule (task and + New task: gutter only; group: both)'}`);
