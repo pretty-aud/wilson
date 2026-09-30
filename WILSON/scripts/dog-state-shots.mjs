@@ -173,8 +173,15 @@ await page.locator('[title="Undo delete"]').first().hover();
 await shot('20-hover-history-undo');
 
 // ── Settings (A2's surface; the extraction covered it) ─────────────────
-await page.locator('[aria-label="Navigation"]').first().click();
-await page.getByRole('button', { name: 'Tool settings' }).click();
+// Post-overhaul S2a: the tool's own gear at the right end of the "Deck
+// outline" bar (the nav strip's "Tool settings" item is gone). A run against
+// a tree from before S2a falls back to the nav strip.
+const gear = page.locator('button[title="D.O.G. settings"]');
+if (await gear.count()) await gear.first().click();
+else {
+  await page.locator('[aria-label="Navigation"]').first().click();
+  await page.getByRole('button', { name: 'Tool settings' }).click();
+}
 await park();
 await shot('21-settings-locked');
 await page.getByRole('tab', { name: 'Output Format' }).or(page.getByRole('button', { name: 'Output Format' })).hover();
@@ -190,7 +197,9 @@ await shot('25-settings-hover-reset');
 await page.getByRole('tab', { name: 'Output Format' }).or(page.getByRole('button', { name: 'Output Format' })).click();
 await park();
 await shot('26-settings-format-tab');
-await clickTitle('Help & documentation');
+// The drawer's own footer Help: since S2a the bar carries a second button of
+// that title, under the drawer's backdrop.
+await page.locator('.dog-settings-drawer [title="Help & documentation"]').first().click();
 await park();
 await shot('27-help');
 const helpItems = page.locator('nav button');

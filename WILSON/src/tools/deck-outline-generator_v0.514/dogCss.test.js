@@ -10,6 +10,10 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { allRules, decls, splitTop } from '../../../scripts/ui-css-rules.mjs'
+import { parse } from '@babel/parser'
+import traverseModule from '@babel/traverse'
+
+const traverse = traverseModule.default || traverseModule
 
 const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8')
 const DOG = read('./dog.css')
@@ -132,5 +136,87 @@ describe('D.O.G.\'s empty selects are drawn one way (P1-50)', () => {
   it('CONTROL: the layout select as it was is caught', () => {
     const was = '<select\n  value={selectedLayout}\n  className="ui-input dog-select" data-size="md" data-surface="dark"\n>'
     expect(selectsWithoutEmpty(was)).toHaveLength(1)
+  })
+})
+
+// ── The "Deck outline" bar (post-overhaul S2a; Audrey's C1 and C7) ─────────
+// The sidebar Panel's header, lifted out to run the page's full width at the
+// tab strips' height, so D.O.G.'s gear sits where O.T.T.E.R.'s and
+// R.A.B.B.I.T.'s do. scripts/tool-strip-probe.mjs measures the one x and y in
+// the app, and scripts/dog-preview-probe.mjs --check the preview box (C4).
+// What a source scan can hold: the bar's box is R.A.B.B.I.T.'s strip's box,
+// its right-hand group is R.A.B.B.I.T.'s rule for rule, it sits ABOVE the
+// sidebar-and-main row (inside it, it would be horizontal chrome and narrow
+// the preview), and the Panel draws no header of its own.
+describe('D.O.G.\'s "Deck outline" bar is a tab strip\'s bar, above both columns (S2a)', () => {
+  const RABBIT = read('../rabbit_v0.1.0/rabbitShell.css')
+  const INDEX = read('../../index.css')
+  const declsOf = (css, sel) => {
+    const r = allRules(css).find((x) => splitTop(x.sel).map(norm).includes(sel))
+    return r ? Object.fromEntries(decls(r.body)) : null
+  }
+  it('its box is the strips\' box: 36px + the hairline, the gutter on the right, 16px on the left, on paper', () => {
+    const d = declsOf(DOG, '.dog-outline-bar')
+    expect(d, 'no .dog-outline-bar rule').toBeTruthy()
+    // NOT the kit Toolbar's 44: the tab strips are the kit tab's 36 + 1.
+    expect(d.height).toBe('calc(var(--control-md) + 1px)')
+    expect(INDEX).toMatch(/\.ui-tab \{[^}]*height: var\(--control-md\);/)
+    // R.A.B.B.I.T.'s strip is the reference, property by property.
+    const rb = declsOf(RABBIT, '.rb-viewtabs')
+    for (const p of ['padding', 'border-bottom', 'background-color']) expect(d[p], p).toBe(rb[p])
+    expect(rb.padding).toBe('0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 8px)')
+  })
+  it('its right-hand group is R.A.B.B.I.T.\'s `.rb-viewtabs-right`, rule for rule', () => {
+    const dog = declsOf(DOG, '.dog-outline-right')
+    expect(dog, 'no .dog-outline-right rule').toBeTruthy()
+    expect(dog).toEqual(declsOf(RABBIT, '.rb-viewtabs-right'))
+  })
+  it('its leading label is the Label step, its text on the 24px gutter (a tab\'s 8px side padding)', () => {
+    expect(declsOf(DOG, '.dog-outline-label')).toEqual({ padding: '0 8px' })
+    expect(declsOf(DOG, '.dog-toolbar-label')['font-size']).toBe('var(--text-label)')
+  })
+
+  // The JSX: where the bar sits, and what the Panel still carries.
+  const barProblems = (src) => {
+    const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+    const cls = (el) => {
+      const a = el?.openingElement?.attributes.find((x) => x.type === 'JSXAttribute' && x.name.name === 'className')
+      return a?.value?.type === 'StringLiteral' ? a.value.value.split(/\s+/) : []
+    }
+    const out = []
+    let bar = null
+    let panel = null
+    traverse(ast, {
+      JSXElement(p) {
+        if (cls(p.node).includes('dog-outline-bar')) bar = p
+        if (p.node.openingElement.name.name === 'Panel' && cls(p.node).includes('dog-sidebar')) panel = p
+      },
+    })
+    if (!bar) return ['no .dog-outline-bar element']
+    const parent = bar.findParent((q) => q.isJSXElement())
+    if (!cls(parent?.node).includes('dog-root')) out.push(`the bar sits in .${cls(parent?.node).join('.') || '?'}, not directly in .dog-root`)
+    // The next element after the bar is the row that holds the Panel.
+    const siblings = parent.node.children.filter((c) => c.type === 'JSXElement')
+    const row = siblings[siblings.indexOf(bar.node) + 1]
+    if (!row || !panel || panel.findParent((q) => q.isJSXElement())?.node !== row) out.push('the sidebar-and-main row does not follow the bar')
+    if (panel) {
+      for (const prop of ['title', 'actions']) {
+        if (panel.node.openingElement.attributes.some((a) => a.type === 'JSXAttribute' && a.name.name === prop)) out.push(`the Panel still takes ${prop}`)
+      }
+    } else out.push('no dog-sidebar Panel')
+    return out
+  }
+  it('sits directly in the page, above the sidebar-and-main row, and the Panel has no header of its own', () => {
+    expect(barProblems(read('./DeckOutlineGenerator.jsx'))).toEqual([])
+  })
+  it('CONTROL: a bar inside the row, and a Panel that keeps its title, are each caught', () => {
+    const inRow = `const x = <div className="dog-root h-full"><div className="flex-1 flex min-h-0">
+      <div className="dog-outline-bar" /><Panel width="md" className="dog-sidebar" /></div></div>`
+    expect(barProblems(inRow)).toEqual(expect.arrayContaining(['the bar sits in .flex-1.flex.min-h-0, not directly in .dog-root']))
+    const titled = `const x = <div className="dog-root h-full"><div className="dog-outline-bar" /><div className="flex-1 flex min-h-0">
+      <Panel width="md" className="dog-sidebar" title="Deck outline" actions={<i />} /></div></div>`
+    expect(barProblems(titled)).toEqual(['the Panel still takes title', 'the Panel still takes actions'])
+    const fine = titled.replace(' title="Deck outline" actions={<i />}', '')
+    expect(barProblems(fine)).toEqual([])
   })
 })

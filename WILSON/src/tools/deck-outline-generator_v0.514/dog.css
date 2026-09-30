@@ -66,7 +66,15 @@
      gutter here would narrow the preview by 32px: measured in the app, with
      its 10px scrollbar, the slide already runs 5px into the preview's own
      padding at 1440 and is cut by 149px at 1280; 32 more comes off both.
-     Change any term and the probe fails. */
+     Change any term and the probe fails.
+
+     Post-overhaul S2a (2026-09-30): the header that reason was about has
+     gone — its title and its four buttons are the "Deck outline" bar below,
+     which runs ABOVE the sidebar-and-main row and so adds no horizontal
+     chrome. The Panel keeps md and the main column its 8px this bundle, so
+     every term above holds (dog-preview-probe --check, both sizes, before and
+     after); whether the sidebar may now go to sm is Audrey's (walkthrough
+     47, Q64). */
   .dog-root {
     background-color: var(--color-paper);
     color: var(--color-ink);
@@ -77,25 +85,37 @@
   }
   .dog-main > * + * { margin-top: 8px; }
 
-  /* ═══ THE SIDEBAR — the kit's Panel ═════════════════════════════════════ */
-
-  /* kit request A1-KR-2: the Panel header cannot hold a title and four sm
-     icon buttons at md with its 8px gap (84px left, 86.5px needed). 4px here,
-     scoped to this panel, until the kit decides. The hairline makes the
-     header one treatment with the other five (D4). */
-  .dog-sidebar .ui-panel-head {
-    gap: 4px;
+  /* ═══ THE "DECK OUTLINE" BAR — post-overhaul S2a (Audrey's C1, C7) ══════
+     The sidebar Panel's header, lifted out to run the page's full width
+     (DeckOutlineGenerator.jsx says why). Its geometry is the tab strips', so
+     the gear is one control in one place in all three tools: rabbitShell.css's
+     `.rb-viewtabs` — paper, one hairline under it, 36px plus that hairline
+     (the kit tab's --control-md; NOT the kit Toolbar's 44), the right edge on
+     the 24px gutter, 16px on the left — and its right-hand group is
+     `.rb-viewtabs-right`. The leading label takes a tab's 8px side padding, so
+     its text sits on the 24px gutter under the page title, where the other
+     strips' first labels sit. It is the Label step (`.dog-toolbar-label`).
+     The bar is ABOVE the sidebar-and-main row: no horizontal chrome for the
+     preview (C4, measured). Replaced the Panel header's two stand-ins for
+     kit request A1-KR-2 (a 4px head gap; an ellipsizing title), which had
+     nothing left to style. */
+  .dog-outline-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: calc(var(--control-md) + 1px);
+    padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 8px);
+    background-color: var(--color-paper);
     border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
   }
-  /* The title fits with half a pixel to spare (86.5px in 87). Should the
-     face or the copy ever grow, it ellipsizes rather than pushing the
-     actions off the header. */
-  .dog-sidebar .ui-panel-title {
-    white-space: nowrap;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .dog-outline-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .dog-outline-label { padding: 0 8px; }
+  .dog-outline-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+  /* ═══ THE SIDEBAR — the kit's Panel ═════════════════════════════════════
+     No header since S2a (above); the list starts under the bar. */
 
   .dog-history-row {
     position: relative;
@@ -191,7 +211,10 @@
      The title ink is ink-2, not the kit's ink-3: inside a card the fields
      below are labelled at the Label step in ink-2 (`.ui-field-label`), and a
      header dimmer than its own fields inverts the hierarchy. Recorded in
-     A1-KR-3 for the kit to settle. */
+     A1-KR-3 for the kit to settle.
+
+     Post-overhaul S2a (2026-09-30): the sidebar's header became the
+     full-width "Deck outline" bar (above), so five headers remain here. */
   .dog-card-head {
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
@@ -204,8 +227,7 @@
   @media (hover: hover) {
     .dog-card-head[data-collapsible='true']:hover { background-color: var(--color-hover); }
   }
-  .ui-panel-title.dog-card-title,
-  .dog-sidebar .ui-panel-title {
+  .ui-panel-title.dog-card-title {
     color: var(--color-ink-2);
   }
   .dog-card-title {

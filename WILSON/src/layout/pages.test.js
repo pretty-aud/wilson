@@ -323,6 +323,7 @@ describe("the worked example's table columns add up", () => {
 // is the reference. Read from each file's JSX (no test here lays a tool out;
 // scripts/tool-strip-probe.mjs measures the one x and y in the running app).
 const TOOL_STRIPS = [
+  { tool: 'D.O.G.', file: '../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx', container: { className: 'dog-outline-right' }, settings: 'D.O.G. settings', opens: 'setShowSettingsMenu' },
   { tool: 'O.T.T.E.R.', file: '../tools/otter_v0.3.1/Otter.jsx', container: { className: 'otter-nav-right' }, settings: 'O.T.T.E.R. settings', opens: 'setSettingsOpen' },
   { tool: 'R.A.B.B.I.T.', file: '../tools/rabbit_v0.1.0/Rabbit.jsx', container: { slotOf: 'ViewTabs', prop: 'rightSlot' }, settings: 'R.A.B.B.I.T. settings', opens: 'setSettingsOpen' },
 ]

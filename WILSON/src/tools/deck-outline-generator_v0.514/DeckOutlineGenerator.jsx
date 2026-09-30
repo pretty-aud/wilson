@@ -4075,23 +4075,42 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
       {/* Header and nav strip are now managed by App.jsx container */}
 
+      {/* ── The "Deck outline" bar (post-overhaul S2a; Audrey's C1) ──
+          It was the sidebar Panel's header: 32px tall and 240px wide, the one
+          D.O.G. bar that stopped short of the window's right edge. It now runs
+          the full width under the app's 4px band, at the tab strips' 36px +
+          hairline (not the kit Toolbar's 44), so its gear sits where
+          O.T.T.E.R.'s and R.A.B.B.I.T.'s do: left, "Deck outline" and the four
+          history controls with their handlers unchanged; right, Help then
+          Settings (C7: "settings at the right end"). The history controls are
+          a group named by the visible label; Help and Settings are not part of
+          it. Measured by scripts/tool-strip-probe.mjs; the preview box by
+          scripts/dog-preview-probe.mjs --check (C4), unchanged. */}
+      <div className="dog-outline-bar">
+        <div className="dog-outline-group" role="group" aria-labelledby="dog-outline-label">
+          <span id="dog-outline-label" className="dog-toolbar-label dog-outline-label">Deck outline</span>
+          <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
+          <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
+          <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
+          <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
+        </div>
+        <div className="dog-outline-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="D.O.G. settings" onClick={() => setShowSettingsMenu(true)} />
+        </div>
+      </div>
+
       <div className="flex-1 flex min-h-0">
-        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller).
-            md, not sm: the header has to hold a title and four 28px icon
-            buttons, and the main column gives back the 16px (C4 — see dog.css
-            `.dog-main`). */}
+        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller),
+            with no header since S2a: its title and its four controls are the
+            bar above. It keeps md (240) this bundle — the width was chosen to
+            fit that header, which has gone (walkthrough 47, Q64, is Audrey's
+            call) — and the main column's 8px padding with it (C4, dog.css
+            `.dog-main`). Named for a screen reader by the bar's label. */}
         <Panel
           width="md"
           className="dog-sidebar"
-          title="Deck outline"
-          actions={
-            <>
-              <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
-              <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
-              <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
-              <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
-            </>
-          }
+          aria-labelledby="dog-outline-label"
         >
           {sortedHistory.length === 0 ? (
             <EmptyState icon={FileText} title="No pages yet" compact className="dog-sidebar-empty" />
