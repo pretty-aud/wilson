@@ -39,9 +39,13 @@
 // are made (Intake's picked files; the Projects page's legacy local rows),
 // and both mappers are gone.
 //
-// 📌 KIND shows "—" for every cloud row: this column is `document_kind`, the
-// intake's taxonomy, and a cloud upload's own `kind` is another one. That is
-// a data gap (B1's hand-off, dev-fixtures #11), recorded and NOT aliased.
+// 📌 KIND is `document_kind`, the intake's taxonomy; a cloud upload's own
+// `kind` is another taxonomy and is NOT aliased onto it. Since 0075 (Track C,
+// C3) a cloud row written by the Resources drop zone, D.O.G.'s create modal
+// or runAttachmentMigration carries document_kind (FILE_COLUMNS lists it and
+// uploadFile writes `scope.documentKind`); R.A.B.B.I.T.'s own uploads still
+// leave it NULL and show "—". (Merge review C-R1-06 corrected this note,
+// which had said every cloud row shows "—".)
 
 import { useState, useEffect } from 'react'
 import { FileText, Trash2, Image as ImageIcon, FileClock } from 'lucide-react'

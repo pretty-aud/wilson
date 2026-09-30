@@ -214,6 +214,12 @@ describe('a receipt stays reachable by the person who uploaded it', () => {
     // exists to have fixed.
     expect(openFileBody).toMatch(/const\s+opened\s*=\s*window\.open\(/)
     expect(openFileBody).toMatch(/if\s*\(!opened\)/)
+    // Merge review C-R1-02: the checked call must NOT pass 'noopener'. The
+    // WHATWG window-open steps return null whenever noopener is set, so with
+    // it every SUCCESSFUL open read as blocked, threw, and revoked the blob.
+    // The opener is severed by hand instead, right after the check.
+    expect(openFileBody).not.toMatch(/window\.open\([^)]*noopener/)
+    expect(openFileBody).toMatch(/opened\.opener\s*=\s*null/)
     expect(openFileBody).not.toMatch(/listFiles\)\s*return\b/)
     expect(openFileBody).toMatch(/setOpenError\(/)
   })

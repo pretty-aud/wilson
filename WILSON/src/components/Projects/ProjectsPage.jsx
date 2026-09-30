@@ -242,8 +242,9 @@ export default function ProjectsPage({ onNavigate }) {
    * legacy documents/visualAssets arrays, and the detail panel below still
    * merges them into the list. An old project's attachments keep rendering and
    * keep feeding D.O.G. exactly as before; only NEW files go to the store. The
-   * one-time move is Settings → Migration (runAttachmentMigration), on her
-   * command and with a dry run, never as a side effect of opening a page.
+   * one-time move is Settings → Storage → "Move deck attachments into
+   * project files" (runAttachmentMigration), on her command and with a dry
+   * run, never as a side effect of opening a page.
    */
   const handleFileUpload = useCallback(async (fileList) => {
     if (!activeProject) return
@@ -563,7 +564,11 @@ export default function ProjectsPage({ onNavigate }) {
         // §6 #31 trap (g). Cloud deletes are soft and hold quota for 30 days;
         // Local Server deletes unlink the body there and then. The panel says
         // which, because "Delete" alone means the wrong one half the time.
-        deletesAreSoft={cloud}
+        // THREE states, not two (merge review C-R1-07): the false branch NAMES
+        // Local Server, so it is passed only when that IS the backend. On
+        // Google Drive (read-only — Delete is refused outright) and in the dev
+        // fixtures the panel gets null and makes no claim about deletion.
+        deletesAreSoft={cloud ? true : ctx?.adapterMode === 'local_server' ? false : null}
         saveError={saveError}
         storageWarning={false}
       />

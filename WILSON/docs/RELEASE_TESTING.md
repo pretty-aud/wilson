@@ -600,7 +600,7 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
    `08_otter.md`. The project-files location in General settings is real and unchanged.
 4. R.A.B.B.I.T.'s agent integration is prompt-only and unreachable; the Agent Skills
    checkboxes gate nothing.
-4. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
+5. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
    methods throw.
 6. Managed files (the ASSETS/SCENES/SHOTS mirror) are local_server only.
 7. ~~A username colliding across two workspaces makes sign-in unreachable — no company field.~~

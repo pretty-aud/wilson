@@ -1752,4 +1752,56 @@ under the caller's `projects_select`; suite 82 probes 20-23). The same gap on
   the first free numbers for its five feature sessions. Measured across every
   local and remote ref on 2026-09-30, the next free numbers are **0083 /
   suite 83**. The plan needs renumbering before any feature session starts;
-  0082's header says the same.
+  0082's header says the same. **Superseded the same day:** the Track C
+  merge's review round 1 took 0083 / suite 83 (C-R1-01, the section below),
+  so the next free numbers are now **0084 / suite 84**.
+
+## Post-overhaul merge (Track C over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
+
+### Track C's file gates met private projects — closed in 0083 (C-R1-01), with what it leaves
+**MEASURED by the merge review (C-R1-01) and FIXED in migration 0083 /
+suite 83.** The class 0082 closed for Track A, on Track C's files:
+`reserve_upload_bytes` (0078) and `log_file_downloaded` (0074, restating
+0047 — this one PRE-EXISTS on the overhaul parent, and 0082 did not list it)
+are SECURITY DEFINER bodies that checked project access the pre-0072 way,
+and `files_insert` / `files_update` (0038) had no hop through `projects`. So
+a second manager, or any member of an unstaffed private project, holding the
+id the workspace channel leaks (the Track A entry above) could reserve
+against `projects/<private-id>/…` — and `abandon_upload_reservation` or the
+hourly sweep would then land an `upload_abandoned` certificate in that
+project's `file_events` — could write a `downloaded` event for its files
+(an existence oracle), and could INSERT a `files` row into it or move one
+INTO it. 0083 adds `passes_project_privacy` (0082) to the two bodies' first
+refusal, the same message and code as before, and the parent hop to the two
+WITH CHECKs; suite 83 probes each with the second manager, the plain member,
+the creator and the admin, with a public-project control beside every
+refusal. Left as it is, on purpose: `abandon_upload_reservation`,
+`release_*` and the sweeps act on reservation ROWS, and after 0083 no row
+can exist for a project its maker could not see. **Still open from this
+class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
+(the Track A round-2 entry above) and the broadcast itself.
+
+- **Walkthrough 15 names the wrong tab and the old button case** for the
+  attachment migration (lines 21, 112-127: "Settings → RABBIT → … Click
+  DRY-RUN … MOVE"). The tab has been labelled **Storage** since Session 22
+  (its key is still `rabbit`), and the merged `AttachmentMigrationPanel`'s
+  buttons read **Dry-run** and **Move** (sentence case, the overhaul's rule).
+  MEASURED by the merge review (C-R1-05); the in-app copy that pointed at a
+  "Settings → Migration" location is corrected in the same round. NOT fixed
+  here: the merge sessions may not edit `docs/walkthroughs/`. A session that
+  may must repair `docs/walkthroughs/15_*.md` — and Audrey's Desktop copy of
+  it (`WILSON walkthroughs\`) is hers to replace.
+- **`InvoiceAttachment.openFile` still passes `'noopener'` and never reads
+  `window.open`'s return**, so a pop-up that the browser blocks fails
+  silently there (the invoice-row twin of BudgetView's receipt control, which
+  C-R1-02 fixed: `window.open` returns null whenever `noopener` is set, so a
+  return check and `noopener` cannot coexist — BudgetView now checks the
+  return and severs the opener by hand). Out of C-R1-02's scope; not changed.
+  One-line fix when a session wants it: the same `opened.opener = null`
+  idiom, then a `setError` on a null return.
+- **⚠️ Migration 0083 and pgTAP suite 83 are TAKEN by this round
+  (C-R1-01).** Measured across every local and remote ref on 2026-09-30, the
+  next free numbers are **0084 / suite 84**. The post-overhaul plan
+  (2026-09-29) still says 0082 / 82 and the Track A entry above said 0083 /
+  83; both are stale, and the plan needs renumbering before any feature
+  session starts. 0083's header says the same.

@@ -2539,18 +2539,20 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 }
 
 
+// The receipt's open button while it fetches: the kit Spinner at the sm
+// icon's 14px, the size of the folder it stands in for — InvoiceAttachment's
+// BusyGlyph (A4-KR-6, until the kit IconButton takes `loading`).
+function ReceiptBusyGlyph({ 'aria-hidden': hidden }) {
+  return <Spinner size="sm" aria-hidden={hidden} />
+}
+
 // ─── Expense create / edit popup ───────────────────────────
 // The kit Dialog at the form width (560: the nearest token, and it holds
 // every field — the two cost fields are 190px each beside the variance).
 // Every field, its order and its save are as they were; the relation
 // pickers are restyled in place. Q17: Escape closes it now, and focus stays
 // inside it; its backdrop still closes it, as it always did. Portalled into
-// <body> (W9).// The receipt's open button while it fetches: the kit Spinner at the sm
-// icon's 14px, the size of the folder it stands in for — InvoiceAttachment's
-// BusyGlyph (A4-KR-6, until the kit IconButton takes `loading`).
-function ReceiptBusyGlyph({ 'aria-hidden': hidden }) {
-  return <Spinner size="sm" aria-hidden={hidden} />
-}
+// <body> (W9).
 function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency, onSave, onClose }) {
   const isEdit = !!expense
   const [title, setTitle]                 = useState(expense?.title || '')
@@ -2719,11 +2721,18 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
       // in a few seconds, so a large receipt gets the tab blocked. It returns
       // null when that happens, and not checking it is the same silent failure
       // again, one layer up.
-      const opened = window.open(url, '_blank', 'noopener')
+      // 🚨 Merge review C-R1-02: NO 'noopener' in the features string. The
+      // WHATWG window-open steps return null whenever noopener is set, so with
+      // it every SUCCESSFUL open took the "blocked" branch, threw, and revoked
+      // the blob before the tab could read it. The opener is severed by hand
+      // instead (`opened.opener = null`, the pre-noopener idiom), which keeps
+      // real pop-up-block detection and still gives the new tab no way back.
+      const opened = window.open(url, '_blank')
       if (!opened) {
         URL.revokeObjectURL(url)
         throw new Error('Your browser blocked the new tab. Allow pop-ups for this site to open receipts.')
       }
+      opened.opener = null
       // Give the new tab time to take the blob before revoking it.
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (err) {
