@@ -308,6 +308,59 @@ describe('the Help page names things as the app does, on every page it can show 
   })
 })
 
+// Post-overhaul S2a (Audrey's C6 and C7): a tool's settings open from the
+// gear at the right end of the tool's OWN strip, with Help beside it; the
+// WILSON nav strip holds App settings only. Help that sends a reader to the
+// nav strip, the hamburger or a timeline header for a tool's settings points
+// at a control that no longer opens them.
+const WRONG_WAY_TO_SETTINGS = /hamburger menu icon|settings entry on the WILSON nav strip|gear icon in the timeline header|Tool settings/i
+const THE_GEAR = "the gear at the right end of the tool's strip"
+function helpText(Content, items) {
+  const seen = []
+  for (const { id } of items) {
+    seen.push(render(<Content helpPage={id} />).container.textContent)
+    cleanup()
+  }
+  return seen.join('\n')
+}
+describe('help sends a reader to the gear in the tool\'s own strip (S2a, C6/C7)', () => {
+  it('no help, on either surface, names the nav strip, the hamburger or a timeline header as the way to a tool\'s settings', () => {
+    const bad = []
+    for (const [tool, items, Content] of SURFACES) {
+      const text = helpText(Content, items)
+      if (WRONG_WAY_TO_SETTINGS.test(text)) bad.push(`${tool}: ${text.match(WRONG_WAY_TO_SETTINGS)[0]}`)
+    }
+    const page = []
+    eachHelpPage((where, pane, container) => page.push(container.textContent))
+    const pageText = page.join('\n')
+    if (WRONG_WAY_TO_SETTINGS.test(pageText)) bad.push(`Help page: ${pageText.match(WRONG_WAY_TO_SETTINGS)[0]}`)
+    expect(bad).toEqual([])
+  })
+  it('the three passages that did now name the gear: O.T.T.E.R.\'s tip, R.A.B.B.I.T.\'s settings page, the Help page\'s navigation card', () => {
+    expect(helpText(OtterHelpContent, OTTER_HELP_SIDEBAR_ITEMS)).toContain(THE_GEAR)
+    expect(helpText(RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS)).toContain(THE_GEAR)
+    // The Help page's own "Navigation menu" card, read from THAT page's pane:
+    // the Help page also draws O.T.T.E.R.'s help, whose tip names the gear,
+    // so the whole traversal's text would pass without the card (review of
+    // this guard's first cut, a surviving mutant).
+    const nav = []
+    eachHelpPage((where, pane) => { if (/"Navigation"$/.test(where)) nav.push(pane.textContent) })
+    expect(nav, 'the traversal never reached the Navigation page').toHaveLength(1)
+    expect(nav[0]).toMatch(/Navigation menu/)
+    expect(nav[0]).toContain(THE_GEAR)
+    // D.O.G.'s already said it the interface's way.
+    expect(helpText(DogHelpContent, DOG_HELP_SIDEBAR_ITEMS)).toContain('The Settings panel (gear icon)')
+  })
+  it('CONTROL: the old sentences are caught', () => {
+    for (const was of [
+      'You can customize the generation prompts in the O.T.T.E.R. settings panel (hamburger menu icon).',
+      'Click the gear icon in the timeline header (or the settings entry on the WILSON nav strip) to open the slide-out.',
+      'Open Tool settings from the menu.',
+    ]) expect(was).toMatch(WRONG_WAY_TO_SETTINGS)
+    expect("Click the gear at the right end of the tool's strip").not.toMatch(WRONG_WAY_TO_SETTINGS)
+  })
+})
+
 describe('one measure for every Help section (P1-35), and no 2px edge in its nav (P1-78)', () => {
   const capOf = (el) => {
     for (let n = el; n; n = n.parentElement) if ((n.getAttribute?.('style') || '').includes('--measure-prose-max')) return n

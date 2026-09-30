@@ -146,22 +146,17 @@ function NodeTypeBadge({ type }) {
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
 // ═══════════════════════════════════════════════════════════════════
-export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0, onContextChange }) {
+export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // ── Navigation state ──
   const [currentView, setCurrentView] = useState('library');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts');
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [helpPage, setHelpPage] = useState('otter-overview');
-
-  // Open settings when triggered from WILSON nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setSettingsOpen(true);
-    }
-  }, [openSettingsTrigger]);
+  // Settings and Help open from the two buttons at the right end of the
+  // tool's strip. The WILSON nav strip's "Tool settings" item, and the
+  // counter it bumped to open the drawer from here, are gone (post-overhaul
+  // S2a, Audrey's C6).
 
   // ── Data state ──
   const [settings, setSettings] = useState(null);
@@ -5534,9 +5529,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         )}
       >
         {/* The two halves of the strip are the kit's Tabs, each still half
-            the strip wide (otter.css): the old buttons were `flex-1`. */}
+            the strip wide (otter.css): the old buttons were `flex-1`. The
+            second is "Storage & data" since post-overhaul S2a (Audrey's C6):
+            it holds the library's storage location and data management, and
+            "Tool settings" had become the name of the gear that opens this
+            drawer. */}
         <Tabs
-          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}
+          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Storage & data' }]}
           value={settingsTab}
           onChange={setSettingsTab}
           label="Settings sections"

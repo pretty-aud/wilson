@@ -161,7 +161,7 @@ const REGISTRY = [
   // S2a: Help is in the strip now, beside the gear (the drawer's footer
   // button opens the same dialog).
   P('otter-help', '/otter', { steps: ['Help & documentation'], expect: { dialog: 'Getting started' } }),
-  P('otter-clear', '/otter', { steps: ['O.T.T.E.R. settings', 'Tool settings', 'Editable', 'Clear all data'], expect: { dialog: 'ALL courses' } }),
+  P('otter-clear', '/otter', { steps: ['O.T.T.E.R. settings', 'Storage & data', 'Editable', 'Clear all data'], expect: { dialog: 'ALL courses' } }),   // S2a: the drawer's second tab renamed
   P('otter-delete', '/otter', { steps: ['Actions for DaVinci Resolve 19', 'Move to trash'], expect: { dialog: 'Recently deleted' } }),
   P('otter-delete-subject', '/otter', { steps: ['DaVinci Resolve 19', 'Delete subject'], expect: { dialog: 'permanently remove this subject' } }),
   P('otter-share', '/otter', { steps: ['Actions for DaVinci Resolve 19', 'Share or submit…'], expect: { dialog: 'Who can see this' } }),

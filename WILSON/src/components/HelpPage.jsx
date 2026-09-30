@@ -362,6 +362,7 @@ export default function HelpPage() {
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Hamburger menu</span> — Available on all non-home pages via the icon in the top-right</li>
                       <li><span className={L.listBold}>Quick access</span> to Home, other tools, and App settings from any page</li>
+                      <li><span className={L.listBold}>A tool's own settings</span> — the gear at the right end of the tool's strip, with Help beside it; the menu holds App settings only</li>
                       <li><span className={L.listBold}>Click outside</span> the nav strip to dismiss it</li>
                     </ul>
                   </div>

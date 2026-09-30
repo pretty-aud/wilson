@@ -65,7 +65,7 @@ function blobToDogContent(blob, type) {
   });
 }
 
-export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
+export default function DeckOutlineGenerator({ onNavigate, zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -123,16 +123,10 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   // Settings Menu State
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts'); // 'prompts' or 'format'
-  // showNavMenu and onToggleNavMenu are now received as props from App.jsx
-
-  // Open settings panel when triggered from container nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setShowSettingsMenu(true);
-    }
-  }, [openSettingsTrigger]);
+  // Opened by the gear at the right end of the "Deck outline" bar. The WILSON
+  // nav strip's "Tool settings" item and the counter it bumped are gone
+  // (post-overhaul S2a, Audrey's C6), and with them the two nav props nothing
+  // here ever read.
 
   // Project Integration State — projects come from the unified
   // RabbitProvider store (same source as the Projects page and

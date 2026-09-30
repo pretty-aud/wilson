@@ -146,7 +146,7 @@ export function OtterHelpContent({ helpPage, theme }) {
           <div className={T.notesBox}>
             <h4 className={T.notesTitle}>Tip</h4>
             <p className={T.listItem}>
-              You can customize the generation prompts in the O.T.T.E.R. settings panel (hamburger menu icon).
+              You can customize the generation prompts in the O.T.T.E.R. settings panel (the gear at the right end of the tool's strip).
               Edit the system prompt to get different styles of content generation.
             </p>
           </div>

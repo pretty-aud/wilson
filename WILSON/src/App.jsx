@@ -356,11 +356,6 @@ export default function App() {
   // could not stay a Tailwind class.
   const [navHovered, setNavHovered] = useState(null);
 
-  // Triggers to open tool settings panels from nav strip
-  const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
-  const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);
-  const [openRabbitSettingsTrigger, setOpenRabbitSettingsTrigger] = useState(0);
-
   // Pet visibility state — hides sprite during page transitions
   const [petVisible, setPetVisible] = useState(true);
 
@@ -2114,9 +2109,6 @@ export default function App() {
   // now, not a hand-kept list: Team Members is the first page on the Q1 dark
   // ground that is NOT a tool, and the two used to be the same condition.
   const page = getPage(currentPage) || getPage('home');
-  const isDog = currentPage === 'dog';
-  const isOtter = currentPage === 'otter';
-  const isRabbit = currentPage === 'rabbit';
   const isHome = currentPage === 'home';
   const isToolPage = page.chrome === 'tool';
   const isDarkPage = page.surface === 'dark';
@@ -2184,22 +2176,24 @@ export default function App() {
   });
 
   const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
-  const closeNavAndTrigger = (setter) => { setShowNavMenu(false); setNavResourcesOpen(false); setter(prev => prev + 1); };
 
   // ── The nav strip, from the registry (F2) ────────────────────────────────
   // Both columns' PAGES come from `src/layout/pages.js` — one list, in its own
   // order, filtered for the page you are on and for the admin-only surface
   // (filtered from the ARRAY, not hidden per button, so keyboard and mouse
-  // share one list — Session 9). The two items that are NOT pages are
-  // assembled around them here: the tool's own settings TRIGGER and the
-  // RESOURCES toggle.
+  // share one list — Session 9). The one item that is NOT a page is
+  // assembled beside them here: the RESOURCES toggle.
   //
   // Q7, ruled: the tool's item and the app's both read "SETTINGS", side by
-  // side in the same column. They are now "Tool settings" and "App settings".
-  // Copy only — every action is the one it was.
+  // side in the same column; they became "Tool settings" and "App settings".
+  // Post-overhaul S2a (Audrey's C6, 2026-09-29): the tool half left the
+  // strip for all three tools. Each tool's gear is at the right end of its
+  // OWN strip, Help beside it (C7) — the three counters that opened a
+  // tool's settings from here, their props and the tools' effects are gone
+  // with it. "App settings" stays: it is a page.
   //
-  // The strip is GROUPED: destinations above the hairline, the two settings
-  // and the resources toggle below. A separator is not a control (C1); it is
+  // The strip is GROUPED: destinations above the hairline, the resources
+  // toggle and App settings below. A separator is not a control (C1); it is
   // Proximity doing the work eleven equal-weight peers were asking the reader
   // to do (Hick's law — the strip is the app's whole navigation).
   const getNavStripItems = () => {
@@ -2209,15 +2203,7 @@ export default function App() {
       .filter(p => p.id !== 'settings')
       .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-    const toolSettingsTrigger =
-      isDog ? setOpenSettingsTrigger :
-      isOtter ? setOpenOtterSettingsTrigger :
-      isRabbit ? setOpenRabbitSettingsTrigger : null;
-
     const tail = [];
-    if (toolSettingsTrigger) {
-      tail.push({ label: 'Tool settings', action: () => closeNavAndTrigger(toolSettingsTrigger) });
-    }
     // RESOURCES trigger (toggles the sub-column; no direct navigation)
     tail.push({ label: 'Resources', isResourcesTrigger: true });
     if (appSettings) {
@@ -2270,9 +2256,6 @@ export default function App() {
       <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
         <DeckOutlineGenerator
           onNavigate={navigateTo}
-          showNavMenu={showNavMenu}
-          onToggleNavMenu={() => setShowNavMenu(prev => !prev)}
-          openSettingsTrigger={openSettingsTrigger}
           zoomLevel={zoomLevel}
         />
       </PageSurface>
@@ -2280,7 +2263,6 @@ export default function App() {
         <Otter
           onNavigate={navigateTo}
           currentPage={currentPage}
-          openSettingsTrigger={openOtterSettingsTrigger}
           onContextChange={setOtterContext}
         />
       </PageSurface>
@@ -2289,7 +2271,6 @@ export default function App() {
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
-          openSettingsTrigger={openRabbitSettingsTrigger}
         />
       </PageSurface>
       <PageSurface id="settings" currentPage={currentPage}>

@@ -129,14 +129,41 @@ describe('nav columns', () => {
     expect(PAGES.filter((p) => p.adminOnly).map((p) => p.id)).toEqual(['admin-terminal'])
   })
 
-  it('renames the two colliding SETTINGS items (Q7, ruled)', () => {
+  it('renames the two colliding SETTINGS items (Q7, ruled); the tool half has left the strip (S2a, C6)', () => {
     expect(PAGE_BY_ID.settings.navLabel).toBe('App settings')
     expect(PAGE_BY_ID.settings.title).toBe('App settings')
-    // The tool's own item is a trigger, not a page, so App.jsx builds it —
-    // but it must carry the other half of the rename.
-    expect(appSrc).toContain("label: 'Tool settings'")
     expect(appSrc).not.toContain("label: 'SYSTEM SETTINGS'")
     expect(appSrc).not.toContain("label: 'SETTINGS'")
+    // Post-overhaul S2a (Audrey's C6, 2026-09-29): "Tool settings" left the
+    // nav strip for all three tools. Each tool's gear is in its own bar (the
+    // block at the foot of this file); nothing in the shell builds the item
+    // or opens a tool's settings any more, and no tool listens for it.
+    expect(shellSettingsPlumbing(appSrc)).toEqual([])
+    for (const spec of TOOL_STRIPS) {
+      expect(shellSettingsPlumbing(readFileSync(resolve(here, spec.file), 'utf8'), { tool: true }), spec.tool).toEqual([])
+    }
+    // CONTROL: the shell keeps its own nav-strip state, which a TOOL may not
+    // take as a prop (D.O.G.'s two dead props).
+    expect(appSrc).toMatch(/const \[showNavMenu, setShowNavMenu\] = useState\(false\)/)
+  })
+  it('CONTROL: the plumbing reader finds the item, each counter, the setter path and a tool\'s effect, and skips a comment', () => {
+    const was = [
+      "      tail.push({ label: 'Tool settings', action: () => closeNavAndTrigger(toolSettingsTrigger) });",
+      '  const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);',
+      '          openSettingsTrigger={openRabbitSettingsTrigger}',
+      'export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, zoomLevel = 0 }) {',
+      '  const prevSettingsTrigger = useRef(openSettingsTrigger);',
+      '  // the old `openSettingsTrigger` counter and its "Tool settings" item',
+    ].join('\n')
+    expect(shellSettingsPlumbing(was, { tool: true })).toEqual([
+      "'Tool settings'", 'closeNavAndTrigger', 'toolSettingsTrigger',
+      'openOtterSettingsTrigger', 'setOpenOtterSettingsTrigger',
+      'openSettingsTrigger', 'openRabbitSettingsTrigger',
+      'showNavMenu', 'onToggleNavMenu',
+      'prevSettingsTrigger', 'openSettingsTrigger',
+    ])
+    // In the shell, `showNavMenu` is the strip's own open state, not plumbing.
+    expect(shellSettingsPlumbing('const [showNavMenu, setShowNavMenu] = useState(false);')).toEqual([])
   })
 
   // UI overhaul P1, review round two (R2-06): the rename reached the nav and
@@ -145,8 +172,10 @@ describe('nav columns', () => {
   // MANAGER". No string the app draws, or tells a companion, names a page or
   // tab by its retired name. Comments may keep the history; the dev fixtures
   // are exempt because their course quotes DaVinci Resolve's own "Project
-  // Manager" menu.
-  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab/
+  // Manager" menu. Post-overhaul S2a: "Tool settings" is retired too — the
+  // nav item left the strip (C6) and O.T.T.E.R.'s drawer tab of that name is
+  // "Storage & data" — so no string can send anyone looking for it.
+  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab|Tool [Ss]ettings|TOOL SETTINGS/
   const retiredIn = (src) => blankJsComments(src).split('\n').filter((line) => RETIRED.test(line))
   it('no string the app draws or tells a companion names a retired page or tab (Q7)', () => {
     const files = sourceFiles().filter((f) => !f.startsWith('src/dev/'))
@@ -161,11 +190,14 @@ describe('nav columns', () => {
       "const b = 'Open System settings → RABBIT'",
       'context += `- PROJECT MANAGER: documents`',
       '<p>Change it in System Settings.</p>',
+      "items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}",
+      '// the old Tool settings tab',
     ].join('\n')
     expect(retiredIn(planted)).toEqual([
       "const b = 'Open System settings → RABBIT'",
       'context += `- PROJECT MANAGER: documents`',
       '<p>Change it in System Settings.</p>',
+      "items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}",
     ])
   })
 })
@@ -327,8 +359,17 @@ const TOOL_STRIPS = [
   { tool: 'O.T.T.E.R.', file: '../tools/otter_v0.3.1/Otter.jsx', container: { className: 'otter-nav-right' }, settings: 'O.T.T.E.R. settings', opens: 'setSettingsOpen' },
   { tool: 'R.A.B.B.I.T.', file: '../tools/rabbit_v0.1.0/Rabbit.jsx', container: { slotOf: 'ViewTabs', prop: 'rightSlot' }, settings: 'R.A.B.B.I.T. settings', opens: 'setSettingsOpen' },
 ]
+// Everything that built the tool half of the nav strip or carried it into a
+// tool (S2a, C6), read from code with its comments blanked — history may stay
+// in a comment. `tool` adds the nav-menu state as a PROP: D.O.G. took it and
+// its toggle and read neither; the shell still owns it as its own state.
+const PLUMBING = /'Tool settings'|"Tool settings"|\bcloseNavAndTrigger\b|\btoolSettingsTrigger\b|\b(?:set)?[oO]pen(?:Otter|Rabbit)?SettingsTrigger\b|\bprevSettingsTrigger\b|\bonToggleNavMenu\b/
+function shellSettingsPlumbing(src, { tool = false } = {}) {
+  const re = new RegExp(PLUMBING.source + (tool ? '|\\bshowNavMenu\\b' : ''), 'g')
+  return blankJsComments(src).match(re) || []
+}
 const traverse = traverseModule.default || traverseModule
-const attrOf = (el, name) => el.openingElement.attributes.find((a) => a.type === 'JSXAttribute' && a.name.name === name)
+const attrOf =(el, name) => el.openingElement.attributes.find((a) => a.type === 'JSXAttribute' && a.name.name === name)
 const stringAttr = (el, name) => {
   const a = attrOf(el, name)
   if (!a?.value) return null

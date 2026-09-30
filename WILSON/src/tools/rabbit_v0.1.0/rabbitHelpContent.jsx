@@ -363,8 +363,8 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Slide-out panel</h4>
             <p className={T.listItem}>
-              Click the gear icon in the timeline header (or the settings
-              entry on the WILSON nav strip) to open the slide-out. It has
+              Click the gear at the right end of the tool's strip (Help sits
+              beside it) to open the slide-out, from any tab. It has
               two tabs: <span className={T.listBold}>Settings</span> for
               persistent toggles and <span className={T.listBold}>System prompts</span>
               {' '}for editing the LLM prompts that drive the scheduler /
