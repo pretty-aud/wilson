@@ -50,6 +50,14 @@ export function Dialog({
   // does, because Bins had it), so the ~60 overlays that adopt Dialog later
   // do not lose a form to a stray click (review round 2).
   dismissOnBackdrop = false,
+  // `role="alertdialog"` — WAI-ARIA's role for an urgent interruption that
+  // needs an answer (the idle "Still there?" five minutes before a sign-out).
+  // A prop rather than a caller's `role=` because `role` is written AFTER
+  // the spread below on purpose (a stray `role` must not clobber it), so
+  // this is the only way through. Nothing else changes: same stack, same
+  // Escape, same focus trap and return (Track B merge, review round 1,
+  // B-R1-06).
+  alert = false,
   className = '',
   ...rest
 }) {
@@ -233,7 +241,7 @@ export function Dialog({
       <div
         {...rest}
         ref={surfaceRef}
-        role="dialog"
+        role={alert ? 'alertdialog' : 'dialog'}
         aria-modal="true"
         /* The fallback focus target when the dialog holds nothing focusable
            (a message with no footer). Not a tab stop. */

@@ -99,9 +99,13 @@ on the R.A.B.B.I.T. per-id routes (fixed the same day with `dataFilePath`):
 `electron/main.cjs` joins `req.params.slug` / `req.params.sub` onto
 `getSoftwareDir()` in the O.T.T.E.R. software routes (the review named lines
 486, 492, 574–595, 600, 618–620, 642, 659, 695–700, 721–726, 762–768, 803–808
-and 883–899 at `1ab8593`), and Express 5 decodes `..%2F` to `../`, so an
-unauthenticated local page can read, write or unlink outside
-`userData/otter-data` — up to and including an open demo folder. Fix shape:
+and 883–899 at `1ab8593`), and Express 5 decodes `..%2F` to `../`, so a
+caller of these routes can read, write or unlink outside
+`userData/otter-data` — up to and including an open demo folder. Since B3
+(Track B, 2026-09-07) that caller is the app's own renderer (any script on
+its origin: the launch cookie rides every same-origin request) or a holder
+of the per-launch token — an unauthenticated local page now gets a bare 401
+from every `/api` route — which narrows the reach, not the defect. Fix shape:
 the same `dataFileOrThrow` the R.A.B.B.I.T. routes use, one line per helper.
 Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
 Q2); settle it by copying the routes into a scratch express app the way the

@@ -17,6 +17,10 @@ import { dirname, join, resolve } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const src = readFileSync(resolve(here, 'LoginScreen.jsx'), 'utf8')
 
+// A shouted sentence literal: three or more capitalised words, punctuation
+// allowed inside, a full stop before the closing quote.
+const SHOUTED = /'(?:[A-Z][A-Z.,-]* ){2,}[A-Z][A-Z.,-]*\.'/g
+
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
@@ -62,6 +66,29 @@ describe('the dev auto sign-in is gated on import.meta.env.DEV', () => {
     const codeReads = app.split('\n').filter((l) => l.includes('import.meta.env.VITE_DEV_AUTOLOGIN'))
     expect(codeReads.length).toBe(1)
     expect(codeReads[0]).toMatch(/import\.meta\.env\.DEV && import\.meta\.env\.VITE_DEV_AUTOLOGIN === 'tester'/)
+  })
+
+  it("the dev effect's shouted literal is the only all-caps sentence in the file's code (AUTH-11; B-R1-01)", () => {
+    // AUTH-11 sentence-cased every message on this screen and kept ONE
+    // shouted string by decision — 'COMPANY NOT FOUND.' inside the effect
+    // above, dev builds only. The Track B merge brought a second one back
+    // (B2's timeout branch) and no guard noticed; this is the guard. A
+    // sentence literal is quoted, three or more capitalised words, a full
+    // stop before the closing quote. Comment lines are dropped first (the
+    // header's own note quotes the literal).
+    const code = src.split('\n').filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join('\n')
+    const shouted = code.match(SHOUTED) || []
+    expect(shouted).toEqual(["'COMPANY NOT FOUND.'"])
+  })
+
+  it('the control: the shouted-sentence pattern catches the literal the merge carried over', () => {
+    const carried = "setError(err?.name === 'TimeoutError' ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.' : GENERIC_ERROR)"
+    expect(carried.match(SHOUTED)).toEqual(["'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'"])
+    // Sentence case, a two-word caps label, and a caps constant name are not
+    // matches: the pattern is for shouted SENTENCES only.
+    expect("setError('The server did not respond.')".match(SHOUTED)).toBeNull()
+    expect("label='NEW PASSWORD'".match(SHOUTED)).toBeNull()
+    expect("const GENERIC_ERROR = x".match(SHOUTED)).toBeNull()
   })
 
   it('the control: the checker would catch an unguarded read', () => {

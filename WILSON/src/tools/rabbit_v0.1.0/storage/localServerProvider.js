@@ -170,8 +170,11 @@ export function createLocalServerStorageProvider({ available = hasLocalServer, f
     },
 
     // A URL a <video> can Range-request and an <a download> can save from.
-    // No expiry: the local server answers whoever can reach 127.0.0.1 on this
-    // machine, which is the trust a file on this disk already has.
+    // No expiry, and no token in the URL: it is same-origin, so the request
+    // carries the httpOnly launch cookie B3 sets before the window loads
+    // (electron/localToken.cjs) — the local server answers WILSON's own
+    // renderer or a holder of the per-launch token, not "whoever can reach
+    // 127.0.0.1 on this machine" (the pre-B3 stance this line used to state).
     async getUrl(key, _expiresIn, opts = {}) {
       here()
       return localMediaUrl(key, { download: opts.download })

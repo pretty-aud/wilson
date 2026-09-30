@@ -8,6 +8,16 @@
 //   toast.push({ tone: 'success', title: 'Saved', body: '12 files', duration: 4000, action })
 //   toast.dismiss(id)
 //
+// `name` on push is the surface's ACCESSIBLE NAME (`aria-label`), and it is
+// not visible text. `role="alert"` and `role="status"` take their name from
+// the author only — never from content — so a pushed toast has none unless
+// the caller gives it one. Pass it when something must address the toast BY
+// NAME: an assistive technology's list of alerts, or a spec's
+// `getByRole('alert', { name })` (sessions.spec.ts finds the session-cap
+// notice this way). The presentational `Toast` already took `aria-label`
+// through its rest props; this is the same thing for the stack (Track B
+// merge, review round 1, B-R1-03).
+//
 // The stack sits bottom centre, 24px above the page's BOTTOM BAR, newest at
 // the bottom. A toast auto-dismisses after `duration` (default 5s; 0 =
 // sticky); hovering it pauses the timer (RabbitProvider's UndoToast idiom,
@@ -117,6 +127,7 @@ function TimedToast({ item, onDismiss }) {
       onMouseEnter={pause}
       onMouseLeave={start}
       data-toast-id={item.id}
+      aria-label={item.name}
     />
   )
 }
@@ -127,9 +138,9 @@ export function ToastProvider({ children, bar, pinned = null }) {
   }
   const [items, setItems] = useState([])
   const dismiss = useCallback((id) => setItems((list) => list.filter((t) => t.id !== id)), [])
-  const push = useCallback(({ tone = 'info', title, body, duration = 5000, action } = {}) => {
+  const push = useCallback(({ tone = 'info', title, body, duration = 5000, action, name } = {}) => {
     const id = nextId++
-    setItems((list) => [...list, { id, tone, title, body, duration, action }])
+    setItems((list) => [...list, { id, tone, title, body, duration, action, name }])
     return id
   }, [])
   const api = useMemo(() => ({ push, dismiss }), [push, dismiss])

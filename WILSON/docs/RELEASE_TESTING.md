@@ -249,37 +249,42 @@ automated coverage of this path (§6 #68).
 
 ## §B. Sign-in and identity
 
-- A company that does not exist → expect `COMPANY NOT FOUND.` and **no username field**.
+> Wording below is quoted as the merged UI renders it — sentence case since the overhaul's
+> AUTH-11; the words themselves are unchanged. Walkthroughs 10 and 11 still show the
+> pre-overhaul SHOUTED case for the same strings: read them for the steps, this file for
+> the exact text.
+
+- A company that does not exist → expect `Company not found.` and **no username field**.
   `[BLOCKING]`
 - A company that exists but is **suspended** (suspend one from the operator console) →
-  expect **the identical `COMPANY NOT FOUND.`** — step 1 reveals existence only, never
+  expect **the identical `Company not found.`** — step 1 reveals existence only, never
   status. `[BLOCKING]`
 - Correct username + wrong password → expect
-  `SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.` `[BLOCKING]`
+  `Sign-in failed. Check company, username and password.` `[BLOCKING]`
 - A username that does not exist → expect **the identical error at a similar speed**.
   Different wording or a visibly faster failure is a username-enumeration leak. `[BLOCKING]`
   (pinned by `tests/e2e/auth.spec.ts` scenario 4 since B1)
 - The same username in **two** companies → sign in as each by naming the company first;
   each lands in its own company. `[BLOCKING]`
 - Twenty-one company checks inside one minute from one machine → expect
-  `TOO MANY ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.` on the 21st; a minute later it works
+  `Too many attempts. Wait a minute and try again.` on the 21st; a minute later it works
   again. `[NOTE]`
 - Sign in as the MFA-enrolled admin → expect a **6-digit code challenge**; a wrong code →
   refusal and retry, never a half-signed-in state. `[BLOCKING]`
 - Admin Terminal → Logs → **Sign-ins** → expect your own **Signed in** row (`Where` = `app`,
   with an address) and, with the two Auth hooks enabled (OWED §14), the server's
   **Sign-in failed** row for the wrong password you typed above. `[BLOCKING]` (B2; walkthrough 11)
-- Leave a signed-in tab alone → **STILL THERE?** at 25 minutes, the login screen at 30 with
-  `SIGNED OUT AFTER 30 MINUTES WITHOUT ACTIVITY.`; sign back in and Sign-ins shows
+- Leave a signed-in tab alone → **Still there?** at 25 minutes, the login screen at 30 with
+  `Signed out after 30 minutes without activity.`; sign back in and Sign-ins shows
   **Signed out (idle)**. `[BLOCKING]`
 - Drop the modem (not Wi-Fi) mid-use and open a page that reads → **Connection lost — reload to
-  continue.** within about 20 s; **RELOAD** recovers. A long upload never shows it. `[NOTE]`
+  continue.** within about 20 s; **Reload** recovers. A long upload never shows it. `[NOTE]`
 - Add your admin to a second workspace → expect the **workspace picker** (arrows, Enter), and
   `SYSTEM SETTINGS` → `GENERAL` → workspace switcher to change roster, projects and rate card
   together. `[BLOCKING]`
 - `Forgot password?` on a real-email account **on staging/beta** → expect the email, the reset
   screen, and the new password to work. `[BLOCKING]` (on dev `[NOTE]` — auth URLs unset)
-- On that reset screen → expect `YOU WILL BE SIGNED OUT ON EVERY DEVICE.` under the button
+- On that reset screen → expect `You will be signed out on every device.` under the button
   before you submit, and after it "Password updated. You have been signed out on every
   device". Have the operator console open in another tab first: it must be signed out too
   (B1, Audrey's answer 12 — a reset revokes every session on purpose). `[BLOCKING]`

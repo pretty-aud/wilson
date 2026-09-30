@@ -132,6 +132,18 @@ describe('Dialog', () => {
     expect(screen.getByRole('dialog', { name: 'Titled' })).toBeTruthy()
   })
 
+  it('`alert` renders role="alertdialog"; the default stays "dialog"; a caller\'s `role` still cannot clobber either (B-R1-06)', () => {
+    render(<Dialog alert title="Still there?" onClose={() => {}} role="region">x</Dialog>)
+    const d = screen.getByRole('alertdialog', { name: 'Still there?' })
+    expect(d.className).toContain('ui-dialog')
+    expect(d.getAttribute('aria-modal')).toBe('true')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    cleanup()
+    render(<Dialog title="Plain" onClose={() => {}}>x</Dialog>)
+    expect(screen.getByRole('dialog', { name: 'Plain' })).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
   it("a node title with no aria-label names nothing (not \"[object Object]\"); no title keeps the caller's name (A4 review round 1)", () => {
     // Two wrong fixes of A4-KR-1 the first test let through: stringifying the
     // node, and dropping the caller's label when there is no title at all.

@@ -244,8 +244,12 @@ function resolveConfiguredRootDir() {
 
 // Session 35 (TPN-NET-015): the ONE decision about whether a candidate
 // projects.folder_root may be stored. folder_root arrives in the request body
-// of an UNAUTHENTICATED local API that answers any local origin (cors()), and
-// everything under it is then treated as project content — built by
+// of the local API (UNAUTHENTICATED when this was written; since B3, Track B,
+// every /api route demands the per-launch token and cors() answers the
+// renderer's own origin only — which narrows the caller to the app's own
+// renderer or a token holder and changes nothing below: a body-picked path
+// is never enough, whoever sends it), and everything under it is then
+// treated as project content — built by
 // ensureProjectFolders, written by uploads, read and unlinked by relink. The
 // S14 rule ("a body-picked baseDir would let a drive-by request point a
 // project's files at the user's Documents") applies verbatim; this route
@@ -3274,8 +3278,10 @@ function startLocalServer(distPath) {
       // http://127.0.0.1:<port> by THIS Express app — so bytes returned as
       // text/html from this route would run as script on WILSON's own origin,
       // with access to that origin's localStorage (the Supabase session) and to
-      // all 94 unauthenticated routes. Echoing a client-settable type was the
-      // whole of it. Found by the pre-push adversarial review.
+      // all 94 routes — B3's launch token is no defence here, because the
+      // httpOnly cookie rides every same-origin request, script's included.
+      // Echoing a client-settable type was the whole of it. Found by the
+      // pre-push adversarial review.
       //
       // An allowlist rather than a denylist: anything that is not obviously
       // media is served as an opaque download, which a <video> ignores and a
@@ -3374,8 +3380,10 @@ function startLocalServer(distPath) {
     // ffmpeg still owns ProRes/DNxHD/MXF, and it is preferred when present
     // because input seeking on local disk beats streaming over HTTP.
     //
-    // 🚨 THIS WRITES TO DISK FROM AN UNAUTHENTICATED LOOPBACK SERVER, so it is
-    // narrowed in four ways rather than trusted: the row must exist and be a
+    // 🚨 THIS WRITES TO DISK FROM THE LOOPBACK SERVER — locked by B3's launch
+    // token since Track B, but a token holder is any script on the renderer's
+    // origin (the cookie rides same-origin), so the caller is still not
+    // trusted and the route is narrowed in four ways: the row must exist and be a
     // video, the destination is contained under the cache dir by mf.id (which
     // is client-chosen on create — #45 family), the body is capped, and the
     // bytes must actually START WITH A JPEG MAGIC NUMBER. Without that last

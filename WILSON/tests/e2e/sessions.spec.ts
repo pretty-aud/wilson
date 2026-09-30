@@ -90,8 +90,9 @@ test('an idle session is warned, then signed out, and the login screen says why'
   await signIn(page)
   await expectHome(page)
   // Hands off from here: no mouse, no keys.
-  // The kit's one Dialog (UI overhaul): role="dialog", named by its title.
-  const dialog = page.getByRole('dialog', { name: /still there/i })
+  // The kit's one Dialog as an alertdialog (UI overhaul; the merge's review
+  // round 1, B-R1-06, restored the track's role): named by its title.
+  const dialog = page.getByRole('alertdialog', { name: /still there/i })
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   await expect(dialog).toContainText(/signed out in \d+:\d\d for inactivity/i)
   await expect(dialog.getByRole('button', { name: /stay signed in/i })).toBeVisible()
@@ -106,8 +107,9 @@ test('activity clears the idle warning', async ({ page }) => {
   await shrinkTimeouts(page, { idleWarnMs: 3_000, idleSignOutMs: 30_000, tickMs: 500 })
   await signIn(page)
   await expectHome(page)
-  // The kit's one Dialog (UI overhaul): role="dialog", named by its title.
-  const dialog = page.getByRole('dialog', { name: /still there/i })
+  // The kit's one Dialog as an alertdialog (UI overhaul; the merge's review
+  // round 1, B-R1-06, restored the track's role): named by its title.
+  const dialog = page.getByRole('alertdialog', { name: /still there/i })
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   await expect(dialog.getByRole('button', { name: /stay signed in/i })).toBeFocused()
   // A keyboard user: Enter on the focused button. (A mouse `click()` would
@@ -134,8 +136,10 @@ test('the absolute cap ends a busy session with a warning first and says why', a
     const id = setInterval(() => window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })), 300)
     ;(window as unknown as { __b2mover?: number }).__b2mover = id as unknown as number
   })
-  // Non-modal by design (R2): the kit's Toast in the corner, role="alert",
-  // named by its aria-label — not a dialog, so it never traps focus.
+  // Non-modal by design (R2): the kit's Toast on the app's ONE stack, 24px
+  // above the page's bottom bar (B-R1-03), role="alert", named by the
+  // accessible name the push gives it — not a dialog, so it never traps
+  // focus.
   const dialog = page.getByRole('alert', { name: /session ending/i })
   await expect(dialog).toBeVisible({ timeout: 12_000 })
   await expect(dialog).toContainText(/sessions end after 4 hours/i)

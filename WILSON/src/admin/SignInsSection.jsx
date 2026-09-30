@@ -195,13 +195,13 @@ export default function SignInsSection({ isActive, selfUserId = null, selfEmail 
                       <span className="inline-block rounded-full flex-shrink-0" style={{ width: 7, height: 7, backgroundColor: TONE_DOT[tone] }} />
                       <span className="text-label font-semibold uppercase" style={{ color: TONE_INK[tone] }}>{label}</span>
                     </span>
-                    <div className="text-caption"style={{ color: '#78716c' }}>{sourceLabel(r)}</div>
+                    <div className="text-caption" style={{ color: '#78716c' }}>{sourceLabel(r)}</div>
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="text-dense font-mono" style={{ color: '#1c1917' }}>
                       {isSelf ? (selfEmail || 'you') : String(r.user_id ?? '').slice(0, 8)}
                     </div>
-                    <div className="text-caption"style={{ color: '#78716c' }}>{isSelf ? 'you' : 'operator'}</div>
+                    <div className="text-caption" style={{ color: '#78716c' }}>{isSelf ? 'you' : 'operator'}</div>
                   </td>
                   <td className="px-3 py-2 align-top">
                     <span className="text-dense font-mono" style={{ color: '#57534e' }}>

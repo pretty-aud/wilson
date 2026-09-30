@@ -32,9 +32,15 @@
 // of it. Refusals in depth (the S34 rule): nothing outside the root is ever
 // read, written or unlinked, whatever a row says.
 //
-// 🚨 LOOPBACK ONLY, UNAUTHENTICATED — the Local Server stance since S12: the
-// in-app Express server binds 127.0.0.1 and serves whoever can reach it on
-// this machine. That is the same trust a file on this disk already has.
+// 🚨 LOOPBACK ONLY, AND LOCKED SINCE B3 (Track B, 2026-09-07). The S12
+// stance was "unauthenticated: the in-app Express server binds 127.0.0.1 and
+// serves whoever can reach it on this machine — the same trust a file on
+// this disk already has". B3 narrows that: applyLocalServerLock runs ahead
+// of every route in main.cjs, and every /api route — these included — is a
+// bare 401 without the per-launch token, as the x-wilson-local-token header
+// or the httpOnly launch cookie (electron/localToken.cjs). The callers that
+// remain are WILSON's own renderer (the cookie rides every same-origin
+// request, <img> and <video> included) and a holder of the launch token.
 //
 // Mounted from main.cjs with ONE line, after the /api/rabbit missing-folder
 // guard (a missing demo folder refuses these too) and BEFORE the SPA

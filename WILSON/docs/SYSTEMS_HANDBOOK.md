@@ -2540,7 +2540,10 @@ writes (`projects/<id>/<entity>/<entity id>/<leaf>`, plain segments, no
 dot-segments, separators, drive letters or device names), the disk path goes
 through `resolveContainedFilePath`, and the nearest existing ancestor is
 re-checked by REAL path so a junction inside the root cannot lead out
-(`localMedia.test.js`). Loopback, unauthenticated — the Local Server stance.
+(`localMedia.test.js`). Loopback, and locked like every other `/api` route
+since B3 — the per-launch token header or the httpOnly launch cookie, or a
+bare 401 (see "The local server's security model" above); the pre-B3
+"unauthenticated" stance no longer describes it.
 
 **Stated limits.** A local body is not purged when its row is hard-deleted
 or GC'd — the desktop is out of the cloud sweep's reach (`OUTSTANDING.md`);

@@ -36,11 +36,12 @@
 // never the app's key, so the two surfaces cannot keep each other alive.
 // =============================================================================
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Building2, ScrollText, LogOut, Cpu, KeyRound } from 'lucide-react'
 import { supabase, hydrateSupabase } from '../cloud/auth/supabaseClient'
 import { loadSession, clearSession } from '../cloud/auth/sessionStorage'
-import { recordAuthEvent } from '../cloud/auth/authEvents'
+import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from '../cloud/auth/authEvents'
+import { withTimeout } from '../cloud/auth/withTimeout'
 import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from '../cloud/auth/sessionTimeouts'
 import SessionWarning, { describeSessionExpiry } from '../cloud/auth/SessionWarning'
 import ConnectionLostBanner from '../cloud/ConnectionLostBanner'
@@ -71,6 +72,9 @@ export default function OperatorApp() {
   // B2 part 2: why the operator is back at the login screen, if a timeout
   // put them there. Cleared by the next sign-in.
   const [notice, setNotice] = useState('')
+  // B-R1-10: the one sign-out in flight, released by the next sign-in. See
+  // handleSignOut.
+  const signingOutRef = useRef(null)
 
   // Confirm operator status against the table, not the JWT claim. The claim
   // is stamped at token mint and can be up to a full TTL stale; the row is
@@ -112,6 +116,9 @@ export default function OperatorApp() {
   }, [checkOperator])
 
   const handleSignedIn = useCallback(async (next) => {
+    // A new sign-in is a new person (or the same one, back): the previous
+    // sign-out's flight is over, so the guard in handleSignOut lets go.
+    signingOutRef.current = null
     const ok = await checkOperator(next?.user?.id)
     setSession(next)
     setIsOperator(ok)
@@ -134,15 +141,38 @@ export default function OperatorApp() {
   // timeouts). No WIL-1002 here on purpose: reportAppEvent writes to the
   // caller's COMPANY log, and an operator's console session is not company
   // business — auth_events (operator-readable) is the record on this surface.
+  //
+  // Track B merge, review round 1 (B-R1-10): the hardening App.jsx's
+  // signOutLocal got in the track's own R2 and this surface never did, though
+  // e5dd486's message says both paths were reordered. Single flight (an idle
+  // expiry and a click on Sign out in the same second must not run two
+  // revokes); clearSession() FIRST, before any network call, because
+  // supabase.auth.signOut() awaits getSession() internally and can hang for
+  // ever on the silent-network failure the banner exists for — which left the
+  // operator's session on disk and the console signed in, on the most
+  // privileged surface there is; then the auth_events row; then the revoke
+  // under the same 4 s ceiling as the row, so a hung revoke cannot strand the
+  // operator on a signed-in screen either. The in-memory JWT still serves the
+  // log write after the blob is gone (App.jsx says the same).
   const handleSignOut = useCallback(async (opts) => {
-    const event = opts && (typeof opts.event === 'string' || opts.event === null) ? opts.event : 'sign_out'
-    const expiry = EXPIRE_REASONS.includes(event) ? event : null
-    if (event) await recordAuthEvent(event)
-    setNotice(expiry ? describeSessionExpiry(expiry) : '')
-    try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* best effort */ }
-    await clearSession()
-    setSession(null)
-    setIsOperator(false)
+    if (signingOutRef.current) return signingOutRef.current
+    const run = (async () => {
+      const event = opts && (typeof opts.event === 'string' || opts.event === null) ? opts.event : 'sign_out'
+      const expiry = EXPIRE_REASONS.includes(event) ? event : null
+      setNotice(expiry ? describeSessionExpiry(expiry) : '')
+      await clearSession()
+      if (event) await recordAuthEvent(event)
+      try {
+        await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out')
+      } catch { /* a hung revoke must not strand the operator on a signed-in console */ }
+      setSession(null)
+      setIsOperator(false)
+    })()
+    signingOutRef.current = run
+    // Released by the next sign-in (handleSignedIn), not here: everything
+    // after this point is signed out, and a second call in that state should
+    // be the no-op the guard makes it.
+    return run
   }, [])
 
   // B2 part 2: idle warning at 25 minutes, sign-out at 30, the 4-hour cap.
@@ -158,10 +188,14 @@ export default function OperatorApp() {
     <>
       <ConnectionLostBanner />
       {session && (
+        // `placement="corner"`: this surface has no ToastProvider and no
+        // bottom bar, so the cap notice keeps the corner card here — the one
+        // place the flat 24px off the window is the right anchor (B-R1-03).
         <SessionWarning
           phase={sessionTimeouts.phase}
           deadline={sessionTimeouts.deadline}
           onStay={sessionTimeouts.stay}
+          placement="corner"
         />
       )}
     </>

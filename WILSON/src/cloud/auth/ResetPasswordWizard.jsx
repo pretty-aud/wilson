@@ -41,7 +41,6 @@ import AuthShell, {
   AUTH_BUTTON_STYLE,
   AUTH_BUTTON_BUSY_STYLE,
   AUTH_PROSE_STYLE,
-  AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
   AUTH_GAP_BETWEEN_BLOCKS,
@@ -328,9 +327,12 @@ export default function ResetPasswordWizard({ onDone }) {
             {/* B1 (answer 12): the reset revokes every session, and the
                 person should know that BEFORE they press the button — the
                 operator console tab they may have open goes too. Sentence
-                case (AUTH-11: every message on this surface is), in the hint
-                role the login screen's session notice also takes. */}
-            <div style={{ ...AUTH_HINT_STYLE, maxWidth: '38ch', textAlign: 'center' }}>
+                case (AUTH-11: every message on this surface is), and the
+                PROSE role: it is a sentence, and the hint role is for
+                label-like fragments (AUTH-05 / AUTH-12), left-aligned in its
+                own measure rather than centred (AUTH-10) — the same reason
+                "Verifying link…" above moved. Merge review round 1, B-R1-05. */}
+            <div style={AUTH_PROSE_STYLE}>
               You will be signed out on every device.
             </div>
           </form>

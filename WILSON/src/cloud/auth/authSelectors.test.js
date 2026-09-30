@@ -180,8 +180,12 @@ const RENDER_TABLES = {
   // The Sign-ins tab's "Where" words and its legend, shared with the operator
   // console's mirror. sessions.spec.ts selects the `'app'` cell and the legend.
   'src/cloud/auth/authEventLabels.js': ['SOURCE_LABELS', 'ADDRESS_LEGEND'],
-  // The two post-sign-out notices the login screens show through `notice`.
-  'src/cloud/auth/SessionWarning.jsx': ['EXPIRY_NOTICES'],
+  // The two post-sign-out notices the login screens show through `notice`,
+  // and the cap notice's title-and-name constant (merge review round 1,
+  // B-R1-03): the stack toast takes CAP_TITLE as `title` and `name`, the
+  // console's corner card as `title` and `aria-label`, so the one string is
+  // the whole provenance of `/session ending/i`.
+  'src/cloud/auth/SessionWarning.jsx': ['EXPIRY_NOTICES', 'CAP_TITLE'],
 }
 
 function eachNode(node, visit, parent = null) {
@@ -569,9 +573,10 @@ const SELECTOR_HOME = {
     kind: 'text',
     sites: ['table[ADDRESS_LEGEND]:Addresses are recorded on the app’s own rows only; checks made by the sign-in server carry none.'],
   },
-  // The idle notice is the kit Dialog: its string `title` is the heading AND
-  // the accessible name (Dialog.jsx sets aria-label from it), which is what
-  // getByRole('dialog', { name }) resolves against.
+  // The idle notice is the kit Dialog as an alertdialog (B-R1-06): its string
+  // `title` is the heading AND the accessible name (Dialog.jsx sets
+  // aria-label from it), which is what getByRole('alertdialog', { name })
+  // resolves against.
   '/still there/i': {
     file: 'src/cloud/auth/SessionWarning.jsx',
     kind: 'name',
@@ -588,12 +593,18 @@ const SELECTOR_HOME = {
       'jsxText:for inactivity. Move the mouse or press a key to stay signed in.',
     ],
   },
-  // The cap notice is the kit Toast (non-modal, R2): its `title` is the
-  // visible word and its `aria-label` the accessible name for getByRole('alert').
+  // The cap notice is the kit Toast (non-modal, R2). Since the merge's review
+  // round 1 (B-R1-03) it rides the app's toast stack: `toast.push({ title:
+  // CAP_TITLE, name: CAP_TITLE })`, where `name` is the stack's accessible
+  // name (aria-label) for getByRole('alert'). The console's corner card
+  // takes the same constant as `title` and `aria-label`. Both are
+  // expressions, which the harvest cannot see; the constant is the one-row
+  // table it can, so this pin is the string itself — and the two words the
+  // person sees and the spec asks for cannot drift apart.
   '/session ending/i': {
     file: 'src/cloud/auth/SessionWarning.jsx',
     kind: 'name',
-    sites: ['attr[title]:Session ending', 'aria[aria-label]:Session ending'],
+    sites: ['table[CAP_TITLE]:Session ending'],
   },
   // The two post-sign-out lines, from the EXPIRY_NOTICES table the login
   // screens render as `notice`.
@@ -1343,9 +1354,11 @@ describe('the extractors see every selector shape the suite uses', () => {
     expect(ROLE_SELECTORS.length).toBeGreaterThanOrEqual(5)
     // R1 #1: the first draft understood 'button' only. Every role the suite
     // uses must be present, or the extractor has silently narrowed. Track B's
-    // sessions.spec.ts added four: the kit Dialog ('dialog'), the kit Toast
-    // ('alert'), the kit Tabs ('tab') and the Sign-ins table's named 'cell'.
-    expect([...new Set(ROLE_SELECTORS.map((s) => s.role))].sort()).toEqual(['alert', 'button', 'cell', 'dialog', 'heading', 'tab'])
+    // sessions.spec.ts added four: the idle Dialog ('alertdialog' — the
+    // track's role, restored by the merge's review round 1, B-R1-06), the kit
+    // Toast ('alert'), the kit Tabs ('tab') and the Sign-ins table's named
+    // 'cell'.
+    expect([...new Set(ROLE_SELECTORS.map((s) => s.role))].sort()).toEqual(['alert', 'alertdialog', 'button', 'cell', 'heading', 'tab'])
   })
 
   it('the control: getByText honours { exact: true } the way getByRole does', () => {
@@ -1521,24 +1534,61 @@ describe('known Playwright strict-mode ambiguities ((a)-(c) pre-existing, (d) fr
     // and Track B's 4, 5 and 6 (B1: wrong password, unknown company, the
     // remembered company). Those three DO select Company / Username /
     // Password — on LoginScreen, BEFORE any sign-in completes, and none of
-    // them ever completes one: no `/^HOME$/i` wait appears in any of them.
-    // So the rule is stated as it is meant: no getByLabel after the
-    // landed-on-Home wait that marks a completed sign-in.
+    // them ever completes one.
+    //
+    // Merge review round 1 (B-R1-04): "completes one" is the EARLIEST of four
+    // marks, not the `/^HOME$/i` wait alone. A sign-in also completes inside
+    // authFlow's signIn() / signInHere(), which end on the reveal, and
+    // sessions.spec.ts's expectHome() is the same wait by another name. The
+    // first restatement watched only the literal, so a scenario that signed
+    // in through the helper and then selected a label passed it — the probe
+    // at the bottom is that scenario, and it fails now.
+    const SIGN_IN_MARK = /\bsignIn\(|\bsignInHere\(|\/\^HOME\$\/i|expectHome\(/
+    const lateLabels = (s) => {
+      const signedInAt = s.search(SIGN_IN_MARK)   // -1: the scenario never signs in
+      if (signedInAt === -1) return []
+      return [...s.matchAll(/getByLabel\(/g)].filter((m) => m.index > signedInAt)
+    }
+    const titleOf = (s) => s.match(/^\s*['"`]([^'"`\n]*)['"`]/)?.[1] ?? '(untitled)'
     const scenarios = auth.split(/^test\(/m).slice(1)
     const unskipped = scenarios.filter((s) => !s.includes('test.skip(SKIP_EMAIL,'))
     expect(unskipped.length, 'four scenarios run without the email gate (1, 4, 5, 6)').toBe(4)
     for (const s of unskipped) {
-      const signedInAt = s.indexOf('/^HOME$/i')
-      const late = [...s.matchAll(/getByLabel\(/g)].filter((m) => signedInAt !== -1 && m.index > signedInAt)
       expect(
-        late.length,
-        'a getByLabel appeared after a completed sign-in in an ungated scenario — hazard (d) is now LIVE in CI',
+        lateLabels(s).length,
+        `"${titleOf(s)}": a getByLabel appeared after a completed sign-in in an ungated scenario — hazard (d) is now LIVE in CI`,
       ).toBe(0)
     }
-    // And the shape the loop relies on: exactly one of the four signs in,
-    // and the three that select labels are the three that never do.
+    // The three pre-auth scenarios, BY TITLE: the exemption is these three,
+    // in this order, and cannot quietly widen to a fourth that happens to
+    // select a label before it signs in.
+    const PRE_AUTH = [
+      'a wrong password and an unknown username fail with identical wording',
+      'an unknown company is refused at step 1 and never reaches credentials',
+      'the company is remembered on this device and a deep link pre-fills it',
+    ]
+    const labelled = unskipped.filter((s) => /getByLabel\(/.test(s))
+    expect(labelled.map(titleOf)).toEqual(PRE_AUTH)
+    for (const s of labelled) {
+      expect(s.search(SIGN_IN_MARK), `"${titleOf(s)}" is pre-auth and must never sign in`).toBe(-1)
+    }
+    // And the shape the loop relies on: exactly one of the four signs in (by
+    // any of the four marks), it is the one that selects no label, and the
+    // `/^HOME$/i` literal count the old rule leaned on still holds.
+    expect(unskipped.filter((s) => SIGN_IN_MARK.test(s)).length).toBe(1)
     expect(unskipped.filter((s) => s.includes('/^HOME$/i')).length).toBe(1)
-    expect(unskipped.filter((s) => /getByLabel\(/.test(s)).length).toBe(3)
+
+    // The probe: scenario 4 with a helper sign-in and a label after it. The
+    // literal-only rule let it through; the earliest-mark rule does not — and
+    // a label placed BEFORE the sign-in is still fine, which is the whole
+    // point of judging by position.
+    const probe = `${labelled[0]}\n  await signIn(page, USERNAME, PASSWORD)\n  await page.getByLabel('Email').fill('x')\n`
+    expect(lateLabels(probe).length).toBe(1)
+    const homeAt = probe.indexOf('/^HOME$/i')
+    const legacy = [...probe.matchAll(/getByLabel\(/g)].filter((m) => homeAt !== -1 && m.index > homeAt)
+    expect(legacy.length, 'the literal-only rule misses a helper sign-in').toBe(0)
+    const early = "  await page.getByLabel('Company').fill('x')\n  await signInHere(page)\n"
+    expect(lateLabels(early).length).toBe(0)
   })
 
   it("getByText(/^NEW PASSWORD$/i) still matches the wizard's title AND its field label", () => {

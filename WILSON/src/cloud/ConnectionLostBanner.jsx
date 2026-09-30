@@ -9,9 +9,13 @@
 // logic (fix plan answer 10). A reload re-hydrates from the stored session,
 // so it costs nothing but the page state.
 //
-// Sits ABOVE every modal (the session warning is 210, the kit's dialogs 70)
-// because it is the reason those cannot make progress. In Electron it sits
-// under the 32 px title bar so the window controls stay reachable.
+// Sits ABOVE every modal, at 300, because it is the reason none of them can
+// make progress: the kit's dialogs are 70 and its toast stack 90, the
+// operator console's own modals 85 and 90, App's quit dialog 200, and the
+// idle "Still there?" dialog is the kit Dialog lifted to 210 by
+// SessionWarning's layer (its cap notice rides the toast stack on /wilson
+// and the corner card, also 210, on the console). In Electron it sits under
+// the 32 px title bar so the window controls stay reachable.
 //
 // On the kit since the post-overhaul merge (2026-09-30): the strip is the kit
 // `Banner` in its danger tone (which is what gives it `role="alert"`) with a

@@ -2742,7 +2742,11 @@ export default function App() {
 
       {/* B2 part 2: "Still there?" at 25 idle minutes, "Session ending" five
           minutes before the 4-hour cap. Above the gates (a person mid-wizard
-          is still a person about to be signed out), below the banner. */}
+          is still a person about to be signed out), below the banner. The
+          idle dialog is the kit Dialog lifted to 210 — above the quit dialog
+          at 200 — and the cap notice rides the toast stack the ToastProvider
+          above anchors over `pageBars.bottom` (merge review round 1,
+          B-R1-02 / B-R1-03). */}
       {authed && (
         <SessionWarning
           phase={sessionTimeouts.phase}

@@ -55,6 +55,29 @@ describe('Toast', () => {
     expect(stack.querySelectorAll('.ui-toast').length).toBe(0)
   })
 
+  it('`name` on push is the accessible name of the surface, and a toast without one has none (B-R1-03)', () => {
+    render(
+      <ToastProvider bar="0px">
+        <Pusher opts={{ tone: 'warning', title: 'Session ending', name: 'Session ending', duration: 0 }} />
+      </ToastProvider>,
+    )
+    fireEvent.click(screen.getByText('push'))
+    // role="alert" takes its name from the author only, so this is the query
+    // sessions.spec.ts makes — and it resolves through aria-label, not text.
+    const named = screen.getByRole('alert', { name: 'Session ending' })
+    expect(named.getAttribute('aria-label')).toBe('Session ending')
+    expect(named.closest('.ui-toast-stack')).not.toBeNull()
+    cleanup()
+    render(
+      <ToastProvider bar="0px">
+        <Pusher opts={{ tone: 'warning', title: 'Unnamed', duration: 0 }} />
+      </ToastProvider>,
+    )
+    fireEvent.click(screen.getByText('push'))
+    expect(screen.getByRole('alert').getAttribute('aria-label')).toBeNull()
+    expect(screen.queryByRole('alert', { name: 'Unnamed' })).toBeNull()
+  })
+
   it('useToast outside a provider is a stack trace, not a silent no-op', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<Pusher opts={{}} />)).toThrow(/ToastProvider/)

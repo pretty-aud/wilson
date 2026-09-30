@@ -488,10 +488,10 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
       }
     } catch (err) {
       // A stalled network is not a wrong password; the words differ because
-      // the cause is this address's connection, not the credentials.
-      setError(err?.name === 'TimeoutError'
-        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
-        : GENERIC_ERROR)
+      // the cause is this address's connection, not the credentials. The one
+      // timeout voice (B2's branch came over SHOUTED in the merge — the
+      // header's AUTH-11 count of one is a rule; review round 1, B-R1-01).
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR)
       setBusy(false)
     }
   }, [busy, username, password, companySlug, completeSignIn])
@@ -760,12 +760,13 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
         <div style={AUTH_TITLE_STYLE}>Login</div>
 
         {/* B2 part 2: why you are here again (idle sign-out, 4-hour cap).
-            Outside the keyed block below so it does not re-animate per step. */}
+            Outside the keyed block below so it does not re-animate per step.
+            A sentence, so the prose role (AUTH-05 / AUTH-12: the hint role
+            keeps only label-like fragments; AUTH-10: centred prose is wrong)
+            — it came over in the hint role, centred, and review round 1 of
+            the merge moved it (B-R1-05). */}
         {notice && (
-          <div
-            role="status"
-            style={{ ...AUTH_HINT_STYLE, textAlign: 'center', maxWidth: '36ch' }}
-          >
+          <div role="status" style={AUTH_PROSE_STYLE}>
             {notice}
           </div>
         )}
