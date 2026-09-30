@@ -95,7 +95,10 @@ import {
 import './rabbitTimeline.css'
 // UI overhaul B3 (Q22, the minimap as a priority): the minimap's rows, axis,
 // span readout and snap marks, computed and tested outside this file.
-import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth, buildAxisTicks, isMonthStartShown } from './timelineMinimap.js'
+import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth, buildAxisTicks, isMonthStartShown, dayIndexAtX } from './timelineMinimap.js'
+// Post-overhaul S1 (rulings B3–B5): every stored date is read as the LOCAL
+// day it names and written as local y-m-d, through the one shared helper.
+import { parseIsoDate, toIsoDate } from '../dates.js'
 import { IconButton } from '../../../ui/IconButton'
 import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
@@ -2257,10 +2260,15 @@ function DetailPane({
         window.removeEventListener('mouseup', onUp)
         previewEl.remove()
         if (!preview || preview.hi - preview.lo < MIN_DRAG_PX) return
-        const startDays = preview.lo / dayPx
-        const endDays   = Math.max(startDays + 1, preview.hi / dayPx)
-        const startDate = addDays(span.start, Math.round(startDays))
-        const endDate   = addDays(span.start, Math.round(endDays))
+        // S1 (ruling B8a): the task starts on the day under the press and
+        // ends on the day under the release — the cell under the pointer,
+        // not the nearest column edge, and the weekend mask honoured — at
+        // least one day long. Like every bar it is drawn up to the start of
+        // its end day.
+        const startIdx  = dayIndexAtX(preview.lo, dayPx, dayMask?.mask)
+        const endIdx    = Math.max(startIdx + 1, dayIndexAtX(preview.hi, dayPx, dayMask?.mask))
+        const startDate = addDays(span.start, startIdx)
+        const endDate   = addDays(span.start, endIdx)
         // Asset row without a bar: set the asset's dates instead of creating a task
         if (row.assetRef && (!row.start || !row.end)) {
           onUpdateAsset?.(row.assetRef.id, {
@@ -2873,7 +2881,10 @@ function DetailPane({
                       // tweak.
                       const rect = e.currentTarget.getBoundingClientRect()
                       const clickX = e.clientX - rect.left
-                      const clickDays = Math.max(0, Math.round(clickX / dayPx))
+                      // S1 (ruling B8a): the day cell under the pointer. It
+                      // rounded to the nearest column edge, so a click past
+                      // a cell's middle made the task on the next day.
+                      const clickDays = dayIndexAtX(clickX, dayPx, dayMask?.mask)
                       const startDate = addDays(span.start, clickDays)
                       const endDate   = addDays(startDate, 7)
                       onNewTaskInPhase?.(dzPhaseId, startDate, endDate)
@@ -5131,21 +5142,14 @@ function groupPhasesByParent(phases) {
   return out
 }
 
+// A date input's value: the local y-m-d, '' for none. Post-overhaul S1 (B3):
+// through dates.js, which reads a stored 'YYYY-MM-DD' as the LOCAL day it
+// names. `new Date(value)` read it as UTC midnight, so on Audrey's Eastern
+// machine the phase, asset and key-date editors opened a day early and their
+// Save wrote that day back. (`toIsoDate` is dates.js's since S1 too; the
+// local copy it replaced parsed a string the same wrong way.)
 function toDateInputValue(value) {
-  if (!value) return ''
-  const d = value instanceof Date ? value : new Date(value)
-  if (isNaN(d.getTime())) return ''
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function toIsoDate(d) {
-  if (!d) return null
-  const x = d instanceof Date ? d : new Date(d)
-  if (isNaN(x.getTime())) return null
-  return toDateInputValue(x)
+  return toIsoDate(value) ?? ''
 }
 
 // ============================================================
@@ -7116,11 +7120,13 @@ function daysBetween(a, b) {
   const ms = b.getTime() - a.getTime()
   return Math.round(ms / (24 * 60 * 60 * 1000))
 }
+// A stored date as the local midnight of the day it names. Post-overhaul S1
+// (rulings B3–B5): through dates.js. `new Date('2026-12-01')` is UTC
+// midnight, so west of Greenwich every bar, key date and group row drew a
+// day EARLY — a bar dropped on Dec 3 stored Dec 3 and was redrawn on Dec 2.
 function parseDate(value) {
-  if (!value) return null
-  const d = new Date(value)
-  if (isNaN(d.getTime())) return null
-  return startOfDay(d)
+  const d = parseIsoDate(value)
+  return d ? startOfDay(d) : null
 }
 // Detail axis ticks: timelineMinimap.js's buildAxisTicks() since post-overhaul
 // S1 (ruling B2, option B — a label prints only where it fits before the next

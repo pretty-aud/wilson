@@ -252,6 +252,36 @@ export function isMonthStartShown(d, weekendsHidden = false) {
   return weekendsHidden && dow === 1 && (date === 2 || date === 3)
 }
 
+/**
+ * The day whose column holds `x` px — the inverse of DetailPane's dayToX,
+ * honouring the weekend mask. Post-overhaul S1 (ruling B8a): a click that
+ * creates a task lands on the day cell under the pointer. It rounded to the
+ * nearest column EDGE, so a click past a cell's middle made the task on the
+ * next day, and with weekends hidden `x / dayPx` counted the hidden days'
+ * columns that are not drawn (two days out per weekend crossed).
+ *
+ * @param {number} x       px from the chart's left edge
+ * @param {number} dayPx   a day column's width
+ * @param {Array<{ offsetPx: number, hidden: boolean }>|null} [mask] the weekend mask, day by day
+ * @returns {number} a day index from the chart's first day (a shown day's, with a mask)
+ */
+export function dayIndexAtX(x, dayPx, mask = null) {
+  if (!mask || mask.length === 0) return Math.max(0, Math.floor(x / dayPx))
+  // A hidden day shares its offset with the shown day after it, so the last
+  // index whose column starts at or before x is a shown day — or, past the
+  // chart's last shown day, a trailing weekend; step back to a shown one.
+  let lo = 0
+  let hi = mask.length - 1
+  let found = 0
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (mask[mid].offsetPx <= x) { found = mid; lo = mid + 1 } else hi = mid - 1
+  }
+  while (found > 0 && mask[found].hidden) found--
+  while (found < mask.length - 1 && mask[found].hidden) found++
+  return found
+}
+
 const dayLabel = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`
 const monthLabel = (d) => `${MONTHS[d.getMonth()]} ${d.getFullYear()}`
 const quarterLabel = (d) => `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`

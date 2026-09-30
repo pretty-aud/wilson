@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 import {
   MINIMAP, minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow,
   STRIDES, LABEL_GAP, LABEL_PAD, estimateWidth,
-  buildAxisTicks, axisLabelWidth, isMonthStartShown, AXIS_GAP, AXIS_GLYPH_PX,
+  buildAxisTicks, axisLabelWidth, isMonthStartShown, AXIS_GAP, AXIS_GLYPH_PX, dayIndexAtX,
 } from './timelineMinimap.js'
 
 describe('minimapLayout: every phase gets a row, at any count', () => {
@@ -217,6 +217,50 @@ describe('the gantt header\'s label width: measured once, never under what is dr
     expect(LABEL_PAD + axisLabelWidth('May 20') + AXIS_GAP).toBeLessThanOrEqual(ZOOMS.day.dayPx)
     // A character the table does not know counts as the widest glyph.
     expect(axisLabelWidth('é')).toBe(AXIS_GLYPH_PX.M)
+  })
+})
+
+describe('dayIndexAtX: a click lands on the day cell under the pointer (S1, ruling B8a)', () => {
+  it('no mask: the column that holds x, whichever half of it the pointer is in', () => {
+    const P = ZOOMS.day.dayPx
+    expect(dayIndexAtX(0, P)).toBe(0)
+    expect(dayIndexAtX(P - 0.1, P)).toBe(0)
+    expect(dayIndexAtX(P, P)).toBe(1)
+    expect(dayIndexAtX(P * 1.5 + 1, P)).toBe(1) // past the middle of day 1: still day 1
+    expect(dayIndexAtX(-3, P)).toBe(0)
+    for (const zoomId of ['day', 'week', 'month', 'quarter']) {
+      const q = ZOOMS[zoomId].dayPx
+      for (let i = 0; i < 400; i++) {
+        expect(dayIndexAtX(i * q + q * 0.25, q)).toBe(i)
+        expect(dayIndexAtX(i * q + q * 0.75, q)).toBe(i)
+      }
+    }
+  })
+
+  it('weekends hidden: every point of a shown day\'s column is that day, however many weekends lie before it', () => {
+    const start = new Date(2026, 7, 1) // a Saturday: the chart opens on a hidden weekend
+    const P = ZOOMS.day.dayPx
+    const m = weekendMask(start, 150, P)
+    const mask = Array.from({ length: 151 }, (_, i) => ({ offsetPx: m.xOf(i), hidden: m.hidden(i) }))
+    for (let i = 0; i <= 150; i++) {
+      if (mask[i].hidden) continue
+      for (const f of [0, 0.25, 0.5, 0.75, 0.999]) expect(dayIndexAtX(mask[i].offsetPx + f * P, P, mask), `day ${i} at ${f}`).toBe(i)
+    }
+    // Past the last column, the last shown day (never a hidden one).
+    const last = dayIndexAtX(m.end + 500, P, mask)
+    expect(mask[last].hidden).toBe(false)
+  })
+
+  it('CONTROL: the rounding it replaces put a click past a cell\'s middle on the NEXT day, and x / dayPx ignored the hidden weekends', () => {
+    const P = ZOOMS.day.dayPx
+    expect(Math.round((P * 1.5 + 1) / P)).toBe(2)
+    const start = new Date(2026, 7, 1)
+    const m = weekendMask(start, 30, P)
+    const mask = Array.from({ length: 31 }, (_, i) => ({ offsetPx: m.xOf(i), hidden: m.hidden(i) }))
+    const mon10 = 9 // Mon 10 Aug: two weekends (four hidden days) before it
+    const x = mask[mon10].offsetPx + P / 4
+    expect(Math.floor(x / P)).toBe(mon10 - 4) // Thu 6 Aug: four days early
+    expect(dayIndexAtX(x, P, mask)).toBe(mon10)
   })
 })
 

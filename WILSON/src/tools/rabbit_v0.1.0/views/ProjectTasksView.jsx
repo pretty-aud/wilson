@@ -48,6 +48,7 @@ import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import MilestoneTrashModal from '../components/MilestoneTrashModal'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
+import { parseIsoDate, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
   HoverActions, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus,
@@ -133,15 +134,12 @@ function optionLabel(field, value) {
 
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
-// A stored date (YYYY-MM-DD) as the date inputs beside it show one: the
-// system's short date. A key date used to print its raw ISO string in the
-// mono next to task dates reading 08/03/2026 (review round one).
-function showDate(iso) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
-  if (!m) return iso || '—'
-  return new Date(+m[1], +m[2] - 1, +m[3])
-    .toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
+// A stored date (YYYY-MM-DD) as the date inputs beside it show one — the
+// system's short date — is `showDate` from dates.js since post-overhaul S1
+// (ruling B5: one shared date helper). This file's own copy was the pattern
+// that helper took: it read the day the string names. A key date used to
+// print its raw ISO string in the mono next to task dates reading 08/03/2026
+// (review round one).
 
 // ─────────────────────────────────────────────────────
 // MAIN COMPONENT
@@ -528,18 +526,28 @@ export default function ProjectTasksView() {
     let daysRemaining = '—'
     let daysPassed = '—'
 
+    // Post-overhaul S1 (rulings B3, B5): the project's dates are read as the
+    // local day they name (dates.js; `new Date('2026-12-01')` is the 30th
+    // here), and the difference of two local midnights is ROUNDED to whole
+    // days — it is a whole number of days give or take the hour a daylight-
+    // saving change adds or removes, which `Math.ceil` turned into an extra
+    // day (the two errors cancelled for a December end seen in September).
     if (project?.end_date) {
-      const end = new Date(project.end_date)
-      end.setHours(0, 0, 0, 0)
-      const diff = Math.ceil((end - today) / (1000 * 60 * 60 * 24))
-      daysRemaining = Math.max(diff, 0)
+      const end = parseIsoDate(project.end_date)
+      if (end) {
+        end.setHours(0, 0, 0, 0)
+        const diff = Math.round((end - today) / (1000 * 60 * 60 * 24))
+        daysRemaining = Math.max(diff, 0)
+      }
     }
 
     if (project?.start_date) {
-      const start = new Date(project.start_date)
-      start.setHours(0, 0, 0, 0)
-      const diff = Math.ceil((today - start) / (1000 * 60 * 60 * 24))
-      daysPassed = Math.max(diff, 0)
+      const start = parseIsoDate(project.start_date)
+      if (start) {
+        start.setHours(0, 0, 0, 0)
+        const diff = Math.round((today - start) / (1000 * 60 * 60 * 24))
+        daysPassed = Math.max(diff, 0)
+      }
     }
 
     return { remaining, completed, daysRemaining, daysPassed }
@@ -609,7 +617,9 @@ export default function ProjectTasksView() {
 
             <GatedAction allowed={canWrite}>
               {/* Key date create */}
-              <Button size="sm" Icon={Diamond} onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}>
+              {/* S1 (B3): today's LOCAL date; `toISOString()` is UTC, so an
+                  Eastern evening made the key date on tomorrow. */}
+              <Button size="sm" Icon={Diamond} onClick={() => ctx?.addMilestone?.({ title: '', date: toIsoDate(new Date()) })}>
                 Key date
               </Button>
             </GatedAction>

@@ -18,7 +18,7 @@
 // scripts/timeline-minimap-count.mjs; the arithmetic is timelineMinimap.test.js.
 // =============================================================================
 
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, afterAll, vi } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import { createRef } from 'react'
 
@@ -62,7 +62,7 @@ function project(n, { from = day(2026, 7, 1), len = 20, gap = 5, children = 0 } 
   return { phases, schedule }
 }
 
-function mount({ phases, schedule }, { spanStart, spanDays, width = 1400 }) {
+function mount({ phases, schedule }, { spanStart, spanDays, width = 1400, milestones = [] }) {
   const span = { start: spanStart, end: addDays(spanStart, spanDays), days: spanDays, center: addDays(spanStart, spanDays >> 1) }
   const noop = () => {}
   return render(
@@ -75,7 +75,7 @@ function mount({ phases, schedule }, { spanStart, spanDays, width = 1400 }) {
       scenes={[]} shots={[]} levels={[]} experiences={[]} teamAssignments={[]} teamMembers={[]}
       onScrollDetailToDate={noop} onPanMinimap={noop} onZoomMinimap={noop}
       onUpdateTask={noop} onUpdatePhase={noop} onEditTask={noop} onEditPhase={noop}
-      canWrite writeReason={null} milestones={[]}
+      canWrite writeReason={null} milestones={milestones}
     />,
   )
 }
@@ -129,6 +129,32 @@ describe('a phase outside the window keeps its row and says where it went', () =
     expect(edges.filter((e) => e === 'before').length).toBeGreaterThan(0)
     expect(edges.filter((e) => e === 'after').length).toBeGreaterThan(0)
     expect(bars + edges.filter(Boolean).length).toBe(12)
+  })
+})
+
+describe('a stored date lands on the day it names — post-overhaul S1 (ruling B3)', () => {
+  // The Timeline's one parse (parseDate, through dates.js), rendered: a key
+  // date's marker sits at its day offset × dayPx. Run in Audrey's zone, where
+  // `new Date('2026-12-05')` is the 4th.
+  const ORIGINAL_TZ = process.env.TZ
+  afterAll(() => { if (ORIGINAL_TZ === undefined) delete process.env.TZ; else process.env.TZ = ORIGINAL_TZ })
+
+  it('in New York, a key date stored 2026-12-05 sits four day-columns into a window that starts on 1 December', (ctx) => {
+    process.env.TZ = 'America/New_York'
+    if (new Date(2026, 11, 1).getTimezoneOffset() !== 300) ctx.skip('this runner could not switch to America/New_York')
+    const spanStart = new Date(2026, 11, 1)
+    const width = 1830
+    const { container } = mount(project(1), {
+      spanStart, spanDays: 183, width,
+      milestones: [{ id: 'k1', title: 'Key', date: '2026-12-05', color: '#f59e0b' }],
+    })
+    const marker = container.querySelector('.rb-tl-ov-ms')?.parentElement
+    expect(marker, 'the key date was not drawn').toBeTruthy()
+    const dayPx = width / 183
+    expect(px(marker, 'left')).toBeCloseTo(4 * dayPx, 5)
+    // CONTROL: the parse this replaced put it a column early, on the 4th.
+    const old = new Date('2026-12-05'); old.setHours(0, 0, 0, 0)
+    expect(Math.round((old - spanStart) / 86400000) * dayPx).toBeCloseTo(3 * dayPx, 5)
   })
 })
 

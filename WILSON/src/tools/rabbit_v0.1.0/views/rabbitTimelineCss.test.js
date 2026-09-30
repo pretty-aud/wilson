@@ -801,3 +801,20 @@ describe('S1 item 1: the gutter\'s inks — task names the ink, phase names the 
     expect(signalInkUses(asFill)).toHaveLength(3)
   })
 })
+
+/** How the gantt turns a pointer's x into a day where it CREATES a task: the
+    "+ New task" click and drag-to-draw. */
+const creationSnaps = (src) => ({
+  helper: (src.match(/dayIndexAtX\((?:clickX|preview\.lo|preview\.hi), dayPx, dayMask\?\.mask\)/g) || []).length,
+  rounded: (src.match(/Math\.round\((?:clickX \/ dayPx|startDays|endDays)\)/g) || []).length,
+})
+describe('S1 item 3: a created task lands on the day cell under the pointer (ruling B8a)', () => {
+  it('the "+ New task" click and both ends of drag-to-draw read the day under the pointer through dayIndexAtX, weekend mask included; nothing rounds to a column edge', () => {
+    expect(creationSnaps(code.timeline)).toEqual({ helper: 3, rounded: 0 })
+  })
+  it('CONTROL: the click\'s old rounding, planted back, is caught', () => {
+    const planted = code.timeline.replace('dayIndexAtX(clickX, dayPx, dayMask?.mask)', 'Math.max(0, Math.round(clickX / dayPx))')
+    expect(planted).not.toBe(code.timeline)
+    expect(creationSnaps(planted)).toEqual({ helper: 2, rounded: 1 })
+  })
+})
