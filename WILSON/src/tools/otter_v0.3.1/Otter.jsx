@@ -3183,6 +3183,18 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           label="O.T.T.E.R. views"
           className="otter-nav-tabs"
         />
+        {/* Help, then Settings at the far right (post-overhaul S2a, Audrey's
+            C1/C7, 2026-09-29: "settings at the right end"): the same pair,
+            order and 28px size as R.A.B.B.I.T.'s `.rb-viewtabs-right`, so the
+            gear sits at one x and one y in all three tools. A SIBLING of the
+            kit Tabs, not an item in it: inside the tablist a button would be
+            a tab and join the arrow keys (the kit Tabs has no actions slot —
+            kit request "Tabs: an actions slot", S2a hand-off). Help opens
+            O.T.T.E.R.'s own Help dialog, as the drawer's footer button does. */}
+        <div className="otter-nav-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />
+        </div>
       </nav>
 
       {/* ── BODY — sidebars + content ── */}

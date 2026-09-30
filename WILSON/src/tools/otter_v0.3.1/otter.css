@@ -63,13 +63,30 @@
   /* On the Tabs' own class: a kit part is reached only through the O.T.T.E.R.
      class on its component (otterCss.test.js, A4 review round 2). */
   .otter-nav-tabs .ui-tab { padding: 0 8px; }
+  /* Post-overhaul S2a: R.A.B.B.I.T.'s overflow rules (`.rb-viewtabs-list`).
+     One row, always; should the tabs ever outgrow the strip (the web build
+     can be narrower than Electron's 1024px floor), the LIST scrolls sideways
+     with no scrollbar to add height, and the kit's arrow keys bring each tab
+     into view — the Help and Settings group beside it never moves. Measured
+     by scripts/tool-strip-probe.mjs: at 1024 in cloud mode every tab fits
+     whole, so the tabs keep their icons (R.A.B.B.I.T.'s icon drop is not
+     needed here). A scroller clips what its tabs draw outside themselves,
+     so their focus ring is drawn inside (the settings tabs' rule below). */
   .ui-tabs.otter-nav-tabs {
     flex: 1 1 auto;
     min-width: 0;
     flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
   }
   .ui-tabs.otter-nav-tabs > .ui-tab:last-child { margin-left: auto; }
+  .ui-tabs.otter-nav-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
   .otter-nav-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  /* Help, then Settings, at the strip's right end (Audrey's C1/C7,
+     2026-09-29): rabbitShell.css's `.rb-viewtabs-right` rule for rule, so the
+     gear is one control at one x and one y in all three tools. */
+  .otter-nav-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
   /* ═══ SIDEBAR 1 — courses and subjects, the kit's Panel (sm, 200) ══════
      Review O9, O21, O22, O35. The panel is the kit's: no fill, one hairline,

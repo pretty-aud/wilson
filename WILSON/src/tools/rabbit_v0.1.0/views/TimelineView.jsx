@@ -5485,7 +5485,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 size="sm"
                 icon={HelpCircle}
                 onClick={onOpenHelp}
-                title="Open RABBIT help & documentation"
+                title="Help & documentation"
               />
             )}
           </div>

@@ -221,8 +221,11 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
                 <span className="contents" data-slot="adapter">{adapterDot}</span>
               </span>
             )}
-            <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
+            {/* Help, then Settings at the far right: one order, one title
+                pattern and one place in all three tools (post-overhaul S2a,
+                Audrey's C1/C7, 2026-09-29: "settings at the right end"). */}
             <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+            <IconButton size="sm" Icon={SettingsIcon} title="R.A.B.B.I.T. settings" onClick={() => setSettingsOpen(true)} />
           </>
         )}
       />

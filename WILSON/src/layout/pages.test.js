@@ -37,6 +37,8 @@ import {
 } from './pages'
 import { TM_COLUMN_WIDTHS } from '../components/TeamMembers/TeamMembersPage'
 import { sourceFiles, blankJsComments } from '../../scripts/ui-audit.mjs'
+import { parse } from '@babel/parser'
+import traverseModule from '@babel/traverse'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appSrc = readFileSync(resolve(here, '../App.jsx'), 'utf8')
@@ -310,5 +312,109 @@ describe("the worked example's table columns add up", () => {
       .filter(([k]) => !['member', 'actions'].includes(k))
     const widest = data.reduce((a, b) => (pct(a[1]) >= pct(b[1]) ? a : b))[0]
     expect(widest).toBe('department')
+  })
+})
+
+// ── Each tool's Help and Settings, in its own strip (post-overhaul S2a) ─────
+// Audrey, 2026-09-29 (POST_OVERHAUL_PLAN §0.1, C6 and C7): "Tool settings"
+// leaves the WILSON nav strip, so each tool's gear lives at the right end of
+// the tool's OWN strip, Help beside it ("settings at the right end"), and the
+// in-page Help opens the tool's own Help dialog. R.A.B.B.I.T.'s ViewTabs slot
+// is the reference. Read from each file's JSX (no test here lays a tool out;
+// scripts/tool-strip-probe.mjs measures the one x and y in the running app).
+const TOOL_STRIPS = [
+  { tool: 'O.T.T.E.R.', file: '../tools/otter_v0.3.1/Otter.jsx', container: { className: 'otter-nav-right' }, settings: 'O.T.T.E.R. settings', opens: 'setSettingsOpen' },
+  { tool: 'R.A.B.B.I.T.', file: '../tools/rabbit_v0.1.0/Rabbit.jsx', container: { slotOf: 'ViewTabs', prop: 'rightSlot' }, settings: 'R.A.B.B.I.T. settings', opens: 'setSettingsOpen' },
+]
+const traverse = traverseModule.default || traverseModule
+const attrOf = (el, name) => el.openingElement.attributes.find((a) => a.type === 'JSXAttribute' && a.name.name === name)
+const stringAttr = (el, name) => {
+  const a = attrOf(el, name)
+  if (!a?.value) return null
+  if (a.value.type === 'StringLiteral') return a.value.value
+  if (a.value.type === 'JSXExpressionContainer' && a.value.expression.type === 'StringLiteral') return a.value.expression.value
+  return null
+}
+const nameOf = (el) => el.openingElement.name.name
+/** The IconButtons a strip's right-hand group renders, in source order, with
+    the source text of each one's onClick. Problems come back as strings. */
+function stripButtons(src, container) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  const groups = []
+  traverse(ast, {
+    JSXElement(p) {
+      const el = p.node
+      if (container.className) {
+        const cls = stringAttr(el, 'className')
+        if (cls && cls.split(/\s+/).includes(container.className)) groups.push(p)
+      } else if (nameOf(el) === container.slotOf) {
+        const slot = attrOf(el, container.prop)
+        if (slot?.value?.type === 'JSXExpressionContainer') groups.push(p.get('openingElement').get('attributes').find((a) => a.node === slot))
+      }
+    },
+  })
+  if (groups.length !== 1) return { problems: [`${groups.length} right-hand groups found, not one`], buttons: [] }
+  const buttons = []
+  groups[0].traverse({
+    JSXElement(p) {
+      if (nameOf(p.node) !== 'IconButton') return
+      const click = attrOf(p.node, 'onClick')?.value?.expression
+      buttons.push({
+        title: stringAttr(p.node, 'title'),
+        icon: (attrOf(p.node, 'Icon') || attrOf(p.node, 'icon'))?.value?.expression?.name ?? null,
+        size: stringAttr(p.node, 'size'),
+        onClick: click ? src.slice(click.start, click.end) : null,
+      })
+    },
+  })
+  return { problems: [], buttons }
+}
+/** What is wrong with one tool's strip, against Audrey's rule. */
+function stripProblems(src, spec) {
+  const { problems, buttons } = stripButtons(src, spec.container)
+  if (problems.length) return problems
+  const [help, settings] = buttons.slice(-2)
+  const out = []
+  if (buttons.length < 2) return [`${buttons.length} icon buttons in the group`]
+  if (help.title !== 'Help & documentation') out.push(`second to last is "${help.title}", not Help`)
+  if (settings.title !== spec.settings) out.push(`last is "${settings.title}", not "${spec.settings}"`)
+  if (help.icon !== 'HelpCircle') out.push(`Help draws ${help.icon}`)
+  if (!/^Settings(Icon)?$/.test(settings.icon || '')) out.push(`Settings draws ${settings.icon}`)
+  for (const b of [help, settings]) if (b.size !== 'sm') out.push(`"${b.title}" is size ${b.size}, not sm (28px)`)
+  if (help.onClick !== '() => setShowHelpModal(true)') out.push(`Help does ${help.onClick}, not the tool's own Help dialog`)
+  if (settings.onClick !== `() => ${spec.opens}(true)`) out.push(`Settings does ${settings.onClick}`)
+  return out
+}
+
+describe('each tool draws Help, then Settings, at the right end of its own strip (C1, C7)', () => {
+  for (const spec of TOOL_STRIPS) {
+    it(`${spec.tool}: Help & documentation, then "${spec.settings}", the last two 28px icon buttons, opening the tool's own dialogs`, () => {
+      const src = readFileSync(resolve(here, spec.file), 'utf8')
+      expect(stripProblems(src, spec)).toEqual([])
+    })
+  }
+  it('CONTROL: the reader fails the strip as it was — Settings first, the old title, Help to the app page, no group', () => {
+    const rabbit = TOOL_STRIPS.find((s) => s.tool === 'R.A.B.B.I.T.')
+    // R.A.B.B.I.T.'s slot before S2a: Settings first, titled "RABBIT settings".
+    const was = `const x = <ViewTabs rightSlot={(<>
+      <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
+      <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+    </>)} />`
+    expect(stripProblems(was, rabbit)).toEqual(expect.arrayContaining([
+      'second to last is "RABBIT settings", not Help',
+      'last is "Help & documentation", not "R.A.B.B.I.T. settings"',
+    ]))
+    // Help sent to the app's Help page instead of the tool's own dialog.
+    const otter = TOOL_STRIPS.find((s) => s.tool === 'O.T.T.E.R.')
+    const toAppHelp = `const x = <div className="otter-nav-right">
+      <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => onNavigate('help')} />
+      <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />
+    </div>`
+    expect(stripProblems(toAppHelp, otter)).toEqual(["Help does () => onNavigate('help'), not the tool's own Help dialog"])
+    // A 36px pair would sit off the other tools' line.
+    expect(stripProblems(toAppHelp.replace(/size="sm"/g, 'size="md"').replace("onNavigate('help')", 'setShowHelpModal(true)'), otter))
+      .toEqual(['"Help & documentation" is size md, not sm (28px)', '"O.T.T.E.R. settings" is size md, not sm (28px)'])
+    // No group at all (O.T.T.E.R. before S2a).
+    expect(stripProblems('const x = <nav className="otter-nav"><Tabs /></nav>', otter)).toEqual(['0 right-hand groups found, not one'])
   })
 })
