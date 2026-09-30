@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { allRules, decls, splitTop } from '../../../scripts/ui-css-rules.mjs'
+import { allRules, decls, splitTop, specificity, compareSpecificity } from '../../../scripts/ui-css-rules.mjs'
 import { parse } from '@babel/parser'
 import traverseModule from '@babel/traverse'
 
@@ -218,5 +218,69 @@ describe('D.O.G.\'s "Deck outline" bar is a tab strip\'s bar, above both columns
     expect(barProblems(titled)).toEqual(['the Panel still takes title', 'the Panel still takes actions'])
     const fine = titled.replace(' title="Deck outline" actions={<i />}', '')
     expect(barProblems(fine)).toEqual([])
+  })
+})
+
+// ── The orange D.O.G. takes back, exactly (S2a; Audrey's C3 and C8) ─────────
+// The two numbered section titles and their numerals are the signal as an
+// INK (4.54:1 on the card's paper-raised); on the header's hover wash the
+// signal is 3.88:1, so there the text reverts to the ink (option c) and no
+// orange ever sits on the wash (tokens.test.js holds both numbers). Section 2
+// disabled in Full deck mode stays the third ink. Recorded as her exception
+// in UI_OVERHAUL_PLAN.md §3.2: these guards are what stops a later session
+// "correcting" it — or spreading it.
+describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (S2a, C3/C8)', () => {
+  const SIGNAL = /^var\(--color-signal\)$/
+  const winner = (a, b) => compareSpecificity(specificity(a), specificity(b))
+  it('the signal colours exactly these rules: the two new ones, and two icons from before S2a', () => {
+    expect(setting(DOG, 'color', SIGNAL).map((x) => x.sel).sort()).toEqual([
+      '.dog-lock-icon', '.dog-resolver-selected > svg',
+      '.dog-step-title .dog-step', '.ui-panel-title.dog-card-title.dog-step-title',
+    ].sort())
+  })
+  it('the orange outranks the second ink; the ink outranks the orange on the wash; the disabled third ink outranks the orange — by specificity, not order', () => {
+    const on = (sel) => setting(DOG, 'color', /./).find((x) => x.sel === sel)
+    const orangeTitle = '.ui-panel-title.dog-card-title.dog-step-title'
+    const greyTitle = '.ui-panel-title.dog-card-title'
+    const hoverTitle = ".dog-card-head[data-collapsible='true']:hover .dog-step-title"
+    const hoverStep = ".dog-card-head[data-collapsible='true']:hover .dog-step"
+    const disabled = ".dog-s2[data-full-deck='true'] .dog-card-head :is(.dog-card-title, .dog-step, .dog-chevron)"
+    for (const s of [orangeTitle, greyTitle, hoverTitle, hoverStep, disabled, '.dog-step', '.dog-step-title .dog-step']) expect(on(s), s).toBeTruthy()
+    expect(winner(orangeTitle, greyTitle)).toBeGreaterThan(0)
+    expect(winner('.dog-step-title .dog-step', '.dog-step')).toBeGreaterThan(0)
+    expect(winner(hoverTitle, orangeTitle)).toBeGreaterThan(0)
+    expect(winner(hoverStep, '.dog-step-title .dog-step')).toBeGreaterThan(0)
+    expect(winner(disabled, orangeTitle)).toBeGreaterThan(0)
+    expect(winner(disabled, '.dog-step-title .dog-step')).toBeGreaterThan(0)
+  })
+  it('the revert is the ink, in the wash\'s own media query and on the wash\'s own state', () => {
+    const wash = setting(DOG, 'background-color', /^var\(--color-hover\)$/).find((x) => x.sel === ".dog-card-head[data-collapsible='true']:hover")
+    expect(wash, 'the wash rule moved').toBeTruthy()
+    for (const sel of [".dog-card-head[data-collapsible='true']:hover .dog-step-title", ".dog-card-head[data-collapsible='true']:hover .dog-step"]) {
+      const hit = setting(DOG, 'color', /^var\(--color-ink\)$/).find((x) => x.sel === sel)
+      expect(hit, `no ink revert: ${sel}`).toBeTruthy()
+      expect(hit.parents).toEqual(wash.parents)
+    }
+  })
+  it('the numeral keeps its ring, and only the two numbered titles are step titles ("Generated output" is not)', () => {
+    const step = allRules(DOG).find((r) => norm(r.sel) === '.dog-step')
+    expect(Object.fromEntries(decls(step.body)).border).toBe('1px solid var(--color-rule)')
+    const jsx = read('./DeckOutlineGenerator.jsx')
+    const titles = [...jsx.matchAll(/<h2 className="([^"]*\bdog-card-title\b[^"]*)">([\s\S]*?)<\/h2>/g)]
+    expect(titles).toHaveLength(3)
+    for (const [, cls, body] of titles) {
+      const numbered = /className="dog-step"/.test(body)
+      expect(cls.split(' ').includes('dog-step-title'), body.trim().slice(0, 40)).toBe(numbered)
+    }
+    expect(titles.filter(([, cls]) => cls.includes('dog-step-title'))).toHaveLength(2)
+  })
+  it('CONTROL: an orange spread to "Generated output", or a revert that ties, is caught', () => {
+    // A title rule that ties the second ink would win only by coming later.
+    expect(winner('.dog-card-title.dog-step-title', '.ui-panel-title.dog-card-title')).toBe(0)
+    // The disabled rule as it was (three classes) ties the orange.
+    expect(winner(".dog-s2[data-full-deck='true'] :is(.dog-card-title, .dog-step, .dog-chevron)", '.ui-panel-title.dog-card-title.dog-step-title')).toBe(0)
+    const spread = '<h2 className="ui-panel-title dog-card-title dog-step-title">Generated output</h2>'
+    const [, cls, body] = spread.match(/<h2 className="([^"]*\bdog-card-title\b[^"]*)">([\s\S]*?)<\/h2>/)
+    expect(cls.split(' ').includes('dog-step-title')).not.toBe(/className="dog-step"/.test(body))
   })
 })

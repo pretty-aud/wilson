@@ -230,6 +230,22 @@
   .ui-panel-title.dog-card-title {
     color: var(--color-ink-2);
   }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C3 and C8 (2026-09-29).
+     The two numbered section titles ("1 Project documentation & deck
+     context", "2 Generate page outline") and their numerals are the signal
+     orange AS AN INK. It is recorded in UI_OVERHAUL_PLAN.md §3.2's signal row
+     as one of her named exceptions: a later reviewer must not "correct" it
+     back to the second ink. "Generated output" and every field label stay
+     grey; the generate buttons are unchanged (C2).
+     The pairs, pinned in tokens.test.js: the signal on the card's
+     paper-raised is 4.54:1 (legible at this Label step); on the header's
+     hover wash it is 3.88:1 and FAILS — so on the wash the text reverts to
+     the ink (option c, below) and no orange ever sits on it. Three classes,
+     so it outranks the second-ink rule above whatever the order. */
+  .ui-panel-title.dog-card-title.dog-step-title {
+    color: var(--color-signal);
+    transition: color var(--duration-state) ease-out;
+  }
   .dog-card-title {
     display: flex;
     align-items: center;
@@ -258,6 +274,21 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-2);
   }
+  /* The numeral takes the title's orange (C3); its ring is unchanged. */
+  .dog-step-title .dog-step {
+    color: var(--color-signal);
+    transition: color var(--duration-state) ease-out;
+  }
+  /* Option c: under the pointer the head takes the hover wash, where the
+     signal fails (3.88:1), so the title and its numeral revert to the ink
+     for exactly as long as the wash is there — the same media query, the
+     same state, the same 120ms. Four classes: it outranks the orange. */
+  @media (hover: hover) {
+    .dog-card-head[data-collapsible='true']:hover .dog-step-title,
+    .dog-card-head[data-collapsible='true']:hover .dog-step {
+      color: var(--color-ink);
+    }
+  }
   .dog-card-note {
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
@@ -279,12 +310,18 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .dog-card-head[data-collapsible='true'] { transition: none; }
+    .ui-panel-title.dog-card-title.dog-step-title,
+    .dog-step-title .dog-step { transition: none; }
   }
 
   /* Section 2 in Full Deck mode is disabled: the disabled token (ink at
-     52 percent + not-allowed), never an opacity (§3.1). */
+     52 percent + not-allowed), never an opacity (§3.1). The disabled title
+     and numeral are the third ink, never the orange: S2a raised this rule to
+     four classes (the head's) so it outranks the orange (three) by
+     specificity, not by coming later. The head is not collapsible then, so
+     the hover revert never applies to it. */
   .dog-s2[data-full-deck='true'] .dog-card-head { cursor: not-allowed; }
-  .dog-s2[data-full-deck='true'] :is(.dog-card-title, .dog-step, .dog-chevron) {
+  .dog-s2[data-full-deck='true'] .dog-card-head :is(.dog-card-title, .dog-step, .dog-chevron) {
     color: var(--color-ink-3);
   }
 
@@ -594,7 +631,12 @@
     letter-spacing: var(--text-label--letter-spacing);
     font-weight: var(--text-label--font-weight);
     text-transform: uppercase;
-    /* Was orange-400, the accent as a label ink (review D9). */
+    /* Was orange-400, the accent as a label ink (review D9).
+       Post-overhaul S2a (2026-09-29): Audrey brought a little orange back
+       and named exactly where (UI_OVERHAUL_PLAN §3.2, the signal row): the
+       two section titles and their numerals (`.dog-step-title` above), not
+       this label, the "Deck outline" bar's label or any field label. They
+       stay the second ink; D9 still holds for them. */
     color: var(--color-ink-2);
   }
 

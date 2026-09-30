@@ -467,6 +467,14 @@
   .ui-section.otter-view-title { padding-top: 0; margin-bottom: 24px; align-items: flex-start; }
   .otter-view-title .ui-section-actions { margin-top: calc((var(--text-h2) * var(--text-h2--line-height) - var(--control-md)) / 2); }
   .otter-view-title .ui-section-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C8 (2026-09-29): the
+     library's title, "Course library", is the signal orange as an ink, on
+     the view's paper (4.91:1, tokens.test.js). Only this title: "Functions
+     reference", "Keyboard shortcuts", the quiz titles and every other view
+     title stay the ink. Recorded in UI_OVERHAUL_PLAN.md §3.2's signal row; a
+     later reviewer must not correct it out. Nothing here takes the hover
+     wash, so no pair is at risk. */
+  .otter-library-title .ui-section-title { color: var(--color-signal); }
   .otter-view-meta .otter-owner { margin-left: 8px; }
   .otter-count { font-variant-numeric: tabular-nums; }
   .ui-banner.otter-banner { margin-bottom: 16px; }
@@ -767,7 +775,8 @@
      the kit's Table in a flush Card (a real table, fixed layout, the Label
      step head) with the keys in the kit's Kbd; function cards and sources
      are the Card surface, code in the code well (paper-recessed). No orange
-     on any of it: names are the ink, notes and URLs the third ink. */
+     on any of it: names are the ink, notes and URLs the third ink — except
+     the key caps' text, since post-overhaul S2a (below). */
   .otter-center { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--color-ink-2); }
   .otter-search { position: relative; }
   .otter-search-icon {
@@ -795,6 +804,15 @@
   }
   .otter-ref-cards { display: flex; flex-direction: column; gap: 12px; }
   .ui-td.otter-hk-notes { color: var(--color-ink-3); }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C8 (2026-09-29): the key
+     caps' TEXT is the signal orange, on the Kbd's own paper-recessed fill
+     (5.55:1, tokens.test.js); the cap's hairline and fill are unchanged.
+     The card class is shared, so this reaches both hotkey tables: the
+     Hotkeys view and the Search dialog's preview, where a row that does not
+     match the query still dims its caps to the third ink (the
+     `.otter-search-hk … [data-inactive]` rule below, four classes, wins).
+     Recorded in UI_OVERHAUL_PLAN.md §3.2's signal row. */
+  .otter-hk-card .ui-kbd { color: var(--color-signal); }
   .otter-fn-card {
     padding: 16px;
     background-color: var(--color-paper-raised);
@@ -1160,8 +1178,14 @@
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
   }
-  .otter-lesson-card .ui-card-title { display: flex; align-items: center; gap: 8px; }
-  .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C8 (2026-09-29): the two
+     lesson cards' titles ("Key takeaways", "Practice exercise") and their
+     icons are the signal orange, on the card's paper-raised (4.54:1 as text;
+     the icon needs 3:1). Their edges are unchanged; the progress bars and
+     the lesson's links are unchanged (walkthrough 47, Q80 and Q81).
+     Recorded in UI_OVERHAUL_PLAN.md §3.2's signal row. */
+  .otter-lesson-card .ui-card-title { display: flex; align-items: center; gap: 8px; color: var(--color-signal); }
+  .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
   .otter-takeaways { display: flex; flex-direction: column; gap: 4px; color: var(--color-ink-2); }
   .otter-takeaways > li { display: flex; align-items: flex-start; gap: 8px; }
   /* The bullet's 14px glyph on its first line: (21 - 14) / 2 is 3.5, which

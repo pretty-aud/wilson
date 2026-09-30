@@ -178,6 +178,11 @@ const PAIRS = [
   ['ink-light on signal (everything smaller on the frame)', T.INK_LIGHT, T.SIGNAL, 4.5],
   ['ink-light knob on the signal switch track (non-text)', T.INK_LIGHT, T.SIGNAL, 3],
   ['ink-light knob on the ink-3 switch track (non-text)', T.INK_LIGHT, T.INK_3, 3],
+  // the signal as an INK, never a fill — Audrey's named exceptions
+  // (post-overhaul S2a, C3 and C8; UI_OVERHAUL_PLAN §3.2, the signal row)
+  ['signal as an ink on paper (O.T.T.E.R.\'s "Course library")', T.SIGNAL, T.PAPER, 4.5],
+  ['signal as an ink on paper-raised (D.O.G.\'s section titles and numerals, the lesson cards\' titles and icons)', T.SIGNAL, T.PAPER_RAISED, 4.5],
+  ['signal as an ink on paper-recessed (the key caps\' text in both hotkey tables)', T.SIGNAL, T.PAPER_RECESSED, 4.5],
   // light surfaces: one ink
   ['ink-light on ground-light', T.INK_LIGHT, T.GROUND_LIGHT, 4.5],
   ['ink-light on well-light', T.INK_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT), 4.5],
@@ -268,6 +273,16 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
     for (const g of grounds) expect(contrast(T.INK_3, g), g).toBeLessThan(4.5)
     // …and the second ink clears all three.
     for (const g of grounds) expect(contrast(T.INK_2, g), g).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the signal as an ink under the hover wash or on its own tint (S2a) — why D.O.G.\'s section titles revert to the ink on hover', () => {
+    // Option c (Audrey's C3): the titles are orange at rest and the ink under
+    // the pointer, because on the header's wash the signal is 3.88:1.
+    expect(contrast(T.SIGNAL, over(T.HOVER, T.PAPER_RAISED))).toBeLessThan(4.5)
+    expect(contrast(T.SIGNAL, over(T.HOVER, T.PAPER))).toBeLessThan(4.5)
+    expect(contrast(T.SIGNAL, over(T.SIGNAL_TINT, T.PAPER))).toBeLessThan(4.5)
+    // …and the ink it reverts to clears the wash.
+    expect(contrast(T.INK, over(T.HOVER, T.PAPER_RAISED))).toBeGreaterThanOrEqual(4.5)
   })
 
   it('the ink at 48 percent — the number six reviews copied', () => {

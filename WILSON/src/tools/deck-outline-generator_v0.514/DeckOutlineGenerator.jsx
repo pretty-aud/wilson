@@ -4168,7 +4168,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               data-collapsed={section1Collapsed}
               onClick={() => setSection1Collapsed(!section1Collapsed)}
             >
-              <h2 className="ui-panel-title dog-card-title">
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
                 Project documentation & deck context
               </h2>
@@ -4464,7 +4464,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               data-collapsed={section2Collapsed || fullDeckMode}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
             >
-              <h2 className="ui-panel-title dog-card-title">
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">2</span>
                 Generate page outline
                 {fullDeckMode && <span className="dog-card-note">(Disabled in full deck mode)</span>}

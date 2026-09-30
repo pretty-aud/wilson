@@ -1194,3 +1194,54 @@ function groundLuminance(value) {
   const hex = mix ? flat(mix[1], Number(mix[2]) / 100) : one ? flat(one[1]) : null
   return hex ? luminance(hex) : null
 }
+
+// ── O.T.T.E.R.'s orange, exactly (post-overhaul S2a; Audrey's C8) ──────────
+// "Course library", the key caps' text in both hotkey tables, and the two
+// lesson cards' titles and icons are the signal as an INK — each on a ground
+// where it is legible (tokens.test.js: paper 4.91, paper-recessed 5.55,
+// paper-raised 4.54) and none on the hover wash. Her complete list; recorded
+// as her exception in UI_OVERHAUL_PLAN.md §3.2. These guards stop a later
+// session correcting it out, or spreading it to the titles she did not name.
+describe('O.T.T.E.R.\'s orange, exactly (S2a, C8)', () => {
+  const OTTER_JSX = JSX_FILES[0]
+  const signalRules = (css) => allRules(css).flatMap((r) => {
+    const d = decls(r.body).filter(([p]) => p === 'color').pop()
+    return d && d[1] === 'var(--color-signal)' ? splitTop(r.sel).map((s) => s.trim()) : []
+  }).sort()
+  it('the signal colours exactly these rules: the four new ones and two status icons from before S2a', () => {
+    expect(signalRules(RAW)).toEqual([
+      '.otter-lock-icon', ".otter-val-queue-row[data-status='in-progress'] .otter-val-status-icon",
+      '.otter-library-title .ui-section-title', '.otter-hk-card .ui-kbd',
+      '.otter-lesson-card .ui-card-title', '.otter-card-icon',
+    ].sort())
+  })
+  it('"Course library" is the one view title that takes it; "Keyboard shortcuts", "Functions reference" and the quiz titles do not', () => {
+    const carriers = [...OTTER_JSX.matchAll(/className="([^"]*\botter-library-title\b[^"]*)"/g)]
+    expect(carriers).toHaveLength(1)
+    // …and it is the SectionTitle whose text is "Course library".
+    const at = OTTER_JSX.indexOf('otter-library-title')
+    const close = OTTER_JSX.indexOf('</SectionTitle>', at)
+    expect(OTTER_JSX.slice(at, close)).toMatch(/>\s*Course library\s*$/)
+    // CONTROL: the other view titles are still titled, and not by this class.
+    for (const t of ['Keyboard shortcuts', 'Functions reference']) expect(OTTER_JSX).toContain(t)
+  })
+  it('the key caps: one rule on the card class both hotkey tables carry, the cap\'s edge and fill untouched, the Search dialog\'s dim still wins', () => {
+    const cards = [...OTTER_JSX.matchAll(/<Card pad=\{false\} className="([^"]*\botter-hk-card\b[^"]*)">/g)].map((m) => m[1])
+    expect(cards).toEqual(['otter-hk-card otter-search-hk', 'otter-hk-card'])
+    const rule = allRules(RAW).find((r) => splitTop(r.sel).map((s) => s.trim()).includes('.otter-hk-card .ui-kbd'))
+    expect(decls(rule.body)).toEqual([['color', 'var(--color-signal)']])
+    const dim = ".otter-search-hk .ui-tr[data-inactive='true'] .ui-kbd"
+    expect(allRules(RAW).some((r) => splitTop(r.sel).map((s) => s.trim()).includes(dim))).toBe(true)
+    expect(compareSpecificity(specificity(dim), specificity('.otter-hk-card .ui-kbd'))).toBeGreaterThan(0)
+  })
+  it('the lesson cards: both titles and both icons, on the card class, and the card\'s edge unchanged', () => {
+    expect([...OTTER_JSX.matchAll(/className="otter-lesson-card"\s+title=\{<><(\w+) className="otter-card-icon"/g)].map((m) => m[1]))
+      .toEqual(['Star', 'Lightbulb'])
+    const card = allRules(RAW).find((r) => r.sel.trim() === '.ui-card.otter-lesson-card')
+    expect(decls(card.body).some(([p]) => /^border/.test(p))).toBe(false)
+  })
+  it('CONTROL: the reader sees an orange spread to every view title, and a key-cap rule the dim would lose to', () => {
+    expect(signalRules('.otter-view-title .ui-section-title { color: var(--color-signal); }')).toEqual(['.otter-view-title .ui-section-title'])
+    expect(compareSpecificity(specificity(".otter-search-hk .ui-tr[data-inactive='true'] .ui-kbd"), specificity('.otter-search-hk .otter-hk-card .ui-tr .ui-td .ui-kbd'))).toBeLessThan(0)
+  })
+})

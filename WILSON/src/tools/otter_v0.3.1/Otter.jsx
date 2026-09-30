@@ -4245,7 +4245,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           {renderLibrarySourceNotice()}
           <SectionTitle
             rule={false}
-            className="otter-view-title"
+            className="otter-view-title otter-library-title"
             actions={
               <>
                 <Select
