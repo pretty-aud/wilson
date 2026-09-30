@@ -128,7 +128,15 @@ const measure = () => page.evaluate(() => {
     // S1 review round 1: EVERY row, not the first of each kind — its rule on
     // both halves, and a name's computed colour (not only its contrast).
     allRules: labels.map((l, i) => ({ i, kind: l.classList.contains('rb-tl-dz') ? 'dz' : l.dataset.shape, label: rule(l), chart: rule(charts[i]) })),
-    inks: labels.filter((l) => l.classList.contains('rb-tl-row')).map((l, i) => ({ i, shape: l.dataset.shape, color: hex(parse(getComputedStyle(l.querySelector('.rb-tl-row-label')).color)) })),
+    // The EFFECTIVE ink (S1 review round 2): the computed colour, the text
+    // fill that can paint over it, and the opacity down from the row.
+    inks: labels.filter((l) => l.classList.contains('rb-tl-row')).map((l, i) => {
+      const n = l.querySelector('.rb-tl-row-label'); const cs = getComputedStyle(n);
+      let opacity = 1;
+      for (let e = n; e && e !== l.parentElement; e = e.parentElement) opacity *= Number(getComputedStyle(e).opacity);
+      const fill = parse(cs.webkitTextFillColor || cs.color);
+      return { i, shape: l.dataset.shape, color: hex(parse(cs.color)), fill: fill ? hex(fill) : null, opacity, visible: cs.visibility === 'visible' };
+    }),
     edge: `${getComputedStyle(gutter).borderRightWidth} ${hex(over(edge, PAPER))} ${ratio(over(edge, PAPER), PAPER).toFixed(2)}:1`,
     taskInk: ink(task), phaseInk: ink(phase),
     phaseBandLabel: phase ? hex(ground(phase)) : '-', phaseBandChart: phase ? getComputedStyle(charts[labels.indexOf(phase)]).backgroundColor : '-',
@@ -142,6 +150,11 @@ async function hoverPair(shape, which) {
   const label = page.locator('.rb-tl-gutter > .rb-tl-row, .rb-tl-gutter > .rb-tl-dz').nth(idx);
   const chart = page.locator('[data-chart-body] > .rb-tl-chart-row, [data-chart-body] > .rb-tl-chart-dz').nth(idx);
   const target = which === 'label' ? label : chart;
+  // S1 review round 2: bring the row into view first (vertically only — the
+  // gutter half is pinned to the left), or a grouping whose first task row
+  // sits below the fold (scene, 88 rows) hovers nothing.
+  await label.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await sleep(80);
   const box = await target.boundingBox();
   const y = box.y + box.height / 2;
   // A chart row: a point where the row ITSELF is what the pointer hits —
@@ -216,18 +229,18 @@ for (const z of ZOOMS) {
     ? !(RULE.test(r.label) && r.label === r.chart)
     : !(RULE.test(r.label) && NONE.test(r.chart))));
   const INK = { task: '#f5f0ec', phase: '#fb923c', subgroup: '#fb923c' };
-  const badInks = m.inks.filter((x) => x.color !== INK[x.shape]);
-  // The phase grouping always has "+ New task" rows under its expanded
-  // phases: none found means the check above never saw one.
-  const noDz = GROUP === 'phase' && !m.allRules.some((r) => r.kind === 'dz');
+  const badInks = m.inks.filter((x) => x.color !== INK[x.shape] || x.fill !== x.color || x.opacity !== 1 || !x.visible);
+  // The phase and team groupings have "+ New task" rows under their expanded
+  // groups: none found means the rule check above never saw one.
+  const noDz = (GROUP === 'phase' || GROUP === 'team') && !m.allRules.some((r) => r.kind === 'dz');
   const ruleOk = badRules.length === 0 && badInks.length === 0 && !noDz;
   if (badRules.length) console.log(`         ✗ ${badRules.length} rows break the rule: ${badRules.slice(0, 3).map((r) => `row ${r.i} ${r.kind} "${r.label}" | "${r.chart}"`).join('; ')}`);
-  if (badInks.length) console.log(`         ✗ ${badInks.length} names in the wrong ink: ${badInks.slice(0, 3).map((x) => `row ${x.i} ${x.shape} ${x.color}`).join('; ')}`);
-  if (noDz) console.log('         ✗ no "+ New task" row in the phase grouping');
+  if (badInks.length) console.log(`         ✗ ${badInks.length} names in the wrong ink: ${badInks.slice(0, 3).map((x) => `row ${x.i} ${x.shape} ${x.color} fill ${x.fill} opacity ${x.opacity}${x.visible ? '' : ' hidden'}`).join('; ')}`);
+  if (noDz) console.log(`         ✗ no "+ New task" row in the ${GROUP} grouping`);
   console.log(`         every row: ${m.allRules.length} rules, ${m.inks.length} names checked`);
   console.log(`         rule task: label "${m.ruleLabel}"  chart "${m.ruleChart}"`);
   console.log(`         rule group: label "${m.phaseRuleLabel}"  chart "${m.phaseRuleChart}"`);
-  console.log(`         rule + new task: label "${m.dzRuleLabel}"  chart "${m.dzRuleChart}"${ruleOk ? '' : '   ✗ not the S1 rule (task and + New task: gutter only; group: both)'}`);
+  console.log(`         rule + new task: label "${m.dzRuleLabel}"  chart "${m.dzRuleChart}"`);
   console.log(`         edge ${m.edge}   band label ${m.phaseBandLabel} chart ${m.phaseBandChart}`);
   const groupKey = `${GROUP === 'phase' ? 'phase' : 'subgroup'}:label`;
   const hovered = hoverInk[groupKey];

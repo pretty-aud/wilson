@@ -90,6 +90,21 @@ export function calendarDaysBetween(a, b) {
 }
 
 /**
+ * The Tasks view's two tiles for a project, as of `today`: the whole calendar
+ * days it has run (its first day is 0) and has left, never below 0; '—' for a
+ * date it does not have. A pure function so the arithmetic is tested, not
+ * only the helper under it (S1 review round 2).
+ */
+export function projectDayCounts(project, today = new Date()) {
+  const remaining = calendarDaysBetween(today, project?.end_date)
+  const passed = calendarDaysBetween(project?.start_date, today)
+  return {
+    daysRemaining: remaining == null ? '—' : Math.max(remaining, 0),
+    daysPassed: passed == null ? '—' : Math.max(passed, 0),
+  }
+}
+
+/**
  * A stored date as a reader sees it: the system's short date by default (the
  * pattern `ProjectTasksView` used, so a key date and the date inputs beside
  * it read alike), or the `Intl` options given. `locale` picks the locale

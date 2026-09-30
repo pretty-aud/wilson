@@ -48,7 +48,7 @@ import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import MilestoneTrashModal from '../components/MilestoneTrashModal'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
-import { calendarDaysBetween, toIsoDate, showDate } from '../dates.js'
+import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
   HoverActions, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus,
@@ -520,23 +520,12 @@ export default function ProjectTasksView() {
     const omitted = tasks.filter(t => t.status === 'omitted').length
     const remaining = tasks.length - completed - omitted
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    let daysRemaining = '—'
-    let daysPassed = '—'
-
-    // Post-overhaul S1 (rulings B3, B5): the project's dates are read as the
-    // local day they name (dates.js; `new Date('2026-12-01')` is the 30th
-    // here), and the days between are counted on the local calendar
-    // (`calendarDaysBetween` rounds; `Math.ceil` made the hour a daylight-
-    // saving change adds an extra day, and for a December end seen in
-    // September the two errors cancelled).
-    const remainingDays = calendarDaysBetween(today, project?.end_date)
-    if (remainingDays != null) daysRemaining = Math.max(remainingDays, 0)
-
-    const passedDays = calendarDaysBetween(project?.start_date, today)
-    if (passedDays != null) daysPassed = Math.max(passedDays, 0)
+    // Post-overhaul S1 (rulings B3, B5): the two day tiles are dates.js's
+    // projectDayCounts — the project's dates read as the local days they
+    // name (`new Date('2026-12-01')` is the 30th here), counted on the local
+    // calendar (`Math.ceil` made the hour a daylight-saving change adds a
+    // day; for a December end seen in September the two errors cancelled).
+    const { daysRemaining, daysPassed } = projectDayCounts(project, new Date())
 
     return { remaining, completed, daysRemaining, daysPassed }
   }, [tasks, project?.start_date, project?.end_date])

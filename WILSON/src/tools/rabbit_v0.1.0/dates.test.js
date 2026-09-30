@@ -12,7 +12,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { parseIsoDate, toIsoDate, showDate, calendarDaysBetween } from './dates.js'
+import { parseIsoDate, toIsoDate, showDate, calendarDaysBetween, projectDayCounts } from './dates.js'
 import { jsCode } from './rabbitCssGuards.js'
 
 // The zone to go back to, read BEFORE any switch. Deleting TZ does not
@@ -121,11 +121,36 @@ describe('calendarDaysBetween: whole days on the local calendar (the Tasks view\
     expect(calendarDaysBetween('2026-12-18', '2026-10-15')).toBe(-64)
     expect(calendarDaysBetween(null, '2026-12-18')).toBeNull()
   })
-  it('CONTROL: the arithmetic it replaced (Math.ceil of the milliseconds between two local midnights) counts the gained hour as a day', () => {
+  it('east of UTC too (review round 2: a later date read with `new Date(s)` and ceiled passes every New York case and gives 65 in Tokyo)', (ctx) => {
+    if (!inZone('Asia/Kolkata')) ctx.skip('this runner could not switch to Asia/Kolkata') // +5:30, no daylight saving
+    expect(calendarDaysBetween('2026-10-15', '2026-12-18')).toBe(64)
+    expect(calendarDaysBetween(new Date(2026, 9, 15, 21, 30), '2026-12-18')).toBe(64)
+    process.env.TZ = 'Asia/Tokyo'
+    if (new Date(2026, 11, 1).getTimezoneOffset() !== -540) ctx.skip('this runner could not switch to Asia/Tokyo')
+    expect(calendarDaysBetween('2026-10-15', '2026-12-18')).toBe(64)
+    // What that fault computes, here: the later date at 09:00, ceiled.
+    expect(Math.ceil((new Date('2026-12-18') - new Date(2026, 9, 15)) / 86400000)).toBe(65)
+  })
+  it('CONTROL: Math.ceil of the milliseconds between two local midnights (the tiles\' original arithmetic, with the parse already fixed) counts the gained November hour as a day', () => {
     inZone('America/New_York')
     const [a, b] = [new Date(2026, 9, 15), new Date(2026, 11, 18)]
     expect(Math.ceil((b - a) / 86400000)).toBe(65)
   })
+})
+
+describe('projectDayCounts: the Tasks view\'s "Days remaining" and "Days passed" (review round 2: the arithmetic, not only its helper)', () => {
+  const P = { start_date: '2026-08-03', end_date: '2026-12-18' }
+  for (const tz of ['America/New_York', 'Pacific/Kiritimati']) {
+    it(`in ${tz}: an evening "today" in the middle, the first day, before the start, after the end, and no dates`, (ctx) => {
+      if (!inZone(tz)) ctx.skip(`this runner could not switch to ${tz}`)
+      expect(projectDayCounts(P, new Date(2026, 8, 30, 21, 30))).toEqual({ daysRemaining: 79, daysPassed: 58 })
+      expect(projectDayCounts(P, new Date(2026, 7, 3, 9, 0))).toEqual({ daysRemaining: 137, daysPassed: 0 })
+      expect(projectDayCounts(P, new Date(2026, 6, 1))).toEqual({ daysRemaining: 170, daysPassed: 0 })
+      expect(projectDayCounts(P, new Date(2027, 0, 5))).toEqual({ daysRemaining: 0, daysPassed: 155 })
+      expect(projectDayCounts({ start_date: null, end_date: '' }, new Date(2026, 8, 30))).toEqual({ daysRemaining: '—', daysPassed: '—' })
+      expect(projectDayCounts(null, new Date(2026, 8, 30))).toEqual({ daysRemaining: '—', daysPassed: '—' })
+    })
+  }
 })
 
 describe('showDate: a stored date as a reader sees it', () => {
@@ -152,13 +177,42 @@ const CONSUMERS = {
   'the Projects page (P1-20)': '../../components/Projects/ProjectListPanel.jsx',
 }
 const source = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
+/** Every call to `name(` in code, with its FIRST argument (a paren-depth
+    scan, so `new Date(a.b || f(c))` is read whole). */
+function firstArgs(code, name) {
+  const out = []
+  const re = new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\(`, 'g')
+  let m
+  while ((m = re.exec(code))) {
+    let depth = 1, i = re.lastIndex, arg = null
+    for (; i < code.length && depth > 0; i++) {
+      const c = code[i]
+      if ('([{'.includes(c)) depth++
+      else if (')]}'.includes(c)) depth--
+      else if (c === ',' && depth === 1 && arg === null) arg = code.slice(re.lastIndex, i)
+    }
+    out.push({ call: code.slice(m.index, i), arg: (arg ?? code.slice(re.lastIndex, i - 1)).trim() })
+  }
+  return out
+}
+/** A first argument that can be a stored date string: a stored field read
+    off a row (dotted, optional-chained or bracketed), a template, or a bare
+    name the old code used for one. */
+const STORED_ARG = /(?:\.|\?\.)\s*(?:start_date|end_date|due_date|date)\b|\[\s*['"`](?:start_date|end_date|due_date|date)['"`]\s*\]|\$\{|^(?:value|iso|s|str|dateStr|raw)$/
 /** The defect's spellings in code (comments stripped): a stored date handed
-    to `new Date(…)` — directly, or through the Timeline's `startOfDay` /
-    `addDays`, which clone with `new Date(d)` (review round 1) — and a date
-    cut out of the UTC `toISOString()`. */
-const rawDateReads = (src) => [...jsCode(src).matchAll(
-  /new Date\(\s*(?:[\w?]+(?:\.|\?\.))*(?:start_date|end_date|due_date|date|startDate|endDate|value|iso)\s*\)|(?:startOfDay|addDays)\(\s*(?:[\w?]+(?:\.|\?\.))+(?:start_date|end_date|due_date|date)\s*[,)]|toISOString\(\)\s*\.\s*(?:slice|split|substring|substr)\(/g,
-)].map((m) => m[0])
+    to `new Date(…)`, directly or through the Timeline's `startOfDay` /
+    `addDays` (they clone with `new Date(d)`), and — banned outright in these
+    three files, review round 2 — the UTC readers `Date.parse`, `toJSON()`
+    and `toISOString()`. */
+const rawDateReads = (src) => {
+  const code = jsCode(src)
+  const bad = []
+  for (const name of ['new Date', 'startOfDay', 'addDays']) {
+    for (const { call, arg } of firstArgs(code, name)) if (STORED_ARG.test(arg)) bad.push(call)
+  }
+  for (const m of code.matchAll(/Date\.parse\(|\.toJSON\(\)|\.toISOString\(\)/g)) bad.push(m[0])
+  return bad
+}
 const importsHelper = (src) => /import\s*\{[^}]*\}\s*from\s*'(?:\.\.?\/)+(?:tools\/rabbit_v0\.1\.0\/)?dates\.js'/.test(jsCode(src))
 
 describe('the Timeline, the Tasks view and the Projects page read dates through dates.js (B5)', () => {
@@ -186,9 +240,14 @@ describe('the Timeline, the Tasks view and the Projects page read dates through 
     expect(rawDateReads("ctx.addMilestone({ date: new Date().toISOString().slice(0, 10) })")).toHaveLength(1)
     expect(rawDateReads("return new Date(iso).toLocaleDateString('en-US')")).toHaveLength(1)
     // A stored string through the Timeline's cloning helpers is the same read.
-    expect(rawDateReads('const s = addDays(task.start_date, 2)\nconst x = startOfDay(ms.date)')).toHaveLength(2)
-    // …and what the files keep is not: now, a Date copied, a timestamp's getTime, a Date's arithmetic.
-    expect(rawDateReads('const t = new Date()\nconst x = new Date(d)\nnew Date(today.getTime() + 1)\naddDays(span.start, 3)\nstartOfDay(new Date())\naddDays(startDate, 7)')).toEqual([])
+    expect(rawDateReads('const s = addDays(task.start_date, 2)\nconst x = startOfDay(ms.date)\nconst y = startOfDay(value)')).toHaveLength(3)
+    // Review round 2's spellings, each caught.
+    for (const s of [
+      'new Date(project.end_date || 0)', 'new Date(`${x.start_date}`)', "new Date(x['start_date'])", "new Date(row.end_date + '')",
+      'Date.parse(x.date)', 'd.toJSON().slice(0, 10)', "d.toISOString().replace(/T.*/, '')",
+    ]) expect(rawDateReads(s), s).toHaveLength(1)
+    // …and what the files keep is not: now, a Date copied, a timestamp's getTime, a Date's arithmetic, the y-m-d constructor.
+    expect(rawDateReads('const t = new Date()\nconst x = new Date(d)\nnew Date(today.getTime() + 1)\naddDays(span.start, 3)\nstartOfDay(new Date())\naddDays(startDate, 7)\nnew Date(y, m - 1, day)')).toEqual([])
     // A comment that names the defect is not code.
     expect(rawDateReads('// `new Date(value)` read it as UTC midnight')).toEqual([])
     expect(importsHelper("import { showDate } from '../../tools/rabbit_v0.1.0/dates.js'")).toBe(true)

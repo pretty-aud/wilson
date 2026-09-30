@@ -74,6 +74,16 @@ on the first day that is drawn, Monday the 3rd or the 2nd.
 or Sunday drew the weekend shading but not the month's bold line. It draws
 both now.
 
+**A problem you will meet there, older than this pass and not fixed yet.**
+With "Show weekends" off, switching into or out of Day view moves the gantt
+to a different part of the year (from mid-September to mid-December, when I
+measured it), the minimap's outlined box shows the wrong weeks, and the
+gantt's "Today" button lands past today. With weekends shown none of this
+happens. It comes from the Timeline measuring its scroll position as if the
+hidden weekend columns were still there. It is recorded for the next
+session that works on the Timeline. To look at the weekend month labels,
+scroll the gantt back to August or November by hand after switching.
+
 Shots:
 - Week zoom, late November into December: `po-s1-week-nov-dec-before-1440x900.png` → `po-s1-week-nov-dec-after-1440x900.png`.
 - Day zoom, the month name at December 1: `po-s1-day-dec-before-1440x900.png` → `po-s1-day-dec-after-1440x900.png`.
@@ -117,9 +127,11 @@ against what is stored:
 **Creating a task where you point (your B8a).** Clicking "+ New task" in the
 gantt starts the task on the day under the pointer. It used to round to the
 nearest line, so a click past the middle of a day made the task on the next
-day. The faint preview bar that follows the pointer now shows exactly where
-the task will land: that day and the six after it (it used to sit centred on
-the pointer). Dragging on an empty row to draw a task covers every day you
+day. The faint preview bar that follows the pointer now covers exactly
+where the task will land: that day and the six after it, at every zoom (it
+used to sit centred on the pointer, and at Month and Quarter zoom it was
+drawn longer than the week). At those two zooms the bar is narrow, so its
+"+ New task" label is cut short. Dragging on an empty row to draw a task covers every day you
 drag across, the one you let go on included. With weekends hidden, both
 count only the days you can see; they used to count the hidden weekend
 columns too.
@@ -132,16 +144,21 @@ day. That is a question for you, below.
 
 **The same fix elsewhere (your B5).** The Projects page showed every
 project's start and end one day early; it reads them correctly now. On the
-Tasks tab, "Days passed" and "Days remaining" could each be a day out (the
-same misread date, plus a day counted twice across the autumn clock change);
-both count correctly now. The Tasks tab's "Key date" button made the key
-date on tomorrow if you pressed it in the evening; it uses today now.
+Tasks tab, **"Days passed" now reads one less** than it did: the start date
+was read a day early, so the count had an extra day in it (on a project's
+first day it now reads 0). "Days remaining" reads the same today, but only
+because a second mistake cancelled the first — a day counted twice across
+the November clock change — so after that change it would have been a day
+short; both count on the calendar now. The Tasks tab's "Key date" button
+made the key date on tomorrow if you pressed it in the evening; it uses
+today now.
 
 **Your old data (your B4).** As you said, nothing goes back through old
-dates. What could have drifted is anything saved from the phase, asset or
-key-date editors, a phase dragged with its tasks, or a minimap bar dragged
-and released, on this machine, before this change. Each of those could have
-stored a date one day earlier than you picked.
+dates. What could have drifted, on this machine, before this change: anything
+saved from the phase, asset or key-date editors, a phase dragged with its
+tasks, or a minimap bar dragged and released — each could have stored a date
+one day EARLIER than you picked — and a key date made with the Tasks tab's
+"Key date" button in the evening, which stored one day LATER.
 
 ## 4. No line under task rows in the gantt (your B6)
 
@@ -168,7 +185,9 @@ A few things came with it:
 - **Zooming out keeps your place.** Switching from Day or Week to Month or
   Quarter used to jump the gantt months back (Week to Quarter moved its
   first date from mid-September to mid-May). It now keeps the same first
-  date on screen, as zooming in always did.
+  date on screen, as zooming in always did — unless the gantt is already
+  scrolled to the end of its range, where it can only stop at the end. (With
+  "Show weekends" off, Day view still moves it: the problem in section 2.)
 - The first moment after a zoom change used to draw the box in the wrong
   place for one frame; it no longer does.
 - The box also slides when a zoom change takes it off the minimap's edge or
@@ -196,3 +215,6 @@ outlined box in the minimap.
    last day" everywhere? It changes how every bar is drawn and every date
    is saved, so it would be its own small session. Until you say, nothing
    changes.
+4. **Days passed on the first day.** On a project's first day the Tasks
+   tab's "Days passed" reads 0 now (before, a misread date made it 1).
+   Should the first day count as day 1?

@@ -316,6 +316,11 @@ describe('the gantt\'s header and grid, rendered — post-overhaul S1 (rulings B
     const tints = lefts(container, '.rb-tl-weekend')
     expect(tints).toContain(0)
     expect(tints).toContain(92 * P)
+    // …the line AFTER the tint, so it paints over it (review round 2).
+    const order = (x) => [...container.querySelectorAll('.rb-tl-weekend, .rb-tl-grid-major')]
+      .filter((el) => px(el, 'left') === x).map((el) => (el.classList.contains('rb-tl-grid-major') ? 'line' : 'tint'))
+    expect(order(0)).toEqual(['tint', 'line'])
+    expect(order(92 * P)).toEqual(['tint', 'line'])
     // Every day keeps its label, the month's start its month.
     const t = ticks(container)
     expect(t.filter((x) => x.left < 100 * P && !x.label)).toEqual([])

@@ -503,12 +503,18 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // 15 Sep 2026 to 16 May, measured).
   const lastScrollRef = useRef(0)
 
+  // S1 review round 2: attached when the gantt EXISTS. With `[]` it ran
+  // once, and a Timeline opened while the project was still loading (the
+  // no-project return below renders no gantt) never listened — the scroll
+  // state, and now the re-anchoring's lastScrollRef, went stale for good.
+  const hasProject = !!project
   useEffect(() => {
     const el = detailRef.current
     if (!el) return
     function onScroll() { lastScrollRef.current = el.scrollLeft; setDetailScrollLeft(el.scrollLeft) }
     function onResize() { setDetailViewportW(el.clientWidth) }
     onResize()
+    onScroll()
     el.addEventListener('scroll', onScroll)
     const ro = new ResizeObserver(onResize)
     ro.observe(el)
@@ -516,7 +522,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       el.removeEventListener('scroll', onScroll)
       ro.disconnect()
     }
-  }, [])
+  }, [hasProject])
 
   // First mount: scroll detail to today so the user lands on
   // something useful instead of the very start of the buffer.
@@ -526,6 +532,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     if (!detailRef.current) return
     const todayDays = daysBetween(overviewSpan.start, TODAY)
     detailRef.current.scrollLeft = Math.max(0, todayDays * DAY_PX - 200)
+    lastScrollRef.current = detailRef.current.scrollLeft // S1 review round 2: a scripted scroll is a scroll
     didCenterOnTodayRef.current = true
   }, [overviewSpan.start, DAY_PX])
 
@@ -613,6 +620,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     if (!detailRef.current) return
     const px = Math.max(0, dayOffset * DAY_PX)
     detailRef.current.scrollLeft = px
+    lastScrollRef.current = detailRef.current.scrollLeft
   }
 
   // Center the detail viewport on today (or any date offset). Used
@@ -626,6 +634,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     const viewportContentW = Math.max(100, (el.clientWidth || detailViewportW) - LABEL_W)
     const targetPx = todayDays * DAY_PX - viewportContentW / 2
     el.scrollLeft = Math.max(0, targetPx)
+    lastScrollRef.current = el.scrollLeft
   }
 
   // ── overview measurement ────────────────────────────────
@@ -2944,12 +2953,21 @@ export function DetailPane({
                 // cell under the pointer and spans the seven days "+ New task"
                 // proposes, the weekend mask honoured, so it shows where the
                 // click lands. It was centred on the pointer and 7 × dayPx
-                // wide. (At least 60px, as it was, so its label fits.)
+                // wide. Review round 2: exactly those seven days at every
+                // zoom (a 60px minimum made it 7.5 days at Month and 15 at
+                // Quarter; its label truncates instead), never past the
+                // chart's end, and — with no pointer (a task dragged over the
+                // gutter's row) — centred on today through the weekend mask.
                 const mouseXInChart = isDzHover && dropZoneHover?.mouseX != null
                   ? dropZoneHover.mouseX
                   : null
                 const ghostDay = mouseXInChart != null ? dayIndexAtX(mouseXInChart, dayPx, dayMask?.mask) : null
-                const ghostWidth = Math.max(60, ghostDay != null ? dayToX(ghostDay + 7) - dayToX(ghostDay) : 7 * dayPx)
+                const ghostFrom = ghostDay != null ? ghostDay : Math.max(0, todayDays)
+                const ghostSpan = dayToX(ghostFrom + 7) - dayToX(ghostFrom)
+                const ghostLeft = ghostDay != null
+                  ? dayToX(ghostDay)
+                  : (isReparentHoverDz ? Math.max(0, dayToX(ghostFrom) - ghostSpan / 2) : 0)
+                const ghostWidth = Math.max(0, Math.min(ghostSpan, effectiveChartW - ghostLeft))
                 return (
                   <div
                     key={r.key}
@@ -3008,11 +3026,7 @@ export function DetailPane({
                       <div
                         className="absolute rounded-control flex items-center justify-center pointer-events-none rb-tl-dz-ghost"
                         style={{
-                          left: ghostDay != null
-                            ? dayToX(ghostDay)
-                            : (isReparentHoverDz
-                                ? Math.max(0, todayDays * dayPx - ghostWidth / 2)
-                                : 0),
+                          left: ghostLeft,
                           width: ghostWidth,
                           top: 4,
                           height: rowPx - 8,
