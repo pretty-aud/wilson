@@ -85,7 +85,11 @@ jobs:
           )
           MISSING=()
           for t in "${RLS_TABLES[@]}"; do
-            if ! ls supabase/tests/rls/*_"${t}".sql >/dev/null 2>&1; then
+            # NN_<table>.sql exactly — not *_<table>.sql, which
+            # 80_private_projects.sql also satisfies for `projects` (merge
+            # review round 2, A-R2-05): a column suite must never stand in
+            # for a table's own.
+            if ! ls supabase/tests/rls/[0-9][0-9]_"${t}".sql >/dev/null 2>&1; then
               MISSING+=("${t}")
             fi
           done
@@ -296,9 +300,13 @@ jobs:
           # guard above cannot demand them and THIS LIST IS THEIR ONLY
           # REGISTRATION; a failure in either was unreadable in CI. So is
           # 82_private_project_definers.sql (0082: two SECURITY DEFINER
-          # bodies gain the private-project arm — functions, not a table).
-          # None of the three names ends in a table name, so the *_<table>.sql
-          # glob cannot mistake them for coverage of anything.
+          # bodies and two milestone write policies gain the private-project
+          # arm). ⚠️ 80_private_projects.sql DOES end in a table name — it
+          # matched the guard's old *_projects.sql glob, and would have stood
+          # in for 01_projects.sql had that file gone (round 1's note said
+          # none of the three could; merge review round 2, A-R2-05). The
+          # guard above now matches NN_<table>.sql exactly, which none of
+          # 80, 81 or 82 satisfies for any table in RLS_TABLES.
           # otter_quiz_attempts (0045, suite 55) joined RLS_TABLES above in
           # the same round: the table has had RLS and a suite since S30 and
           # was never in the guard. All 75 are here.

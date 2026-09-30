@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { _resetOverlaysForTests, focusableWithin } from '../../../ui/overlay'
+import { ToastProvider } from '../../../ui/Toast'
 import { STATUS } from '../../../ui/StatusDot'
 import { formatSceneCode, formatShotCode } from '../entityNaming'
 
@@ -1137,12 +1138,21 @@ describe('review round one', () => {
       dismissUndoToast: vi.fn(),
       ingestionRun: { phase: 'done', chunksDone: 3, chunksTotal: 3, fileCount: 1 },
     }
-    render(<><UndoToast /><IngestionToast /></>)
+    // The Undo is the kit stack's PINNED row since the Track A merge's review
+    // round 2 (A-R2-02): it rides the stack's layer and anchor and restates
+    // neither, so the same layer holds by containment rather than by a copied
+    // number. The ingestion toast is still a fixed surface of its own.
+    render(<ToastProvider bar="8px" pinned={<UndoToast />}><IngestionToast /></ToastProvider>)
     /** A fixed surface's layer: its one z- utility, a number. */
     const zOf = (el) => (el.className.match(/(?:^|\s)z-\[?(\d+)\]?(?=\s|$)/g) || []).map((z) => Number(z.replace(/\D/g, '')))
-    const undo = screen.getByRole('button', { name: 'Undo' }).closest('.fixed')
+    const stack = document.querySelector('.ui-toast-stack')
+    const undoButton = screen.getByRole('button', { name: 'Undo' })
+    expect(stack.contains(undoButton)).toBe(true)
+    const undo = undoButton.closest('.ui-toast-pinned > *')
+    expect(undo.className).not.toMatch(/(?:^|\s)fixed(?:\s|$)/)
+    expect(zOf(undo)).toEqual([])
     const ingestion = screen.getByText('Breakdown ready').closest('.fixed')
-    expect([zOf(undo), zOf(ingestion)]).toEqual([[toastLayer], [toastLayer]])
+    expect(zOf(ingestion)).toEqual([toastLayer])
   })
 
   it('R1-02: a shot\'s description in the scene popup reverts on Escape and the popup stays; the next Escape closes it', () => {

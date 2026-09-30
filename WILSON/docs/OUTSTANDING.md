@@ -1787,3 +1787,52 @@ carried. Audrey's call, then its own migration (the next free number after
 0082) with a suite-80 probe: no workspace-topic message for a private
 project's insert, with a public-project control. 0082's header records the
 shape.
+
+**Correction (round 2, A-R2-03):** "the id the channel leaks now opens
+nothing" was true of the trash paths only. It still opened a WRITE through
+`milestones_insert` / `milestones_update`, whose WITH CHECK gated on
+`can_write_project` alone — closed in 0082 §3b (both WITH CHECKs gain
+`EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id)`, evaluated
+under the caller's `projects_select`; suite 82 probes 20-23). The same gap on
+`tasks` and `assets` is the entry below.
+
+### Round 2 (2026-09-30) — left open, and a numbering correction
+
+- **`tasks_insert`, `tasks_update`, `assets_insert` and `assets_update` (0013)
+  have no hop to the parent project.** PRE-EXISTING on the overhaul parent
+  `60a8981`; MEASURED by merge review round 2 (A-R2-03), NOT fixed here.
+  Their WITH CHECK is workspace + membership + `can_write_project(project_id)`,
+  and `can_write_project` is TRUE for every admin and manager and for every
+  member of an UNSTAFFED project (0013:115-121), with no privacy arm; the
+  populate trigger (0004) fills only a NULL `workspace_id`, so a client that
+  sends its own passes the workspace arm. So the id the workspace channel
+  leaks (the entry above) admits a write: a second manager can insert a task
+  or an asset into another member's private project over PostgREST
+  (supabase-js's `.insert()` without `.select()` sends `Prefer:
+  return=minimal`, so no SELECT policy is consulted), or move an existing row
+  INTO it through UPDATE's WITH CHECK. The fix is the one-line hop 0082 §3b
+  gives `milestones`, in each of the four policies — but it retypes 0013's
+  policies on tables with their own suites (03, 04), so it belongs with the
+  broadcast ruling above: its own migration, the next free number, with
+  suite-03/04 probes of suite 82's shape (the second manager's INSERT throws
+  42501; the same INSERT on the public project lives; a refused move leaves
+  the row where it was).
+- **Enter on a focused page button outside any overlay opens the pet instead
+  of pressing the button.** PRE-EXISTING on the overhaul parent; MEASURED by
+  round 2 (A-R2-04), NOT fixed. App's window-level Enter handler (now
+  `src/lib/companionHotkey.js`) stands down for text controls and — since
+  round 2 — for any kit overlay (`overlayOpen()`, which the status warning
+  registers with) and any `[role="dialog"]` ancestor; that was the finding,
+  and it is closed. It still cancels the keydown when a plain page `<button>`
+  or link has focus and a pet exists, and Chromium activates a focused button
+  on the keypress a cancelled keydown suppresses — so a keyboard user who
+  Tabs to a page button and presses Enter opens the companion. One more arm
+  in `enterTogglesCompanion` (`BUTTON`, `A`, `[role="button"]`) closes it;
+  left out because it changes the shell's page-level behaviour beyond the
+  merge's brief. Audrey's call.
+- **⚠️ Migration 0082 and pgTAP suite 82 are TAKEN by this merge
+  (A-R2-06).** The post-overhaul plan (2026-09-29) names 0082 / suite 82 as
+  the first free numbers for its five feature sessions. Measured across every
+  local and remote ref on 2026-09-30, the next free numbers are **0083 /
+  suite 83**. The plan needs renumbering before any feature session starts;
+  0082's header says the same.

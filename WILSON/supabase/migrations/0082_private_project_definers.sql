@@ -21,8 +21,20 @@
 --      can_write_project — true for every admin and manager, and for EVERY
 --      member on an unstaffed project — with no privacy arm. So the ids the
 --      trash index hands out can be restored into (or trashed out of) someone
---      else's private project, for any of the eight soft-delete tables; and a
---      manager who cannot SELECT a private project can soft-delete it whole.
+--      else's private project, for the seven project-scoped child tables. For
+--      the projects row itself the gate ADMITTED a non-admin and 0014's
+--      admin-only trigger then refused the UPDATE — a refusal from a later
+--      guard, with a different message, after the gate had said yes (merge
+--      review round 2, A-R2-01, corrected this paragraph: round 1 said a
+--      manager could soft-delete a private project whole, which the trigger
+--      never allowed).
+--   3. milestones_insert and milestones_update (0067). Their WITH CHECK is
+--      workspace + membership + can_write_project, with no hop through
+--      projects — the hop only milestones_select carries. So a manager, or
+--      any member of an unstaffed private project, who holds the id can put a
+--      key date INTO it (supabase-js's .insert() without .select() sends
+--      Prefer: return=minimal, so no SELECT policy is ever consulted) or move
+--      an existing one into it (merge review round 2, A-R2-03). §3b.
 --
 -- The overhaul parent (60a8981) has 0072 and no milestones_trash_index; the
 -- track parent (f1a432e) has milestones_trash_index and no is_private. The
@@ -52,9 +64,15 @@
 -- * fn_trash_authz still authorises a restore under a TRASHED parent (0067's
 --   stated behaviour: the restored row is re-hidden by the child SELECT policy
 --   until the parent comes back). The privacy arm does not require the project
---   to be live, only to be the caller's to see; a creator restoring their own
---   trashed private project through restore_soft_deleted('projects', …) is
---   the case that would otherwise break — suite 82 probes 21-24 keep it.
+--   to be live, only to be the caller's to see — an admin restoring a trashed
+--   private project through restore_soft_deleted('projects', …) is the case
+--   that would otherwise break, and suite 82 probes 27-30 keep it. The
+--   projects row itself is the ADMIN's alone to trash or restore: 0014's
+--   fn_soft_delete_stamp refuses every non-admin, creator included, and does
+--   so AFTER this gate — suite 82 probe 26 pins the creator's refusal by the
+--   trigger's message, which is the proof that the arm admitted them first.
+-- * 0014's trigger. This file adds an arm to the gate that runs BEFORE it and
+--   takes nothing from it (0067's post-condition still asserts the guard).
 -- * fn_workspace_realtime_broadcast (0018). It publishes whole projects rows
 --   (and tasks / assets / project_members) to every active member on
 --   rabbit:workspace:{ws} with no privacy check, which is how a private
@@ -63,21 +81,33 @@
 --   decision about what the workspace channel carries (a project flipped to
 --   private would vanish from the other members' index only on their next
 --   refetch), and is NOT this migration's: docs/OUTSTANDING.md records it for
---   its own number. With this file a leaked id opens nothing — the index
---   refuses it and the trash RPCs refuse it — so the leak is a name, not
---   access.
+--   its own number. With this file a leaked id opens neither the trash index
+--   nor the trash RPCs, and (§3b) neither of the milestone write policies —
+--   so for milestones the leak is a name, not access. It is NOT "opens
+--   nothing" across the schema (round 1 said so, and round 2's A-R2-03
+--   corrected it): tasks_insert and assets_insert (0013) have the same
+--   can_write_project-only WITH CHECK, pre-existing on the overhaul parent,
+--   and are recorded beside the broadcast in docs/OUTSTANDING.md.
 --
 -- ORDERING: depends on 0013 (can_write_project, can_comment_project), 0014
--- (fn_trash_authz's shape; soft_delete_row / restore_soft_deleted call it),
--- 0067 (public.milestones, milestones_trash_index, the eight-name allowlist)
--- and 0072 (projects.is_private and the arm this restates — post-condition
--- 5a refuses to run without it). Nothing depends on this one yet.
+-- (fn_trash_authz's shape; soft_delete_row / restore_soft_deleted call it;
+-- fn_soft_delete_stamp's projects guard, which runs after the gate), 0067
+-- (public.milestones, milestones_trash_index, the eight-name allowlist, and
+-- milestones_insert / milestones_update, which §3b retypes) and 0072
+-- (projects.is_private and the arm this restates — post-condition 4a refuses
+-- to run without it). Nothing depends on this one yet.
 --
--- Reserved number: 0082 — the next unused number across every branch
--- (0076 C4, 0077 A, 0078 C, 0079 bins, 0080 assemblies, 0081 file metadata).
+-- Number: 0082 was the next unused number across every branch when round 1
+-- took it (0076 C4, 0077 A, 0078 C, 0079 bins, 0080 assemblies, 0081 file
+-- metadata). 🚨 The post-overhaul plan (2026-09-29) names 0082 / suite 82 as
+-- the FIRST FREE numbers for its five feature sessions — that is stale: this
+-- merge holds both, and the next free numbers are 0083 / suite 83 (measured
+-- across every local and remote ref, 2026-09-30). Audrey's plan needs the
+-- renumbering before any feature session starts.
 -- pgTAP: supabase/tests/rls/82_private_project_definers.sql.
 -- Idempotent: CREATE OR REPLACE / DROP-then-CREATE throughout. Safe to re-run.
--- No table DDL, no policy change.
+-- No table DDL. Two policies retyped (§3b: milestones_insert and
+-- milestones_update, each 0067's body plus the parent hop).
 -- =============================================================================
 
 
@@ -282,7 +312,58 @@ REVOKE EXECUTE ON FUNCTION public.fn_trash_authz(TEXT, UUID)
   FROM PUBLIC, anon, authenticated;
 
 COMMENT ON FUNCTION public.fn_trash_authz IS
-  'Authorizes a soft-delete or restore for one of the eight soft-delete RABBIT tables (0014''s seven plus milestones, 0067): workspace match, active membership and the project gate — the comment gate for comments, none for workspace-level rate_cards — and, since 0082, the private-project arm of projects_select (0072) for every project-scoped row: a private project''s rows are the creator''s and an admin''s to trash or restore.';
+  'Authorizes a soft-delete or restore for one of the eight soft-delete RABBIT tables (0014''s seven plus milestones, 0067): workspace match, active membership and the project gate — the comment gate for comments, none for workspace-level rate_cards — and, since 0082, the private-project arm of projects_select (0072) for every project-scoped row: a private project''s rows are the creator''s and an admin''s to trash or restore. For the projects row itself this gate admits the creator and 0014''s fn_soft_delete_stamp, which runs after it, admits only an admin.';
+
+
+-- =============================================================================
+-- 3b. milestones_insert / milestones_update — the WRITE policies hop to the
+--     parent (merge review round 2, A-R2-03)
+-- =============================================================================
+--
+-- 0067's two write policies gate on can_write_project alone, with no hop
+-- through projects: a manager, or any member of an unstaffed private project,
+-- who holds the project's id could INSERT a key date into it — supabase-js's
+-- .insert() without .select() sends Prefer: return=minimal, so no SELECT
+-- policy is ever consulted — or move an existing one INTO it through UPDATE's
+-- WITH CHECK. §2 and §3 above refuse that id on the trash paths; the plain
+-- write path did not, and the header's "opens nothing" was false for it.
+--
+-- The hop is the one milestones_select (0067) already carries. A POLICY runs
+-- as the caller, so the subquery is evaluated under projects_select and
+-- carries all four of its arms — workspace, live, membership and privacy —
+-- with no EXECUTE needed on passes_project_privacy and no second restatement
+-- of the arm: the policy hop and the definer helper are the two spellings,
+-- one per execution context. 0067's bodies are otherwise reproduced word for
+-- word; milestones_delete and milestones_select are untouched.
+--
+-- (tasks_insert / assets_insert / assets_update / tasks_update in 0013 have
+-- the same shape and the same gap, PRE-EXISTING on the overhaul parent —
+-- docs/OUTSTANDING.md, beside the workspace broadcast, for its own number.)
+
+DROP POLICY IF EXISTS milestones_insert ON public.milestones;
+CREATE POLICY milestones_insert ON public.milestones
+  FOR INSERT WITH CHECK (
+    workspace_id = public.current_workspace_id()
+    AND public.has_active_membership(workspace_id)
+    AND public.can_write_project(project_id)
+    -- 0082: the parent must be one the caller can SELECT (projects_select's
+    -- four arms, privacy included) — a leaked id is a name, not a write.
+    AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = milestones.project_id)
+  );
+
+DROP POLICY IF EXISTS milestones_update ON public.milestones;
+CREATE POLICY milestones_update ON public.milestones
+  FOR UPDATE USING (
+    workspace_id = public.current_workspace_id()
+    AND public.has_active_membership(workspace_id)
+    AND public.can_write_project(project_id)
+  ) WITH CHECK (
+    workspace_id = public.current_workspace_id()
+    AND public.can_write_project(project_id)
+    -- 0082: gate the NEW row's parent too, or a key date could be moved INTO
+    -- a private project (0013's own reasoning for assets_update's WITH CHECK).
+    AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = milestones.project_id)
+  );
 
 
 -- =============================================================================
@@ -390,5 +471,35 @@ BEGIN
     RAISE EXCEPTION '0082 post-condition failed: authenticated lost EXECUTE on milestones_trash_index (the panel calls it over PostgREST)';
   END IF;
 
-  RAISE NOTICE '0082: private-project arm on milestones_trash_index and fn_trash_authz (passes_project_privacy, no client EXECUTE)';
+  -- 4f. The two write policies carry the parent hop in their WITH CHECK, and
+  --     neither lost its write gate while it was retyped; milestones_update's
+  --     USING still carries all three of 0067's gates (the 0059 lesson, for a
+  --     policy: DROP + CREATE with a clause missing is the same escalation).
+  --     pg_policies deparses the expressions, so the checks are by name.
+  FOREACH t IN ARRAY ARRAY['milestones_insert', 'milestones_update']
+  LOOP
+    SELECT with_check INTO v_qual FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'milestones' AND policyname = t;
+    IF v_qual IS NULL
+       OR position('projects' IN v_qual) = 0
+       OR position('can_write_project' IN v_qual) = 0
+       OR position('current_workspace_id' IN v_qual) = 0 THEN
+      RAISE EXCEPTION '0082 post-condition failed: %''s WITH CHECK does not hop to projects, or lost its workspace or write gate', t;
+    END IF;
+  END LOOP;
+  SELECT qual INTO v_qual FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'milestones' AND policyname = 'milestones_update';
+  IF v_qual IS NULL
+     OR position('can_write_project' IN v_qual) = 0
+     OR position('has_active_membership' IN v_qual) = 0
+     OR position('current_workspace_id' IN v_qual) = 0 THEN
+    RAISE EXCEPTION '0082 post-condition failed: milestones_update''s USING lost one of 0067''s three gates';
+  END IF;
+  SELECT with_check INTO v_qual FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'milestones' AND policyname = 'milestones_insert';
+  IF position('has_active_membership' IN v_qual) = 0 THEN
+    RAISE EXCEPTION '0082 post-condition failed: milestones_insert lost its membership gate';
+  END IF;
+
+  RAISE NOTICE '0082: private-project arm on milestones_trash_index and fn_trash_authz (passes_project_privacy, no client EXECUTE); parent hop on milestones_insert / milestones_update WITH CHECK';
 END $$;

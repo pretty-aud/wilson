@@ -37,6 +37,20 @@
 //
 // Tone is a data attribute resolved in index.css; the ink is always `ink`,
 // and the tone is a 3px left edge plus the icon, never a fill under text.
+//
+// ── `pinned`: a row the stack holds at its bottom but does not manage ───────
+// R.A.B.B.I.T.'s UndoToast is a forgiveness window with its own state
+// (useRabbit().undoToast), countdown bar and busy Undo, and it stays that
+// way — but as a second `position: fixed` surface at bottom-centre it shared
+// this stack's anchor, and a sticky pet notice painted over its Undo button
+// and took its clicks (the Track A merge, review round 2, A-R2-02). So the
+// shell hands it in as `pinned`, and the stack renders it as its LAST item:
+// nearest the bar, below whatever push() has put up, with the stack's own
+// gap, on the stack's anchor and layer. The `.ui-toast-pinned` wrapper turns
+// pointer events back on (the stack itself is click-through) and leaves the
+// column while its row renders nothing, so it costs the pushed toasts no
+// gap. The row drops its own `fixed` anchor and z utility — the stack is
+// both — and keeps a positioning context for its absolute children.
 // =============================================================================
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -107,7 +121,7 @@ function TimedToast({ item, onDismiss }) {
   )
 }
 
-export function ToastProvider({ children, bar }) {
+export function ToastProvider({ children, bar, pinned = null }) {
   if (import.meta.env?.DEV && bar == null) {
     console.error('ToastProvider: `bar` is required — it is the current page’s bottom-bar height, from PAGE_BARS. Without it the stack sits 24px off the WINDOW and the bar covers it.')
   }
@@ -124,6 +138,7 @@ export function ToastProvider({ children, bar }) {
       {children}
       <div className="ui-toast-stack" aria-live="polite" style={{ '--toast-bar': bar ?? '0px' }}>
         {items.map((item) => <TimedToast key={item.id} item={item} onDismiss={() => dismiss(item.id)} />)}
+        {pinned && <div className="ui-toast-pinned">{pinned}</div>}
       </div>
     </ToastContext.Provider>
   )

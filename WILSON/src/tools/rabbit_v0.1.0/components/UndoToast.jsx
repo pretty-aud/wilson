@@ -3,8 +3,9 @@
 // ============================================================
 //
 // Bottom-center "Deleted X — Undo" toast for the soft-delete flow
-// (Gmail convention). Always rendered at the Rabbit shell level;
-// reads its state from `useRabbit().undoToast`. Undo replaces the
+// (Gmail convention). Rendered once, by App, as the kit toast stack's
+// PINNED row (ToastProvider `pinned`; the note above the markup says
+// why); reads its state from `useRabbit().undoToast`. Undo replaces the
 // confirm dialog: the delete applies instantly (Doherty) and this
 // toast is the forgiveness window. The Undo button is the single
 // standout element (Von Restorff) with a generous hit area near
@@ -75,16 +76,24 @@ export default function UndoToast() {
 
   const paused = hovered || busy
 
-  // The layer is the kit Toast's (index.css `.ui-toast-stack`, 90), over the
-  // kit Dialog's backdrop (70): a delete made inside a popup — a take
-  // unassigned from a shot, a task deleted from its stacked popup — shows its
-  // Undo over that popup, and a click on it is the Undo's, not the
-  // backdrop's (B5b review round one, R1-01: at z-50 it sat under the
-  // backdrop and the click closed the popup instead).
+  // The kit toast stack's PINNED row (ToastProvider `pinned`, App.jsx): the
+  // anchor (24px above the page's bottom bar) and the layer (index.css
+  // `.ui-toast-stack`, 90) are the stack's, so this carries neither a `fixed`
+  // anchor nor a z utility of its own. That layer is over the kit Dialog's
+  // backdrop (70): a delete made inside a popup — a take unassigned from a
+  // shot, a task deleted from its stacked popup — shows its Undo over that
+  // popup, and a click on it is the Undo's, not the backdrop's (B5b review
+  // round one, R1-01: at z-50 it sat under the backdrop and the click closed
+  // the popup instead). It is the stack's LAST item, nearest the bar, below
+  // anything push() has put up — a pet notice sits above it, never over its
+  // Undo button (the Track A merge, review round 2, A-R2-02: as a second
+  // fixed surface at bottom-centre it shared the stack's anchor, and a sticky
+  // notice took the button's clicks). `relative` keeps the countdown bar's
+  // positioning context.
   return (
     <div
       key={toast.key}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-90 flex items-center gap-3 rounded-float shadow-float overflow-hidden pl-4 pr-2 py-2"
+      className="relative flex items-center gap-3 rounded-float shadow-float overflow-hidden pl-4 pr-2 py-2"
       style={{
         backgroundColor: '#292524',
         border: '1px solid #ea580c',

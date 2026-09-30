@@ -20,9 +20,9 @@
 //      survive the pet being replaced underneath it, and must not depend on the
 //      pet having hatched.
 //
-// So this is mounted at the very bottom of App's tree, beside <UndoToast/>, and
-// takes its whole state as a prop. It says nothing when there is nothing to
-// say.
+// So this is mounted at the very bottom of App's tree, inside the kit's
+// <ToastProvider>, and takes its whole state as a prop. It says nothing when
+// there is nothing to say.
 //
 // ⚠️ NOT A COPY OF UndoToast. That one belongs to R.A.B.B.I.T., reads
 // useRabbit() for its state, and carries an action button and a countdown bar
@@ -39,8 +39,12 @@
 // overlapped) and floated over Home's 268px bar (A-R1-06). This component now
 // renders NOTHING of its own: it pushes the notice when App announces one and
 // withdraws it when App clears it. The tone is the kit's (info for the
-// refresh, danger for a failed load); UndoToast is R.A.B.B.I.T.'s own row and
-// is untouched.
+// refresh, danger for a failed load). UndoToast is R.A.B.B.I.T.'s own row and
+// is the same stack's PINNED bottom item (review round 2, A-R2-02: as a
+// second fixed surface at bottom-centre it shared the stack's anchor, and a
+// sticky notice here painted over its Undo button), so the two share one
+// column — this notice ABOVE the Undo, never on top of it, which is the
+// track's own placement ruling. PetNotice.test.jsx renders both.
 // =============================================================================
 
 import { useEffect } from 'react'

@@ -1388,6 +1388,13 @@ select option {
   .ui-toast-title { font-weight: 600; }
   .ui-toast-body { color: var(--color-ink-2); }
   .ui-toast-text { flex: 1; min-width: 0; }
+  /* The stack’s pinned row (ToastProvider `pinned`): the owner’s own markup,
+     held LAST — nearest the bar — on the stack’s anchor and layer. Pointer
+     events back on, as `.ui-toast` has them, because the stack itself is
+     click-through; and an empty wrapper (the row’s component rendering null)
+     leaves the column, so it costs the pushed toasts no gap. */
+  .ui-toast-pinned { pointer-events: auto; }
+  .ui-toast-pinned:empty { display: none; }
   @keyframes ui-toast-in {
     from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }

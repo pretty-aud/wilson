@@ -60,6 +60,44 @@ describe('Toast', () => {
     expect(() => render(<Pusher opts={{}} />)).toThrow(/ToastProvider/)
     err.mockRestore()
   })
+
+  // The Track A merge, review round 2 (A-R2-02): R.A.B.B.I.T.'s UndoToast was
+  // a second fixed surface at the stack's own anchor, and a sticky pet notice
+  // painted over its Undo button. `pinned` puts the owner's row INTO the
+  // column, last.
+  it('`pinned`: a row the stack holds LAST, below everything push() adds, in a wrapper that takes pointer events back', () => {
+    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
+    const onUndo = vi.fn()
+    render(
+      <ToastProvider bar="0px" pinned={<button type="button" onClick={onUndo}>Undo</button>}>
+        <Pusher opts={{ tone: 'info', title: 'Note', duration: 0 }} />
+      </ToastProvider>,
+    )
+    const stack = document.querySelector('.ui-toast-stack')
+    const pinned = stack.querySelector('.ui-toast-pinned')
+    expect(pinned.textContent).toBe('Undo')
+    expect(stack.lastElementChild).toBe(pinned)
+    fireEvent.click(screen.getByText('push'))
+    fireEvent.click(screen.getByText('push'))
+    expect(stack.querySelectorAll('.ui-toast').length).toBe(2)
+    // Newest at the bottom still holds among the pushed toasts; the pinned
+    // row stays below them all, so nothing pushed can land on it.
+    expect(stack.lastElementChild).toBe(pinned)
+    expect([...stack.children].indexOf(pinned)).toBe(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(onUndo).toHaveBeenCalledTimes(1)
+    // The stack is click-through and each toast re-enables itself; the
+    // wrapper does the same for its row, and leaves the column while empty so
+    // the gap is not paid for a row that is not showing.
+    const rule = (sel) => css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)))
+    expect(rule('.ui-toast-stack')).toMatch(/pointer-events:\s*none/)
+    expect(rule('.ui-toast-pinned')).toMatch(/pointer-events:\s*auto/)
+    expect(rule('.ui-toast-pinned:empty')).toMatch(/display:\s*none/)
+    // Not passed: nothing is rendered for it.
+    cleanup()
+    render(<ToastProvider bar="0px">x</ToastProvider>)
+    expect(document.querySelector('.ui-toast-pinned')).toBeNull()
+  })
 })
 
 // ── F4 (D1b §7): the stack is anchored to the bar, not to the window ────────
@@ -178,9 +216,11 @@ describe('the toast anchor clears the page’s bottom bar', () => {
     err.mockRestore()
   })
 
-  it('the shell passes it, from the same PAGE_BARS the pet reads', () => {
+  it('the shell passes it, from the same PAGE_BARS the pet reads — and pins R.A.B.B.I.T.’s UndoToast as the stack’s bottom row', () => {
     const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../App.jsx'), 'utf8')
-    expect(app).toContain('<ToastProvider bar={pageBars.bottom}>')
+    expect(app).toContain('<ToastProvider bar={pageBars.bottom} pinned={<UndoToast />}>')
     expect(app).toContain('const pageBars = PAGE_BARS[currentPage] || PAGE_BARS.home')
+    // …and mounts it nowhere else: one instance, in the stack (A-R2-02).
+    expect(app.match(/<UndoToast \/>/g)).toHaveLength(1)
   })
 })

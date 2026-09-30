@@ -271,8 +271,12 @@ describe('A3 — 0068\'s refusal is a re-read, never a retry', () => {
     // LOAD, which unmounts the only renderer of its own error message.
     expect(app).toMatch(/announcePetNotice\(\{\s*\n?\s*kind: 'info'/)
     expect(app).toMatch(/<PetNotice\s+notice=\{petNotice\}/)
-    // Mounted OUTSIDE every petData gate — beside UndoToast at the root.
-    expect(app).toMatch(/<UndoToast \/>[\s\S]{0,600}<PetNotice/)
+    // Mounted OUTSIDE every petData gate — at the root, as the last child of
+    // the kit's ToastProvider, whose PINNED row is UndoToast: the two share
+    // one column since merge review round 2 (A-R2-02 — as a second fixed
+    // surface at bottom-centre the notice painted over the Undo button).
+    expect(app).toMatch(/<ToastProvider bar=\{pageBars\.bottom\} pinned=\{<UndoToast \/>\}>/)
+    expect(app).toMatch(/<PetNotice notice=\{petNotice\}[^\n]*\/>\s*\n\s*<\/ToastProvider>/)
     expect(app).not.toMatch(/petData && [\s\S]{0,200}<PetNotice/)
   })
 

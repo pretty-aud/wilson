@@ -27,6 +27,7 @@ import { canCreateNewEgg, mintEggFrom,
          DECAY_RATES, EVOLVE_TIMES, SLEEP_DURATIONS, CORPSE_TO_GHOST_MS,
          derivePetState, applyOfflineDecay } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
+import { installCompanionEnterHotkey } from './lib/companionHotkey'
 import { PAGES, PAGE_BARS, PAGE_TITLES, getPage, navPages } from './layout/pages'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
@@ -661,8 +662,9 @@ export default function App() {
   //     and App renders no companion at all — so the only renderer of the error
   //     is unmounted by the error.
   //
-  // <PetNotice> is mounted beside <UndoToast> at the very bottom of the tree,
-  // outside every `{petData && …}` gate.
+  // <PetNotice> is mounted at the very bottom of the tree, inside the kit's
+  // <ToastProvider> whose pinned row is <UndoToast>, outside every
+  // `{petData && …}` gate.
   // null | { kind: 'info' | 'error', message }
   const [petNotice, setPetNotice] = useState(null);
   // 🚨 R1 OF A3: TWO LIFETIMES, NOT ONE STATE RENDERED TWICE.
@@ -1713,20 +1715,16 @@ export default function App() {
     }
   }, [chatMessages, authed, currentPage, petData]);
 
-  // Enter key toggles companion (when not editing text)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const tag = document.activeElement?.tagName;
-      const editable = document.activeElement?.isContentEditable;
-      const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable;
-      if (e.key === 'Enter' && !e.defaultPrevented && !isEditing && petData && !showOverlay) {
-        e.preventDefault();
-        setCompanionOpen(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [petData, showOverlay]);
+  // Enter key toggles companion (when not editing text, and not while a kit
+  // overlay is up). The predicate and the listener live in
+  // lib/companionHotkey.js so a test can mount the SAME handler over the
+  // surfaces it must yield to (merge review round 2, A-R2-04: it took Enter
+  // from the status warning's focused "Go back" and the warning stayed up).
+  useEffect(() => installCompanionEnterHotkey({
+    petData,
+    showOverlay,
+    toggle: () => setCompanionOpen(prev => !prev),
+  }), [petData, showOverlay]);
 
   // Handle navigation links from companion chat
   const handleCompanionNavLink = useCallback((navStr) => {
@@ -2305,8 +2303,18 @@ export default function App() {
         straddled the light pages’ 80px bar). Same `PAGE_BARS` read the pet’s
         `petBottomOffset` takes, and the RESTING value rather than the
         compressed one, for the same reason the pet uses it — a toast must not
-        slide during the page transition. */}
-    <ToastProvider bar={pageBars.bottom}>
+        slide during the page transition.
+
+        `pinned` is R.A.B.B.I.T.'s UndoToast, the stack's LAST row (merge
+        review round 2, A-R2-02): as a second fixed surface at bottom-centre
+        it shared the stack's anchor — on the tool pages (8px bar) the first
+        toast spanned 32–73px over its 24–74px — and a sticky pet notice
+        painted over the Undo button and took its clicks. In the stack it sits
+        below whatever push() has put up, with the stack's own gap, on the
+        stack's layer. It still reads useRabbit() and stays the one instance;
+        the note at the old mount point (bottom of this tree) says why it is
+        mounted at app level at all. */}
+    <ToastProvider bar={pageBars.bottom} pinned={<UndoToast />}>
     <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
       {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —
@@ -2749,9 +2757,10 @@ export default function App() {
     {/* ── Undo toast (soft-delete forgiveness window) ──
         Mounted at app level, not inside the RABBIT shell, because
         deletes can fire from pages (e.g. ProjectsPage) where the
-        Rabbit page div is display:none. position:fixed, reads
-        useRabbit() — must stay the single instance. */}
-    <UndoToast />
+        Rabbit page div is display:none; reads useRabbit() — must stay
+        the single instance. Since merge review round 2 (A-R2-02) it is
+        the toast stack's PINNED row — the `pinned` prop of the ToastProvider
+        at the top of this tree — rather than a second fixed surface here. */}
     {/* ── A3: the pet's notices, mounted OUTSIDE `{petData && …}` ──
         The stale-copy refresh from migration 0068, and a failed pet LOAD —
         which had nowhere to show itself at all, because the failure unmounts

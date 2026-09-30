@@ -575,8 +575,19 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       // an un-guarded set threw `softwareList.find is not a function` and
       // unmounted the whole app (measured in dev tester mode, where every
       // RLS-gated call is a 401). SettingsPage already guards the same
-      // response this way.
-      const data = Array.isArray(raw) ? raw : [];
+      // response this way. And the refusal answers FALSE, as the track's
+      // version did (there the error object threw inside `for…of` and fell
+      // into the catch): the four callers that gate on this result — fork,
+      // generate, the open-course handler and the nomination jump — stop,
+      // instead of selecting a course and announcing success over an empty
+      // library (merge review round 2, A-R2-07). The guard and the discard
+      // are both kept: the list is emptied so no consumer crashes, and the
+      // caller is told the load did not happen.
+      if (!Array.isArray(raw)) {
+        if (current()) setSoftwareList([]);
+        return false;
+      }
+      const data = raw;
       if (!current()) return false;
       setSoftwareList(data);
       for (const sw of data) {
