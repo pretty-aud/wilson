@@ -466,10 +466,14 @@
      #292524 on #1c1917, 1.15:1). The band replaces the 2px left edge a
      phase row wore (orange) and a group row wore (stone): a phase is told
      from a task by the band, its 600 name, its taller bar and its chevron.
-     TL-02: a task's name is the Dense step in the sans at ink-2 (8.49:1 —
-     it was #78716c, 3.65:1, the faintest text on the pane), the ink under
-     the pointer; a phase's or a group's name is the ink at 600 (it was
-     orange, and a group's 400). */
+     TL-02: a task's name is the Dense step in the sans (it was #78716c,
+     3.65:1, the faintest text on the pane). Post-overhaul S1 (rulings B1,
+     B9, 2026-09-29): a task's name is the ink — "white" — at rest (15.45:1;
+     it was ink-2 lifting to the ink under the pointer, and the row's fill
+     now carries the hover); a phase's or a group's name is the signal ink
+     at 600 (6.47:1 on the band, 5.71:1 on its hover — the signal itself is
+     4.11:1 there), in the gutter only: the phase bar's own label, the
+     minimap's names, the chevron and "+ New task" keep theirs. */
   .rb-tl-gantt { background-color: var(--color-paper); }
   .rb-tl-gutter { background-color: var(--color-paper); border-right: 1px solid var(--color-rule); }
   .rb-tl-gutter-head { background-color: var(--color-paper); border-bottom: 1px solid var(--color-rule); }
@@ -523,10 +527,9 @@
   @media (hover: hover) {
     .rb-tl-row-chevron:hover { background-color: var(--color-hover); color: var(--color-ink); }
   }
-  .rb-tl-row-label { color: var(--color-ink-2); }
-  .rb-tl-row[data-hover="true"] > .rb-tl-row-label { color: var(--color-ink); }
+  .rb-tl-row-label { color: var(--color-ink); }
   .rb-tl-row[data-shape="phase"] > .rb-tl-row-label,
-  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color: var(--color-ink); }
+  .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color: var(--color-signal-ink); }
   .rb-tl-row[data-shape="phase"] > .rb-tl-row-label { font-weight: 600; }
   .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { font-weight: 600; }
 

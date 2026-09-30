@@ -749,3 +749,55 @@ describe('V2: no cream on the signal among the Timeline\'s hand-drawn primaries 
     expect(buttonOf(second, 'Extend phase\n')).toContain(PAIR)
   })
 })
+
+/* ── 12. post-overhaul S1, the Timeline pass (2026-09-30) ───────────────────── */
+const sameSelector = (s) => s.replace(/\s+/g, ' ').trim()
+/** The value `prop` takes on exactly `sel`: the last rule whose selector list
+    holds it wins, as the cascade decides between equal selectors. */
+const declOf = (css, sel, prop) => rulesOf(css)
+  .filter((r) => selectorsOf(r.sel).map(sameSelector).includes(sel))
+  .map((r) => r.body.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`))?.[1]?.trim())
+  .filter(Boolean).pop()
+/** Every (selector, property) that paints with the signal ink. */
+const signalInkUses = (css) => rulesOf(css).flatMap((r) => r.body.split(';')
+  .filter((d) => /var\(--color-signal-ink\)/.test(d))
+  .flatMap((d) => selectorsOf(r.sel).map((s) => `${sameSelector(s)} { ${d.split(':')[0].trim()} }`)))
+/** Every selector that recolours a gutter name under the pointer. */
+const hoverNameInks = (css) => rulesOf(css)
+  .filter((r) => /(?:^|;)\s*color\s*:/.test(r.body))
+  .flatMap((r) => selectorsOf(r.sel).map(sameSelector))
+  .filter((s) => /\[data-hover="true"\][^,]*\.rb-tl-row-label/.test(s))
+
+describe('S1 item 1: the gutter\'s inks — task names the ink, phase names the signal ink (rulings B1, B9)', () => {
+  const PHASE_NAMES = ['.rb-tl-row[data-shape="phase"] > .rb-tl-row-label', '.rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label']
+  it('a task\'s name is the ink at rest, and no rule lifts it under the pointer (the row\'s fill carries the hover)', () => {
+    expect(declOf(sheet, '.rb-tl-row-label', 'color')).toBe('var(--color-ink)')
+    expect(hoverNameInks(sheet)).toEqual([])
+  })
+  it('a phase\'s and a sub-phase\'s name are the signal ink, at 600', () => {
+    for (const sel of PHASE_NAMES) {
+      expect(declOf(sheet, sel, 'color'), sel).toBe('var(--color-signal-ink)')
+      expect(declOf(sheet, sel, 'font-weight'), sel).toBe('600')
+    }
+  })
+  it('the signal ink paints those two names and nothing else: the gutter column only, as text — never the bar\'s label, the minimap or a fill (B9)', () => {
+    expect(signalInkUses(sheet).sort()).toEqual(PHASE_NAMES.map((s) => `${s} { color }`).sort())
+  })
+  it('the ink is the kit\'s token, one value in @theme and tokens.js (its pairs: tokens.test.js)', () => {
+    expect(THEME['color-signal-ink']).toBe('#fb923c')
+    expect(cssCode(indexCss)).toMatch(/--color-signal-ink:\s*#fb923c;/)
+  })
+  it('CONTROL: the old hover lift, the ink-2 rest, the signal ink on the bar\'s label and as a fill are each caught', () => {
+    const lifted = sheet.replace('.rb-tl-row-label { color: var(--color-ink); }',
+      '.rb-tl-row-label { color: var(--color-ink-2); }\n  .rb-tl-row[data-hover="true"] > .rb-tl-row-label { color: var(--color-ink); }')
+    expect(lifted).not.toBe(sheet)
+    expect(declOf(lifted, '.rb-tl-row-label', 'color')).toBe('var(--color-ink-2)')
+    expect(hoverNameInks(lifted)).toEqual(['.rb-tl-row[data-hover="true"] > .rb-tl-row-label'])
+    const onBar = sheet.replace('.rb-tl-bar-label { color: var(--rb-tl-fg); }', '.rb-tl-bar-label { color: var(--color-signal-ink); }')
+    expect(onBar).not.toBe(sheet)
+    expect(signalInkUses(onBar)).toContain('.rb-tl-bar-label { color }')
+    const asFill = `${sheet}\n.rb-tl-row[data-shape="phase"] > .rb-tl-row-label { background-color: var(--color-signal-ink); }`
+    expect(signalInkUses(asFill)).toContain('.rb-tl-row[data-shape="phase"] > .rb-tl-row-label { background-color }')
+    expect(signalInkUses(asFill)).toHaveLength(3)
+  })
+})

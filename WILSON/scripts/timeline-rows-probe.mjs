@@ -18,7 +18,12 @@
  *   rule      the row's bottom edge on each half (must match)
  *   edge      the gutter's right edge colour and its contrast on paper
  *   ink       a task name's and a phase name's colour, weight, family and
- *             contrast on the row's painted ground (4.5:1 is the floor)
+ *             contrast on the row's painted ground (4.5:1 is the floor), at
+ *             rest and — a phase name — with its row under the pointer.
+ *             Post-overhaul S1 (2026-09-30): the floor FAILS the run now (it
+ *             was printed and never checked); task names are the ink and
+ *             phase names the signal ink (#fb923c: 6.47:1 on the band, 5.71:1
+ *             on its hover), rulings B1 and B9.
  *
  * The detail pane is scrolled so the first bar sits in view (the fixture's
  * dates are before the fixed clock's today, where the pane opens). Nothing is
@@ -102,10 +107,11 @@ const measure = () => page.evaluate(() => {
   const task = labels.find((l) => l.dataset.shape === 'task');
   const phase = labels.find((l) => l.dataset.shape === 'phase' || l.dataset.shape === 'subgroup');
   const ink = (row) => {
-    if (!row) return '-';
+    if (!row) return { text: '-', ratio: null };
     const n = row.querySelector('.rb-tl-row-label'); const cs = getComputedStyle(n);
     const fg = parse(cs.color); const g = ground(row);
-    return `${hex(fg)} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily.split(',')[0]} on ${hex(g)} ${ratio(fg, g).toFixed(2)}:1`;
+    const r = ratio(fg, g);
+    return { text: `${hex(fg)} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily.split(',')[0]} on ${hex(g)} ${r.toFixed(2)}:1`, ratio: r };
   };
   const gutter = document.querySelector('.rb-tl-gutter');
   const edge = parse(getComputedStyle(gutter).borderRightColor);
@@ -140,6 +146,24 @@ async function hoverPair(shape, which) {
   await sleep(120);
   const read = (el) => el.evaluate((e) => `${e.dataset.hover}:${getComputedStyle(e).backgroundColor}`);
   const [a, b] = [await read(label), await read(chart)];
+  // The name's contrast on the ground the pointer lights (S1: the floor
+  // holds under the hover, where the band is 11%).
+  hoverInk[`${shape}:${which}`] = await label.evaluate((row) => {
+    const parse = (c) => {
+      const s = c.match(/color\(srgb ([^)]+)\)/);
+      if (s) { const p = s[1].split(/[ /]+/).filter(Boolean).map(Number); return { r: p[0] * 255, g: p[1] * 255, b: p[2] * 255, a: p.length > 3 ? p[3] : 1 }; }
+      const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null;
+      const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+    };
+    const over = (t, u) => ({ r: t.r * t.a + u.r * (1 - t.a), g: t.g * t.a + u.g * (1 - t.a), b: t.b * t.a + u.b * (1 - t.a), a: 1 });
+    const lum = ({ r, g, b }) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const PAPER = { r: 28, g: 25, b: 23, a: 1 };
+    const bg = parse(getComputedStyle(row).backgroundColor);
+    const g = bg && bg.a > 0 ? over(bg, PAPER) : PAPER;
+    const fg = parse(getComputedStyle(row.querySelector('.rb-tl-row-label')).color);
+    const [x, y] = [lum(fg), lum(g)].sort((m, n) => n - m);
+    return (x + 0.05) / (y + 0.05);
+  });
   await page.mouse.move(W - 70, 12);
   await sleep(80);
   const [ra, rb] = [await read(label), await read(chart)];
@@ -150,6 +174,8 @@ async function hoverPair(shape, which) {
 
 console.log(`\ngantt rows at ${W}x${H}, grouped by ${GROUP}\n`);
 const ZOOMS = ['Day', 'Week', 'Month', 'Quarter'];
+const INK_FLOOR = 4.5;
+const hoverInk = {};
 let failed = false;
 for (const z of ZOOMS) {
   const t = page.getByRole('tab', { name: z, exact: true }).first();
@@ -173,8 +199,14 @@ for (const z of ZOOMS) {
   console.log(`         hover group from label ${pLabel}`);
   console.log(`         rule label "${m.ruleLabel}"  chart "${m.ruleChart}"`);
   console.log(`         edge ${m.edge}   band label ${m.phaseBandLabel} chart ${m.phaseBandChart}`);
-  console.log(`         task ${m.taskInk}`);
-  console.log(`         group ${m.phaseInk}`);
+  const groupKey = `${GROUP === 'phase' ? 'phase' : 'subgroup'}:label`;
+  const hovered = hoverInk[groupKey];
+  console.log(`         task ${m.taskInk.text}`);
+  console.log(`         group ${m.phaseInk.text}   hovered ${hovered == null ? '-' : `${hovered.toFixed(2)}:1`}`);
+  const inkLow = [['task', m.taskInk.ratio], ['task hovered', hoverInk['task:label']], ['group', m.phaseInk.ratio], ['group hovered', hovered]]
+    .filter(([, r]) => r != null && r < INK_FLOOR);
+  if (inkLow.length) { console.log(`         ✗ under ${INK_FLOOR}:1 — ${inkLow.map(([k, r]) => `${k} ${r.toFixed(2)}`).join(', ')}`); failed = true; }
+  if (m.taskInk.ratio == null || m.phaseInk.ratio == null) { console.log('         ✗ a task or a group name was not found'); failed = true; }
   if (m.off.length) { console.log(`         ${m.off.slice(0, 5).join('\n         ')}`); failed = true; }
   if (badCentre || !hLabel.startsWith('yes') || !hChart.startsWith('yes') || !pLabel.startsWith('yes') || m.ruleLabel !== m.ruleChart) failed = true;
   if (SHOTS) {
