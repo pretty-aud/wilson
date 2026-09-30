@@ -27,7 +27,7 @@ import { canCreateNewEgg, mintEggFrom,
          DECAY_RATES, EVOLVE_TIMES, SLEEP_DURATIONS, CORPSE_TO_GHOST_MS,
          derivePetState, applyOfflineDecay } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
-import { installCompanionEnterHotkey } from './lib/companionHotkey'
+import { installCompanionShiftHotkey } from './lib/companionHotkey'
 import { PAGES, PAGE_BARS, PAGE_TITLES, getPage, navPages } from './layout/pages'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
@@ -1790,12 +1790,12 @@ export default function App() {
     }
   }, [chatMessages, authed, currentPage, petData]);
 
-  // Enter key toggles companion (when not editing text, and not while a kit
-  // overlay is up). The predicate and the listener live in
-  // lib/companionHotkey.js so a test can mount the SAME handler over the
-  // surfaces it must yield to (merge review round 2, A-R2-04: it took Enter
-  // from the status warning's focused "Go back" and the warning stayed up).
-  useEffect(() => installCompanionEnterHotkey({
+  // A bare Shift tap opens and closes the companion — never while typing in a
+  // field, never over a dialog (post-overhaul S2a, Audrey's C12). It was
+  // Enter, which took the key from every focused button (OUTSTANDING P1-01);
+  // Enter now presses whatever has focus. The listener lives in
+  // lib/companionHotkey.js so a test mounts the SAME handler the app installs.
+  useEffect(() => installCompanionShiftHotkey({
     petData,
     showOverlay,
     toggle: () => setCompanionOpen(prev => !prev),

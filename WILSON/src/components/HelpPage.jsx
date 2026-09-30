@@ -390,7 +390,7 @@ export default function HelpPage() {
                     <h4 className={L.cardTitle}>Interacting with your pet</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
                       <li><span className={L.listBold}>Click the sprite</span> (bottom-right corner) to open/close the chat window</li>
-                      <li><span className={L.listBold}>Press Enter</span> to toggle the chat window (when not typing in an input)</li>
+                      <li><span className={L.listBold}>Tap Shift</span> on its own to toggle the chat window (not while typing in a field, and not over a dialog; Enter presses the focused button)</li>
                       <li><span className={L.listBold}>Feed button</span> — Restores hunger (available when pet mode is on and pet is alive)</li>
                       <li><span className={L.listBold}>Pet button</span> — Increases happiness and shows affection</li>
                       <li><span className={L.listBold}>Thumbs up/down</span> — Rate AI responses to help the companion learn your preferences</li>

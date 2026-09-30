@@ -315,7 +315,7 @@ export function OtterHelpContent({ helpPage, theme }) {
             <h4 className={T.cardTitle}>AI pet companion</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Visible on all pages</span> — your companion follows you across the app</li>
-              <li>• <span className={T.listBold}>Click the sprite</span> to open/close the chat window (or press Enter)</li>
+              <li>• <span className={T.listBold}>Click the sprite</span> to open/close the chat window (or tap Shift on its own)</li>
               <li>• <span className={T.listBold}>Ask questions</span> about what you're learning — it has context about your courses</li>
               <li>• <span className={T.listBold}>Rate responses</span> with thumbs up/down to help it learn your preferences</li>
             </ul>
@@ -378,7 +378,8 @@ export function OtterHelpContent({ helpPage, theme }) {
             <h4 className={T.cardTitle}>Navigation</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Space</span> — Open search modal (when not typing in an input)</li>
-              <li>• <span className={T.listBold}>Enter</span> — Toggle companion chat (when not typing in an input)</li>
+              <li>• <span className={T.listBold}>Shift</span> — Tap it on its own to toggle companion chat (not while typing in a field, and not over a dialog)</li>
+              <li>• <span className={T.listBold}>Enter</span> — Presses the focused button, as anywhere else</li>
               <li>• <span className={T.listBold}>Escape</span> — Close modals and search</li>
             </ul>
           </div>

@@ -65,6 +65,12 @@ function blobToDogContent(blob, type) {
   });
 }
 
+// The controls Enter activates by itself: the document-level "Enter
+// generates" key below leaves them alone (post-overhaul S2a, C12). Not
+// exported — a component module that exports anything else loses React
+// Fast Refresh; companionHotkey.test.jsx reads it from this file's text.
+const ENTER_PRESSES = 'button, a[href], [role="button"], [role="menuitem"], [role="tab"], [role="switch"], [role="checkbox"], summary';
+
 export default function DeckOutlineGenerator({ onNavigate, zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -3290,6 +3296,12 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
       const tag = e.target.tagName.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+      // Enter on a focused control presses THAT control (post-overhaul S2a,
+      // Audrey's C12: Enter presses whatever is focused), as Bins' own keys
+      // already let it (BinsView.jsx). Before this guard, with the outline
+      // empty and a document attached, Enter on any D.O.G. button — Help and
+      // Settings in the bar included — started a generation instead.
+      if (typeof e.target.closest === 'function' && e.target.closest(ENTER_PRESSES)) return;
       if (isGenerating || !hasFileContent) return;
 
       e.preventDefault();

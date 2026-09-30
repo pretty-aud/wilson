@@ -113,8 +113,8 @@ describe('the help content is on the tokens, on both surfaces (P1-35)', () => {
 // nouns, acronyms and other products' own names do.
 const PROPER = new Set(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Wilson', 'Slides', 'Google', 'AI', 'Nodes',
   'Midjourney', 'Flux', 'GPT', 'DALL-E', 'Tamagotchi', 'Markdown', 'Windows', 'Mac',
-  // key legends
-  'Enter', 'Up/Down',
+  // key legends ('Shift': the pet's key since post-overhaul S2a, C12)
+  'Enter', 'Up/Down', 'Shift',
   // the pet breeds, as src/components/sprites/index.jsx labels them (C5)
   'Otter', 'Bird', 'Octopus', 'Blob', 'Rabbit', 'Pig', 'Monkey'])
 // A tool's spelled-out name, a product's two-word name, a page's name as the
@@ -358,6 +358,48 @@ describe('help sends a reader to the gear in the tool\'s own strip (S2a, C6/C7)'
       'Open Tool settings from the menu.',
     ]) expect(was).toMatch(WRONG_WAY_TO_SETTINGS)
     expect("Click the gear at the right end of the tool's strip").not.toMatch(WRONG_WAY_TO_SETTINGS)
+  })
+})
+
+// Post-overhaul S2a (Audrey's C12): the pet's key is a bare Shift tap, and
+// Enter presses whatever has focus. Help that still says Enter opens the pet
+// teaches the one key that no longer does it.
+const ENTER_OPENS_PET = /(?:press(?:es)? Enter|\bEnter\b)[^.<]{0,40}\b(?:toggle|open|close)[^.<]{0,20}\b(?:chat|companion|pet)|\(or press Enter\)|\bEnter\b\s*[—-]\s*Toggle companion/i
+describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => {
+  it('no help, on either surface, says Enter opens or closes the pet', () => {
+    const bad = []
+    for (const [tool, items, Content] of SURFACES) {
+      const text = helpText(Content, items)
+      if (ENTER_OPENS_PET.test(text)) bad.push(`${tool}: ${text.match(ENTER_OPENS_PET)[0]}`)
+    }
+    const page = []
+    eachHelpPage((where, pane, container) => page.push(container.textContent))
+    if (ENTER_OPENS_PET.test(page.join('\n'))) bad.push(`Help page: ${page.join('\n').match(ENTER_OPENS_PET)[0]}`)
+    expect(bad).toEqual([])
+  })
+  it('the three passages that taught Enter teach the Shift tap', () => {
+    const otter = helpText(OtterHelpContent, OTTER_HELP_SIDEBAR_ITEMS)
+    expect(otter).toContain('(or tap Shift on its own)')
+    expect(otter).toMatch(/Shift — Tap it on its own to toggle companion chat/)
+    // The Help page's own "Pet companion" page, read from its own pane.
+    const pet = []
+    eachHelpPage((where, pane) => { if (/"Pet companion"$/.test(where)) pet.push(pane.textContent) })
+    expect(pet, 'the traversal never reached the Pet companion page').toHaveLength(1)
+    expect(pet[0]).toMatch(/Tap Shift on its own to toggle the chat window/)
+  })
+  it('CONTROL: the old sentences are caught, and the new ones and D.O.G.\'s own Enter keys are not', () => {
+    for (const was of [
+      'Click the sprite to open/close the chat window (or press Enter)',
+      'Enter — Toggle companion chat (when not typing in an input)',
+      'Press Enter to toggle the chat window (when not typing in an input)',
+    ]) expect(was).toMatch(ENTER_OPENS_PET)
+    for (const ok of [
+      'Click the sprite to open/close the chat window (or tap Shift on its own)',
+      'Shift — Tap it on its own to toggle companion chat (not while typing in a field, and not over a dialog)',
+      'Enter — Presses the focused button, as anywhere else',
+      'Press Enter in the revision prompt field to trigger regeneration quickly',
+      'Enter — Go to selected search result',
+    ]) expect(ok).not.toMatch(ENTER_OPENS_PET)
   })
 })
 
