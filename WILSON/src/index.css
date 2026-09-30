@@ -1400,6 +1400,46 @@ select option {
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  /* ── The session layers (Track B, on the kit since the merge) ────────
+     The z scale, stated ONCE — every layer above is a rule in this sheet,
+     and the three below join them rather than carrying a z inline
+     (merge review B-R1-02 / B-R2-07):
+       59 / 60  drawer backdrop / drawer      70  dialog backdrop
+       80       menu                           90  toast stack
+       85 / 90  the operator console’s own modals (CompaniesSection.jsx)
+       200      App’s quit dialog (App.jsx)
+       210      session — `.session-layer`, `.session-corner`
+       300      `.connection-banner`
+     `.session-layer` wraps the idle “Still there?” Dialog: relative + z is a
+     stacking context, so the kit backdrop inside it paints at 210 against
+     the page — above every modal either surface owns, under the banner.
+     `.session-corner` is the operator console’s cap notice: that surface has
+     no ToastProvider and no bottom bar, so the flat 24px off the window is
+     right there and there only; click-through, the card itself takes
+     pointer events back (`.ui-toast`). `.connection-banner` is the
+     connection-lost strip, above everything because it is the reason
+     nothing else can make progress; it clears the Electron title bar by the
+     same token every fixed overlay reads (`--titlebar-offset`). */
+  .session-layer { position: relative; z-index: 210; }
+  .session-corner {
+    position: fixed;
+    inset: 0;
+    z-index: 210;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 24px;
+    pointer-events: none;
+  }
+  .connection-banner {
+    position: fixed;
+    top: var(--titlebar-offset);
+    left: 0;
+    right: 0;
+    z-index: 300;
+    background-color: var(--color-paper-raised);
+  }
+
   /* ── Banner: the in-flow strip ─────────────────────────────────────── */
   .ui-banner {
     display: flex;

@@ -18,6 +18,14 @@
 // through its rest props; this is the same thing for the stack (Track B
 // merge, review round 1, B-R1-03).
 //
+// `dismissible: false` on push drops the ×. The default keeps it: a toast
+// that nothing else can take down must be closable. The exception is a
+// notice whose OWNER already offers the one exit — SessionWarning's cap
+// notice pushes its own OK, and a × beside it would be the same act twice
+// (Track B merge, review round 2, B-R2-04). Such a toast is sticky by its
+// owner's choice (`duration: 0`) and leaves when the owner calls
+// `dismiss(id)`; a timer, if it has one, still runs.
+//
 // The stack sits bottom centre, 24px above the page's BOTTOM BAR, newest at
 // the bottom. A toast auto-dismisses after `duration` (default 5s; 0 =
 // sticky); hovering it pauses the timer (RabbitProvider's UndoToast idiom,
@@ -123,7 +131,7 @@ function TimedToast({ item, onDismiss }) {
       title={item.title}
       body={item.body}
       action={item.action}
-      onDismiss={onDismiss}
+      onDismiss={item.dismissible === false ? undefined : onDismiss}
       onMouseEnter={pause}
       onMouseLeave={start}
       data-toast-id={item.id}
@@ -138,9 +146,9 @@ export function ToastProvider({ children, bar, pinned = null }) {
   }
   const [items, setItems] = useState([])
   const dismiss = useCallback((id) => setItems((list) => list.filter((t) => t.id !== id)), [])
-  const push = useCallback(({ tone = 'info', title, body, duration = 5000, action, name } = {}) => {
+  const push = useCallback(({ tone = 'info', title, body, duration = 5000, action, name, dismissible = true } = {}) => {
     const id = nextId++
-    setItems((list) => [...list, { id, tone, title, body, duration, action, name }])
+    setItems((list) => [...list, { id, tone, title, body, duration, action, name, dismissible }])
     return id
   }, [])
   const api = useMemo(() => ({ push, dismiss }), [push, dismiss])

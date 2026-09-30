@@ -2414,8 +2414,12 @@ is never emptied behind a confirm that promises the opposite (H2).
 
 **The IPC** (`local-demo:get-state / pick / open / close / forget / reset /
 open-in-explorer`, preload `electronAPI.localDemo`): IPC, not Express, for
-the S34 reason — the Express server answers any local origin, and a drive-by
-page must not repoint where the machine keeps its data. `open` accepts only a
+the S34 reason — the Express server answered any local origin when this was
+written, and a drive-by page must not repoint where the machine keeps its
+data (since B3, Track B, `cors()` answers the renderer's own origin only and
+every `/api` route needs the per-launch token, header or httpOnly cookie —
+IPC still stands, because any script on the renderer's origin carries that
+cookie). `open` accepts only a
 folder the user picked in the demo dialog THIS session (`demoAuthorizedDirs`
 — its own set, because a pick made for the files root is not consent to
 open a demo folder, M5) or one `local-demo.json` already remembers; the

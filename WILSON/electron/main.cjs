@@ -1840,9 +1840,14 @@ function startLocalServer(distPath) {
     // drive/share-root fix — are unit-tested; do not redefine it here.
     //
     // Relink folders must be USER-CHOSEN, not body-supplied (adversarial
-    // review, S14): the Express server answers any local origin (cors()),
-    // so a body-picked baseDir would let a drive-by request point a
-    // project's files at, say, the user's Documents and read/unlink there.
+    // review, S14): the Express server answered any local origin (cors())
+    // when this was written, so a body-picked baseDir would let a drive-by
+    // request point a project's files at, say, the user's Documents and
+    // read/unlink there. Since B3 (Track B) cors() answers the renderer's
+    // own origin only and every /api route needs the per-launch token
+    // (header or httpOnly cookie) — which narrows the caller to the app's
+    // own renderer or a token holder and changes nothing here: a body-picked
+    // path is never enough, whoever sends it.
     // rabbit:pick-directory records every folder the user actually picks
     // in userAuthorizedDirs; anything inside the project's own folders is
     // always fair game.
@@ -4139,8 +4144,12 @@ ipcMain.handle('rabbit:write-files-config', (_event, cfg) => {
 
 // ── Demo sprint (2026-09-10): the local demo folder ──────────────────────
 // IPC, not Express, for the same reason the workspace root is: the Express
-// server answers any local origin, and a drive-by page must not be able to
-// repoint where this machine keeps its data. `open` accepts only a folder
+// server answered any local origin when this was written, and a drive-by
+// page must not be able to repoint where this machine keeps its data. Since
+// B3 (Track B) cors() answers the renderer's own origin only and every /api
+// route needs the per-launch token (header or httpOnly cookie); IPC still
+// stands, because any script on the renderer's origin carries that cookie
+// and an Express route would answer it. `open` accepts only a folder
 // the user picked in the OS dialog THIS session (userAuthorizedDirs — the
 // S14 mechanism) or one this machine already remembers (the recent list);
 // a renderer-supplied path alone is never enough.
@@ -4214,9 +4223,13 @@ ipcMain.handle('local-demo:open-in-explorer', async () => {
 // The renderer pushes workspace_storage.root_path (byos mode) here after
 // sign-in / workspace switch, and null on sign-out. See the workspaceRootDir
 // declaration for why this is memory-only. IPC, not Express, deliberately:
-// the Express server answers any local origin (cors()), and a drive-by page
-// must not be able to repoint the whole machine's resolution (the S14 rule
-// that made relink folders user-chosen applies to roots doubly).
+// the Express server answered any local origin (cors()) when this was
+// written, and a drive-by page must not be able to repoint the whole
+// machine's resolution (the S14 rule that made relink folders user-chosen
+// applies to roots doubly). Since B3 (Track B) cors() answers the renderer's
+// own origin only and every /api route needs the per-launch token (header
+// or httpOnly cookie); IPC still stands, because any script on the
+// renderer's origin carries that cookie and an Express route would answer it.
 ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
   const raw = opts && typeof opts.rootPath === 'string' ? opts.rootPath.trim() : null;
   const kind = opts && typeof opts.rootKind === 'string' ? opts.rootKind : null;

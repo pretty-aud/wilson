@@ -544,9 +544,9 @@ export default function App() {
   // next token refresh, minutes later, with nothing on screen connecting the
   // two. Ending THIS surface's session is what the button promises.
   //
-  // ⚠️ The same unscoped call still exists in ResetPasswordWizard; it is left
-  // alone here because changing what a password reset revokes is a security
-  // decision, not a tidy-up. Recorded in docs/OUTSTANDING.md.
+  // ResetPasswordWizard signs out GLOBALLY on purpose (B1, Audrey's answer
+  // 12): a new password revokes every session, the console's included, and
+  // its `scope: 'global'` is explicit. The two calls differ by decision.
   //
   // B2 part 2 (Track B): one exit for every way a session ends on this
   // surface. `event` names the auth_events row written BEFORE the token is
@@ -2403,10 +2403,11 @@ export default function App() {
       {import.meta.env.DEV && <DevFixturesBadge />}
       {/* B2 part 2: "Connection lost — reload to continue", fed by
           connectionWatchdog through the Supabase client's fetch. Above every
-          overlay; under the 32 px title bar in Electron so the window
+          overlay (`.connection-banner`, index.css); under the title bar in
+          Electron through the kit's `--titlebar-offset`, so the window
           controls stay reachable. Rendered signed in or out — a hung sign-in
           is the same hang. */}
-      <ConnectionLostBanner topOffset={typeof window !== 'undefined' && window.electronAPI ? 32 : 0} />
+      <ConnectionLostBanner />
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 

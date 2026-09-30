@@ -78,6 +78,34 @@ describe('Toast', () => {
     expect(screen.queryByRole('alert', { name: 'Unnamed' })).toBeNull()
   })
 
+  it('`dismissible: false` on push drops the ×, and the owner’s own exit still works (B-R2-04)', () => {
+    let api
+    function Grab() { api = useToast(); return null }
+    render(
+      <ToastProvider bar="0px">
+        <Grab />
+        <Pusher opts={{ tone: 'warning', title: 'Only OK', name: 'Only OK', duration: 0, dismissible: false, action: <button type="button">OK</button> }} />
+      </ToastProvider>,
+    )
+    fireEvent.click(screen.getByText('push'))
+    const t = screen.getByRole('alert', { name: 'Only OK' })
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull()
+    expect(t.querySelectorAll('button').length).toBe(1)
+    expect(screen.getByRole('button', { name: 'OK' })).toBeTruthy()
+    // The owner takes it down by id, as before.
+    act(() => { api.dismiss(Number(t.dataset.toastId)) })
+    expect(screen.queryByRole('alert', { name: 'Only OK' })).toBeNull()
+    cleanup()
+    // The control: the default keeps the ×.
+    render(
+      <ToastProvider bar="0px">
+        <Pusher opts={{ tone: 'warning', title: 'Default', duration: 0 }} />
+      </ToastProvider>,
+    )
+    fireEvent.click(screen.getByText('push'))
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy()
+  })
+
   it('useToast outside a provider is a stack trace, not a silent no-op', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<Pusher opts={{}} />)).toThrow(/ToastProvider/)

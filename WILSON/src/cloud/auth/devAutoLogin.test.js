@@ -56,6 +56,37 @@ describe('the dev auto sign-in is gated on import.meta.env.DEV', () => {
     expect(src).not.toMatch(/set[A-Z]\w*\(\s*pw\s*\)/)
   })
 
+  it('the effect mirrors the handlers: a throttle at either step is RATE_LIMITED_ERROR, and the password call is bounded (B-R2-05)', () => {
+    // The effect's body, from its first statement to its dependency list.
+    const start = src.indexOf('autoLoginRan.current = true')
+    const end = src.indexOf('}, [ready, completeSignIn])')
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const effect = src.slice(start, end)
+    // verifyCompany's 429 is `limited`, answered BEFORE the slug is derived
+    // (else it read as "no such company"); resolveLogin's the same, before
+    // `exists` is read (else it read as the generic failure).
+    const verifyAt = effect.indexOf('await verifyCompany(co)')
+    const limitedAfterVerify = effect.indexOf('if (v.limited) { setError(RATE_LIMITED_ERROR)')
+    const slugAt = effect.indexOf('const slug = ')
+    expect(verifyAt).toBeGreaterThan(-1)
+    expect(limitedAfterVerify).toBeGreaterThan(verifyAt)
+    expect(slugAt).toBeGreaterThan(limitedAfterVerify)
+    const resolveAt = effect.indexOf('await resolveLogin(')
+    const limitedAfterResolve = effect.indexOf('if (limited) { setError(RATE_LIMITED_ERROR)')
+    const existsAt = effect.indexOf('if (!exists)')
+    expect(resolveAt).toBeGreaterThan(slugAt)
+    expect(limitedAfterResolve).toBeGreaterThan(resolveAt)
+    expect(existsAt).toBeGreaterThan(limitedAfterResolve)
+    // Bounded, with the handler's own label, and the timeout has its own voice.
+    expect(effect).toMatch(/withTimeout\(\s*supabase\.auth\.signInWithPassword\(\{ email, password: pw \}\), AUTH_TIMEOUT_MS, 'sign-in'\)/)
+    expect(effect).toContain("err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR")
+    // The control: round 1's effect, which had none of this.
+    const before = "const v = await verifyCompany(co)\nconst slug = v.unavailable ? x : y\nconst { exists, email } = await resolveLogin({})\nif (!exists) {}\nawait supabase.auth.signInWithPassword({ email, password: pw })"
+    expect(before.indexOf('if (v.limited) { setError(RATE_LIMITED_ERROR)')).toBe(-1)
+    expect(before).not.toMatch(/withTimeout\(\s*supabase\.auth\.signInWithPassword/)
+  })
+
   it('the bypass exists in exactly two files in src, and both guard every read on import.meta.env.DEV', () => {
     const files = walk(resolve(here, '../..'))
     const hits = files.filter((f) => readFileSync(f, 'utf8').includes('VITE_DEV_AUTOLOGIN'))

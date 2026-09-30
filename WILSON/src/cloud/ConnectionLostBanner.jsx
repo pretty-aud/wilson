@@ -14,8 +14,15 @@
 // operator console's own modals 85 and 90, App's quit dialog 200, and the
 // idle "Still there?" dialog is the kit Dialog lifted to 210 by
 // SessionWarning's layer (its cap notice rides the toast stack on /wilson
-// and the corner card, also 210, on the console). In Electron it sits under
-// the 32 px title bar so the window controls stay reachable.
+// and the corner card, also 210, on the console). The layer is
+// `.connection-banner` in index.css (round 2 of the merge review, B-R2-07),
+// beside the kit's own layers, where the z scale is written once; the strip
+// clears Electron's 32px title bar through `--titlebar-offset`, the kit's
+// one token for that (index.css: "any fixed overlay that must clear the bar
+// reads this instead of a literal 32") — 32px under `.electron-app`, which
+// TitleBar sets on <html>, and 0 in the browser and on the operator console,
+// which has no TitleBar. So the window controls stay reachable, and nothing
+// here computes an offset or carries a z.
 //
 // On the kit since the post-overhaul merge (2026-09-30): the strip is the kit
 // `Banner` in its danger tone (which is what gives it `role="alert"`) with a
@@ -25,7 +32,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { RotateCw, WifiOff } from 'lucide-react'
-import { Banner, Button, PAPER_RAISED } from '../ui'
+import { Banner, Button } from '../ui'
 import { connectionWatchdog } from './connectionWatchdog'
 
 export const CONNECTION_LOST_COPY = 'Connection lost — reload to continue.'
@@ -33,7 +40,7 @@ export const CONNECTION_LOST_COPY = 'Connection lost — reload to continue.'
 const subscribe = (listener) => connectionWatchdog.subscribe(listener)
 const getSnapshot = () => connectionWatchdog.getSnapshot()
 
-export default function ConnectionLostBanner({ topOffset = 0, zIndex = 300, watchdog = null }) {
+export default function ConnectionLostBanner({ watchdog = null }) {
   const read = watchdog ? () => watchdog.getSnapshot() : getSnapshot
   // The third argument is the "server" snapshot. WILSON never server-renders
   // (Electron and a static host), so the only server render is a test's
@@ -41,7 +48,7 @@ export default function ConnectionLostBanner({ topOffset = 0, zIndex = 300, watc
   const lost = useSyncExternalStore(watchdog ? (l) => watchdog.subscribe(l) : subscribe, read, read)
   if (!lost) return null
   return (
-    <div style={{ position: 'fixed', top: topOffset, left: 0, right: 0, zIndex, backgroundColor: PAPER_RAISED }}>
+    <div className="connection-banner">
       <Banner
         tone="danger"
         Icon={WifiOff}

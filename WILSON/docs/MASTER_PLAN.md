@@ -2164,7 +2164,10 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   trap. The queue + certificates make each run fully accountable
   (WIL-3003/3004 + per-blob ledger rows).
 - **Relink folders must be USER-CHOSEN, enforced server-side.** The Express
-  server answers any local origin (`cors()`), so a body-supplied
+  server answered any local origin (`cors()`) when this was decided (since
+  B3, Track B, `cors()` answers the renderer's own origin only and every
+  `/api` route needs the per-launch token; the rule stands — a body-picked
+  path is never enough, whoever sends it), so a body-supplied
   baseDir/folderPath is never accepted: `rabbit:pick-directory` records
   every user-picked folder, and the relink routes 403 anything else that
   isn't inside the project's own roots. Found by the review — the original

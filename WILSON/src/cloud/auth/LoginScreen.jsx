@@ -254,8 +254,9 @@ async function fetchUserWorkspaces() {
 
 // `notice` (B2 part 2): one line above the form saying WHY the person is
 // looking at it again — the idle sign-out or the 4-hour cap. Set by App.jsx
-// from the expiry reason and cleared by the next sign-in. Terminal-styled
-// like the reset wizard's "YOU WILL BE SIGNED OUT ON EVERY DEVICE." line.
+// from the expiry reason and cleared by the next sign-in. A sentence in the
+// prose role (AUTH-05/-12), like the reset wizard's "You will be signed out
+// on every device." line.
 export default function LoginScreen({ onAuthenticated, onForgotPassword, notice = '' }) {
   // ── Shell phase gate ───────────────────────────────────────────────────
   const [ready, setReady]         = useState(false)
@@ -540,16 +541,23 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
     setError('')
     ;(async () => {
       try {
+        // The two handlers' shapes, mirrored (merge review round 2, B-R2-05):
+        // a throttle is RATE_LIMITED_ERROR at either step — a 429 from
+        // verifyCompany is `limited`, not "no such company" — and the
+        // password call is bounded like every other await on this screen.
         const v = await verifyCompany(co)
+        if (v.limited) { setError(RATE_LIMITED_ERROR); setBusy(false); return }
         const slug = v.unavailable
           ? slugifyWorkspace(co)
           : (v.exists && SLUG_RE.test(v.slug ?? '') ? v.slug : null)
         if (!slug) { setError('COMPANY NOT FOUND.'); setBusy(false); return }
         setCompanySlug(slug)
         setStage('auth')
-        const { exists, email } = await resolveLogin({ username: u, workspaceSlug: slug })
+        const { exists, email, limited } = await resolveLogin({ username: u, workspaceSlug: slug })
+        if (limited) { setError(RATE_LIMITED_ERROR); setBusy(false); return }
         if (!exists) { setError(GENERIC_ERROR); setBusy(false); return }
-        const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password: pw })
+        const { data, error: signInErr } = await withTimeout(
+          supabase.auth.signInWithPassword({ email, password: pw }), AUTH_TIMEOUT_MS, 'sign-in')
         if (signInErr || !data.session) { setError(GENERIC_ERROR); setBusy(false); return }
         setPendingSession(data.session)
         try {
@@ -568,7 +576,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
         await completeSignIn(data.session, ws.length > 1 && match ? match.id : null)
       } catch (err) {
         console.warn('[wilson] DEV auto sign-in failed:', err?.message ?? err)
-        setError(GENERIC_ERROR)
+        setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR)
         setBusy(false)
       }
     })()

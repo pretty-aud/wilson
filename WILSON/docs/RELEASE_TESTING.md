@@ -277,6 +277,11 @@ automated coverage of this path (§6 #68).
 - Leave a signed-in tab alone → **Still there?** at 25 minutes, the login screen at 30 with
   `Signed out after 30 minutes without activity.`; sign back in and Sign-ins shows
   **Signed out (idle)**. `[BLOCKING]`
+- Stay signed in (and active) for 4 hours → **Session ending** five minutes before the cap.
+  On /wilson it is a **toast above the page's bottom bar** with only **OK** — not a dialog,
+  and no × (walkthrough 11's "dialog headed SESSION ENDING" is the pre-overhaul shape); on
+  the operator console it is the same card in the bottom-right corner. At the cap, the login
+  screen with `Signed out: sessions end after 4 hours. Sign in again to continue.` `[NOTE]`
 - Drop the modem (not Wi-Fi) mid-use and open a page that reads → **Connection lost — reload to
   continue.** within about 20 s; **Reload** recovers. A long upload never shows it. `[NOTE]`
 - Add your admin to a second workspace → expect the **workspace picker** (arrows, Enter), and

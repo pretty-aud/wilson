@@ -20,11 +20,14 @@
 //   (CreateCompanyDialog at 85, the show-once CredentialsDialog at 90) and
 //   under App's quit dialog (200): an operator who went idle with the
 //   one-time password on screen was signed out behind it with no visible
-//   warning. The `Dialog` is wrapped in a `position: relative` div at
-//   `zIndex` (210): that div is a stacking context, and the fixed backdrop
-//   inside it paints at 210 against the page — above every modal either
+//   warning. The `Dialog` is wrapped in `.session-layer` — a `position:
+//   relative` div at z 210, so a stacking context — and the fixed backdrop
+//   inside it paints at 210 against the page: above every modal either
 //   surface owns, still under ConnectionLostBanner (300), which is the reason
-//   none of them can make progress.
+//   none of them can make progress. Round 2 (B-R2-07) moved the layer out of
+//   an inline style object into index.css, beside the kit's own layers,
+//   where the whole z scale is stated once; `.session-corner` is the same
+//   move for the console's corner card. Nothing here carries a z-index.
 // · THE ANCHOR. The cap notice was a SECOND `position: fixed` toast surface,
 //   24px off the WINDOW's corner — which is 24px off the bottom bar only on
 //   a page with no bar, and src/ui/Toast.jsx says what that costs (D1b §7:
@@ -44,9 +47,18 @@
 //   announces the dialog is the role plus the focus move (autoFocus lands on
 //   the button), which reads the title and the `aria-describedby` sentence
 //   ONCE, complete with the number as it stood; nothing re-announces the
-//   ticks. That is also why the countdown span is not aria-hidden — hiding
-//   it would make the one sentence a person hears "signed out in for
-//   inactivity".
+//   ticks. That is also why the idle dialog's countdown span is not
+//   aria-hidden — hiding it would make the one sentence a person hears
+//   "signed out in for inactivity".
+// · THE ALERT (round 2, B-R2-01). The cap notice is the opposite case. The
+//   kit Toast's warning tone is `role="alert"`, and that role IS a live
+//   region — assertive and atomic by definition, no attribute needed — so
+//   the whole notice was re-read every second for five minutes, on both
+//   surfaces. The ticking value now sits in an `aria-hidden` span, with a
+//   still phrase beside it for screen readers only: CAP_WARN_MS is five
+//   minutes, so "in under five minutes" is true at the one moment an alert
+//   is read (its insertion), and a re-render inside a hidden subtree is not
+//   a change the accessibility tree can see. Sighted readers keep the mm:ss.
 //
 // UX laws applied: Doherty (a live countdown, not "soon"); Peak-End (a
 // person is never dropped without a sentence saying why — the sign-out
@@ -102,7 +114,7 @@ function Countdown({ deadline }) {
   return <span style={{ fontFamily: FONT_MONO }}>{mmss(deadline - now)}</span>
 }
 
-function IdleWarning({ deadline, onStay, zIndex }) {
+function IdleWarning({ deadline, onStay }) {
   const descId = useId()
   // R2: any pointer or key event clears the warning through the activity
   // listeners before a click on this button can land — which is what the
@@ -113,7 +125,7 @@ function IdleWarning({ deadline, onStay, zIndex }) {
   // activity events: the promise in the copy is the behaviour. Escape and
   // the Close glyph are the same act, so they also stay.
   return (
-    <div style={{ position: 'relative', zIndex }} data-session-layer="idle">
+    <div className="session-layer">
       <Dialog
         alert
         title="Still there?"
@@ -135,10 +147,17 @@ function IdleWarning({ deadline, onStay, zIndex }) {
   )
 }
 
+// One sentence for both placements. The ticking value is aria-hidden and the
+// still phrase is screen-reader-only, so the alert is read once as "signed
+// out in under five minutes" and never re-read on a tick (header, THE ALERT).
+// The leading space inside the hidden span keeps textContent readable.
 function CapSentence({ deadline, capHours }) {
   return (
     <>
-      Sessions end after {capHours} hours. You&rsquo;ll be signed out in <Countdown deadline={deadline} /> &mdash; save your work.
+      Sessions end after {capHours} hours. You&rsquo;ll be signed out in{' '}
+      <span aria-hidden="true"><Countdown deadline={deadline} /></span>
+      <span className="sr-only"> under five minutes</span>
+      {' '}&mdash; save your work.
     </>
   )
 }
@@ -157,6 +176,12 @@ function CapNoticeOnStack({ deadline, capHours, onDismiss }) {
       name: CAP_TITLE,
       body: <CapSentence deadline={deadline} capHours={capHours} />,
       duration: 0,
+      // Only OK (round 2, B-R2-04): the stack's own × would be a second
+      // dismiss beside it — the same act twice, which the track's "offers
+      // only OK" pin and the walkthrough's "with an OK button" both refuse.
+      // Sticky and non-dismissible, so the ONLY exits are OK (below) and
+      // this effect's cleanup when the phase leaves.
+      dismissible: false,
       action: (
         <Button size="sm" variant="secondary" onClick={() => onDismissRef.current?.()}>
           OK
@@ -170,30 +195,24 @@ function CapNoticeOnStack({ deadline, capHours, onDismiss }) {
 
 // The operator console: no ToastProvider, no bottom bar, so the flat 24px
 // off the window is the right anchor there and there only.
-function CapNoticeInCorner({ deadline, capHours, zIndex, onDismiss }) {
+// `.session-corner` (index.css) is the fixed, click-through frame at the
+// session layer; the card itself takes pointer events back, as every
+// `.ui-toast` does. No `onDismiss`, so the kit renders no ×: OK is the one
+// control here too.
+function CapNoticeInCorner({ deadline, capHours, onDismiss }) {
   return (
-    <div
-      data-session-notice="corner"
-      style={{
-        position: 'fixed', inset: 0, zIndex,
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end',
-        padding: 24,
-        pointerEvents: 'none',
-      }}
-    >
-      <div style={{ pointerEvents: 'auto' }}>
-        <Toast
-          tone="warning"
-          title={CAP_TITLE}
-          aria-label={CAP_TITLE}
-          body={<CapSentence deadline={deadline} capHours={capHours} />}
-          action={(
-            <Button size="sm" variant="secondary" onClick={onDismiss}>
-              OK
-            </Button>
-          )}
-        />
-      </div>
+    <div className="session-corner">
+      <Toast
+        tone="warning"
+        title={CAP_TITLE}
+        aria-label={CAP_TITLE}
+        body={<CapSentence deadline={deadline} capHours={capHours} />}
+        action={(
+          <Button size="sm" variant="secondary" onClick={onDismiss}>
+            OK
+          </Button>
+        )}
+      />
     </div>
   )
 }
@@ -204,22 +223,20 @@ function CapNoticeInCorner({ deadline, capHours, zIndex, onDismiss }) {
  * @param {number|null} props.deadline   epoch ms of the sign-out
  * @param {() => void} props.onStay      counts as activity (idle only)
  * @param {number} [props.capHours]
- * @param {number} [props.zIndex]        the idle dialog's layer, and the corner
- *                                       card's; above both surfaces' own modals
  * @param {'stack'|'corner'} [props.placement]
  *   where the cap notice goes: the app's toast stack (needs a ToastProvider
  *   above — /wilson has one; outside one `useToast` throws, by the kit's
  *   design) or the window corner (the operator console: no stack, no bar).
  */
 export default function SessionWarning({
-  phase, deadline, onStay, capHours = 4, zIndex = 210, placement = 'stack',
+  phase, deadline, onStay, capHours = 4, placement = 'stack',
 }) {
   const [dismissedDeadline, setDismissedDeadline] = useState(null)
   const showing = (phase === 'idle-warning' || phase === 'cap-warning') && deadline != null
   if (!showing) return null
 
   if (phase === 'idle-warning') {
-    return <IdleWarning deadline={deadline} onStay={onStay} zIndex={zIndex} />
+    return <IdleWarning deadline={deadline} onStay={onStay} />
   }
 
   // R2: the cap notice is NON-MODAL, and deliberately. It fires on a session
@@ -232,7 +249,7 @@ export default function SessionWarning({
   if (dismissedDeadline === deadline) return null
   const dismiss = () => setDismissedDeadline(deadline)
   if (placement === 'corner') {
-    return <CapNoticeInCorner deadline={deadline} capHours={capHours} zIndex={zIndex} onDismiss={dismiss} />
+    return <CapNoticeInCorner deadline={deadline} capHours={capHours} onDismiss={dismiss} />
   }
   return <CapNoticeOnStack deadline={deadline} capHours={capHours} onDismiss={dismiss} />
 }

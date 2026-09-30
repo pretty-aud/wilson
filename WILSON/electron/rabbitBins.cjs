@@ -18,8 +18,13 @@
 // `userData` or the files config directly — the data-root layer belongs to the
 // local-storage session.
 //
-// 🚨 SAME-ORIGIN ONLY. The loopback server answers any local origin (cors()),
-// and every route below either takes a PATH from the body or returns the
+// 🚨 SAME-ORIGIN ONLY. The loopback server answered any local origin (cors())
+// when this was written — since B3 (Track B) cors() answers the renderer's
+// own origin only and every /api route, these included, is a bare 401
+// without the per-launch token (the x-wilson-local-token header or the
+// httpOnly launch cookie, electron/localToken.cjs); the rule below stands
+// unchanged because any script on the renderer's origin carries that cookie
+// — and every route below either takes a PATH from the body or returns the
 // bytes at one. A drive-by page on another local origin cannot forge
 // `Sec-Fetch-Site: same-origin` or its `Origin`, so that is the gate — the
 // S14/S17 rule ("a body-picked path would let a drive-by request point a
