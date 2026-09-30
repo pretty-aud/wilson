@@ -1,17 +1,17 @@
 // =============================================================================
-// AttachmentMigrationPanel — Settings → RABBIT widget that moves a project's
-// LEGACY attachment arrays into its file store (Track C, bundle C3;
-// MASTER_PLAN §6 #31).
+// AttachmentMigrationPanel — Settings → Storage panel (the tab's key is still
+// `rabbit`) that moves a project's LEGACY attachment arrays into its file
+// store (Track C, bundle C3; MASTER_PLAN §6 #31).
 //
 // Sits beside MigrationPanel and OtterMigrationPanel so all three migrations
 // are found in one place, and follows the same two-button shape Audrey already
-// knows: DRY-RUN reports what WOULD move and writes nothing; MOVE does it.
+// knows: Dry-run reports what WOULD move and writes nothing; Move does it.
 //
 // 🚨 A DRY RUN FIRST IS NOT A SUGGESTION. This is the only irreversible thing
 // in the C3 bundle: a moved attachment leaves the project row. The dry run is
 // cheap (it measures base64 lengths, it does not decode anything) and it names
 // every file too large to move, so nothing about the real run is a surprise.
-// The MOVE button stays disabled until a dry run has been read.
+// The Move button stays disabled until a dry run has been read.
 //
 // Post-overhaul merge (2026-09-30): on Settings' row contract (SettingsChrome)
 // and the kit Button, exactly as its two siblings are. The track wrote it in
@@ -127,8 +127,8 @@ export default function AttachmentMigrationPanel() {
 
       {moved && report.errors.length === 0 && report.attachments.failed === 0 && (
         <p className="s-feedback mt-4" data-tone="ok" role="status">
-          Done. These files now appear in each project’s Resources list and in
-          R.A.B.B.I.T.’s Files view.
+          Done. These files now appear in each project’s Resources list and on
+          R.A.B.B.I.T.’s Summary tab, under Project files.
         </p>
       )}
 

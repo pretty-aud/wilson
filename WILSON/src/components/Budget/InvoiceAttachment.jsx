@@ -47,6 +47,7 @@
 import { useRef, useState } from 'react'
 import { Paperclip, FolderOpen, X, AlertCircle } from 'lucide-react'
 import { Button, IconButton, Spinner } from '../../ui'
+import { toInlineSafeBlob } from '../../lib/inlineSafeBlob'
 import '../../tools/rabbit_v0.1.0/views/rabbitBudget.css'
 
 // The open button's glyph while it fetches: the kit Spinner at the sm
@@ -124,7 +125,10 @@ export default function InvoiceAttachment({
       // as well as "it was deleted" — RLS returns an empty set, not an error.
       // Say something either way rather than appearing to do nothing.
       if (!row) throw new Error('That invoice is no longer available to you.')
-      const blob = await adapter.downloadFile(row)
+      // 🚨 Merge review C-R2-02: the stored type is client-chosen and a blob:
+      // URL runs on this origin, so an invoice uploaded as text/html would run
+      // as script here. Same re-type as BudgetView.openFile, the twin.
+      const blob = toInlineSafeBlob(await adapter.downloadFile(row))
       const url = URL.createObjectURL(blob)
       window.open(url, '_blank', 'noopener')
       // Give the new tab time to take the blob before revoking it.

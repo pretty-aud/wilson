@@ -36,9 +36,16 @@
 --      with no hop through projects — the hop only files_select carries. So
 --      the same callers can put a files row INTO a private project
 --      (supabase-js's .insert() without .select() sends Prefer:
---      return=minimal, so no SELECT policy is ever consulted) or move an
---      existing row into it through UPDATE's WITH CHECK — 0082 §3b's finding,
---      on `files`.
+--      return=minimal, so no SELECT policy is ever consulted) and can
+--      rewrite one already there with an UPDATE that reads no column (no
+--      WHERE, no RETURNING: only files_update's own USING and WITH CHECK
+--      judge it) — 0082 §3b's finding, on `files`. 🚨 NOT a filtered move:
+--      an UPDATE with a WHERE reads a column, so Postgres requires SELECT
+--      and applies files_select's USING — hop included — to the NEW row as
+--      a WITH CHECK (rowsecurity.c), and `SET project_id = <private> WHERE
+--      id = …` was refused before this file. Round 2 (C-R2-01) corrected
+--      round 1's wording here: on files_update the hop is the only gate for
+--      the column-free shape and defence in depth for every other.
 --
 -- Reads were already safe: 0074's file_events_select uses
 -- can_read_project_topic, SECURITY INVOKER over projects_select, and
@@ -77,10 +84,18 @@
 --   refusal, before the quota exemption, so an exempt (money) path is refused
 --   for a private project too — a reservation-exempt call writes no row, but
 --   it must not answer "exempt" for a project the caller cannot see.
--- * files_select and files_delete (0038). files_select already hops;
---   files_delete is a DELETE, which the caller can only reach through a row
---   files_select shows them (0014's soft delete goes through fn_trash_authz,
---   which 0082 armed).
+-- * files_select and files_delete (0038). files_select already hops.
+--   files_delete does not, and is left alone: a DELETE with a WHERE reads a
+--   column, so it runs under files_select's USING as well and cannot reach
+--   a row in a private project the caller cannot see; the app's own delete
+--   is 0014's soft delete through fn_trash_authz, which 0082 armed. What
+--   that does NOT close (round 2, C-R2-01): `DELETE FROM public.files` with
+--   no WHERE reads no column, runs under files_delete's USING alone, and
+--   authenticated still holds DELETE on files (0033 revokes only TRUNCATE /
+--   REFERENCES / TRIGGER) — a second manager could hard-delete a private
+--   project's rows with one, purge certificates and all. PRE-EXISTING on the
+--   overhaul parent (0038 met 0072 there); recorded in docs/OUTSTANDING.md
+--   beside the tasks / assets policies that wait for the same hop.
 -- * fn_workspace_realtime_broadcast (0018) and the tasks / assets policies
 --   (0013): PRE-EXISTING, recorded in docs/OUTSTANDING.md, not this file's.
 --
@@ -387,8 +402,12 @@ CREATE POLICY files_update ON public.files
     workspace_id = public.current_workspace_id()
     AND public.can_write_project(project_id)
     AND (NOT is_financial OR public.can_access_project_money(project_id))
-    -- 0083: gate the NEW row's parent too, or a file could be moved INTO a
-    -- private project (0013's own reasoning for assets_update's WITH CHECK).
+    -- 0083: gate the NEW row's parent too. A filtered UPDATE already meets
+    -- files_select's hop on its new row (Postgres applies the SELECT policies
+    -- as WITH CHECK whenever SELECT is required); this is the only gate for
+    -- an UPDATE that reads no column, and defence in depth for the rest
+    -- (0013's own reasoning for assets_update's WITH CHECK; suite 83 probe
+    -- 20 is the failing control, probe 18 the filtered move).
     AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = files.project_id)
   );
 

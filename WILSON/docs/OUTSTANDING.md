@@ -1770,20 +1770,37 @@ id the workspace channel leaks (the Track A entry above) could reserve
 against `projects/<private-id>/…` — and `abandon_upload_reservation` or the
 hourly sweep would then land an `upload_abandoned` certificate in that
 project's `file_events` — could write a `downloaded` event for its files
-(an existence oracle), and could INSERT a `files` row into it or move one
-INTO it. 0083 adds `passes_project_privacy` (0082) to the two bodies' first
+(an existence oracle), and could INSERT a `files` row into it (return=minimal:
+no SELECT policy sees the row) or rewrite its files with an UPDATE that reads
+no column. 0083 adds `passes_project_privacy` (0082) to the two bodies' first
 refusal, the same message and code as before, and the parent hop to the two
 WITH CHECKs; suite 83 probes each with the second manager, the plain member,
 the creator and the admin, with a public-project control beside every
-refusal. Left as it is, on purpose: `abandon_upload_reservation`,
+refusal. ⚠️ Round 2 (C-R2-01) corrected round 1's claim, made here and in
+0083's header, that the same callers could also *move* a file INTO the
+private project: a filtered UPDATE reads a column, so Postgres requires
+SELECT and applies `files_select`'s USING — hop included since 0038 — to the
+new row as a WITH CHECK, and that move was refused before 0083. Suite 83's
+probe 18 could therefore never fail (the round-1 "inert guard" class, in
+pgTAP; suite 79's probe-15 note had already recorded why). Probe 20
+(`UPDATE public.files SET description = 'x'`, no WHERE — the one UPDATE
+shape no SELECT policy touches) is now the failing control for
+`files_update`'s hop, with a presence control that the abort rewrote
+nothing; probe 18 stays, re-described as the filtered move it is. Left as
+it is, on purpose: `abandon_upload_reservation`,
 `release_*` and the sweeps act on reservation ROWS, and after 0083 no row
 can exist for a project its maker could not see. **Still open from this
 class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
 (the Track A round-2 entry above) and the broadcast itself.
 
-- **Walkthrough 15 names the wrong tab and the old button case** for the
-  attachment migration (lines 21, 112-127: "Settings → RABBIT → … Click
-  DRY-RUN … MOVE"). The tab has been labelled **Storage** since Session 22
+- **Walkthrough 15 names the wrong tab, the old button case and a R.A.B.B.I.T.
+  view that does not exist** for the attachment migration (lines 21, 112-127:
+  "Settings → RABBIT → … Click DRY-RUN … MOVE"; lines 65, 122 and 185:
+  "RABBIT → Files" / "RABBIT's Files view" — the view list is intake, summary,
+  assets, team, tasks, scenes, bins, levels, experiences, timeline and budget,
+  and a project-level stored row shows on the **Summary** tab's **Project
+  files** card; round 2, C-R2-03, which also corrected the panel's own
+  success copy). The tab has been labelled **Storage** since Session 22
   (its key is still `rabbit`), and the merged `AttachmentMigrationPanel`'s
   buttons read **Dry-run** and **Move** (sentence case, the overhaul's rule).
   MEASURED by the merge review (C-R1-05); the in-app copy that pointed at a
@@ -1791,7 +1808,7 @@ class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
   here: the merge sessions may not edit `docs/walkthroughs/`. A session that
   may must repair `docs/walkthroughs/15_*.md` — and Audrey's Desktop copy of
   it (`WILSON walkthroughs\`) is hers to replace.
-- **`InvoiceAttachment.openFile` still passes `'noopener'` and never reads
+- **`InvoiceAttachment.handleOpen` still passes `'noopener'` and never reads
   `window.open`'s return**, so a pop-up that the browser blocks fails
   silently there (the invoice-row twin of BudgetView's receipt control, which
   C-R1-02 fixed: `window.open` returns null whenever `noopener` is set, so a
@@ -1799,6 +1816,40 @@ class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
   return and severs the opener by hand). Out of C-R1-02's scope; not changed.
   One-line fix when a session wants it: the same `opened.opener = null`
   idiom, then a `setError` on a null return.
+- **`files_delete` (0038) still has no hop through `projects`, and a
+  filter-less `DELETE FROM public.files` runs under it alone** — the one
+  DELETE shape `files_select` never sees (a WHERE reads a column, and
+  Postgres then applies `files_select`'s USING to the rows as well).
+  `authenticated` still holds DELETE on `files` (0033 revokes only TRUNCATE /
+  REFERENCES / TRIGGER), so a second manager, or an unstaffed member, could
+  hard-delete every row their `can_write_project` admits — a private
+  project's included, each with a purge certificate in that project's
+  `file_events`. PRE-EXISTS on the overhaul parent (0038 met 0072 there);
+  MEASURED by the merge review's round 2 (C-R2-01), NOT closed here — 0083's
+  "deliberately not changed" list says the same. Reachable only by a
+  statement that reads no column: never a filtered PostgREST request, and
+  one that `pg-safeupdate`, where Supabase preloads it for the API role,
+  refuses outright — unmeasured on this project's three envs, so the hop is
+  the gate to add. Take it with the `tasks_*` / `assets_*` hops above, in
+  one migration (0084 or later, with the DELETE twin of suite 83's probe 20).
+- **No Content-Security-Policy on either build, and a stored body's type is
+  the uploader's browser's word.** `rabbit-files` has no
+  `allowed_mime_types`, the receipt and invoice pickers take any file, and
+  supabaseProvider stores `file.type` as the object's Content-Type; a blob:
+  URL runs on the origin that made it. So a receipt uploaded as `text/html`
+  or `image/svg+xml` and opened through `URL.createObjectURL` +
+  `window.open` executed as script on WILSON's origin in the next money
+  reader's tab — on the web, beside the Supabase session in localStorage.
+  FIXED at both sinks by round 2 (C-R2-02): `toInlineSafeBlob`
+  (`src/lib/inlineSafeBlob.js`) re-types anything but PNG / JPEG / GIF /
+  WebP / AVIF / PDF to `application/octet-stream` before the URL exists, so
+  it downloads instead of rendering — the renderer-side twin of the Local
+  Server's `safeMediaContentType`. STILL OPEN, the class: `vercel.json`,
+  `index.html` and `electron/main.cjs` set no CSP, so every future sink of a
+  client-typed body (a preview pane, an `<iframe>`, an `<object>`) has to
+  call the helper by hand. A CSP that keeps `script-src` and `object-src`
+  off `blob:` is the structural fix. PRE-EXISTING on the overhaul parent
+  (`InvoiceAttachment.handleOpen` carried the first sink).
 - **⚠️ Migration 0083 and pgTAP suite 83 are TAKEN by this round
   (C-R1-01).** Measured across every local and remote ref on 2026-09-30, the
   next free numbers are **0084 / suite 84**. The post-overhaul plan

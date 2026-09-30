@@ -566,8 +566,12 @@ export default function ProjectsPage({ onNavigate }) {
         // which, because "Delete" alone means the wrong one half the time.
         // THREE states, not two (merge review C-R1-07): the false branch NAMES
         // Local Server, so it is passed only when that IS the backend. On
-        // Google Drive (read-only — Delete is refused outright) and in the dev
-        // fixtures the panel gets null and makes no claim about deletion.
+        // Google Drive (read-only — Delete is refused outright) the panel gets
+        // null and makes no claim about deletion. The dev fixtures are not a
+        // fourth case (round 2, C-R2-04): with no local server the provider's
+        // mode is 'supabase' and selectAdapter serves them from that slot, so
+        // `cloud` is true there — and the fixtures adapter soft-deletes with a
+        // 'trashed' event, so the trash sentence is the right one for them.
         deletesAreSoft={cloud ? true : ctx?.adapterMode === 'local_server' ? false : null}
         saveError={saveError}
         storageWarning={false}

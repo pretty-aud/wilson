@@ -48,6 +48,7 @@ import {
   Table, Th, Td, Row, Stat, StatusDot, StatusBadge, EmptyState, Loading,
   SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs, Spinner,
 } from '../../../ui'
+import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
 import './rabbitBudget.css'
 
 const TABS = [
@@ -2714,7 +2715,14 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
       const files = await adapter.listFiles(projectId)
       const row = (files || []).find(f => f.id === id)
       if (!row) throw new Error('That receipt is no longer available to you.')
-      const blob = await adapter.downloadFile(row)
+      // 🚨 Merge review C-R2-02: the body's type is whatever the uploader's
+      // browser said it was (supabaseProvider stores file.type; rabbit-files
+      // has no allowed_mime_types; the picker has no accept), and a blob: URL
+      // runs on THIS origin — so a receipt uploaded as text/html or
+      // image/svg+xml would execute as script in the tab the next money
+      // reader opens. Re-typed first: image and PDF bodies render inline,
+      // everything else becomes a download (src/lib/inlineSafeBlob.js).
+      const blob = toInlineSafeBlob(await adapter.downloadFile(row))
       const url = URL.createObjectURL(blob)
       // 🚨 Round 2: `window.open` runs after TWO awaits — a listFiles round
       // trip and a full body download — and transient user activation expires

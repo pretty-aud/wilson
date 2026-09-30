@@ -24,8 +24,11 @@
 --     manager's call wrote a 'downloaded' event and answered true, an
 --     existence oracle for the file id.
 --   * A private project's `files` are the creator's and an admin's to WRITE:
---     a second manager with the id can neither INSERT into it nor move a file
---     INTO it (the two WITH CHECKs' new hop).
+--     a second manager with the id can neither INSERT into it (return=minimal:
+--     no SELECT policy sees the row) nor rewrite what is already there with an
+--     UPDATE that reads no column — the two WITH CHECKs' new hop. A FILTERED
+--     move INTO it is refused as well, but by files_select's hop on the NEW
+--     row, before and after 0083 (probe 18's note; round 2, C-R2-01).
 --   * THE CONTROLS: the same callers, on the PUBLIC project, reserve, log a
 --     read, insert and keep their row. Without those the refusals could be any
 --     refusal at all; with them they are the privacy arm and nothing else.
@@ -40,7 +43,7 @@
 
 BEGIN;
 
-SELECT plan(29);
+SELECT plan(31);
 
 SELECT * FROM tests.rls_setup();
 
@@ -97,7 +100,8 @@ SELECT is(
 
 -- 0083 §3: the two WRITE policies hop to the parent in their WITH CHECK.
 -- pg_policies deparses the expression, so the hop shows as the table's name;
--- probes 16-19 below are the behaviour this structure is for.
+-- probes 16-20 below are the behaviour this structure is for (20 is the one
+-- that can only pass with files_update's hop; 18 cannot — see its note).
 SELECT is(
   (SELECT count(*)::int FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'files'
@@ -204,12 +208,14 @@ SELECT ok(
   'OWNER CONTROL: the creator logs a read of their private file');
 
 
--- ── 12-19: a manager who is NOT the creator — the escalation 0083 closes ───
+-- ── 12-20: a manager who is NOT the creator — the escalation 0083 closes ───
 -- can_write_project is true for every manager, so before 0083 this caller
 -- could reserve against a private project they cannot SELECT (12), log a read
--- of its file (14), and write into it through the plain policies (16, 18:
+-- of its file (14), and write into it through the plain policies (16:
 -- supabase-js's .insert() without .select() sends Prefer: return=minimal, so
--- no SELECT policy ever looked at the row).
+-- no SELECT policy ever looked at the row; 20: an UPDATE that reads no
+-- column, the one UPDATE shape no SELECT policy touches). 🚨 18 is NOT one
+-- of those — a filtered move was refused before 0083 too; see its note.
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -269,12 +275,21 @@ SELECT lives_ok($$
           'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a83/4-second-manager.png', 10, false)
 $$, 'CONTROL: the same INSERT into the PUBLIC project lives — workspace, membership and write gate all say yes');
 
+-- 🚨 DEFENCE IN DEPTH, NOT ISOLATION (round 2, C-R2-01). This UPDATE has a
+-- WHERE, so it reads a column, so Postgres requires SELECT on files and
+-- applies files_select's USING — which has hopped to projects since 0038 —
+-- to the NEW row as a WITH CHECK (rowsecurity.c: the SELECT policies join
+-- the WITH CHECK list whenever SELECT is required). The private parent fails
+-- that check with or without 0083's hop, so this probe throws 42501 either
+-- way (suite 79's probe-15 note found the same thing). It stays as the
+-- documented behaviour of a filtered move; probe 20 is the one that can only
+-- pass with 0083.
 SELECT throws_ok($$
   UPDATE public.files
      SET project_id = 'aaaa1111-0000-0000-0000-000000000083'
    WHERE id = '83830000-0000-0000-0000-0000000000e2'
 $$, '42501', NULL,
-  'nor move an existing file INTO it (files_update''s WITH CHECK gained the hop)');
+  'a filtered move of a file INTO it is refused too — by files_select''s hop on the NEW row, which any UPDATE that reads a column already meets (defence in depth, not 0083''s doing)');
 
 -- PRESENCE CONTROL for the refused move: the row is where it was, on the
 -- public project, and the refusal was of a row this caller can see.
@@ -285,7 +300,28 @@ SELECT is(
   1, 'PRESENCE CONTROL: the file stays on the public project after the refused move');
 
 
--- ── 20-22: nothing was written by the refused calls (read as postgres) ─────
+-- 🚨 THE FAILING CONTROL FOR files_update's HOP (round 2, C-R2-01). The one
+-- UPDATE shape no SELECT policy ever sees reads NO column: no WHERE, no
+-- RETURNING, a constant on the right — Postgres requires SELECT only when a
+-- column is read. Then only files_update's USING admits the OLD rows
+-- (workspace + membership + can_write_project + money: every one of them
+-- yes for a second manager, privacy unasked — can_write_project is DEFINER
+-- and says yes to any manager claim) and only files_update's WITH CHECK
+-- judges the NEW ones. Before 0083 that WITH CHECK had no hop, so this
+-- statement rewrote the private file a1 along with every other row the
+-- USING admits; after 0083 a1's new row fails the hop and the whole
+-- statement aborts. Filter-less on purpose, and the session allows it:
+-- suites 17, 25, 28 and 29 already send filter-less writes in CI. Probe 24
+-- reads back that the abort undid all of it. (On the hosted API this is the
+-- statement pg-safeupdate refuses for the API role — unmeasured on this
+-- project's envs; the hop is the gate that does not depend on it.)
+SELECT throws_ok(
+  $$UPDATE public.files SET description = 'x'$$,
+  '42501', NULL,
+  '🚨 an UPDATE that reads no column cannot rewrite a private project''s file (files_update''s WITH CHECK hop — the one shape files_select never sees)');
+
+
+-- ── 21-24: nothing was written by the refused calls (read as postgres) ─────
 -- A refusal that had already written its row or its event would be the same
 -- hole with a different exit code; these are scoped to the fixture ids.
 
@@ -304,7 +340,7 @@ SELECT is(
       AND actor_user_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
   0, 'the refused read logged no downloaded event for the private file');
 
--- PRESENCE CONTROL for probe 21: the creator's own read (probe 11) IS there,
+-- PRESENCE CONTROL for probe 22: the creator's own read (probe 11) IS there,
 -- so a zero above is a refusal, not an event stream that writes nothing.
 SELECT is(
   (SELECT count(*)::int FROM public.file_events
@@ -313,8 +349,21 @@ SELECT is(
       AND actor_user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
   1, 'PRESENCE CONTROL: the creator''s read of the same file was logged');
 
+-- PRESENCE CONTROL for probe 20: the refused column-free UPDATE aborted as a
+-- WHOLE. The private file's description is untouched — and so is the public
+-- file's, which the same statement reached through files_update's USING: a
+-- per-row refusal that left the rows before it rewritten would be the same
+-- hole with a different exit code. Two rows, both still NULL; a missing row
+-- would count 1 or 0, a rewritten one 1.
+SELECT is(
+  (SELECT count(*)::int FROM public.files
+    WHERE id IN ('83830000-0000-0000-0000-0000000000a1',
+                 '83830000-0000-0000-0000-0000000000b1')
+      AND description IS NULL),
+  2, 'PRESENCE CONTROL: the refused column-free UPDATE rewrote neither the private file nor the public one');
 
--- ── 23-24: a plain member — can_write_project TRUE (unstaffed), and refused ─
+
+-- ── 25-26: a plain member — can_write_project TRUE (unstaffed), and refused ─
 -- The reserve here was an ALLOWED call before 0083: the id is all the caller
 -- needs, and 0018's workspace channel hands it out.
 
@@ -342,7 +391,7 @@ SELECT ok(
   'CONTROL: the same member reserves against the PUBLIC project — the write gate alone admits them (unstaffed → can_write_project)');
 
 
--- ── 25-27: the admin keeps the escape hatch, and the retype kept 0074's flag ─
+-- ── 27-29: the admin keeps the escape hatch, and the retype kept 0074's flag ─
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -378,7 +427,7 @@ SELECT is(
   true, '0059 LESSON: the retyped log_file_downloaded still flags an invoice read is_financial (0074)');
 
 
--- ── 28-29: the retype kept 0038's money arm and 0078's bounded exemption ───
+-- ── 30-31: the retype kept 0038's money arm and 0078's bounded exemption ───
 -- 🚨 0059 dropped a guard's clauses with a CREATE OR REPLACE and it cost a
 -- live privilege escalation. 0083 replaces two bodies to add one arm each;
 -- this is the cross-check, in the functions that actually run, that the arms
@@ -395,7 +444,7 @@ SELECT set_config('request.jwt.claims', json_build_object(
 )::text, true);
 SET LOCAL ROLE authenticated;
 
--- A plain member can see the public project (probe 24 proved it) and is
+-- A plain member can see the public project (probe 26 proved it) and is
 -- refused the invoice all the same: the money arm, with its COALESCE (0074's
 -- probe 29 lesson — for a claim-less non-manager the gate is NULL, and an
 -- `IF NOT NULL` fails open).

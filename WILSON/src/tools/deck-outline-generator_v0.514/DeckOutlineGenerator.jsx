@@ -4261,7 +4261,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                     className="dog-role-source"
                                     title={`Stored on the project record. Settings → Storage → "Move deck attachments into project files" moves these into the project's files.`}
                                   >
-                                    legacy
+                                    Legacy
                                   </Badge>
                                 )}
                               </div>

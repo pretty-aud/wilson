@@ -38,6 +38,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { toInlineSafeBlob } from '../../lib/inlineSafeBlob'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const read = (p) => readFileSync(join(HERE, p), 'utf8').replace(/\r\n/g, '\n')
@@ -204,6 +205,26 @@ describe('a receipt stays reachable by the person who uploaded it', () => {
     expect(openFileBody).toMatch(/downloadFile\(row\)/)
     expect(openFileBody).toMatch(/createObjectURL/)
     expect(INVOICE_ATT).toMatch(/createObjectURL/)
+  })
+
+  it('and it re-types the body before a blob: URL is made of it (merge review C-R2-02)', () => {
+    // The stored type is client-chosen (supabaseProvider writes file.type and
+    // rabbit-files has no allowed_mime_types) and a blob: URL runs on THIS
+    // origin — so a receipt uploaded as text/html ran as script in the next
+    // money reader's tab. Both sinks route the body through the one helper,
+    // and the URL is made of the helper's answer, not of the download.
+    expect(openFileBody).toMatch(/const blob = toInlineSafeBlob\(await adapter\.downloadFile\(row\)\)/)
+    expect(openFileBody).toMatch(/createObjectURL\(blob\)/)
+    expect(BUDGET_VIEW).toMatch(/import \{ toInlineSafeBlob \} from '\.\.\/\.\.\/\.\.\/lib\/inlineSafeBlob'/)
+    expect(INVOICE_ATT).toMatch(/const blob = toInlineSafeBlob\(await adapter\.downloadFile\(row\)\)/)
+    expect(INVOICE_ATT).toMatch(/import \{ toInlineSafeBlob \} from '\.\.\/\.\.\/lib\/inlineSafeBlob'/)
+    // …and the helper the pins name actually refuses the class: a source pin
+    // proves the call is made, not what it does (inlineSafeBlob.test.js has
+    // the full list; this is the receipt's own worst case).
+    expect(toInlineSafeBlob(new Blob(['<script>'], { type: 'text/html' })).type).toBe('application/octet-stream')
+    expect(toInlineSafeBlob(new Blob(['<svg/>'], { type: 'image/svg+xml' })).type).toBe('application/octet-stream')
+    const pdf = new Blob(['%PDF'], { type: 'application/pdf' })
+    expect(toInlineSafeBlob(pdf)).toBe(pdf)
   })
 
   it('and it does not fail silently the way the invoice bug did', () => {
