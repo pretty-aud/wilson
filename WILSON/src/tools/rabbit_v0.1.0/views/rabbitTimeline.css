@@ -95,6 +95,11 @@
                                       without one); the card is one chrome
      .rb-tl-mm-thumb                  data-dragging = true|false: signal,
                                       grabbing, no fade | scroll thumb, grab
+     .rb-tl-ov-frame, .rb-tl-ov-frame-edge
+                                      data-animate = true|false: the window
+                                      slides to its new box for one response
+                                      duration after a zoom tab change | it
+                                      moves instantly (post-overhaul S1, B7)
      .rb-tl-tone (both kinds of bar)  data-shape = task|phase|subgroup,
                                       data-status = the stored status,
                                       data-life = completed|upcoming|active
@@ -204,6 +209,17 @@
     border-left-width: 2px;
     border-right-width: 2px;
     border-radius: var(--radius-control);
+  }
+  /* Post-overhaul S1 (ruling B7): for one --duration-response after the
+     gantt's zoom changes — the four zoom tabs, or the arrow keys on them —
+     both layers slide and stretch to the new box instead of jumping.
+     Everything else that moves the window (scroll-follow, its drag, Fit,
+     Today, the zoom slider, Ctrl+wheel, click-to-jump) stays instant:
+     data-animate is "false" then. The reduced-motion twin is the sheet's
+     one block, at its end. */
+  .rb-tl-ov-frame[data-animate="true"],
+  .rb-tl-ov-frame-edge[data-animate="true"] {
+    transition: left var(--duration-response) var(--ease-response), width var(--duration-response) var(--ease-response);
   }
 
   /* A phase's name (Q22), while rows are 18px or taller: centred on its
@@ -797,10 +813,7 @@
     .rb-tl-prompt-head:hover .rb-tl-prompt-desc,
     .rb-tl-prompt-head:hover .rb-tl-prompt-title[data-locked="true"] { color: var(--color-ink-2); }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rb-tl-prompt-head,
-    .rb-tl-prompt-chevron { transition: none; }
-  }
+  /* (Reduced motion: the sheet's one block, at its end.) */
 
   /* ═══ Help (HelpModal) — stage 2 (B3c) ═════════════════════════════════
      The kit's Dialog (reading, 720), laid out as D.O.G.'s Help is, so the
@@ -854,9 +867,7 @@
     color: var(--color-ink-3);
   }
   .rb-tl-help-content { flex: 1; min-width: 0; overflow-y: auto; padding: 24px; }
-  @media (prefers-reduced-motion: reduce) {
-    .rb-tl-help-item { transition: none; }
-  }
+  /* (Reduced motion: the sheet's one block, at its end.) */
 
   /* ═══ The summary band (SummaryBand) — stage 2 (B3b) ════════════════════
      The band on the paper under the rule; its title at the Label step in
@@ -902,4 +913,19 @@
   .rb-hist-action[data-action="restore"] { color: var(--color-success); border-color: var(--color-success); }
   .rb-hist-action[data-action="update"] { color: var(--color-ink-2); border-color: var(--color-ink-2); }
   .rb-hist-action[data-action="delete"] { color: var(--color-danger); border-color: var(--color-danger); }
+
+  /* ═══ Reduced motion, the sheet's one block — stage 2 (post-overhaul S1) ═
+     Plan §3.4: every transition in this sheet honours prefers-reduced-motion
+     with an instant end state, scoped by class, never a blanket rule (C5:
+     the pet keeps moving). It comes LAST, after every rule it stops
+     (v2Motion.test.js reads this sheet since S1). It was two blocks, and
+     the minimap scroll thumb's fade had no twin. */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-tl-ov-frame[data-animate="true"],
+    .rb-tl-ov-frame-edge[data-animate="true"],
+    .rb-tl-mm-thumb,
+    .rb-tl-prompt-head,
+    .rb-tl-prompt-chevron,
+    .rb-tl-help-item { transition: none; }
+  }
 }

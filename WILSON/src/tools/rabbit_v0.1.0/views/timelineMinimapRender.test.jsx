@@ -19,8 +19,10 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, afterAll, vi } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
-import { createRef } from 'react'
+import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import { createRef, useState } from 'react'
+import { DURATION } from '../../../ui/tokens.js'
+import { Tabs } from '../../../ui/Tabs'
 
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => ({}) }))
@@ -129,6 +131,95 @@ describe('a phase outside the window keeps its row and says where it went', () =
     expect(edges.filter((e) => e === 'before').length).toBeGreaterThan(0)
     expect(edges.filter((e) => e === 'after').length).toBeGreaterThan(0)
     expect(bars + edges.filter(Boolean).length).toBe(12)
+  })
+})
+
+describe('the window animates after a zoom change, and only then — post-overhaul S1 (ruling B7)', () => {
+  afterEach(() => { vi.useRealTimers() })
+  const noop = () => {}
+  const spanStart = day(2026, 6, 1)
+  /** Everything OverviewPane takes; each test changes one thing at a time. */
+  const props = (over = {}) => {
+    const p = project(5)
+    const spanDays = over.spanDays ?? 730
+    const width = 1400
+    return {
+      groupBy: 'phase', phases: p.phases, assets: [], tasks: [], schedule: p.schedule, criticalSet: new Set(),
+      span: { start: spanStart, end: addDays(spanStart, spanDays), days: spanDays, center: addDays(spanStart, spanDays >> 1) },
+      dayPx: width / spanDays, sortOrder: 'asc',
+      visibleStartDate: addDays(spanStart, 60), visibleEndDate: addDays(spanStart, 120),
+      zoomMinDays: 183, zoomMaxDays: 1825,
+      scenes: [], shots: [], levels: [], experiences: [], teamAssignments: [], teamMembers: [],
+      onScrollDetailToDate: noop, onPanMinimap: noop, onZoomMinimap: noop,
+      onUpdateTask: noop, onUpdatePhase: noop, onEditTask: noop, onEditPhase: noop,
+      canWrite: true, writeReason: null, milestones: [], detailZoom: 'week',
+      ...over,
+    }
+  }
+  const animated = (c) => [...c.querySelectorAll('.rb-tl-ov-frame, .rb-tl-ov-frame-edge')].map((el) => el.getAttribute('data-animate'))
+
+  it('a new zoom raises data-animate on both layers in the same render, for one --duration-response, then drops it', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<OverviewPane ref={createRef()} {...props()} />)
+    expect(animated(container)).toEqual(['false', 'false'])
+    // Day zoom: the same left edge, a window a third as wide.
+    rerender(<OverviewPane ref={createRef()} {...props({ detailZoom: 'day', visibleEndDate: addDays(spanStart, 80) })} />)
+    expect(animated(container)).toEqual(['true', 'true'])
+    act(() => { vi.advanceTimersByTime(DURATION.response - 1) })
+    expect(animated(container)).toEqual(['true', 'true'])
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(animated(container)).toEqual(['false', 'false'])
+    expect(DURATION.response).toBe(200)
+  })
+
+  it('a second zoom change inside the window restarts it', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<OverviewPane ref={createRef()} {...props()} />)
+    rerender(<OverviewPane ref={createRef()} {...props({ detailZoom: 'day' })} />)
+    act(() => { vi.advanceTimersByTime(150) })
+    rerender(<OverviewPane ref={createRef()} {...props({ detailZoom: 'month' })} />)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(animated(container)).toEqual(['true', 'true'])
+    act(() => { vi.advanceTimersByTime(50) })
+    expect(animated(container)).toEqual(['false', 'false'])
+  })
+
+  it('everything else that moves the window stays instant: scroll-follow, the zoom slider / Fit / Today / Ctrl+wheel (a new span), a resize (a new dayPx)', () => {
+    const { container, rerender } = render(<OverviewPane ref={createRef()} {...props()} />)
+    rerender(<OverviewPane ref={createRef()} {...props({ visibleStartDate: addDays(spanStart, 90), visibleEndDate: addDays(spanStart, 150) })} />)
+    expect(animated(container)).toEqual(['false', 'false'])
+    rerender(<OverviewPane ref={createRef()} {...props({ spanDays: 365 })} />)
+    expect(animated(container)).toEqual(['false', 'false'])
+    rerender(<OverviewPane ref={createRef()} {...props({ spanDays: 365, dayPx: 2 })} />)
+    expect(animated(container)).toEqual(['false', 'false'])
+  })
+
+  it('the zoom tabs, by click and by keyboard (the arrows move focus, Space or Enter presses the tab), are what raise it', () => {
+    vi.useFakeTimers()
+    const ZOOMS = ['day', 'week', 'month', 'quarter']
+    function Harness() {
+      // TimelineView's wiring: the Tabs set zoomId, OverviewPane reads it.
+      const [zoomId, setZoomId] = useState('week')
+      return (
+        <>
+          <Tabs label="Detail zoom" panelId="rb-tl-detail" items={ZOOMS.map((id) => ({ id, label: id }))} value={zoomId} onChange={setZoomId} />
+          <OverviewPane ref={createRef()} {...props({ detailZoom: zoomId })} />
+        </>
+      )
+    }
+    const { container, getByRole } = render(<Harness />)
+    fireEvent.click(getByRole('tab', { name: 'day' }))
+    expect(animated(container)).toEqual(['true', 'true'])
+    act(() => { vi.advanceTimersByTime(DURATION.response) })
+    expect(animated(container)).toEqual(['false', 'false'])
+    // Arrow keys move focus only (the kit Tabs activate manually): no change, no animation…
+    getByRole('tab', { name: 'day' }).focus()
+    fireEvent.keyDown(getByRole('tablist'), { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(getByRole('tab', { name: 'week' }))
+    expect(animated(container)).toEqual(['false', 'false'])
+    // …and pressing the focused tab (a button: Space and Enter click it) is the change.
+    fireEvent.click(document.activeElement)
+    expect(animated(container)).toEqual(['true', 'true'])
   })
 })
 

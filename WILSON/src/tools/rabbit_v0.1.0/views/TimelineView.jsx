@@ -46,7 +46,7 @@
 //   • phase.start_date / phase.end_date  (ISO YYYY-MM-DD)
 //   • task.phase_id                      (uuid, optional)
 
-import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
   CalendarDays, Layers, Boxes, ListChecks,
   AlertTriangle, Plus, X, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown,
@@ -99,6 +99,9 @@ import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWi
 // Post-overhaul S1 (rulings B3–B5): every stored date is read as the LOCAL
 // day it names and written as local y-m-d, through the one shared helper.
 import { parseIsoDate, toIsoDate } from '../dates.js'
+// Post-overhaul S1 (ruling B7): the minimap's window animates for one
+// response duration after the gantt's zoom changes.
+import { DURATION } from '../../../ui/tokens.js'
 import { IconButton } from '../../../ui/IconButton'
 import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
@@ -528,9 +531,17 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // stays in the same place on screen. Same compensation when
   // DAY_PX changes (zoom level switch) — keep the centered date
   // anchored under the cursor instead of jumping to scrollLeft 0.
+  //
+  // Post-overhaul S1 (ruling B7): a LAYOUT effect, and it sets the
+  // scroll state itself. As a passive effect it ran after the paint, so a
+  // zoom change first painted the minimap's window with the NEW scale and
+  // the OLD scroll (a wrong box), and the scroll event corrected it on the
+  // next render. Now the corrected scroll and the state that places the
+  // window land in the same pass, before anything is painted, and the
+  // window's animation runs from the old box to the right one.
   const prevSpanStartRef = useRef(overviewSpan.start)
   const prevDayPxRef     = useRef(DAY_PX)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = detailRef.current
     if (!el) return
     const prevStart = prevSpanStartRef.current
@@ -554,12 +565,31 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       const zoomChanged = prevPx !== currPx
       if (startMoved || zoomChanged) {
         el.scrollLeft = newScrollLeft
+        // Read back: the browser clamps to the new scroll width.
+        setDetailScrollLeft(el.scrollLeft)
       }
     }
 
     prevSpanStartRef.current = currStart
     prevDayPxRef.current     = currPx
   }, [overviewSpan.start, DAY_PX])
+
+  // A zoom tab's change (the four tabs, or the keyboard on them — the only
+  // writer of zoomId). Post-overhaul S1 (ruling B7): it carries the scroll
+  // that keeps the view's left date, IN THE SAME RENDER as the new scale. A
+  // render with the new scale and the old scroll puts the minimap's window
+  // in a wrong box — measured, Day → Quarter put it past the minimap's right
+  // edge, which unmounts it, and a remounted window has nothing to animate
+  // from (it jumped). The layout effect above then only confirms the value
+  // (and reads back the browser's clamp).
+  const changeZoom = useCallback((id) => {
+    const next = ZOOM_LEVELS.find((z) => z.id === id)
+    const el = detailRef.current
+    if (next && el && next.dayPx !== DAY_PX) {
+      setDetailScrollLeft((el.scrollLeft / Math.max(1, DAY_PX)) * next.dayPx)
+    }
+    setZoomId(id)
+  }, [DAY_PX])
 
   // Visible window in days from overviewSpan.start.
   const visibleStartDays = Math.max(0, detailScrollLeft / DAY_PX)
@@ -796,6 +826,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         canWrite={canWrite}
         writeReason={writeReason}
         milestones={allMilestones}
+        detailZoom={zoomId}
       />
 
       {/* ── The legend, once, for both charts (B3c) ── */}
@@ -804,7 +835,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       {/* ── Detail-pane zoom toolbar (sits between minimap + gantt) ── */}
       <DetailZoomToolbar
         zoomId={zoomId}
-        onChange={setZoomId}
+        onChange={changeZoom}
         onCenterToday={centerDetailOnToday}
         sortOrder={settings.sortOrder}
         onSortOrderChange={(o) => patchSettings({ sortOrder: o })}
@@ -1012,7 +1043,29 @@ export const OverviewPane = forwardRef(function OverviewPane({
   // of the same screen.
   canWrite = true, writeReason = null,
   milestones = [],
+  // Post-overhaul S1 (ruling B7): the gantt's zoom id. Only the four zoom
+  // tabs (and the arrow keys on them) change it; when it changes, the
+  // window animates to its new size (below).
+  detailZoom = null,
 }, forwardedRef) {
+  // S1 (B7): the window animates for one --duration-response after the
+  // gantt's zoom changes, and at no other time — scroll-follow, the frame's
+  // drag, Fit, Today, the zoom slider, Ctrl+wheel and click-to-jump move it
+  // instantly. The flag is raised in the SAME render as the new zoom (an
+  // update during render, React's pattern for state that follows a prop),
+  // so the window's new box is first drawn under the transition.
+  const [frameAnimate, setFrameAnimate] = useState(false)
+  const [animatedZoom, setAnimatedZoom] = useState(detailZoom)
+  if (detailZoom !== animatedZoom) {
+    setAnimatedZoom(detailZoom)
+    setFrameAnimate(true)
+  }
+  useEffect(() => {
+    if (!frameAnimate) return undefined
+    const t = setTimeout(() => setFrameAnimate(false), DURATION.response)
+    return () => clearTimeout(t)
+  }, [frameAnimate, animatedZoom])
+
   // The minimap ALWAYS shows phases regardless of the active
   // group-by mode. Phases are the project's backbone and the
   // minimap should always reflect them so the user can orient
@@ -1412,6 +1465,7 @@ export const OverviewPane = forwardRef(function OverviewPane({
               <div
                 data-minimap-nojump="1"
                 className="absolute cursor-grab active:cursor-grabbing rb-tl-ov-frame"
+                data-animate={frameAnimate ? 'true' : 'false'}
                 style={{
                   left: frameLeft,
                   width: Math.max(8, frameWidth),
@@ -1428,6 +1482,7 @@ export const OverviewPane = forwardRef(function OverviewPane({
               <div
                 aria-hidden="true"
                 className="absolute rb-tl-ov-frame-edge"
+                data-animate={frameAnimate ? 'true' : 'false'}
                 style={{
                   left: frameLeft,
                   width: Math.max(8, frameWidth),

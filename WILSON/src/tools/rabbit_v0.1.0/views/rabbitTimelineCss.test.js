@@ -833,6 +833,54 @@ describe('S1 item 4: no rule under a task row in the gantt half; the gutter and 
   })
 })
 
+/** Every (selector, transition) the sheet gives the minimap's window. */
+const frameTransitions = (css) => rulesOf(css).flatMap((r) => {
+  const t = r.body.match(/(?:^|;)\s*transition\s*:\s*([^;]+)/)?.[1]?.trim()
+  if (!t) return []
+  return selectorsOf(r.sel).map(sameSelector).filter((s) => /^\.rb-tl-ov-frame(?:-edge)?(?![\w-])/.test(s)).map((s) => `${s} { ${t} }`)
+})
+describe('S1 item 5: the minimap window animates after a zoom-tab change, and at no other time (ruling B7)', () => {
+  const MOVE = 'left var(--duration-response) var(--ease-response), width var(--duration-response) var(--ease-response)'
+  it('the sheet moves both layers under data-animate="true" only, and its one reduced-motion block stops them', () => {
+    expect(frameTransitions(sheet)).toEqual([
+      `.rb-tl-ov-frame[data-animate="true"] { ${MOVE} }`,
+      `.rb-tl-ov-frame-edge[data-animate="true"] { ${MOVE} }`,
+      '.rb-tl-ov-frame[data-animate="true"] { none }',
+      '.rb-tl-ov-frame-edge[data-animate="true"] { none }',
+    ])
+    expect([...cssCode(sheet).matchAll(/@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g)]).toHaveLength(1)
+  })
+  it('the Timeline hands the minimap its zoom, and only the zoom tabs write that zoom', () => {
+    expect(code.timeline).toMatch(/milestones=\{allMilestones\}\s+detailZoom=\{zoomId\}/)
+    expect(code.timeline.match(/setZoomId/g)).toHaveLength(2) // the useState, and changeZoom
+    expect(code.timeline).toMatch(/<DetailZoomToolbar\s+zoomId=\{zoomId\}\s+onChange=\{changeZoom\}/)
+    // changeZoom sets the scroll that keeps the left date in the same render
+    // as the new scale, so no wrong box is ever committed (measured: without
+    // it Day → Quarter unmounted the window and it jumped).
+    expect(code.timeline).toMatch(/const changeZoom = useCallback\(\(id\) => \{[\s\S]{0,200}?setDetailScrollLeft\(\(el\.scrollLeft \/ Math\.max\(1, DAY_PX\)\) \* next\.dayPx\)\s+\}\s+setZoomId\(id\)/)
+    // Both layers carry the flag, as a literal the attribute guards can read.
+    expect(code.timeline.match(/data-animate=\{frameAnimate \? 'true' : 'false'\}/g)).toHaveLength(2)
+  })
+  it('the zoom compensation is a layout effect that sets the scroll state itself, so the wrong first box is never painted', () => {
+    const at = code.timeline.indexOf('const prevDayPxRef')
+    const body = code.timeline.slice(at, code.timeline.indexOf('}, [overviewSpan.start, DAY_PX])', at))
+    expect(body).toMatch(/useLayoutEffect\(\(\) => \{/)
+    expect(body).toMatch(/el\.scrollLeft = newScrollLeft\s+setDetailScrollLeft\(el\.scrollLeft\)/)
+    expect(code.timeline).toMatch(/import \{ useEffect, useLayoutEffect, /)
+  })
+  it('CONTROL: a transition on the window at rest (it would animate scroll-follow and the drag), and a second reduced-motion block, are caught', () => {
+    const atRest = sheet.replace('.rb-tl-ov-frame { background-color:', '.rb-tl-ov-frame { transition: left 200ms; background-color:')
+    expect(atRest).not.toBe(sheet)
+    expect(frameTransitions(atRest)).toContain('.rb-tl-ov-frame { left 200ms }')
+    const two = `${sheet}\n@layer components { @media (prefers-reduced-motion: reduce) { .rb-tl-x { transition: none; } } }`
+    expect([...cssCode(two).matchAll(/@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g)]).toHaveLength(2)
+    const passive = code.timeline.replace(/useLayoutEffect\(\(\) => \{(\s+const el = detailRef\.current\s+if \(!el\) return\s+const prevStart)/, 'useEffect(() => {$1')
+    expect(passive).not.toBe(code.timeline)
+    const at = passive.indexOf('const prevDayPxRef')
+    expect(passive.slice(at, passive.indexOf('}, [overviewSpan.start, DAY_PX])', at))).not.toMatch(/useLayoutEffect\(/)
+  })
+})
+
 /** How the gantt turns a pointer's x into a day where it CREATES a task: the
     "+ New task" click and drag-to-draw. */
 const creationSnaps = (src) => ({
