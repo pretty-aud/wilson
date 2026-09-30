@@ -88,6 +88,8 @@ Shots:
 - Week zoom, late November into December: `po-s1-week-nov-dec-before-1440x900.png` → `po-s1-week-nov-dec-after-1440x900.png`.
 - Day zoom, the month name at December 1: `po-s1-day-dec-before-1440x900.png` → `po-s1-day-dec-after-1440x900.png`.
 - Day zoom with weekends hidden, November: `po-s1-day-nov-weekends-hidden-after-1440x900.png` (before, "Nov 2026" was not on the header at all).
+- Day zoom with weekends shown, Sunday 1 November: `po-s1-day-nov-weekends-shown-before-1440x900.png` → `po-s1-day-nov-weekends-shown-after-1440x900.png` (the month's line through the weekend shading).
+- Each of these, except the last pair, is also there at 1280x700.
 
 **Option C, for later.** You kept option C for its own session "if you want
 a week to read as a cell". It would split the header into two bands: the
