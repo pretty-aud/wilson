@@ -5592,8 +5592,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   function renderToolsTab() {
     // The two positions Audrey asked for (decision 3), each writing through
-    // the adapter seam; the pressed one's description is repeated under the
-    // pair beside the "showing now" line.
+    // the adapter seam, each with its description in view under it; the
+    // "showing now" line sits under the pair.
     const libraryOptions = [
       { mode: 'auto',  title: 'Company (signed in)', desc: 'Your company library when you are signed in, this computer when you are not.' },
       { mode: 'local', title: 'This computer',       desc: 'Always the courses saved on this computer, even while signed in.' },
@@ -5620,9 +5620,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             This control is the one that does something. Desktop only, because
             the on-disk library only exists where the in-app Express server
             does. On the overhaul's kit: a Card, the two positions as kit
-            Buttons that press (aria-pressed, the pressed one filled), the
-            explanation and the "showing now" line on the sheet's caption
-            step. */}
+            Buttons that press (aria-pressed, the pressed one filled), each
+            over its own description, and the explanation and the "showing
+            now" line on the sheet's caption step. */}
         {hasLocalLibrary && (
           <Card title="Library" className="otter-settings-card">
             <p className="otter-form-hint otter-form-hint-above">
@@ -5632,17 +5632,25 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             </p>
             <div className="otter-settings-actions">
               {libraryOptions.map(opt => (
-                <Button
-                  key={opt.mode}
-                  variant={libraryMode === opt.mode ? 'primary' : 'secondary'}
-                  aria-pressed={libraryMode === opt.mode}
-                  title={opt.desc}
-                  onClick={() => setOtterAdapterMode(opt.mode)}
-                  disabled={toolsTabLocked}
-                  className="otter-settings-action"
-                >
-                  {opt.title}
-                </Button>
+                // Each position with its description IN VIEW (merge review
+                // round 1, A-R1-07): a `title` tooltip is hover-only —
+                // invisible on touch, unreliable from the keyboard — and
+                // someone deciding whether to switch has to be able to read
+                // what "This computer" does before pressing it. The Button is
+                // described by its own line for assistive technology too.
+                <div key={opt.mode} className="otter-settings-option">
+                  <Button
+                    variant={libraryMode === opt.mode ? 'primary' : 'secondary'}
+                    aria-pressed={libraryMode === opt.mode}
+                    aria-describedby={`otter-library-desc-${opt.mode}`}
+                    onClick={() => setOtterAdapterMode(opt.mode)}
+                    disabled={toolsTabLocked}
+                    className="otter-settings-action"
+                  >
+                    {opt.title}
+                  </Button>
+                  <p id={`otter-library-desc-${opt.mode}`} className="otter-form-hint">{opt.desc}</p>
+                </div>
               ))}
             </div>
             {/* What is ACTUALLY in front of you, which is not always what the
@@ -5650,8 +5658,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 courses while signed out, and that is worth stating rather than
                 leaving someone to infer it from an empty screen. */}
             <p className="otter-form-hint">
-              {libraryOptions.find(opt => opt.mode === libraryMode)?.desc}
-              {' '}Showing now: {cloudMode ? 'your company library' : 'the courses on this computer'}.
+              Showing now: {cloudMode ? 'your company library' : 'the courses on this computer'}.
             </p>
           </Card>
         )}

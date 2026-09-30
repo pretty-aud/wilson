@@ -26,6 +26,16 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   },
 }))
 
+// The dev fixtures seam (merge review round 1, A-R1-05): what devFixtures()
+// answers. `import.meta.env.DEV` is true under vitest, so the seam consults
+// this exactly as a dev build would; null is "fixtures off", which is what
+// every test above this block sees.
+let fixturesToReturn = null
+
+vi.mock('../../../dev/devFixtures.js', () => ({
+  devFixtures: () => fixturesToReturn,
+}))
+
 const KEY = 'wilson.otter.libraryMode'
 
 /** A token whose payload carries a workspace_id, which is what cloudActive
@@ -251,5 +261,40 @@ describe('subscribers, so nothing keeps answering from the old library', () => {
     // …and it really did come off: the next change reaches only the second.
     m.setOtterAdapterMode('auto')
     expect(seen).toEqual(['local', 'auto'])
+  })
+})
+
+describe('the dev fixtures (dev builds only) stand down for a local pin — A-R1-05', () => {
+  // The overhaul's fixture interception in otterFetch ran before the pin was
+  // consulted, while cloudActive() honoured the pin first: pinned "This
+  // computer", the notice and the "Showing now" line said the courses on this
+  // computer were showing while every route was still answered from the
+  // in-memory cloud fixtures. The two now consult the pin in the same order.
+  const realFetch = globalThis.fetch
+  const fixtures = { otter: { handle: () => ({ status: 200, body: { from: 'fixtures' } }) } }
+  afterEach(() => { fixturesToReturn = null; globalThis.fetch = realFetch })
+
+  it('CONTROL — fixtures installed and no pin: a content route is answered from the fixtures, and the UI reads cloud', async () => {
+    fixturesToReturn = fixtures
+    globalThis.fetch = vi.fn()
+    const m = await freshModule()
+    expect(await m.otterCloudActive()).toBe(true)
+    const res = await m.otterFetch('/api/export-all')
+    expect(await res.json()).toEqual({ from: 'fixtures' })
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('🚨 pinned local: the fixtures are not consulted and the route falls through to this computer, as the UI says', async () => {
+    fixturesToReturn = fixtures
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ from: 'local' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }))
+    const m = await freshModule()
+    m.setOtterAdapterMode('local')
+    expect(await m.otterCloudActive()).toBe(false)       // the seam the UI reads
+    const res = await m.otterFetch('/api/export-all')     // the seam the routes take
+    expect(await res.json()).toEqual({ from: 'local' })
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(globalThis.fetch.mock.calls[0][0]).toBe('/api/export-all')
   })
 })

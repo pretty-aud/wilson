@@ -216,7 +216,11 @@ export async function otterFetch(input, init) {
 
   // Dev fixtures (2026-09-11, dev builds only): every O.T.T.E.R. content route
   // is answered from src/dev/fixtures in memory; nothing reaches Supabase.
-  const fx = import.meta.env.DEV ? devFixtures() : null
+  // A local pin wins over them, in the order cloudActive() consults the two
+  // (merge review round 1, A-R1-05): with "This computer" pinned the notice
+  // and the "Showing now" line say the courses on this computer are showing,
+  // so the routes must answer from there — not from the in-memory cloud.
+  const fx = import.meta.env.DEV && modeOverride !== 'local' ? devFixtures() : null
   if (fx?.otter) {
     const answer = fx.otter.handle(route, parseBody(init))
     return jsonResponse(answer.body, answer.status)

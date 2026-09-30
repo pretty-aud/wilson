@@ -1754,3 +1754,36 @@ ruling are Audrey's questions in walkthrough 47 as well.
 - **The agent overlays are still hand-drawn:** `DiffView` (a private backdrop, the stone palette, an orange frame) and the agent toast; P1 moved their shadows onto the float token and the outline proposal onto the kit Dialog. Not reached by P1.
 - **The Summary's missing-files notice is hand-drawn** (`ProjectSummaryView.jsx`, the relink notice: a `color-mix` warning tint, its own hairline, a kit Button inside), where the kit Banner has the warning tone and an action slot, as Storage's load error now uses (P1-39). READ in code at P1's close (review round two's mono fix touched its sentence); not reached by P1.
 - **Hexes left in lane code:** `IngestionToast.jsx` 21 and `UndoToast.jsx` 10 (the toasts' own colours; P1 moved their shadows and radius only), besides the task editor's (P1-31). MEASURED by P1's audit.
+
+## Post-overhaul merge (Track A over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
+
+### 🚨 The workspace realtime channel broadcasts a PRIVATE project's rows to every member
+**MEASURED (2026-09-29, merge review round 1, A-R1-04; PRE-EXISTING on the
+overhaul parent `60a8981` — not introduced by the merge, and not fixed by its
+round-1 corrections).**
+`fn_workspace_realtime_broadcast` (`0018_workspace_channel.sql:159`, attached
+to `projects`, `workspace_members`, `tasks`, `assets`, `project_members`)
+passes whole NEW/OLD rows to `realtime.broadcast_changes` on
+`rabbit:workspace:<ws>` with only a workspace filter, on the premise its own
+comment states — "Membership ≡ visibility". 0072 made that premise false:
+`projects_select` gained the private-project arm, and the join gate
+`can_read_workspace_topic` still checks membership only. So a private
+project's **id, title and `is_private` flag** (and its assigned tasks, its
+label-changing asset events, its roster) reach every active member's channel
+— members who cannot SELECT the row. The per-project topic (0016) is
+unaffected: its join gate is `SECURITY INVOKER` over `projects_select`.
+
+**What 0082 closed, and what it did not:** the id the channel leaks now opens
+nothing — `milestones_trash_index` and `fn_trash_authz` (so `soft_delete_row`
+/ `restore_soft_deleted`) carry the privacy arm (0082, suite 82), which was
+the practical harm (A-R1-01). The broadcast itself is untouched, because it is
+a product decision about what the workspace channel carries. The candidate
+fix — skip a `projects` row whose `is_private` is set, and a `tasks` /
+`assets` / `project_members` row whose project is private — means a project
+flipped to private after the fact stays in the other members' project index
+by NAME until their next refetch (they cannot open it; `projects_select`
+refuses), and broadcasting the flip would carry the row that must not be
+carried. Audrey's call, then its own migration (the next free number after
+0082) with a suite-80 probe: no workspace-topic message for a private
+project's insert, with a public-project control. 0082's header records the
+shape.

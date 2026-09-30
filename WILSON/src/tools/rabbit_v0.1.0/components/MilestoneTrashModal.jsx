@@ -29,7 +29,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Undo2, Diamond } from 'lucide-react'
 import GatedAction from '../../../permissions/GatedAction'
-import { Dialog, Button, Loading, INK_3, WARNING } from '../../../ui'
+import { Dialog, Button, Loading } from '../../../ui'
 import '../views/rabbitFiles.css'
 
 // The retention that purge_soft_deleted() applies (0014 §4, default 30 days;
@@ -161,17 +161,20 @@ export default function MilestoneTrashModal({
                   const left = daysLeft(row)
                   return (
                     <div key={row.id} className="rb-warn-task">
-                      {/* The key date's own colour is data, set on the glyph
-                          that reads it, with the warning amber as the fallback
-                          the Timeline's key dates use. */}
+                      {/* The key date's own colour is data, carried as a custom
+                          property the sheet's rb-warn-glyph reads (as the Tasks
+                          lane carries --rb-ms); a key date with no colour gets
+                          the sheet's fallback, the warning amber the Timeline's
+                          key dates use. The one style this file writes
+                          (rabbitFilesCss.test.js, STYLES). */}
                       <Diamond
-                        className="w-3 h-3"
+                        className="rb-warn-glyph"
                         aria-hidden="true"
-                        style={{ color: row.color || WARNING, flexShrink: 0 }}
+                        style={{ '--rb-warn-glyph': row.color }}
                       />
                       <span className="rb-warn-task-title">
                         {row.title || 'Untitled key date'}
-                        <span className="block text-caption" style={{ color: INK_3 }}>
+                        <span className="rb-warn-caption">
                           Deleted {formatDeletedAt(row.deleted_at)}
                           {purgeScheduled && left !== null
                             ? ` · removed for good in ${left} day${left === 1 ? '' : 's'}`

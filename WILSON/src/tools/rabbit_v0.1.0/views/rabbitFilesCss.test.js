@@ -63,12 +63,26 @@ const FILES = {
   warn: { file: '../components/AssetStatusWarningModal.jsx', prefix: 'rb-warn-' },
   audit: { file: '../components/FileAuditDrawer.jsx', prefix: 'rb-audit-' },
   relink: { file: '../components/RelinkDialog.jsx', prefix: 'rb-relink-' },
+  // Track A over the overhaul, merge review round 1 (A-R1-03): the three
+  // dialogs the merge drew on the `rb-warn-` anatomy, registered so the lane's
+  // guards read them (they had been re-drawn on the sheet's classes with
+  // three inline colours, a z override and a width the guards never saw).
+  // The status warning is the kit's dialog classes hand-drawn — its rulings
+  // need the X, the backdrop and Escape to be its own — and writes no style:
+  // its confirm width is the sheet's, on the kit's `--dialog-confirm`. The
+  // rewire question and the deleted-key-dates list are on the kit Dialog; the
+  // list carries a key date's own colour as a custom property (below), as the
+  // Tasks lane carries --rb-ms.
+  depGuard: { file: '../components/DependencyStatusGuard.jsx', prefix: 'rb-warn-' },
+  rewire: { file: '../components/DependencyRewireModal.jsx', prefix: 'rb-warn-' },
+  msTrash: { file: '../components/MilestoneTrashModal.jsx', prefix: 'rb-warn-' },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
 const STYLES = {
   filesTable: ["{{ '--rb-files-max': maxHeight ? `${maxHeight}px` : undefined }}"],
   fileManager: ["{{ '--rb-fm-pct': `${copyProgress.percent}%` }}"],
+  msTrash: ["{{ '--rb-warn-glyph': row.color }}"],
 }
 // Every file is read whole. (B4c's STAGED — a file part-way onto the sheet,
 // read without the functions a later step restyled — emptied at surface 6's

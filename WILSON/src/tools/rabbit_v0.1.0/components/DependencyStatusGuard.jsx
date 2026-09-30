@@ -65,23 +65,41 @@
 // surface is listed as unwired in dependencyStatusSurfaces.test.js, not
 // silently covered.
 //
-// ── Merged over the UI overhaul (2026-09-29) ─────────────────────────────────
+// ── Merged over the UI overhaul (2026-09-29; review round 1, 2026-09-30) ─────
 // The modal is drawn with the kit's dialog classes (`ui-dialog-backdrop`,
 // `ui-dialog`, its head / body / foot, `ui-iconbtn`, `ui-btn`) and lane B4's
 // warning-list classes (`rb-warn-`, rabbitFiles.css — the same anatomy as
-// AssetStatusWarningModal, its sibling warning), with the kit StatusBadge for
-// every status word. It is NOT the kit <Dialog> component, on purpose: that
-// component owns Escape, the backdrop and the X, and this modal's rulings on
-// all three are pinned by dependencyStatusSurfaces.test.js in their own words
-// (the capture-phase Escape, both ends of a backdrop click, an X that says
-// "Close without saving"). So the chrome is the kit's and the behaviour stays
-// exactly what Audrey ruled.
+// AssetStatusWarningModal, its sibling warning; this file is registered in
+// that sheet's guard, rabbitFilesCss.test.js, and writes no style of its own:
+// the confirm width and the caption's ink are the sheet's), with the kit
+// StatusBadge for every status word. It is NOT the kit <Dialog> component, on
+// purpose: that component owns Escape, the backdrop and the X, and this
+// modal's rulings on all three are pinned by dependencyStatusSurfaces.test.js
+// in their own words (the capture-phase Escape, both ends of a backdrop click,
+// an X that says "Close without saving"). So the chrome is the kit's and the
+// behaviour stays exactly what Audrey ruled.
+//
+// What it DOES take from the kit is the modal stack and the focus contract
+// (overlay.js; Dialog.jsx's F3). Since the overhaul the surfaces that raise
+// this warning are kit Dialogs (TaskDetailPopup, the asset popup) whose Tab
+// trap belongs to the TOP of that stack — and a warning that never registered
+// on it left the popup on top, so Tab stayed inside the popup, behind this
+// backdrop, and a keyboard user could press Escape (cancel) but never reach
+// "Go back" or "Continue anyway": the warning that is "not a block" was one
+// (merge review round 1, A-R1-02, measured with the kit's own Tab simulator).
+// It now registers on mount, takes focus to "Go back", keeps Tab inside the
+// card while it is the top modal, and hands focus back to the control that
+// raised it on close — src/ui/dependencyWarningOverDialog.test.jsx walks it
+// over a real kit Dialog. It sits at the kit's own layer (`.ui-dialog-backdrop`,
+// z 70) and paints over the popup the way the kit paints one dialog over
+// another: mounted later, so later in the DOM — the portal lands in <body>
+// after everything the page drew. No z override.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, X, ArrowLeft, Check } from 'lucide-react'
-import { StatusBadge, DIALOG_WIDTHS, INK_3 } from '../../../ui'
+import { StatusBadge, pushModal, isTopModal, focusableWithin } from '../../../ui'
 import '../views/rabbitFiles.css'
 import { statusWarning, itemLabel, humanStatus } from '../state/dependencyStatus'
 
@@ -130,6 +148,22 @@ export function useDependencyStatusGuard(ctx) {
 export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) {
   // Where the last mousedown landed — read by the backdrop's onClick below.
   const downOnBackdrop = useRef(false)
+  const cardRef = useRef(null)
+  const goBackRef = useRef(null)
+
+  // The control that raised the warning, captured IN RENDER (Dialog.jsx's
+  // reasoning: React applies focus during the commit, before any effect runs,
+  // so an effect would read this card's own button and "restore" focus to a
+  // node about to be removed). Cleared while there is no warning, so the next
+  // one captures afresh; never nulled by the effect's cleanup, which
+  // StrictMode runs once too often in dev.
+  const returnToRef = useRef(null)
+  if (!warning) {
+    returnToRef.current = null
+  } else if (returnToRef.current === null && typeof document !== 'undefined') {
+    returnToRef.current = document.activeElement
+  }
+  const open = !!warning
 
   // Escape cancels, with the X and the backdrop (R1).
   //
@@ -148,9 +182,9 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
   //
   // stopIMMEDIATEPropagation, not stopPropagation (R2): the plain form leaves
   // other listeners ON THE SAME NODE running, and two guards can be pending at
-  // once — there is no focus trap, so the control behind the backdrop stays
-  // operable and can raise a second warning. Both listeners sit on `document`,
-  // and one Escape must not silently drop two parked writes.
+  // once — each hook holds its own `pending`, and a second can be raised
+  // programmatically while one is up. Both listeners sit on `document`, and
+  // one Escape must not silently drop two parked writes.
   useEffect(() => {
     if (!warning) return undefined
     function onKey(e) {
@@ -162,6 +196,42 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
     return () => document.removeEventListener('keydown', onKey, true)
   }, [warning, onCancel])
 
+  // The stack, the trap and the focus return (merge review round 1, A-R1-02).
+  // Keyed on `open`, not on the warning object: a second warning replacing the
+  // first while the card is up keeps the one registration and the one trap.
+  useEffect(() => {
+    if (!open) return undefined
+    const id = {}
+    const unregister = pushModal(id)
+    const node = cardRef.current
+    const returnTo = returnToRef.current
+    // "Go back" first: the safe control, and the one Enter must not land on by
+    // accident — the primary is the only control that writes.
+    goBackRef.current?.focus()
+    function onTab(e) {
+      if (e.key !== 'Tab' || !node || !isTopModal(id)) return
+      const items = focusableWithin(node)
+      if (items.length === 0) { e.preventDefault(); node.focus(); return }
+      // Position in the list, not identity against its two ends (Dialog.jsx's
+      // trap, its reasoning verbatim): -1 is the card itself, <body>, or
+      // anything behind the backdrop, and all three wrap to the first control.
+      const i = items.indexOf(document.activeElement)
+      if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
+        e.preventDefault()
+        ;(e.shiftKey ? items[items.length - 1] : items[0]).focus()
+      }
+    }
+    document.addEventListener('keydown', onTab)
+    return () => {
+      document.removeEventListener('keydown', onTab)
+      unregister()
+      // Only if the control is still in the document (Dialog.jsx: a row can
+      // be gone by the time its dialog closes, and focus() on a detached node
+      // drops focus to <body>, which is not worth restoring to).
+      if (returnTo && returnTo !== document.body && returnTo.isConnected) returnTo.focus?.()
+    }
+  }, [open])
+
   if (!warning) return null
   const { kind, toStatus, total, offenders } = warning
   const noun = kind === 'phase' ? 'phase' : 'task'
@@ -171,12 +241,6 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
   const node = (
     <div
       className="ui-dialog-backdrop"
-      // z 75, above the kit's own backdrop (70, src/index.css): since the
-      // overhaul the surfaces that raise this warning are kit Dialogs
-      // (TaskDetailPopup, the asset popup), so at the 60 it shipped at the
-      // warning painted BEHIND them and the parked write had no visible way
-      // out. Below the kit Menu (80) and Toast (90).
-      style={{ zIndex: 75 }}
       // Portal events still bubble through the React tree: without these
       // stops a click here would reach the TaskEditor's backdrop (which
       // closes the editor) and the timeline's mousedown drag handlers.
@@ -188,7 +252,13 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
       // (selecting a name in the list, sliding off a button) reads as a
       // backdrop click. It used to land the write by accident; it would now
       // discard it by accident. Both ends must be on the backdrop either way.
-      onMouseDown={(e) => { e.stopPropagation(); downOnBackdrop.current = e.target === e.currentTarget }}
+      onMouseDown={(e) => {
+        e.stopPropagation()
+        downOnBackdrop.current = e.target === e.currentTarget
+        // A press on the backdrop keeps focus where the trap put it: the
+        // press's default action moves focus to <body> (Dialog.jsx, A4-KR-7).
+        if (downOnBackdrop.current) e.preventDefault()
+      }}
       onClick={(e) => {
         e.stopPropagation()
         const wholeClickOnBackdrop = downOnBackdrop.current && e.target === e.currentTarget
@@ -197,21 +267,18 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
       }}
     >
       <div
-        className="ui-dialog"
+        ref={cardRef}
+        className="ui-dialog rb-warn-card"
         data-width="confirm"
         data-surface="dark"
-        style={{ width: DIALOG_WIDTHS.confirm }}
-        // Announced as a dialog so a screen reader says what has appeared.
-        // ⚠️ STATED LIMIT: there is no focus trap and focus is not moved here,
-        // so the control that raised this warning keeps focus and can still be
-        // operated behind the backdrop — press Save again and a SECOND warning
-        // replaces the first, dropping the first parked write with no message.
-        // That is pre-existing (the hook has always held one `pending`), it is
-        // not what this ruling was about, and a real trap is a bigger change
-        // than it deserves — so it is written down rather than half-built.
+        // Announced as a dialog so a screen reader says what has appeared; on
+        // the kit's modal stack with focus taken and held (the effect above),
+        // so the announcement is true of the keyboard as well. Not a tab
+        // stop: the fallback focus target when nothing inside can take it.
         role="dialog"
         aria-modal="true"
         aria-label="Unfinished dependencies"
+        tabIndex={-1}
       >
         {/* Header — the kit's, with the warning glyph in the danger ink as
             AssetStatusWarningModal draws it. */}
@@ -283,7 +350,7 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
               </div>
             </div>
 
-            <p className="text-caption" style={{ color: INK_3 }}>
+            <p className="rb-warn-caption">
               A warning, not a block — but only Continue anyway saves it. Closing this leaves the change unsaved.
             </p>
           </div>
@@ -293,6 +360,7 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
             anyway as the one primary. */}
         <div className="ui-dialog-foot">
           <button
+            ref={goBackRef}
             type="button"
             onClick={onCancel}
             className="ui-btn"

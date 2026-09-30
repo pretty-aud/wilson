@@ -2305,6 +2305,40 @@
     line-height: var(--text-dense--line-height);
     color: var(--color-ink);
   }
+  /* Track A's three dialogs on this anatomy, over the overhaul (merge review
+     round 1, A-R1-03): the Phase 7 status warning (DependencyStatusGuard —
+     the kit's dialog classes hand-drawn, because its rulings need the X, the
+     backdrop and Escape to be its own — so its confirm width is the kit's
+     token here rather than the component's inline px), the dependency
+     rewire question and the deleted-key-dates list. The caption under a
+     list, in the third ink on the Caption step; the rewire rows' Old / New
+     tag on the Label step in the third ink, as the list header is, without
+     its box; the deleted key date's diamond in its OWN colour, carried as a
+     custom property the row sets (as the Tasks lane's --rb-ms), on the
+     warning amber the Timeline's key dates fall back to. */
+  .ui-dialog.rb-warn-card { width: var(--dialog-confirm); }
+  .rb-warn-caption {
+    display: block;
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .rb-warn-tag {
+    flex-shrink: 0;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .rb-warn-glyph {
+    flex-shrink: 0;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--rb-warn-glyph, var(--color-warning));
+  }
 
   /* ═══ FileAuditDrawer ═════════════════════════════════════════════════════
      A file's activity stream, from the Control Panel's file table (B4c

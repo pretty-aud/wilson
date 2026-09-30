@@ -21,7 +21,7 @@
 //      pet having hatched.
 //
 // So this is mounted at the very bottom of App's tree, beside <UndoToast/>, and
-// takes its whole state as a prop. It renders nothing when there is nothing to
+// takes its whole state as a prop. It says nothing when there is nothing to
 // say.
 //
 // ⚠️ NOT A COPY OF UndoToast. That one belongs to R.A.B.B.I.T., reads
@@ -29,55 +29,58 @@
 // because it is a forgiveness window. This one has no action: the refresh has
 // already happened by the time it appears.
 //
-// Merged over the UI overhaul (2026-09-29): the surface is the kit's Toast —
-// one anchor, one ink, the tone as its left edge and glyph (info for the
-// refresh, danger for a failed load) — where it used to borrow UndoToast's
-// hand-drawn box. Placement: bottom-centre, ABOVE UndoToast's row rather than
-// on top of it — a RABBIT delete can be undone while a pet notice is on
-// screen, and two stacked toasts that overlap is how a person misses the one
-// with a button. The layer is the kit Toast's (index.css `.ui-toast-stack`,
-// 90), over the kit Dialog's backdrop (70), for the same reason UndoToast's
-// is: a notice that lands while a popup is open must be readable over it.
+// Merged over the UI overhaul (2026-09-29; merge review round 1, 2026-09-30):
+// the notice is published on the kit's ONE toast stack (Toast.jsx,
+// `useToast()`, mounted by App inside its <ToastProvider>), which anchors 24px
+// above the current page's bottom bar from PAGE_BARS and stacks with whatever
+// else is showing. The merge had first re-expressed it as a standalone kit
+// <Toast> in a hand-positioned wrapper at a flat 88px — which sat inside the
+// stack's own place on the light pages (bar 80 + 24 = 104px, so the two
+// overlapped) and floated over Home's 268px bar (A-R1-06). This component now
+// renders NOTHING of its own: it pushes the notice when App announces one and
+// withdraws it when App clears it. The tone is the kit's (info for the
+// refresh, danger for a failed load); UndoToast is R.A.B.B.I.T.'s own row and
+// is untouched.
 // =============================================================================
 
 import { useEffect } from 'react'
-import { Toast } from '../ui'
+import { useToast } from '../ui'
 
 // Long enough to read twice. The refresh notice explains something that
 // happened without the user asking, so it is not a flash.
 const AUTO_DISMISS_MS = 10000
 
 export default function PetNotice({ notice, onDismiss }) {
+  const toast = useToast()
   const kind = notice?.kind
   const message = notice?.message
 
-  // 🚨 KEYED ON THE MESSAGE, NOT ON `notice`. App builds a fresh object each
-  // time it sets one, so depending on the object would restart the timer on
-  // every unrelated re-render of App — which for a 10-second dismissal means a
-  // notice that never goes away on a busy screen. (`onDismiss` is in the list
-  // too, so App passes a STABLE callback — R1 of A3 measured a fresh arrow
+  // 🚨 KEYED ON THE NOTICE OBJECT, which is App's STATE: its identity moves
+  // exactly when App announces (announcePetNotice is handed a fresh literal at
+  // each call site — userStateWiring.test.js pins both) and never on a
+  // re-render. Keyed on the message alone, the SECOND announcement of the same
+  // text — the stale-copy refresh (0068) says the same sentence every time —
+  // would push nothing: the kit's stack has already let the first toast go
+  // and the effect would not run again. (`onDismiss` is in the timer's list,
+  // so App passes a STABLE callback — R1 of A3 measured a fresh arrow
   // restarting this timer on every App render.)
   //
-  // An ERROR is not auto-dismissed. "Your pet could not be loaded" is a
+  // Sticky on the kit's side (duration 0): the ten-second dismissal is the
+  // timer below, which also clears App's state, so the two cannot disagree.
+  // An ERROR has no timer at all: "Your pet could not be loaded" is a
   // standing condition, not an event, and a person who looks up after it has
-  // faded has no way to find out what happened.
+  // faded has no way to find out what happened. The kit's X withdraws either.
+  useEffect(() => {
+    if (!message) return undefined
+    const id = toast.push({ tone: kind === 'error' ? 'danger' : 'info', body: message, duration: 0 })
+    return () => toast.dismiss(id)
+  }, [notice, kind, message, toast])
+
   useEffect(() => {
     if (!message || kind === 'error') return undefined
     const id = setTimeout(() => onDismiss?.(), AUTO_DISMISS_MS)
     return () => clearTimeout(id)
-  }, [message, kind, onDismiss])
+  }, [notice, message, kind, onDismiss])
 
-  if (!message) return null
-
-  const isError = kind === 'error'
-
-  return (
-    <div
-      className="fixed left-1/2 -translate-x-1/2 z-90"
-      // Clear of UndoToast's `bottom-6` row.
-      style={{ bottom: 88, minWidth: 320, maxWidth: 480 }}
-    >
-      <Toast tone={isError ? 'danger' : 'info'} body={message} onDismiss={() => onDismiss?.()} />
-    </div>
-  )
+  return null
 }

@@ -1657,6 +1657,11 @@
   .otter-settings-actions { display: flex; flex-direction: column; gap: 8px; }
   /* Full width and left-aligned, icon first, as the three buttons were. */
   .ui-btn.otter-settings-action { width: 100%; justify-content: flex-start; }
+  /* The Library card's two positions, each with its description in view
+     (merge review round 1, A-R1-07 — a `title` tooltip is hover-only): the
+     Button over its hint, the hint on the caption step with no extra gap. */
+  .otter-settings-option { display: flex; flex-direction: column; gap: 2px; }
+  .otter-settings-option .otter-form-hint { margin-top: 0; }
   .otter-settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .otter-settings-foot-note {
     flex: 1 1 auto;

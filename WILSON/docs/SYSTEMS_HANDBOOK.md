@@ -2778,8 +2778,9 @@ oversight; see §4.5. **Still not edit-history captured** (0012): that half of
 
 **Recently deleted key dates** is mounted on the `Timeline` toolbar (button:
 `Deleted`) and, since 2026-09-07, on the `Tasks` toolbar as well (button:
-`Deleted Key Dates` — longer on purpose, because a bare "Deleted" on a screen
-full of tasks would promise a list of deleted tasks, which does not exist).
+`Deleted key dates` — longer on purpose, because a bare "Deleted" on a screen
+full of tasks would promise a list of deleted tasks, which does not exist; in
+sentence case since the UI overhaul's kit, like every other label).
 Both mounts pass identical props and `desktopMilestoneTrash.test.js` compares
 the two elements to keep it that way.
 

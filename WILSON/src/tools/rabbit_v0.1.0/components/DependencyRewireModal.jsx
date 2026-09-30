@@ -91,7 +91,9 @@ export default function DependencyRewireModal({ description, onConfirm, onCancel
 }
 
 // The row's tag, on the Label step in the third ink as the list's own header
-// is (rb-warn-tasks-head), without that class's box.
+// is (rb-warn-tasks-head), without that class's box: the sheet's rb-warn-tag
+// (merge review round 1, A-R1-03 — this file is registered in the lane's
+// guard, rabbitFilesCss.test.js, and writes no style).
 function StatusWord({ children }) {
-  return <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)', flexShrink: 0 }}>{children}</span>
+  return <span className="rb-warn-tag">{children}</span>
 }
