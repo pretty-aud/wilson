@@ -277,12 +277,20 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
 
   it('the signal as an ink under the hover wash or on its own tint (S2a) — why D.O.G.\'s section titles revert to the ink on hover', () => {
     // Option c (Audrey's C3): the titles are orange at rest and the ink under
-    // the pointer, because on the header's wash the signal is 3.88:1.
+    // the pointer, because on the header's wash the signal is 3.86:1 (3.88
+    // once the wash is rounded to the 8-bit colour the screen paints).
     expect(contrast(T.SIGNAL, over(T.HOVER, T.PAPER_RAISED))).toBeLessThan(4.5)
     expect(contrast(T.SIGNAL, over(T.HOVER, T.PAPER))).toBeLessThan(4.5)
     expect(contrast(T.SIGNAL, over(T.SIGNAL_TINT, T.PAPER))).toBeLessThan(4.5)
     // …and the ink it reverts to clears the wash.
     expect(contrast(T.INK, over(T.HOVER, T.PAPER_RAISED))).toBeGreaterThanOrEqual(4.5)
+    // Selected, every one of the new oranges sits on the selection screen
+    // (the signal at 35%), where it is about 3:1 on all three grounds — why
+    // each reverts to the ink when selected (S2a review round 1, V-R1-02).
+    for (const ground of [T.PAPER, T.PAPER_RAISED, T.PAPER_RECESSED]) {
+      expect(contrast(T.SIGNAL, over(T.SELECTION, ground)), ground).toBeLessThan(4.5)
+      expect(contrast(T.INK, over(T.SELECTION, ground)), ground).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   it('the ink at 48 percent — the number six reviews copied', () => {

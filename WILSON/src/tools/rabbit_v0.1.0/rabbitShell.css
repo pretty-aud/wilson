@@ -92,6 +92,11 @@
     scrollbar-width: none;
   }
   .rb-viewtabs .ui-tab { padding: 0 8px; }
+  /* The list scrolls (above), and a scroller clips what its children draw
+     outside themselves: the kit's ring (2px, 1px outside) lost its top,
+     bottom and left on every tab (post-overhaul S2a review round 1, V-R1-05,
+     measured on "Intake" at 1280x700). Drawn inside, as O.T.T.E.R.'s tabs. */
+  .rb-viewtabs-list.ui-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
   .rb-viewtabs .ui-tabs-sep { margin: 0 4px; }
   .rb-viewtab-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
   .rb-viewtabs-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }

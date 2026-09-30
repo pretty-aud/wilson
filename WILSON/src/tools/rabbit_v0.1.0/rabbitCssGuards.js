@@ -59,8 +59,11 @@ export const gt = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 export const signalGrounds = (css) => rulesOf(css)
   .filter(({ body }) => /background(-color|-image)?\s*:[^;]*var\(\s*--color-signal(-fill)?(?![\w-])/.test(body))
   .map(({ sel }) => sel)
-/** Declarations on the kit tab beyond its spacing. */
-export const TAB_SPACING = /^(padding|margin|gap|flex|flex-grow|flex-shrink|flex-basis|min-width)$/
+/** Declarations on the kit tab beyond its spacing. `outline-offset` is the
+    ring's PLACE, not its look (post-overhaul S2a: the tab list scrolls and
+    clips a ring drawn outside, so it is drawn inside); its colour, width and
+    style are still the kit's (`outline` is not in this list). */
+export const TAB_SPACING = /^(padding|margin|gap|flex|flex-grow|flex-shrink|flex-basis|min-width|outline-offset)$/
 export const tabReach = (css) => rulesOf(css)
   .filter(({ sel }) => /\.ui-tab\b|\[role=["']?tab["']?\]/.test(sel))
   .flatMap(({ sel, body }) => propsOf(body).filter((p) => !TAB_SPACING.test(family(p))).map((p) => `${sel} { ${p} }`))

@@ -97,6 +97,20 @@ describe('rabbitShell.css writes no colour of its own, and paints no orange grou
       '.a [role="tab"] { color: var(--color-ink); }',
     ]) expect(tabReach(c), c).toHaveLength(1)
     expect(tabReach('.a .ui-tab { padding: 0 8px; margin-left: 2px; }')).toEqual([])
+    // Post-overhaul S2a loosened this by ONE property: the ring's offset
+    // (where it is drawn), never its colour, width or style.
+    expect(tabReach('.a .ui-tab:focus-visible { outline-offset: -3px; }')).toEqual([])
+    for (const c of [
+      '.a .ui-tab:focus-visible { outline-color: var(--color-ink); }',
+      '.a .ui-tab:focus-visible { outline: 2px solid var(--color-ink); }',
+      '.a .ui-tab:focus-visible { outline-width: 1px; }',
+    ]) expect(tabReach(c), c).toHaveLength(1)
+  })
+  it('S2a: the tab list scrolls, so the kit ring on its tabs is drawn inside (V-R1-05)', () => {
+    // The scroller that clips it…
+    expect(cssCode(shellCss)).toMatch(/\.rb-viewtabs-list\.ui-tabs \{[^}]*overflow-x: auto;/)
+    // …and the inset that keeps the ring whole.
+    expect(cssCode(shellCss)).toMatch(/\.rb-viewtabs-list\.ui-tabs > \.ui-tab:focus-visible \{ outline-offset: -3px; \}/)
   })
 })
 

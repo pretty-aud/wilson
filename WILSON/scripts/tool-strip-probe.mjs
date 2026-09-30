@@ -45,15 +45,19 @@ const CHECK = args.includes('--check');
 const JSON_OUT = flag('--json');
 const SHOTS = flag('--shots');
 const PREFIX = flag('--prefix') || 'strip';
-const SIZES = [[1440, 900], [1280, 700], [1024, 700]];
+/* 853x583 is Electron's smallest window (1024x700) at 120% zoom — one
+   Ctrl+= step (S2a review round 1, V-R1-01: the strip broke there). */
+const SIZES = [[1440, 900], [1280, 700], [1024, 700], [853, 583]];
 
 /* Which element is each tool's strip. R.A.B.B.I.T.'s is the reference (its
    ViewTabs with the right-hand slot); O.T.T.E.R.'s is its nav; D.O.G.'s is
-   the "Deck outline" bar this bundle lifts out of the sidebar. */
+   the "Deck outline" bar this bundle lifts out of the sidebar. `drawer` is
+   the settings drawer the gear must open (review round 1, G-R1-02: nothing
+   clicked the buttons). */
 const TOOLS = [
-  { key: 'dog', path: '/dog', strip: '.dog-outline-bar', ready: 'Generate Page Outline' },
-  { key: 'otter', path: '/otter', strip: '.otter-nav', ready: 'Course library' },
-  { key: 'rabbit', path: '/rabbit', strip: '.rb-shell > .rb-viewtabs', ready: null },
+  { key: 'dog', path: '/dog', strip: '.dog-outline-bar', ready: 'Generate Page Outline', drawer: 'aside.ui-drawer.dog-settings-drawer' },
+  { key: 'otter', path: '/otter', strip: '.otter-nav', ready: 'Course library', drawer: 'aside.ui-drawer.otter-settings-drawer' },
+  { key: 'rabbit', path: '/rabbit', strip: '.rb-shell > .rb-viewtabs', ready: null, drawer: 'aside.ui-drawer.rb-tl-settings' },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -126,14 +130,54 @@ function readStrip(sel) {
   return out;
 }
 
-/** The WILSON nav strip's own items (they render while the strip is closed). */
+/** The WILSON nav strip's own items (they render while the strip is closed):
+    all of them, and the main column's TAIL — the rows after its separator. */
 function readNav() {
-  return [...document.querySelectorAll('.wilson-nav-item')].map((b) => (b.textContent || '').trim());
+  const all = [...document.querySelectorAll('.wilson-nav-item')].map((b) => (b.textContent || '').trim());
+  const sep = [...document.querySelectorAll('.wilson-chrome div[aria-hidden="true"]')]
+    .find((d) => d.parentElement && d.parentElement.querySelector(':scope > .wilson-nav-item'));
+  const tail = [];
+  for (let n = sep?.nextElementSibling; n; n = n.nextElementSibling) tail.push((n.textContent || '').trim());
+  return { all, tail, sepFound: !!sep };
 }
 
-async function open(browser, W, H, tool, { local = false } = {}) {
+/** Click the strip's Help, read what opened, close it; then the same for
+    Settings. Opens and closes only — nothing is saved. */
+async function pressBoth(page, tool) {
+  const strip = page.locator(tool.strip).filter({ visible: true }).first();
+  const out = {};
+  await strip.locator('button[title="Help & documentation"]').click();
+  await sleep(700);
+  out.helpDialog = await page.evaluate(() => {
+    const d = [...document.querySelectorAll('.ui-dialog')].find((e) => e.getClientRects().length > 0);
+    if (!d) return null;
+    const id = d.getAttribute('aria-labelledby');
+    return (id && document.getElementById(id)?.textContent.trim()) || d.getAttribute('aria-label') || null;
+  });
+  await page.keyboard.press('Escape');
+  await sleep(500);
+  await strip.locator('button[title$="settings"]').click();
+  await sleep(700);
+  out.drawerOpen = await page.evaluate((sel) => [...document.querySelectorAll(sel)].some((e) => e.getClientRects().length > 0), tool.drawer);
+  await page.keyboard.press('Escape');
+  await sleep(400);
+  return out;
+}
+
+async function open(browser, W, H, tool, { local = false, member = false } = {}) {
   const page = await browser.newPage({ viewport: { width: W, height: H } });
   page.on('pageerror', (e) => console.error(`  pageerror (${tool.key} ${W}x${H}): ${e.message}`));
+  if (member) {
+    // A member, not the fixtures' admin: the cloud tab reads "Requests"
+    // (20px wider than "Admin"). Rewritten in flight; the file is untouched.
+    await page.route('**/src/tools/otter_v0.3.1/Otter.jsx*', async (route) => {
+      const res = await route.fetch();
+      const body = await res.text();
+      const next = body.replace(/appRole === ["']admin["'] \? ["']Admin["'] : ["']Requests["']/, '"Requests"');
+      if (next === body) throw new Error('member mode: the Admin/Requests anchor did not match');
+      await route.fulfill({ response: res, body: next });
+    });
+  }
   if (local) {
     // Local mode: otterCloudActive answers false, as it does on the desktop
     // with no workspace. Rewritten in flight; the file on disk is untouched.
@@ -163,17 +207,22 @@ try {
     for (const tool of TOOLS) {
       const page = await open(browser, W, H, tool);
       results[size][tool.key] = await page.evaluate(readStrip, tool.strip);
-      if (tool.key === 'dog') results[size].nav = await page.evaluate(readNav);
+      results[size][tool.key].nav = await page.evaluate(readNav);
       if (SHOTS) {
         mkdirSync(SHOTS, { recursive: true });
         await page.mouse.move(W / 2, H - 40);
         await page.screenshot({ path: join(SHOTS, `${PREFIX}-${tool.key}-${size}.png`), clip: { x: 0, y: 0, width: W, height: Math.min(H, 320) } });
       }
+      results[size][tool.key].pressed = await pressBoth(page, tool);
       await page.close();
     }
-    const page = await open(browser, W, H, TOOLS[1], { local: true });
+    let page = await open(browser, W, H, TOOLS[1], { local: true });
     results[size]['otter-local'] = await page.evaluate(readStrip, TOOLS[1].strip);
     if (SHOTS) await page.screenshot({ path: join(SHOTS, `${PREFIX}-otter-local-${size}.png`), clip: { x: 0, y: 0, width: W, height: Math.min(H, 320) } });
+    await page.close();
+    page = await open(browser, W, H, TOOLS[1], { member: true });
+    results[size]['otter-member'] = await page.evaluate(readStrip, TOOLS[1].strip);
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, `${PREFIX}-otter-member-${size}.png`), clip: { x: 0, y: 0, width: W, height: Math.min(H, 320) } });
     await page.close();
   }
 } finally {
@@ -189,15 +238,27 @@ if (JSON_OUT) writeFileSync(JSON_OUT, out + '\n');
    2. Help and Settings are in every strip, Help first, both 28 x 28.
    3. Settings sits at ONE x in all three tools, 24px (the page gutter) in
       from the window's right edge, and Help at one x beside it.
-   4. O.T.T.E.R.'s last tab is never clipped, in cloud or local mode.
+   4. O.T.T.E.R.'s last tab is never clipped — cloud (an admin), a member
+      ("Requests") and local — including at 853 (the smallest window zoomed).
    5. D.O.G.'s sidebar has no header of its own, and its bar's leading label
       is the Label step.
-   6. "Tool settings" is not a nav item. */
+   6. On every tool page the nav strip's tail is exactly Resources, App
+      settings; and each tool's Help opens "Help & documentation", its gear
+      that tool's settings drawer. */
 if (CHECK) {
   const bad = [];
   const near = (a, b) => Math.abs(a - b) <= 0.5;
   for (const [size, r] of Object.entries(results)) {
-    const tools = ['dog', 'otter', 'otter-local', 'rabbit'];
+    for (const k of ['dog', 'otter', 'rabbit']) {
+      const t = r[k];
+      if (!t || t.error) continue;
+      if (!t.nav?.sepFound) bad.push(`${size} ${k}: the nav strip's separator was not found (the reader is blind)`);
+      if (JSON.stringify(t.nav?.tail) !== JSON.stringify(['Resources', 'App settings'])) bad.push(`${size} ${k}: the nav strip's tail is ${JSON.stringify(t.nav?.tail)}`);
+      if (t.pressed?.helpDialog !== 'Help & documentation') bad.push(`${size} ${k}: Help opened ${JSON.stringify(t.pressed?.helpDialog)}`);
+      if (!t.pressed?.drawerOpen) bad.push(`${size} ${k}: the gear did not open ${k}'s settings drawer`);
+    }
+    if (!(r['otter-member']?.tabs?.names || []).includes('Requests')) bad.push(`${size} otter-member: no "Requests" tab (the member rewrite missed)`);
+    const tools = ['dog', 'otter', 'otter-local', 'otter-member', 'rabbit'];
     for (const k of tools) {
       const t = r[k];
       if (!t || t.error) { bad.push(`${size} ${k}: ${t?.error || 'not measured'}`); continue; }
@@ -208,7 +269,7 @@ if (CHECK) {
       if (!near(t.settingsFromRight, 24)) bad.push(`${size} ${k}: Settings is ${t.settingsFromRight}px from the right edge, not 24`);
     }
     const ref = r.rabbit;
-    for (const k of ['dog', 'otter', 'otter-local']) {
+    for (const k of ['dog', 'otter', 'otter-local', 'otter-member']) {
       const t = r[k];
       if (!t?.settings || !ref?.settings) continue;
       if (!near(t.strip.y, ref.strip.y)) bad.push(`${size} ${k}: strip top ${t.strip.y} ≠ R.A.B.B.I.T.'s ${ref.strip.y}`);
@@ -216,8 +277,9 @@ if (CHECK) {
         if (!near(t[b].x, ref[b].x) || !near(t[b].y, ref[b].y)) bad.push(`${size} ${k}: ${b} at (${t[b].x}, ${t[b].y}) ≠ R.A.B.B.I.T.'s (${ref[b].x}, ${ref[b].y})`);
       }
     }
-    for (const k of ['otter', 'otter-local']) {
+    for (const k of ['otter', 'otter-local', 'otter-member']) {
       if (r[k]?.tabs?.lastClipped) bad.push(`${size} ${k}: the last tab (${r[k].tabs.last?.name}) is clipped`);
+      if (r[k]?.tabs && r[k].tabs.scrollOverflow > 0) bad.push(`${size} ${k}: the tab list overflows by ${r[k].tabs.scrollOverflow}px`);
     }
     // The fixtures sign in an admin, whose cloud tab reads "Admin"; a member
     // reads "Requests". The strip must have room for the longer word too.
@@ -231,8 +293,11 @@ if (CHECK) {
     if (r.dog?.sidebarHead) bad.push(`${size} dog: the sidebar still draws a header`);
     if (r.dog?.label && (r.dog.label.fontSize !== '11px' || r.dog.label.transform !== 'uppercase')) bad.push(`${size} dog: the leading label is ${r.dog.label.fontSize} ${r.dog.label.transform}, not the Label step`);
     if (!r.dog?.label) bad.push(`${size} dog: no leading "Deck outline" label in the bar`);
-    if ((r.nav || []).some((n) => /tool settings/i.test(n))) bad.push(`${size} nav: "Tool settings" is still an item`);
-    if (!(r.nav || []).length) bad.push(`${size} nav: no items read (the reader is blind)`);
+    for (const k of ['dog', 'otter', 'rabbit']) {
+      const all = r[k]?.nav?.all || [];
+      if (all.some((n) => /tool\s+settings/i.test(n))) bad.push(`${size} ${k} nav: "Tool settings" is still an item`);
+      if (!all.length) bad.push(`${size} ${k} nav: no items read (the reader is blind)`);
+    }
   }
   if (bad.length) {
     console.error(`\n✗ ${bad.length} breach(es):\n  ${bad.join('\n  ')}`);

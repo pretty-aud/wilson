@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { allRules, decls, splitTop, specificity, compareSpecificity } from '../../../scripts/ui-css-rules.mjs'
+import { allRules, decls, splitTop, specificity, compareSpecificity, themeValues, resolveTokenHex, INK_PROPS } from '../../../scripts/ui-css-rules.mjs'
 import { parse } from '@babel/parser'
 import traverseModule from '@babel/traverse'
 
@@ -151,9 +151,14 @@ describe('D.O.G.\'s empty selects are drawn one way (P1-50)', () => {
 describe('D.O.G.\'s "Deck outline" bar is a tab strip\'s bar, above both columns (S2a)', () => {
   const RABBIT = read('../rabbit_v0.1.0/rabbitShell.css')
   const INDEX = read('../../index.css')
+  // EVERY rule for the selector, merged in source order (the later wins), so
+  // a second `.dog-outline-bar { height: 44px }` further down cannot hide
+  // behind the first (S2a review round 1, G-R1-07). Rules inside a media or
+  // container query are left out: they are states, read on their own.
   const declsOf = (css, sel) => {
-    const r = allRules(css).find((x) => splitTop(x.sel).map(norm).includes(sel))
-    return r ? Object.fromEntries(decls(r.body)) : null
+    const rules = allRules(css).filter((x) => splitTop(x.sel).map(norm).includes(sel)
+      && !x.parents.some((p) => /^@(media|container|supports)/.test(p)))
+    return rules.length ? Object.fromEntries(rules.flatMap((r) => decls(r.body))) : null
   }
   it('its box is the strips\' box: 36px + the hairline, the gutter on the right, 16px on the left, on paper', () => {
     const d = declsOf(DOG, '.dog-outline-bar')
@@ -209,6 +214,10 @@ describe('D.O.G.\'s "Deck outline" bar is a tab strip\'s bar, above both columns
   it('sits directly in the page, above the sidebar-and-main row, and the Panel has no header of its own', () => {
     expect(barProblems(read('./DeckOutlineGenerator.jsx'))).toEqual([])
   })
+  it('CONTROL: the merged reader sees a later rule that overrides the first', () => {
+    const twice = '.dog-outline-bar { height: calc(var(--control-md) + 1px); } .x {} .dog-outline-bar { height: 44px; }'
+    expect(declsOf(twice, '.dog-outline-bar').height).toBe('44px')
+  })
   it('CONTROL: a bar inside the row, and a Panel that keeps its title, are each caught', () => {
     const inRow = `const x = <div className="dog-root h-full"><div className="flex-1 flex min-h-0">
       <div className="dog-outline-bar" /><Panel width="md" className="dog-sidebar" /></div></div>`
@@ -230,13 +239,35 @@ describe('D.O.G.\'s "Deck outline" bar is a tab strip\'s bar, above both columns
 // in UI_OVERHAUL_PLAN.md §3.2: these guards are what stops a later session
 // "correcting" it — or spreading it.
 describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (S2a, C3/C8)', () => {
-  const SIGNAL = /^var\(--color-signal\)$/
+  const THEME = themeValues(read('../../index.css'))
+  const ORANGES = new Set([THEME.get('--color-signal'), THEME.get('--color-signal-fill')].map((h) => h.toLowerCase()))
   const winner = (a, b) => compareSpecificity(specificity(a), specificity(b))
-  it('the signal colours exactly these rules: the two new ones, and two icons from before S2a', () => {
-    expect(setting(DOG, 'color', SIGNAL).map((x) => x.sel).sort()).toEqual([
-      '.dog-lock-icon', '.dog-resolver-selected > svg',
-      '.dog-step-title .dog-step', '.ui-panel-title.dog-card-title.dog-step-title',
+  // Every rule whose glyph ink resolves, through @theme, to either orange —
+  // in any spelling: the token, another token with the same hex
+  // (`--color-focus` is #ea580c too), `-webkit-text-fill-color`, `fill` —
+  // plus any custom property the sheet sets to an orange, which would recolour
+  // everything that reads it (S2a review round 1, G-R1-04).
+  const orangeInks = (css) => allRules(css).flatMap((r) => decls(r.body)
+    .filter(([p, v]) => (INK_PROPS.test(p) || p.startsWith('--')) && ORANGES.has(resolveTokenHex(v, THEME)))
+    .flatMap(([p]) => splitTop(r.sel).map((s) => `${norm(s)} { ${p} }`))).sort()
+  it('the orange paints exactly these: the two new rules, and two icons from before S2a — in every spelling', () => {
+    expect(orangeInks(DOG)).toEqual([
+      '.dog-lock-icon { color }', '.dog-resolver-selected > svg { color }',
+      '.dog-step-title .dog-step { color }', '.ui-panel-title.dog-card-title.dog-step-title { color }',
     ].sort())
+  })
+  it('CONTROL: the reader resolves each spelling that beat the first cut', () => {
+    for (const planted of [
+      '.ui-panel-title.dog-card-title { color: var(--color-focus); }',
+      '.dog-output { --color-ink-2: var(--color-signal); }',
+      '.dog-card-title { -webkit-text-fill-color: var(--color-signal); }',
+      '.dog-chevron { fill: var(--color-signal-fill); }',
+    ]) expect(orangeInks(planted), planted).toHaveLength(1)
+    // …and not on what is not an orange.
+    expect(orangeInks('.a { color: var(--color-ink); border-color: var(--color-signal); background: var(--color-signal-tint); }')).toEqual([])
+  })
+  it('no rule in dog.css uses !important — it would beat every specificity comparison below (G-R1-03)', () => {
+    expect(DOG.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/!\s*important/i)
   })
   it('the orange outranks the second ink; the ink outranks the orange on the wash; the disabled third ink outranks the orange — by specificity, not order', () => {
     const on = (sel) => setting(DOG, 'color', /./).find((x) => x.sel === sel)
@@ -252,6 +283,19 @@ describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (
     expect(winner(hoverStep, '.dog-step-title .dog-step')).toBeGreaterThan(0)
     expect(winner(disabled, orangeTitle)).toBeGreaterThan(0)
     expect(winner(disabled, '.dog-step-title .dog-step')).toBeGreaterThan(0)
+    // …and each says what it is for: the values, not only the selectors.
+    expect(on(disabled).sel).toBe(disabled)
+    const value = (sel) => decls(allRules(DOG).find((r) => splitTop(r.sel).map(norm).includes(sel)).body).find(([p]) => p === 'color')[1]
+    expect(value(disabled)).toBe('var(--color-ink-3)')
+    expect(value(greyTitle)).toBe('var(--color-ink-2)')
+    expect(value(hoverTitle)).toBe('var(--color-ink)')
+    expect(value(hoverStep)).toBe('var(--color-ink)')
+  })
+  it('selected, the orange is the ink — the selection screen fails it too (V-R1-02)', () => {
+    for (const sel of ['.dog-step-title::selection', '.dog-step-title .dog-step::selection']) {
+      const hit = setting(DOG, 'color', /^var\(--color-ink\)$/).find((x) => x.sel === sel)
+      expect(hit, `no selection revert: ${sel}`).toBeTruthy()
+    }
   })
   it('the revert is the ink, in the wash\'s own media query and on the wash\'s own state', () => {
     const wash = setting(DOG, 'background-color', /^var\(--color-hover\)$/).find((x) => x.sel === ".dog-card-head[data-collapsible='true']:hover")
@@ -265,6 +309,11 @@ describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (
   it('the numeral keeps its ring, and only the two numbered titles are step titles ("Generated output" is not)', () => {
     const step = allRules(DOG).find((r) => norm(r.sel) === '.dog-step')
     expect(Object.fromEntries(decls(step.body)).border).toBe('1px solid var(--color-rule)')
+    // No other rule that reaches the numeral touches its ring (G-R1-03: an
+    // orange `border-color` on `.dog-step-title .dog-step` passed the first cut).
+    const ringRules = allRules(DOG).flatMap((r) => splitTop(r.sel).map(norm)
+      .filter((s) => /\.dog-step(?![\w-])(::?[\w-]+)?$/.test(s) && decls(r.body).some(([p]) => /^border/.test(p))))
+    expect(ringRules).toEqual(['.dog-step'])
     const jsx = read('./DeckOutlineGenerator.jsx')
     const titles = [...jsx.matchAll(/<h2 className="([^"]*\bdog-card-title\b[^"]*)">([\s\S]*?)<\/h2>/g)]
     expect(titles).toHaveLength(3)

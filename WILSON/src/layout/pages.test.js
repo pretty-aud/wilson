@@ -354,10 +354,39 @@ describe("the worked example's table columns add up", () => {
 // in-page Help opens the tool's own Help dialog. R.A.B.B.I.T.'s ViewTabs slot
 // is the reference. Read from each file's JSX (no test here lays a tool out;
 // scripts/tool-strip-probe.mjs measures the one x and y in the running app).
+// Per tool: its strip (the element, or R.A.B.B.I.T.'s ViewTabs slot), the
+// group at its right end, the Settings title and setter, where the Help and
+// Settings state is DRAWN (so a button cannot open something else under the
+// right name), and the exact props at its render site and in its signature
+// (review round 1, G-R1-01/02: a new name for the old plumbing passed).
 const TOOL_STRIPS = [
-  { tool: 'D.O.G.', file: '../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx', container: { className: 'dog-outline-right' }, settings: 'D.O.G. settings', opens: 'setShowSettingsMenu' },
-  { tool: 'O.T.T.E.R.', file: '../tools/otter_v0.3.1/Otter.jsx', container: { className: 'otter-nav-right' }, settings: 'O.T.T.E.R. settings', opens: 'setSettingsOpen' },
-  { tool: 'R.A.B.B.I.T.', file: '../tools/rabbit_v0.1.0/Rabbit.jsx', container: { slotOf: 'ViewTabs', prop: 'rightSlot' }, settings: 'R.A.B.B.I.T. settings', opens: 'setSettingsOpen' },
+  {
+    tool: 'D.O.G.', file: '../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx',
+    strip: { className: 'dog-outline-bar', group: 'dog-outline-right' }, settings: 'D.O.G. settings', opens: 'setShowSettingsMenu',
+    helpState: /const \[showHelpModal, setShowHelpModal\] = useState\(false\)/,
+    settingsState: /const \[showSettingsMenu, setShowSettingsMenu\] = useState\(false\)/,
+    helpMount: /\{showHelpModal && \(\s*<Dialog\s+title="Help & documentation"/,
+    settingsMount: /<Drawer\s+open=\{showSettingsMenu\}[\s\S]{0,300}?className="dog-settings-drawer"/,
+    site: 'DeckOutlineGenerator', siteAttrs: ['onNavigate', 'currentPage', 'zoomLevel'], props: ['onNavigate', 'currentPage', 'zoomLevel'],
+  },
+  {
+    tool: 'O.T.T.E.R.', file: '../tools/otter_v0.3.1/Otter.jsx',
+    strip: { className: 'otter-nav', group: 'otter-nav-right' }, settings: 'O.T.T.E.R. settings', opens: 'setSettingsOpen',
+    helpState: /const \[showHelpModal, setShowHelpModal\] = useState\(false\)/,
+    settingsState: /const \[settingsOpen, setSettingsOpen\] = useState\(false\)/,
+    helpMount: /\{showHelpModal && \(\s*<Dialog\s+title="Help & documentation"/,
+    settingsMount: /\{settingsOpen && renderSettingsPanel\(\)\}[\s\S]*function renderSettingsPanel\(\) \{[\s\S]{0,900}?<Drawer[\s\S]{0,300}?className="otter-settings-drawer"/,
+    site: 'Otter', siteAttrs: ['onNavigate', 'currentPage', 'onContextChange'], props: ['onNavigate', 'currentPage', 'onContextChange'],
+  },
+  {
+    tool: 'R.A.B.B.I.T.', file: '../tools/rabbit_v0.1.0/Rabbit.jsx',
+    strip: { slotOf: 'ViewTabs', prop: 'rightSlot' }, settings: 'R.A.B.B.I.T. settings', opens: 'setSettingsOpen',
+    helpState: /const \[showHelpModal, setShowHelpModal\] = useState\(false\)/,
+    settingsState: /const \[settingsOpen, setSettingsOpen\] = useState\(false\)/,
+    helpMount: /\{showHelpModal && \(\s*<HelpModal\b/,
+    settingsMount: /\{settingsOpen && \(\s*<SettingsPanel\b/,
+    site: 'Rabbit', siteAttrs: ['onNavigate', 'isActive', 'currentPage'], props: ['currentPage'],
+  },
 ]
 // Everything that built the tool half of the nav strip or carried it into a
 // tool (S2a, C6), read from code with its comments blanked — history may stay
@@ -378,65 +407,174 @@ const stringAttr = (el, name) => {
   return null
 }
 const nameOf = (el) => el.openingElement.name.name
-/** The IconButtons a strip's right-hand group renders, in source order, with
-    the source text of each one's onClick. Problems come back as strings. */
-function stripButtons(src, container) {
+const classesOf = (el) => (stringAttr(el, 'className') || '').split(/\s+/).filter(Boolean)
+const jsxChildren = (el) => el.children.filter((c) => c.type === 'JSXElement')
+// What a person can operate: the kit's controls, the native ones, anything
+// with a handler of its own.
+const INTERACTIVE = new Set(['IconButton', 'Button', 'button', 'a', 'input', 'select', 'textarea', 'Chip', 'Switch', 'Link', 'Menu'])
+const operable = (el) => INTERACTIVE.has(nameOf(el))
+  || el.openingElement.attributes.some((a) => a.type === 'JSXAttribute' && /^on[A-Z]/.test(a.name.name))
+/** The right-hand group of a tool's strip and every operable element in it,
+    in source order. The group must be the strip's LAST element (its right
+    end) and the strip's own child (not inside the kit Tabs, not in an
+    `items` label). Problems come back as strings. */
+function stripGroup(src, strip) {
   const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
-  const groups = []
-  traverse(ast, {
+  const problems = []
+  let group = null
+  if (strip.className) {
+    const strips = []
+    const groups = []
+    traverse(ast, {
+      JSXElement(p) {
+        if (classesOf(p.node).includes(strip.className)) strips.push(p)
+        if (classesOf(p.node).includes(strip.group)) groups.push(p)
+      },
+    })
+    if (strips.length !== 1) return { problems: [`${strips.length} .${strip.className} strips, not one`], controls: [] }
+    if (groups.length !== 1) return { problems: [`${groups.length} .${strip.group} groups, not one`], controls: [] }
+    const kids = jsxChildren(strips[0].node)
+    if (kids[kids.length - 1] !== groups[0].node) problems.push(`.${strip.group} is not the last element of .${strip.className}`)
+    group = groups[0]
+  } else {
+    const slots = []
+    traverse(ast, {
+      JSXElement(p) {
+        if (nameOf(p.node) !== strip.slotOf) return
+        const slot = attrOf(p.node, strip.prop)
+        if (slot?.value?.type === 'JSXExpressionContainer') slots.push(p.get('openingElement').get('attributes').find((a) => a.node === slot))
+      },
+    })
+    if (slots.length !== 1) return { problems: [`${slots.length} ${strip.slotOf} ${strip.prop} slots, not one`], controls: [] }
+    group = slots[0]
+  }
+  const controls = []
+  group.traverse({
     JSXElement(p) {
-      const el = p.node
-      if (container.className) {
-        const cls = stringAttr(el, 'className')
-        if (cls && cls.split(/\s+/).includes(container.className)) groups.push(p)
-      } else if (nameOf(el) === container.slotOf) {
-        const slot = attrOf(el, container.prop)
-        if (slot?.value?.type === 'JSXExpressionContainer') groups.push(p.get('openingElement').get('attributes').find((a) => a.node === slot))
-      }
-    },
-  })
-  if (groups.length !== 1) return { problems: [`${groups.length} right-hand groups found, not one`], buttons: [] }
-  const buttons = []
-  groups[0].traverse({
-    JSXElement(p) {
-      if (nameOf(p.node) !== 'IconButton') return
+      if (!operable(p.node)) return
+      const attrs = p.node.openingElement.attributes
       const click = attrOf(p.node, 'onClick')?.value?.expression
-      buttons.push({
+      controls.push({
+        name: nameOf(p.node),
         title: stringAttr(p.node, 'title'),
         icon: (attrOf(p.node, 'Icon') || attrOf(p.node, 'icon'))?.value?.expression?.name ?? null,
         size: stringAttr(p.node, 'size'),
         onClick: click ? src.slice(click.start, click.end) : null,
+        spread: attrs.some((a) => a.type === 'JSXSpreadAttribute'),
+        handlers: attrs.filter((a) => a.type === 'JSXAttribute' && /^on[A-Z]/.test(a.name.name)).map((a) => a.name.name),
+        inTabs: !!p.findParent((q) => q.isJSXElement() && nameOf(q.node) === 'Tabs'),
       })
     },
   })
-  return { problems: [], buttons }
+  return { problems, controls }
 }
 /** What is wrong with one tool's strip, against Audrey's rule. */
 function stripProblems(src, spec) {
-  const { problems, buttons } = stripButtons(src, spec.container)
-  if (problems.length) return problems
-  const [help, settings] = buttons.slice(-2)
-  const out = []
-  if (buttons.length < 2) return [`${buttons.length} icon buttons in the group`]
+  const { problems, controls } = stripGroup(src, spec.strip)
+  if (problems.length && !controls.length) return problems
+  const out = [...problems]
+  if (controls.length !== 2) out.push(`${controls.length} operable controls in the group, not 2: ${controls.map((c) => c.title || c.name).join(', ')}`)
+  const [help, settings] = controls.slice(-2)
+  if (!help || !settings) return out
   if (help.title !== 'Help & documentation') out.push(`second to last is "${help.title}", not Help`)
   if (settings.title !== spec.settings) out.push(`last is "${settings.title}", not "${spec.settings}"`)
+  for (const b of [help, settings]) {
+    if (b.name !== 'IconButton') out.push(`"${b.title}" is a ${b.name}, not the kit IconButton`)
+    if (b.size !== 'sm') out.push(`"${b.title}" is size ${b.size}, not sm (28px)`)
+    if (b.spread) out.push(`"${b.title}" takes a spread of props`)
+    if (b.handlers.join() !== 'onClick') out.push(`"${b.title}" has handlers ${b.handlers.join(', ')}`)
+    if (b.inTabs) out.push(`"${b.title}" sits inside the kit Tabs`)
+  }
   if (help.icon !== 'HelpCircle') out.push(`Help draws ${help.icon}`)
   if (!/^Settings(Icon)?$/.test(settings.icon || '')) out.push(`Settings draws ${settings.icon}`)
-  for (const b of [help, settings]) if (b.size !== 'sm') out.push(`"${b.title}" is size ${b.size}, not sm (28px)`)
   if (help.onClick !== '() => setShowHelpModal(true)') out.push(`Help does ${help.onClick}, not the tool's own Help dialog`)
   if (settings.onClick !== `() => ${spec.opens}(true)`) out.push(`Settings does ${settings.onClick}`)
+  // …and those two setters draw what their names say: the tool's own Help
+  // dialog and its settings drawer (comments blanked, so a commented-out
+  // mount cannot pass).
+  const code = blankJsComments(src)
+  for (const [what, re] of [['Help state', spec.helpState], ['Settings state', spec.settingsState], ['Help dialog', spec.helpMount], ['settings drawer', spec.settingsMount]]) {
+    if (!re.test(code)) out.push(`the ${what} is not where it should be`)
+  }
   return out
+}
+/** Every JSX render site of a component: its attribute names, and whether
+    any is a spread. */
+function renderSites(src, component) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  const sites = []
+  traverse(ast, {
+    JSXElement(p) {
+      if (nameOf(p.node) !== component) return
+      const attrs = p.node.openingElement.attributes
+      sites.push({ attrs: attrs.filter((a) => a.type === 'JSXAttribute').map((a) => a.name.name), spread: attrs.some((a) => a.type === 'JSXSpreadAttribute') })
+    },
+  })
+  return sites
+}
+/** The names a component's default export destructures from its props. */
+function propsOf(src) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  let names = null
+  traverse(ast, {
+    ExportDefaultDeclaration(p) {
+      const param = p.node.declaration?.params?.[0]
+      const pattern = param?.type === 'AssignmentPattern' ? param.left : param
+      if (pattern?.type === 'ObjectPattern') names = pattern.properties.map((q) => (q.type === 'RestElement' ? '...rest' : q.key.name))
+    },
+  })
+  return names
+}
+/** getNavStripItems: what it pushes into its tail, and the rows it returns. */
+function navStripShape(src) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  let fn = null
+  traverse(ast, { VariableDeclarator(p) { if (p.node.id.name === 'getNavStripItems') fn = p } })
+  if (!fn) return null
+  const pushes = []
+  const labels = []
+  fn.traverse({
+    CallExpression(p) {
+      const c = p.node.callee
+      if (c.type === 'MemberExpression' && c.property.name === 'push') pushes.push(src.slice(c.object.start, c.object.end))
+    },
+    ObjectProperty(p) {
+      if (p.node.key.name === 'label' || p.node.key.value === 'label') labels.push(src.slice(p.node.value.start, p.node.value.end))
+    },
+  })
+  const ret = []
+  fn.traverse({ ReturnStatement(p) { ret.push(src.slice(p.node.argument.start, p.node.argument.end)) } })
+  return { pushes, labels, ret }
 }
 
 describe('each tool draws Help, then Settings, at the right end of its own strip (C1, C7)', () => {
   for (const spec of TOOL_STRIPS) {
-    it(`${spec.tool}: Help & documentation, then "${spec.settings}", the last two 28px icon buttons, opening the tool's own dialogs`, () => {
+    it(`${spec.tool}: Help & documentation, then "${spec.settings}" — the strip's last two controls, 28px kit IconButtons, opening the tool's own dialog and drawer`, () => {
       const src = readFileSync(resolve(here, spec.file), 'utf8')
       expect(stripProblems(src, spec)).toEqual([])
     })
   }
-  it('CONTROL: the reader fails the strip as it was — Settings first, the old title, Help to the app page, no group', () => {
-    const rabbit = TOOL_STRIPS.find((s) => s.tool === 'R.A.B.B.I.T.')
+  it('R.A.B.B.I.T.: ViewTabs draws its right-hand slot as the strip\'s last element, beside the kit Tabs, not in it', () => {
+    const view = blankJsComments(readFileSync(resolve(here, '../tools/rabbit_v0.1.0/components/ViewTabs.jsx'), 'utf8'))
+    // (a blanked JSX comment leaves an empty `{ }` behind)
+    expect(view).toMatch(/<div className="rb-viewtabs">\s*<Tabs[\s\S]*?\/>\s*(?:\{\s*\}\s*)*\{rightSlot && <div className="rb-viewtabs-right">\{rightSlot\}<\/div>\}\s*<\/div>/)
+  })
+  it('D.O.G.: the bar\'s left group is the label and the four history controls, with their handlers unchanged', () => {
+    const src = readFileSync(resolve(here, TOOL_STRIPS[0].file), 'utf8')
+    const { problems, controls } = stripGroup(src, { className: 'dog-outline-bar', group: 'dog-outline-right' })
+    expect(problems).toEqual([])
+    expect(controls).toHaveLength(2)
+    const left = stripGroup(src.replace('className="dog-outline-group"', 'className="dog-outline-group dog-probe-left"'), { className: 'dog-outline-bar', group: 'dog-probe-left' })
+    expect(left.controls.map((c) => [c.title, c.icon, c.onClick])).toEqual([
+      ['Undo delete', 'Undo2', 'undoHistoryDelete'],
+      ['Redo delete', 'Redo2', 'redoHistoryDelete'],
+      ['Import/export history', 'FolderUp', '() => setShowHistoryModal(true)'],
+      ['Clear history', 'Trash2', 'clearHistory'],
+    ])
+    expect(blankJsComments(src)).toMatch(/<div className="dog-outline-group" role="group" aria-labelledby="dog-outline-label">\s*<span id="dog-outline-label" className="dog-toolbar-label dog-outline-label">Deck outline<\/span>/)
+  })
+  it('CONTROL: the reader fails the strip as it was, and each way the first cut let through', () => {
+    const [dog, otter, rabbit] = TOOL_STRIPS
     // R.A.B.B.I.T.'s slot before S2a: Settings first, titled "RABBIT settings".
     const was = `const x = <ViewTabs rightSlot={(<>
       <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
@@ -446,17 +584,71 @@ describe('each tool draws Help, then Settings, at the right end of its own strip
       'second to last is "RABBIT settings", not Help',
       'last is "Help & documentation", not "R.A.B.B.I.T. settings"',
     ]))
-    // Help sent to the app's Help page instead of the tool's own dialog.
-    const otter = TOOL_STRIPS.find((s) => s.tool === 'O.T.T.E.R.')
-    const toAppHelp = `const x = <div className="otter-nav-right">
-      <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => onNavigate('help')} />
-      <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />
-    </div>`
-    expect(stripProblems(toAppHelp, otter)).toEqual(["Help does () => onNavigate('help'), not the tool's own Help dialog"])
-    // A 36px pair would sit off the other tools' line.
-    expect(stripProblems(toAppHelp.replace(/size="sm"/g, 'size="md"').replace("onNavigate('help')", 'setShowHelpModal(true)'), otter))
-      .toEqual(['"Help & documentation" is size md, not sm (28px)', '"O.T.T.E.R. settings" is size md, not sm (28px)'])
+    const pair = (help = "onClick={() => setShowHelpModal(true)}", extra = '') => `
+      <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" ${help} />
+      <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />${extra}`
+    const nav = (inner) => `const x = <nav className="otter-nav"><Tabs /><div className="otter-nav-right">${inner}</div></nav>`
+    // Help sent to the app's Help page.
+    expect(stripProblems(nav(pair("onClick={() => onNavigate('help')}")), otter)).toEqual(expect.arrayContaining(["Help does () => onNavigate('help'), not the tool's own Help dialog"]))
+    // A spread that swaps the handler behind the right text.
+    expect(stripProblems(nav(pair("onClick={() => setShowHelpModal(true)} {...{ onClick: () => onNavigate('help') }}")), otter)).toEqual(expect.arrayContaining(['"Help & documentation" takes a spread of props']))
+    // A third control after Settings.
+    expect(stripProblems(nav(pair(undefined, '<Button onClick={exportAll}>Export</Button>')), otter)).toEqual(expect.arrayContaining(['3 operable controls in the group, not 2: Help & documentation, O.T.T.E.R. settings, Button']))
+    // The group moved into the kit Tabs (a tab, and gone from the right end).
+    const inTabs = `const x = <nav className="otter-nav"><Tabs><div className="otter-nav-right">${pair()}</div></Tabs></nav>`
+    expect(stripProblems(inTabs, otter)).toEqual(expect.arrayContaining(['.otter-nav-right is not the last element of .otter-nav', '"Help & documentation" sits inside the kit Tabs']))
+    // D.O.G.'s group moved into "Generated output"'s head.
+    const moved = `const x = <><div className="dog-outline-bar"><div className="dog-outline-group" /></div><header className="dog-card-head"><div className="dog-outline-right">${pair().replace('O.T.T.E.R.', 'D.O.G.').replace('setSettingsOpen', 'setShowSettingsMenu')}</div></header></>`
+    expect(stripProblems(moved, dog)).toEqual(expect.arrayContaining(['.dog-outline-right is not the last element of .dog-outline-bar']))
     // No group at all (O.T.T.E.R. before S2a).
-    expect(stripProblems('const x = <nav className="otter-nav"><Tabs /></nav>', otter)).toEqual(['0 right-hand groups found, not one'])
+    expect(stripProblems('const x = <nav className="otter-nav"><Tabs /></nav>', otter)).toEqual(['0 .otter-nav-right groups, not one'])
+    // A mount that is commented out does not count.
+    expect(stripProblems(`${nav(pair())}\n// {showHelpModal && (<Dialog title="Help & documentation" />)}`, otter)).toEqual(expect.arrayContaining(['the Help dialog is not where it should be']))
+  })
+})
+
+describe('the nav strip\'s tail is Resources and App settings, and nothing carries a tool\'s settings to it (C6)', () => {
+  it('getNavStripItems pushes exactly two tail rows — the Resources toggle and App settings — and returns primary pages, one separator, the tail', () => {
+    const shape = navStripShape(appSrc)
+    expect(shape, 'no getNavStripItems in App.jsx').not.toBeNull()
+    expect(shape.pushes).toEqual(['tail', 'tail'])
+    expect(shape.labels).toEqual(['p.navLabel', "'Resources'", 'appSettings.navLabel'])
+    expect(shape.ret).toEqual(['[...items, { separator: true }, ...tail]'])
+  })
+  it('each tool is rendered with exactly the props it reads, and reads exactly those', () => {
+    for (const spec of TOOL_STRIPS) {
+      const sites = renderSites(appSrc, spec.site)
+      expect(sites, spec.site).toHaveLength(1)
+      expect(sites[0].spread, spec.site).toBe(false)
+      expect([...sites[0].attrs].sort(), spec.site).toEqual([...spec.siteAttrs].sort())
+      expect(propsOf(readFileSync(resolve(here, spec.file), 'utf8')), spec.tool).toEqual(spec.props)
+    }
+  })
+  it('no string, wrapped over lines or not, in any case, names "Tool settings" (comments may keep the history)', () => {
+    const files = sourceFiles().filter((f) => !f.startsWith('src/dev/'))
+    const hits = files.filter((f) => /tool\s+settings/i.test(blankJsComments(readFileSync(f, 'utf8'))))
+    expect(hits).toEqual([])
+  })
+  it('the three settings drawers keep their footer Help, titled as the strip\'s', () => {
+    const code = (f) => blankJsComments(readFileSync(resolve(here, f), 'utf8'))
+    expect(code(TOOL_STRIPS[0].file)).toMatch(/<div className="dog-settings-foot">[\s\S]{0,400}?title="Help & documentation" onClick=\{\(\) => setShowHelpModal\(true\)\}/)
+    expect(code(TOOL_STRIPS[1].file)).toMatch(/<div className="otter-settings-foot">[\s\S]{0,400}?title="Help & documentation" onClick=\{\(\) => setShowHelpModal\(true\)\}/)
+    expect(code('../tools/rabbit_v0.1.0/views/TimelineView.jsx')).toMatch(/onClick=\{onOpenHelp\}\s*title="Help & documentation"/)
+  })
+  it('CONTROL: the shape reader, the site reader and the wrapped-text check each fire on a renamed return of the item', () => {
+    const renamed = `const getNavStripItems = () => {
+      const items = primary.map(p => ({ label: p.navLabel }));
+      const tail = [];
+      if (isToolPage) tail.push({ label: 'Settings', action: () => setToolSettingsNonce(n => n + 1) });
+      tail.push({ label: 'Resources', isResourcesTrigger: true });
+      tail.push({ label: appSettings.navLabel });
+      return [...items, { separator: true }, ...tail];
+    };`
+    expect(navStripShape(renamed).pushes).toEqual(['tail', 'tail', 'tail'])
+    expect(navStripShape(renamed).labels).toContain("'Settings'")
+    expect(renderSites('const x = <Otter onNavigate={go} currentPage={p} onContextChange={c} settingsNonce={n} />', 'Otter')[0].attrs).toContain('settingsNonce')
+    expect(renderSites('const x = <Otter {...props} />', 'Otter')[0].spread).toBe(true)
+    expect(propsOf('export default function Otter({ onNavigate, currentPage, onContextChange, settingsNonce = 0 }) {}')).toContain('settingsNonce')
+    expect(/tool\s+settings/i.test('<p>Open Tool\n        settings</p>')).toBe(true)
   })
 })

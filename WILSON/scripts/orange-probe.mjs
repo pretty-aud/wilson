@@ -71,7 +71,15 @@ function measure({ sel, nth = 0 }) {
   }
   let ground = [255, 255, 255];
   for (const [r, g, b, a] of layers.reverse()) ground = [r * a + ground[0] * (1 - a), g * a + ground[1] * (1 - a), b * a + ground[2] * (1 - a)];
-  const ink = parse(getComputedStyle(el).color);
+  // The ink the glyph is painted in: `-webkit-text-fill-color` wins over
+  // `color` when set, and every ancestor's opacity thins it over the ground
+  // (review round 1, G-R1-10: a title at opacity .5 reported 4.54).
+  const cs = getComputedStyle(el);
+  const fill = parse(cs.webkitTextFillColor || '');
+  const painted = fill && cs.webkitTextFillColor !== cs.color ? fill : parse(cs.color);
+  let alpha = painted ? painted[3] : 1;
+  for (let n = el; n; n = n.parentElement) alpha *= Number(getComputedStyle(n).opacity);
+  const ink = painted ? painted.slice(0, 3).map((v, i) => v * alpha + ground[i] * (1 - alpha)) : null;
   const lum = ([r, g, b]) => {
     const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
@@ -81,7 +89,10 @@ function measure({ sel, nth = 0 }) {
   return {
     sel,
     text: (el.textContent || '').trim().slice(0, 40),
-    color: getComputedStyle(el).color,
+    color: cs.color,
+    opacity: Math.round(alpha * 1000) / 1000,
+    // What the glyph is when selected (V-R1-02: the selection screen).
+    selectionColor: getComputedStyle(el, '::selection').color,
     ground: `rgb(${ground.map((v) => Math.round(v)).join(', ')})`,
     ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100,
     box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
@@ -245,6 +256,8 @@ if (CHECK) {
       if (!m || m.error) { bad.push(`${size} ${name}: ${m?.error || 'not measured'}`); return; }
       if (m.color !== SIGNAL) bad.push(`${size} ${name}: ${m.color}, not the signal`);
       if (m.ratio < min) bad.push(`${size} ${name}: ${m.ratio}:1 on ${m.ground}, under ${min}`);
+      // Selected, the orange sits on the selection screen and fails: the ink.
+      if (m.selectionColor !== INK) bad.push(`${size} ${name}: selected, it paints ${m.selectionColor}, not the ink`);
     };
     const is = (name, m, want, min = 4.5) => {
       if (!m || m.error) { bad.push(`${size} ${name}: ${m?.error || 'not measured'}`); return; }
@@ -255,12 +268,17 @@ if (CHECK) {
     orange('D.O.G. numeral 1', d.step1); orange('D.O.G. numeral 2', d.step2);
     is('D.O.G. title 1 on the wash', d.title1Hover, INK); is('D.O.G. numeral 1 on the wash', d.step1Hover, INK);
     if (d.headHoverGround === 'rgba(0, 0, 0, 0)') bad.push(`${size} D.O.G.: the header took no wash under the pointer (the hover was not measured)`);
-    if (d.generatedOutput?.color === SIGNAL || d.generatedOutput?.stepTitle) bad.push(`${size} D.O.G.: "Generated output" is orange`);
+    // Fail closed: a control that was not found is a breach, never a pass
+    // (review round 1, G-R1-10).
+    if (!d.generatedOutput || d.generatedOutput.error) bad.push(`${size} D.O.G.: "Generated output" was not found`);
+    else if (d.generatedOutput.color === SIGNAL || d.generatedOutput.stepTitle) bad.push(`${size} D.O.G.: "Generated output" is orange`);
     if (!d.generateButton || d.generateButton.disabled !== false) bad.push(`${size} D.O.G.: the page-outline button is not lit (${JSON.stringify(d.generateButton)})`);
     is('D.O.G. title 2, Full deck', d.title2FullDeck, INK_3); is('D.O.G. numeral 2, Full deck', d.step2FullDeck, INK_3);
     orange('"Course library"', o.courseLibrary);
+    if (!(o.otherViewTitles || []).length) bad.push(`${size} O.T.T.E.R.: no other view title was read (the check is blind)`);
     for (const t of o.otherViewTitles || []) if (t.color === SIGNAL) bad.push(`${size} O.T.T.E.R.: "${t.text}" is orange`);
-    if (o.hotkeysTitle?.color === SIGNAL) bad.push(`${size} O.T.T.E.R.: "Keyboard shortcuts" is orange`);
+    if (!o.hotkeysTitle || o.hotkeysTitle.error || o.hotkeysTitle.text !== 'Keyboard shortcuts') bad.push(`${size} O.T.T.E.R.: the Hotkeys title was not found (${JSON.stringify(o.hotkeysTitle?.text)})`);
+    else if (o.hotkeysTitle.color === SIGNAL) bad.push(`${size} O.T.T.E.R.: "Keyboard shortcuts" is orange`);
     orange('Hotkeys key cap', o.hotkeyCap);
     orange('Search key cap (a match)', o.searchCapMatch);
     is('Search key cap (not a match)', o.searchCapDim, INK_3);

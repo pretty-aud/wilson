@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { allRules, decls, splitTop, themeNames, specificity, compareSpecificity } from '../../../scripts/ui-css-rules.mjs'
+import { allRules, decls, splitTop, themeNames, specificity, compareSpecificity, themeValues, resolveTokenHex, INK_PROPS } from '../../../scripts/ui-css-rules.mjs'
 import { parse } from '@babel/parser'
 import traverseModule from '@babel/traverse'
 import { cssCounts } from '../../../scripts/ui-audit.mjs'
@@ -1204,16 +1204,37 @@ function groundLuminance(value) {
 // session correcting it out, or spreading it to the titles she did not name.
 describe('O.T.T.E.R.\'s orange, exactly (S2a, C8)', () => {
   const OTTER_JSX = JSX_FILES[0]
-  const signalRules = (css) => allRules(css).flatMap((r) => {
-    const d = decls(r.body).filter(([p]) => p === 'color').pop()
-    return d && d[1] === 'var(--color-signal)' ? splitTop(r.sel).map((s) => s.trim()) : []
-  }).sort()
-  it('the signal colours exactly these rules: the four new ones and two status icons from before S2a', () => {
+  const THEME_VALUES = themeValues(INDEX)
+  const ORANGES = new Set([THEME_VALUES.get('--color-signal'), THEME_VALUES.get('--color-signal-fill')].map((h) => h.toLowerCase()))
+  // Every rule whose glyph ink resolves through @theme to either orange, in
+  // any spelling (a same-hex token such as `--color-focus`,
+  // `-webkit-text-fill-color`, `fill`), and any custom property set to one
+  // (S2a review round 1, G-R1-04). Selector-list rules are read per selector.
+  const signalRules = (css) => allRules(css).flatMap((r) => decls(r.body)
+    .filter(([p, v]) => (INK_PROPS.test(p) || p.startsWith('--')) && ORANGES.has(resolveTokenHex(v, THEME_VALUES)))
+    .flatMap(() => splitTop(r.sel).map((s) => s.trim()))).sort()
+  it('the orange paints exactly these rules: the four new ones and two status icons from before S2a — in every spelling', () => {
     expect(signalRules(RAW)).toEqual([
       '.otter-lock-icon', ".otter-val-queue-row[data-status='in-progress'] .otter-val-status-icon",
       '.otter-library-title .ui-section-title', '.otter-hk-card .ui-kbd',
       '.otter-lesson-card .ui-card-title', '.otter-card-icon',
     ].sort())
+  })
+  it('CONTROL: the reader resolves each spelling that beat the first cut', () => {
+    for (const planted of [
+      '.otter-view-title .ui-section-title { color: var(--color-focus); }',
+      '.otter-view { --color-ink: var(--color-signal); }',
+      '.otter-ref-section-title { -webkit-text-fill-color: var(--color-signal); }',
+    ]) expect(signalRules(planted), planted).toHaveLength(1)
+    expect(signalRules('.otter-x { color: var(--color-ink); border-color: var(--color-signal); }')).toEqual([])
+  })
+  it('selected, each orange is the ink (the selection screen fails the signal: V-R1-02)', () => {
+    const rule = allRules(RAW).find((r) => splitTop(r.sel).map((s) => s.trim()).includes('.otter-hk-card .ui-kbd::selection'))
+    expect(rule, 'no ::selection revert').toBeTruthy()
+    expect(splitTop(rule.sel).map((s) => s.trim()).sort()).toEqual([
+      '.otter-hk-card .ui-kbd::selection', '.otter-lesson-card .ui-card-title::selection', '.otter-library-title .ui-section-title::selection',
+    ])
+    expect(decls(rule.body)).toEqual([['color', 'var(--color-ink)']])
   })
   it('"Course library" is the one view title that takes it; "Keyboard shortcuts", "Functions reference" and the quiz titles do not', () => {
     const carriers = [...OTTER_JSX.matchAll(/className="([^"]*\botter-library-title\b[^"]*)"/g)]
@@ -1243,5 +1264,48 @@ describe('O.T.T.E.R.\'s orange, exactly (S2a, C8)', () => {
   it('CONTROL: the reader sees an orange spread to every view title, and a key-cap rule the dim would lose to', () => {
     expect(signalRules('.otter-view-title .ui-section-title { color: var(--color-signal); }')).toEqual(['.otter-view-title .ui-section-title'])
     expect(compareSpecificity(specificity(".otter-search-hk .ui-tr[data-inactive='true'] .ui-kbd"), specificity('.otter-search-hk .otter-hk-card .ui-tr .ui-td .ui-kbd'))).toBeLessThan(0)
+  })
+})
+
+// ── O.T.T.E.R.'s strip, on R.A.B.B.I.T.'s rules (post-overhaul S2a, C7) ────
+// The Help and Settings group and the scrolling tab list copy R.A.B.B.I.T.'s
+// reference rule for rule, so the two strips cannot drift apart; nothing held
+// them until review round 1 (G-R1-07). scripts/tool-strip-probe.mjs measures
+// the result in the app.
+describe('O.T.T.E.R.\'s strip keeps R.A.B.B.I.T.\'s rules for its right-hand group and its tab list (S2a)', () => {
+  const RABBIT = readFileSync(fileURLToPath(new URL('../rabbit_v0.1.0/rabbitShell.css', import.meta.url)), 'utf8')
+  // Every rule for the selector outside a query, merged in order (the later wins).
+  const merged = (css, sel) => {
+    const rules = allRules(css).filter((r) => splitTop(r.sel).map((s) => s.trim()).includes(sel)
+      && !r.parents.some((p) => /^@(media|container|supports)/.test(p)))
+    return rules.length ? Object.fromEntries(rules.flatMap((r) => decls(r.body))) : null
+  }
+  it('the Help and Settings group is `.rb-viewtabs-right`, plus 8px before it (V-R1-04)', () => {
+    const { 'margin-left': before, ...rest } = merged(RAW, '.otter-nav-right')
+    expect(rest).toEqual(merged(RABBIT, '.rb-viewtabs-right'))
+    expect(before).toBe('8px')
+  })
+  it('the tab list scrolls in one row exactly as R.A.B.B.I.T.\'s does, and draws its tabs\' ring inside', () => {
+    const otter = merged(RAW, '.ui-tabs.otter-nav-tabs')
+    const rabbit = merged(RABBIT, '.rb-viewtabs-list.ui-tabs')
+    for (const p of ['flex', 'min-width', 'flex-wrap', 'overflow-x', 'overflow-y', 'scrollbar-width']) expect(otter[p], p).toBe(rabbit[p])
+    expect(merged(RAW, '.ui-tabs.otter-nav-tabs > .ui-tab:focus-visible')).toEqual({ 'outline-offset': '-3px' })
+    expect(merged(RABBIT, '.rb-viewtabs-list.ui-tabs > .ui-tab:focus-visible')).toEqual({ 'outline-offset': '-3px' })
+  })
+  it('the icons drop and the tabs tighten when the LIST is under 630px — a member\'s seven tabs with icons need 621 (V-R1-01)', () => {
+    expect(merged(RAW, '.ui-tabs.otter-nav-tabs').container).toBe('otter-nav-tabs / inline-size')
+    const query = allRules(RAW).filter((r) => r.parents.some((p) => p.replace(/\s+/g, ' ') === '@container otter-nav-tabs (max-width: 630px)'))
+    const bySel = Object.fromEntries(query.map((r) => [r.sel.trim(), Object.fromEntries(decls(r.body))]))
+    expect(bySel).toEqual({ '.otter-nav-tabs .otter-nav-icon': { display: 'none' }, '.otter-nav-tabs .ui-tab': { padding: '0 6px' } })
+    // The container is the list, never the nav: a size container is a
+    // containing block for fixed children, and the Edit menu is one.
+    const nav = merged(RAW, '.otter-nav')
+    expect(nav.container).toBeUndefined()
+    expect(nav['container-type']).toBeUndefined()
+  })
+  it('CONTROL: the merged reader sees a later rule, and a drifted group is caught', () => {
+    const drifted = `${RAW}\n.otter-nav-right { gap: 8px; }`
+    const { 'margin-left': _unused, ...rest } = merged(drifted, '.otter-nav-right')
+    expect(rest).not.toEqual(merged(RABBIT, '.rb-viewtabs-right'))
   })
 })

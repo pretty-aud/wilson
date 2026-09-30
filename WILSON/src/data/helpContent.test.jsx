@@ -313,8 +313,54 @@ describe('the Help page names things as the app does, on every page it can show 
 // WILSON nav strip holds App settings only. Help that sends a reader to the
 // nav strip, the hamburger or a timeline header for a tool's settings points
 // at a control that no longer opens them.
-const WRONG_WAY_TO_SETTINGS = /hamburger menu icon|settings entry on the WILSON nav strip|gear icon in the timeline header|Tool settings/i
 const THE_GEAR = "the gear at the right end of the tool's strip"
+// Every unit of text a reader meets as one — a list item, a paragraph, a
+// heading, a table row (its cells together), a term with its description —
+// split into sentences. Text nodes are joined with a space, so a key legend
+// in one element and its meaning in the next read "Enter Toggle the chat",
+// not "EnterToggle the chat"; and a sentence is read whole, in either order,
+// at any length (review round 1, G-R1-08: three exact phrases, a 40-character
+// window and textContent let real spellings through).
+function sentencesOf(root) {
+  const text = (el) => {
+    const parts = []
+    const walk = (n) => { for (const c of n.childNodes) { if (c.nodeType === 3) parts.push(c.textContent); else if (c.nodeType === 1) walk(c) } }
+    walk(el)
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
+  }
+  const blocks = []
+  for (const tr of root.querySelectorAll('tr')) blocks.push(text(tr))
+  for (const dt of root.querySelectorAll('dt')) {
+    const dd = dt.nextElementSibling?.tagName === 'DD' ? dt.nextElementSibling : null
+    blocks.push(`${text(dt)} ${dd ? text(dd) : ''}`)
+  }
+  for (const el of root.querySelectorAll('li, p, h1, h2, h3, h4, h5, h6, blockquote, figcaption')) {
+    if (!el.closest('tr, dt, dd')) blocks.push(text(el))
+  }
+  return blocks.flatMap((b) => b.split(/(?<!\be\.g|\bi\.e)(?<=[.!?])\s+/)).map((s) => s.trim()).filter(Boolean)
+}
+/** Every sentence of every page of every tool's help, both surfaces, and of the Help page. */
+function allHelpSentences() {
+  const out = []
+  for (const [tool, items, Content, themes] of SURFACES) {
+    for (const theme of themes) {
+      for (const { id } of items) {
+        const { container } = render(<Content helpPage={id} theme={theme} />)
+        out.push(...sentencesOf(container).map((s) => [`${tool} ${theme || 'dialog'} ${id}`, s]))
+        cleanup()
+      }
+    }
+  }
+  eachHelpPage((where, pane) => out.push(...sentencesOf(pane).map((s) => [where, s])))
+  return out
+}
+// A tool's settings sent anywhere but its own strip: "Tool settings" in any
+// case or wrapping, or a sentence that puts "settings" in a shell place (the
+// nav strip, the navigation menu, the hamburger, a WILSON menu, a timeline
+// header) — App settings excepted, which IS in the menu.
+const SHELL_PLACES = /\bnav(?:igation)?\s+strip\b|\bnavigation\s+menu\b|\bhamburger\b|\bWILSON\s+(?:menu|nav)\b|\btimeline\s+header\b/i
+const wrongWayToSettings = (s) => /\btool\s+settings\b/i.test(s)
+  || (SHELL_PLACES.test(s) && /\bsettings\b/i.test(s) && !/\bApp settings\b/.test(s))
 function helpText(Content, items) {
   const seen = []
   for (const { id } of items) {
@@ -325,16 +371,9 @@ function helpText(Content, items) {
 }
 describe('help sends a reader to the gear in the tool\'s own strip (S2a, C6/C7)', () => {
   it('no help, on either surface, names the nav strip, the hamburger or a timeline header as the way to a tool\'s settings', () => {
-    const bad = []
-    for (const [tool, items, Content] of SURFACES) {
-      const text = helpText(Content, items)
-      if (WRONG_WAY_TO_SETTINGS.test(text)) bad.push(`${tool}: ${text.match(WRONG_WAY_TO_SETTINGS)[0]}`)
-    }
-    const page = []
-    eachHelpPage((where, pane, container) => page.push(container.textContent))
-    const pageText = page.join('\n')
-    if (WRONG_WAY_TO_SETTINGS.test(pageText)) bad.push(`Help page: ${pageText.match(WRONG_WAY_TO_SETTINGS)[0]}`)
-    expect(bad).toEqual([])
+    const all = allHelpSentences()
+    expect(all.length, 'the reader found no sentences').toBeGreaterThan(300)
+    expect(all.filter(([, s]) => wrongWayToSettings(s)).map(([w, s]) => `${w}: ${s}`)).toEqual([])
   })
   it('the three passages that did now name the gear: O.T.T.E.R.\'s tip, R.A.B.B.I.T.\'s settings page, the Help page\'s navigation card', () => {
     expect(helpText(OtterHelpContent, OTTER_HELP_SIDEBAR_ITEMS)).toContain(THE_GEAR)
@@ -351,31 +390,41 @@ describe('help sends a reader to the gear in the tool\'s own strip (S2a, C6/C7)'
     // D.O.G.'s already said it the interface's way.
     expect(helpText(DogHelpContent, DOG_HELP_SIDEBAR_ITEMS)).toContain('The Settings panel (gear icon)')
   })
-  it('CONTROL: the old sentences are caught', () => {
+  it('CONTROL: the old sentences, and the spellings the first cut missed, are caught; the new ones and App settings are not', () => {
     for (const was of [
       'You can customize the generation prompts in the O.T.T.E.R. settings panel (hamburger menu icon).',
       'Click the gear icon in the timeline header (or the settings entry on the WILSON nav strip) to open the slide-out.',
       'Open Tool settings from the menu.',
-    ]) expect(was).toMatch(WRONG_WAY_TO_SETTINGS)
-    expect("Click the gear at the right end of the tool's strip").not.toMatch(WRONG_WAY_TO_SETTINGS)
+      'Open tool settings from the menu.',
+      'The settings live in the WILSON menu.',
+      'Click the gear in the timeline header to change settings.',
+    ]) expect(wrongWayToSettings(was), was).toBe(true)
+    for (const ok of [
+      "Click the gear at the right end of the tool's strip (Help sits beside it) to open the slide-out, from any tab.",
+      "A tool's own settings — the gear at the right end of the tool's strip, with Help beside it; the menu holds App settings only",
+      'Quick access to Home, other tools, and App settings from any page',
+      'Click outside the nav strip to dismiss it',
+    ]) expect(wrongWayToSettings(ok), ok).toBe(false)
+    // A sentence wrapped over two lines of JSX is read as one.
+    const host = document.createElement('div')
+    host.innerHTML = '<p>Open Tool\n   settings from the strip.</p>'
+    expect(sentencesOf(host).some(wrongWayToSettings)).toBe(true)
   })
 })
 
 // Post-overhaul S2a (Audrey's C12): the pet's key is a bare Shift tap, and
 // Enter presses whatever has focus. Help that still says Enter opens the pet
 // teaches the one key that no longer does it.
-const ENTER_OPENS_PET = /(?:press(?:es)? Enter|\bEnter\b)[^.<]{0,40}\b(?:toggle|open|close)[^.<]{0,20}\b(?:chat|companion|pet)|\(or press Enter\)|\bEnter\b\s*[—-]\s*Toggle companion/i
+// A sentence (sentencesOf) that names Enter, a verb that opens or closes, and
+// the pet, in any order and at any distance (G-R1-08).
+const enterOpensPet = (s) => /\benter\b/i.test(s)
+  && /\b(?:toggles?|opens?|closes?|shows?|hides?|summons?)\b/i.test(s)
+  && /\b(?:chat|companion|pet)\b/i.test(s)
 describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => {
   it('no help, on either surface, says Enter opens or closes the pet', () => {
-    const bad = []
-    for (const [tool, items, Content] of SURFACES) {
-      const text = helpText(Content, items)
-      if (ENTER_OPENS_PET.test(text)) bad.push(`${tool}: ${text.match(ENTER_OPENS_PET)[0]}`)
-    }
-    const page = []
-    eachHelpPage((where, pane, container) => page.push(container.textContent))
-    if (ENTER_OPENS_PET.test(page.join('\n'))) bad.push(`Help page: ${page.join('\n').match(ENTER_OPENS_PET)[0]}`)
-    expect(bad).toEqual([])
+    const all = allHelpSentences()
+    expect(all.length, 'the reader found no sentences').toBeGreaterThan(300)
+    expect(all.filter(([, s]) => enterOpensPet(s)).map(([w, s]) => `${w}: ${s}`)).toEqual([])
   })
   it('the three passages that taught Enter teach the Shift tap', () => {
     const otter = helpText(OtterHelpContent, OTTER_HELP_SIDEBAR_ITEMS)
@@ -387,19 +436,26 @@ describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => 
     expect(pet, 'the traversal never reached the Pet companion page').toHaveLength(1)
     expect(pet[0]).toMatch(/Tap Shift on its own to toggle the chat window/)
   })
-  it('CONTROL: the old sentences are caught, and the new ones and D.O.G.\'s own Enter keys are not', () => {
+  it('CONTROL: the old sentences and the spellings the first cut missed are caught; the new ones and D.O.G.\'s own Enter keys are not', () => {
     for (const was of [
       'Click the sprite to open/close the chat window (or press Enter)',
       'Enter — Toggle companion chat (when not typing in an input)',
       'Press Enter to toggle the chat window (when not typing in an input)',
-    ]) expect(was).toMatch(ENTER_OPENS_PET)
+      'The chat opens and closes with Enter.',
+      'Press Enter, wherever you are in the app and whatever you were doing, to open the pet.',
+    ]) expect(enterOpensPet(was), was).toBe(true)
     for (const ok of [
       'Click the sprite to open/close the chat window (or tap Shift on its own)',
       'Shift — Tap it on its own to toggle companion chat (not while typing in a field, and not over a dialog)',
       'Enter — Presses the focused button, as anywhere else',
       'Press Enter in the revision prompt field to trigger regeneration quickly',
       'Enter — Go to selected search result',
-    ]) expect(ok).not.toMatch(ENTER_OPENS_PET)
+      'Enter presses the focused button.',
+    ]) expect(enterOpensPet(ok), ok).toBe(false)
+    // A key legend in one element and its meaning in the next is one row.
+    const host = document.createElement('div')
+    host.innerHTML = '<dl><dt>Enter</dt><dd>Toggle the companion chat</dd></dl><table><tr><td><kbd>Enter</kbd></td><td>Open the pet</td></tr></table>'
+    expect(sentencesOf(host).filter(enterOpensPet).sort()).toEqual(['Enter Open the pet', 'Enter Toggle the companion chat'])
   })
 })
 

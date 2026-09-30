@@ -93,8 +93,11 @@
      (the kit tab's --control-md; NOT the kit Toolbar's 44), the right edge on
      the 24px gutter, 16px on the left — and its right-hand group is
      `.rb-viewtabs-right`. The leading label takes a tab's 8px side padding, so
-     its text sits on the 24px gutter under the page title, where the other
-     strips' first labels sit. It is the Label step (`.dog-toolbar-label`).
+     its text sits on the 24px gutter, under the tool's title in the orange
+     bar. (The other strips' first labels do not all sit there: O.T.T.E.R.'s
+     "Edit" keeps the kit tab's 10px and sits at 26; R.A.B.B.I.T.'s first tab
+     shows its icon first at 1240 and wider — measured in S2a review round 1,
+     left as they were.) It is the Label step (`.dog-toolbar-label`).
      The bar is ABOVE the sidebar-and-main row: no horizontal chrome for the
      preview (C4, measured). Replaced the Panel header's two stand-ins for
      kit request A1-KR-2 (a 4px head gap; an ellipsizing title), which had
@@ -239,9 +242,11 @@
      grey; the generate buttons are unchanged (C2).
      The pairs, pinned in tokens.test.js: the signal on the card's
      paper-raised is 4.54:1 (legible at this Label step); on the header's
-     hover wash it is 3.88:1 and FAILS — so on the wash the text reverts to
-     the ink (option c, below) and no orange ever sits on it. Three classes,
-     so it outranks the second-ink rule above whatever the order. */
+     hover wash it is 3.86:1 (3.88 as the 8-bit wash paints) and FAILS — so on
+     the wash the text reverts to the ink (option c, below) and no orange ever
+     sits on it; selected, it is the ink too (the selection screen: about
+     2.8:1). Three classes, so it outranks the second-ink rule above whatever
+     the order; no rule here may use !important (dogCss.test.js). */
   .ui-panel-title.dog-card-title.dog-step-title {
     color: var(--color-signal);
     transition: color var(--duration-state) ease-out;
@@ -280,7 +285,7 @@
     transition: color var(--duration-state) ease-out;
   }
   /* Option c: under the pointer the head takes the hover wash, where the
-     signal fails (3.88:1), so the title and its numeral revert to the ink
+     signal fails (3.86:1), so the title and its numeral revert to the ink
      for exactly as long as the wash is there — the same media query, the
      same state, the same 120ms. Four classes: it outranks the orange. */
   @media (hover: hover) {
@@ -289,6 +294,11 @@
       color: var(--color-ink);
     }
   }
+  /* Selected, the orange would sit on the selection screen (the signal at
+     35%, about 2.8:1 here): the ink, as on the wash (S2a review round 1,
+     V-R1-02). */
+  .dog-step-title::selection,
+  .dog-step-title .dog-step::selection { color: var(--color-ink); }
   .dog-card-note {
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);

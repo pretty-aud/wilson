@@ -26,7 +26,10 @@ import { Button } from '../ui/Button'
 import { Menu } from '../ui/Menu'
 import { _resetOverlaysForTests, overlayOpen } from '../ui/overlay'
 import { DependencyStatusWarningModal } from '../tools/rabbit_v0.1.0/components/DependencyStatusGuard'
-import { installCompanionShiftHotkey, shiftIsTaken } from './companionHotkey'
+import { installCompanionShiftHotkey, shiftIsTaken, typesText, TAP_MS } from './companionHotkey'
+import { Drawer } from '../ui/Drawer'
+import { pushModal, popModal } from '../ui/overlay'
+import { blankJsComments } from '../../scripts/ui-audit.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const PET = { name: 'Pip', stage: 'hatched' }
@@ -79,7 +82,39 @@ const NOT_A_TAP = {
   'Shift held through a click (a range select in Bins)': () => {
     shiftDown(); on('mousedown', window.MouseEvent, { shiftKey: true }); on('mouseup', window.MouseEvent, { shiftKey: true }); on('click', window.MouseEvent, { shiftKey: true }); shiftUp()
   },
-  'Shift held through a pointer press': () => { shiftDown(); on('pointerdown'); shiftUp() },
+  'Shift held through a pointer press': () => { shiftDown(); on('pointerdown'); on('pointerup'); shiftUp() },
+  // Review round 1 (B-R1-04): Shift pressed and released while a mouse button
+  // is held — mid-drag, or mid text-selection.
+  'Shift pressed mid-drag (a mouse button held)': () => { on('mousedown', window.MouseEvent); on('pointerdown'); shiftDown(); shiftUp(); on('mouseup', window.MouseEvent); on('pointerup') },
+  // …and let go after the drag ends: only the rule at Shift's keydown sees it.
+  'Shift pressed mid-drag, released after the drag ends': () => { on('mousedown', window.MouseEvent); on('pointerdown'); shiftDown(); on('mouseup', window.MouseEvent); on('pointerup'); shiftUp() },
+  // …held too long to be a tap (a Shift rested on while reading).
+  'Shift held past the tap time': () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try { shiftDown(); vi.setSystemTime(Date.now() + TAP_MS + 100); shiftUp() } finally { vi.useRealTimers() }
+  },
+  // …both Shift keys together.
+  'Left and Right Shift together': () => {
+    key('keydown', 'Shift', { code: 'ShiftLeft', shiftKey: true }); key('keydown', 'Shift', { code: 'ShiftRight', shiftKey: true })
+    key('keyup', 'Shift', { code: 'ShiftRight', shiftKey: true }); key('keyup', 'Shift', { code: 'ShiftLeft' })
+  },
+  // A component that stops a keydown's propagation (a dialog's Tab trap)
+  // must not hide it: the keydown is read in the CAPTURE phase (G-R1-06).
+  'Shift+Tab where a trap stops the Tab keydown': () => {
+    const trap = document.createElement('div')
+    const inside = document.createElement('button')
+    trap.appendChild(inside)
+    document.body.appendChild(trap)
+    trap.addEventListener('keydown', (e) => { if (e.key === 'Tab') e.stopPropagation() })
+    inside.focus()
+    try { shiftDown(); key('keydown', 'Tab', { shiftKey: true }); key('keyup', 'Tab', { shiftKey: true }); shiftUp() } finally { inside.blur(); trap.remove() }
+  },
+  // A Shift keyup another handler has claimed stays that handler's (G-R1-06).
+  'a Shift keyup another handler claimed': () => {
+    const claim = (e) => { if (e.key === 'Shift') e.preventDefault() }
+    document.body.addEventListener('keyup', claim)
+    try { shiftDown(); shiftUp() } finally { document.body.removeEventListener('keyup', claim) }
+  },
   'Shift held through a wheel turn (the Timeline scrolls sideways)': () => { shiftDown(); on('wheel', window.WheelEvent, { deltaY: 120, shiftKey: true }); shiftUp() },
   'Ctrl+Shift+Z (redo)': () => {
     key('keydown', 'Control', { ctrlKey: true }); key('keydown', 'Shift', { ctrlKey: true, shiftKey: true })
@@ -106,15 +141,42 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     expect(toggle).toHaveBeenCalledTimes(2)
   })
 
-  it('a tap with a page button focused toggles, and does not press the button', () => {
+  it('a tap with a page button focused toggles', () => {
     const toggle = vi.fn()
-    const onClick = vi.fn()
     install(toggle)
-    render(<button type="button" onClick={onClick}>Validate</button>)
+    render(<button type="button">Validate</button>)
     screen.getByRole('button', { name: 'Validate' }).focus()
     tap()
     expect(toggle).toHaveBeenCalledTimes(1)
-    expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('a tap with a checkbox, a radio, a range or a button input focused toggles — they take no typing (B-R1-05)', () => {
+    const toggle = vi.fn()
+    install(toggle)
+    render(<>
+      <input type="checkbox" aria-label="Full-time" />
+      <input type="radio" aria-label="Tier" />
+      <input type="range" aria-label="Zoom" />
+      <input type="button" aria-label="Go" value="Go" />
+    </>)
+    let n = 0
+    for (const label of ['Full-time', 'Tier', 'Zoom', 'Go']) {
+      screen.getByLabelText(label).focus()
+      tap()
+      n += 1
+      expect(toggle, label).toHaveBeenCalledTimes(n)
+    }
+    // …while every text-entry type keeps Shift.
+    for (const type of [undefined, 'text', 'search', 'email', 'url', 'tel', 'password', 'number', 'date']) {
+      const el = document.createElement('input')
+      if (type) el.setAttribute('type', type)
+      expect(typesText(el), type || '(no type)').toBe(true)
+    }
+    for (const type of ['checkbox', 'radio', 'range', 'button', 'submit', 'file', 'color']) {
+      const el = document.createElement('input')
+      el.setAttribute('type', type)
+      expect(typesText(el), type).toBe(false)
+    }
   })
 
   it('CONTROL — no pet, or the sign-in overlay: a tap does nothing', () => {
@@ -151,8 +213,8 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     for (const label of ['Notes', 'Body', 'Status', 'Editor']) {
       const el = screen.getByLabelText(label)
       el.focus()
-      // jsdom has no layout, so it never computes isContentEditable; the
-      // browser does. Stand it in for the one element that is editable.
+      // jsdom does not implement isContentEditable at all; the browser does.
+      // Stand it in for the one element that is editable.
       if (label === 'Editor') Object.defineProperty(el, 'isContentEditable', { value: true, configurable: true })
       expect(document.activeElement, label).toBe(el)
       tap()
@@ -193,6 +255,60 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     expect(toggle).toHaveBeenCalledTimes(1)
   })
 
+  it('not while a drawer with a backdrop is open (the tools\' settings drawers); a docked drawer without one does not stop it', () => {
+    const toggle = vi.fn()
+    install(toggle)
+    const { unmount } = render(<Drawer open backdrop onClose={noop} label="Settings" title="Settings"><p>Body</p></Drawer>)
+    const backdrop = document.querySelector('.ui-drawer-backdrop')
+    expect(backdrop, 'the kit Drawer drew no backdrop').not.toBeNull()
+    // jsdom lays nothing out, so no element has client rects; the browser's
+    // backdrop does. (A drawer left open on a HIDDEN page has none there
+    // either, which is why the check asks for them.)
+    backdrop.getClientRects = () => [{ width: 1, height: 1 }]
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
+    tap()
+    expect(toggle).not.toHaveBeenCalled()
+    unmount()
+    render(<Drawer open onClose={noop} label="History" title="History"><p>Body</p></Drawer>)
+    expect(document.querySelector('.ui-drawer-backdrop')).toBeNull()
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
+    tap()
+    expect(toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('an overlay that closes ON the Shift keydown (the idle "Still there?" alert closes on any key) does not let that tap open the pet (B-R1-03)', () => {
+    const toggle = vi.fn()
+    install(toggle)
+    pushModal('idle-warning')
+    // Registered after the hotkey, so it runs after the hotkey's own keydown
+    // read — the worst order for the check at keyup alone.
+    const closeOnKey = () => popModal('idle-warning')
+    window.addEventListener('keydown', closeOnKey, true)
+    try {
+      tap()
+      expect(overlayOpen()).toBe(false)
+      expect(toggle).not.toHaveBeenCalled()
+      tap()
+      expect(toggle).toHaveBeenCalledTimes(1)
+    } finally {
+      window.removeEventListener('keydown', closeOnKey, true)
+    }
+  })
+
+  it('not with focus inside an alert dialog or anything aria-modal', () => {
+    const toggle = vi.fn()
+    install(toggle)
+    render(<>
+      <div role="alertdialog" aria-label="Still there?"><button type="button">Stay signed in</button></div>
+      <div aria-modal="true" aria-label="Close WILSON?"><button type="button">Cancel</button></div>
+    </>)
+    for (const name of ['Stay signed in', 'Cancel']) {
+      screen.getByRole('button', { name }).focus()
+      tap()
+      expect(toggle, name).not.toHaveBeenCalled()
+    }
+  })
+
   it('the predicate alone: the page is free; a field, a kit overlay or a dialog takes Shift', () => {
     expect(shiftIsTaken()).toBe(false)
     render(<><input aria-label="Title" /><div role="dialog" aria-label="D"><button type="button">OK</button></div></>)
@@ -202,10 +318,20 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     expect(shiftIsTaken()).toBe(true)
   })
 
-  it('the uninstaller removes every listener', () => {
+  it('the uninstaller removes every listener it added, with the same phase', () => {
     const toggle = vi.fn()
-    install(toggle)
-    uninstall(); uninstall = null
+    const added = vi.spyOn(window, 'addEventListener')
+    const removed = vi.spyOn(window, 'removeEventListener')
+    try {
+      install(toggle)
+      uninstall(); uninstall = null
+      const phase = (o) => (typeof o === 'object' ? !!o?.capture : !!o)
+      const sig = (calls) => calls.map(([type, fn, opts]) => [type, fn, phase(opts)])
+      expect(added.mock.calls.length).toBeGreaterThanOrEqual(6)
+      expect(sig(removed.mock.calls)).toEqual(sig(added.mock.calls))
+    } finally {
+      added.mockRestore(); removed.mockRestore()
+    }
     tap()
     expect(toggle).not.toHaveBeenCalled()
   })
@@ -303,37 +429,22 @@ describe('the planted faults each of those tests is there to catch', () => {
 })
 
 describe('what ships', () => {
-  it('App installs THIS handler, and no Enter branch for the pet is left', () => {
-    const app = readFileSync(resolve(here, '../App.jsx'), 'utf8')
+  // Comments blanked first, so a commented-out install cannot pass
+  // (review round 1, G-R1-05). D.O.G.'s own Enter key is held by
+  // src/tools/deck-outline-generator_v0.514/enterGenerates.test.js.
+  const app = blankJsComments(readFileSync(resolve(here, '../App.jsx'), 'utf8'))
+  it('App installs THIS handler, and no code in App reads an Enter key at all', () => {
     expect(app).toMatch(/import \{ installCompanionShiftHotkey \} from '\.\/lib\/companionHotkey'/)
     expect(app).toMatch(/useEffect\(\(\) => installCompanionShiftHotkey\(\{\s*petData,\s*showOverlay,\s*toggle: \(\) => setCompanionOpen\(prev => !prev\),\s*\}\), \[petData, showOverlay\]\)/)
     expect(app).not.toMatch(/installCompanionEnterHotkey/)
-    expect(app).not.toMatch(/e\.key === 'Enter' && !e\.defaultPrevented && !isEditing/)
+    // The pet's old branch in any spelling: App's code names no Enter key.
+    expect(app).not.toMatch(/['"`]Enter['"`]/)
   })
-
-  // D.O.G. keeps a document-level "Enter generates" key for an empty outline.
-  // Since S2a it leaves a focused control to Enter, as Bins' keys do.
-  const dog = readFileSync(resolve(here, '../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx'), 'utf8')
-  const ENTER_PRESSES = (dog.match(/const ENTER_PRESSES = '([^']+)'/) || [])[1]
-  it('D.O.G.\'s "Enter generates" key steps aside for a focused control, before it cancels anything', () => {
-    expect(ENTER_PRESSES, 'the selector is not in DeckOutlineGenerator.jsx').toBeTruthy()
-    const start = dog.indexOf('// Global Enter key')
-    const block = dog.slice(start, dog.indexOf('document.addEventListener', start))
-    expect(block).toMatch(/e\.target\.closest\(ENTER_PRESSES\)\) return;/)
-    expect(block.indexOf('closest(ENTER_PRESSES)')).toBeLessThan(block.indexOf('e.preventDefault()'))
-    // The selector takes every control Enter activates, and nothing else.
-    render(<div>
-      <button type="button">Help & documentation</button>
-      <div role="tab" tabIndex={0}>Library</div>
-      <div role="switch" aria-checked="false" tabIndex={0}>Full deck</div>
-      <a href="#x">A link</a>
-      <p>Plain text</p>
-    </div>)
-    for (const name of ['Help & documentation']) expect(screen.getByRole('button', { name }).closest(ENTER_PRESSES)).not.toBeNull()
-    expect(screen.getByRole('tab').closest(ENTER_PRESSES)).not.toBeNull()
-    expect(screen.getByRole('switch').closest(ENTER_PRESSES)).not.toBeNull()
-    expect(screen.getByText('A link').closest(ENTER_PRESSES)).not.toBeNull()
-    expect(screen.getByText('Plain text').closest(ENTER_PRESSES)).toBeNull()
-    expect(document.body.closest(ENTER_PRESSES)).toBeNull()
+  it('CONTROL: an install inside a comment is blank to the reader, and an Enter branch in any quote is seen', () => {
+    const planted = blankJsComments('/* useEffect(() => installCompanionShiftHotkey({ petData, showOverlay, toggle: () => setCompanionOpen(prev => !prev), }), [petData, showOverlay]); */')
+    expect(planted).not.toMatch(/installCompanionShiftHotkey/)
+    for (const q of ["if (e.key === 'Enter') setCompanionOpen(o => !o)", 'if (e.key === "Enter") toggle()', 'switch (e.key) { case `Enter`: toggle() }']) {
+      expect(blankJsComments(q), q).toMatch(/['"`]Enter['"`]/)
+    }
   })
 })

@@ -8,28 +8,32 @@
 // P1-01: every kit Dialog, drawer and picker; only Space worked). Enter is not
 // this listener's at all any more: it presses whatever has focus.
 //
-// A TAP is Shift down and Shift up with nothing in between. Anything else in
-// between cancels it: another key (Shift+Tab, Shift+letter, Ctrl+Shift+Z), a
-// pointer press (Shift-click extends a selection in Bins), a wheel turn
-// (Shift-wheel scrolls the Timeline sideways), or the window losing focus. A
-// Shift pressed with Ctrl, Alt or Meta already down never arms (Alt+Shift
-// switches the keyboard layout on Windows), and neither does one mid-IME
-// composition. A held Shift's auto-repeat keeps whatever state the tap is in,
-// so a hold through a scroll does not re-arm.
+// A TAP is ONE Shift key pressed and released, quickly (under TAP_MS), with
+// nothing in between. Anything else cancels it: another key (Shift+Tab, a
+// capital, Ctrl+Shift+Z), the other Shift key, a pointer or mouse press
+// (Shift-click extends a selection in Bins), a wheel turn (Shift-wheel scrolls
+// the Timeline sideways), the window losing focus, or holding it past TAP_MS.
+// It never arms while a pointer button is held (Shift pressed mid-drag), with
+// Ctrl, Alt or Meta already down (Alt+Shift switches the keyboard layout on
+// Windows), mid-IME composition, or on an auto-repeat.
 //
 // NOT WHILE TYPING — Audrey: "the shift key works normally when in a text box
-// selected and typing". A text control (input, textarea, select) or a
-// contenteditable with focus keeps Shift entirely. NOT OVER A DIALOG — the
-// rule merge review round 2 (A-R2-04) gave the Enter key, kept for this one:
-// while a kit overlay is up (`overlayOpen()`: every Dialog, Menu and anything
-// on the modal stack) or focus is inside a `[role="dialog"]`, the pet does not
-// open behind or over it.
+// selected and typing". A text-entry control (a text-like <input>, a
+// <textarea>, a <select>) or a contenteditable with focus keeps Shift; a
+// checkbox, radio, range, file or button input does not type, so it does not.
+// NOT OVER A DIALOG — the rule merge review round 2 (A-R2-04) gave the Enter
+// key, kept and widened: not while a kit overlay is up (`overlayOpen()`: every
+// Dialog, Menu and anything on the modal stack), a drawer with a backdrop is
+// open, or focus is inside a dialog, an alert dialog or anything aria-modal.
+// Both ends of the tap are checked: an overlay that closes ON the keydown (the
+// idle "Still there?" alert closes on any key) does not let the same tap open
+// the pet behind it (S2a review round 1, B-R1-03).
 //
-// Listening: every keydown, pointer press and wheel turn is read in the
-// CAPTURE phase, so a component that stops propagation (the companion's own
-// chat input stops Enter; a dialog's trap stops Tab) cannot leave a stale tap
-// armed. The toggle itself happens on the Shift keyup, in the bubble phase, so
-// a handler that claims that keyup (none does today) keeps it.
+// Listening: keydowns, presses, releases and wheels are read in the CAPTURE
+// phase, so a component that stops propagation (the companion's own chat
+// input stops Enter; a dialog's trap stops Tab) cannot leave a stale tap
+// armed. The toggle happens on the Shift keyup in the bubble phase, so a
+// handler that claims that keyup (none does today) keeps it.
 //
 // Installed by App in an effect, and by companionHotkey.test.jsx on its own
 // window over real kit surfaces — the handler under test is the handler that
@@ -38,15 +42,36 @@
 
 import { overlayOpen } from '../ui/overlay'
 
-const TEXT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
+/** A tap is released within this many milliseconds of its press. */
+export const TAP_MS = 500
+
+// The input types a person types text into; an <input> with no type is text.
+const TEXT_INPUT_TYPES = new Set([
+  'text', 'search', 'email', 'url', 'tel', 'password', 'number',
+  'date', 'time', 'datetime-local', 'month', 'week',
+])
+
+/** True when this element takes typing, so Shift belongs to it. */
+export function typesText(el) {
+  if (!el) return false
+  if (el.isContentEditable) return true
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true
+  if (el.tagName === 'INPUT') return TEXT_INPUT_TYPES.has((el.getAttribute('type') || 'text').toLowerCase())
+  return false
+}
+
+const shown = (el) => !!el && el.getClientRects().length > 0
 
 /** True when focus is somewhere a Shift belongs to: typing, or a dialog. */
 export function shiftIsTaken(doc = document) {
   if (overlayOpen()) return true
+  // A drawer with a backdrop is modal in all but name (the tools' settings
+  // drawers): the pet does not open over it either.
+  if ([...doc.querySelectorAll('.ui-drawer-backdrop')].some(shown)) return true
   const active = doc.activeElement
   if (!active) return false
-  if (TEXT_TAGS.has(active.tagName) || active.isContentEditable) return true
-  if (typeof active.closest === 'function' && active.closest('[role="dialog"]')) return true
+  if (typesText(active)) return true
+  if (typeof active.closest === 'function' && active.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return true
   return false
 }
 
@@ -58,35 +83,56 @@ const withOtherModifier = (e) => e.ctrlKey || e.altKey || e.metaKey
  */
 export function installCompanionShiftHotkey({ petData, showOverlay, toggle }, win = window) {
   let armed = false
+  let armedAt = 0
+  let shiftsHeld = 0          // how many Shift keys are down (Left and Right)
+  let pointerHeld = false     // a mouse button or a touch is down
   const disarm = () => { armed = false }
+  const settle = (e) => {
+    // Nothing is held when an event says so: heals a keyup or pointerup that
+    // happened out of sight of this window.
+    if (e && e.shiftKey === false) shiftsHeld = 0
+  }
   const onKeyDown = (e) => {
-    if (e.key !== 'Shift') { armed = false; return }
+    if (e.key !== 'Shift') { armed = false; settle(e); return }
     if (e.repeat) return
-    armed = !e.isComposing && !withOtherModifier(e)
+    shiftsHeld += 1
+    armed = shiftsHeld === 1 && !pointerHeld && !e.isComposing && !withOtherModifier(e) && !shiftIsTaken(win.document)
+    armedAt = Date.now()
   }
   const onKeyUp = (e) => {
     if (e.key !== 'Shift') return
-    const tapped = armed
+    // Arming already refused a second Shift and a held pointer, and a press
+    // or a second Shift disarms; what is left to ask here is time, a claim
+    // on the keyup, a modifier down now, and the page (below).
+    const tapped = armed && Date.now() - armedAt <= TAP_MS
     armed = false
+    shiftsHeld = Math.max(0, shiftsHeld - 1)
     if (!tapped || e.defaultPrevented || withOtherModifier(e)) return
     if (!petData || showOverlay) return
     if (shiftIsTaken(win.document)) return
     toggle()
   }
+  const onPress = (e) => { armed = false; pointerHeld = true; settle(e) }
+  const onRelease = () => { pointerHeld = false }
+  const onWheel = (e) => { armed = false; settle(e) }
+  const onBlur = () => { armed = false; shiftsHeld = 0; pointerHeld = false }
   const capture = { capture: true }
   const passiveCapture = { capture: true, passive: true }
-  win.addEventListener('keydown', onKeyDown, capture)
-  win.addEventListener('keyup', onKeyUp)
-  win.addEventListener('pointerdown', disarm, capture)
-  win.addEventListener('mousedown', disarm, capture)
-  win.addEventListener('wheel', disarm, passiveCapture)
-  win.addEventListener('blur', disarm)
+  const listeners = [
+    ['keydown', onKeyDown, capture],
+    ['keyup', onKeyUp, false],
+    ['pointerdown', onPress, capture],
+    ['mousedown', onPress, capture],
+    ['pointerup', onRelease, capture],
+    ['mouseup', onRelease, capture],
+    ['pointercancel', onRelease, capture],
+    ['dragend', onRelease, capture],
+    ['wheel', onWheel, passiveCapture],
+    ['blur', onBlur, false],
+  ]
+  for (const [type, fn, opts] of listeners) win.addEventListener(type, fn, opts)
   return () => {
-    win.removeEventListener('keydown', onKeyDown, capture)
-    win.removeEventListener('keyup', onKeyUp)
-    win.removeEventListener('pointerdown', disarm, capture)
-    win.removeEventListener('mousedown', disarm, capture)
-    win.removeEventListener('wheel', disarm, passiveCapture)
-    win.removeEventListener('blur', disarm)
+    for (const [type, fn, opts] of listeners) win.removeEventListener(type, fn, opts)
+    disarm()
   }
 }

@@ -2256,6 +2256,7 @@ export default function App() {
       <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
         <DeckOutlineGenerator
           onNavigate={navigateTo}
+          currentPage={currentPage}
           zoomLevel={zoomLevel}
         />
       </PageSurface>
