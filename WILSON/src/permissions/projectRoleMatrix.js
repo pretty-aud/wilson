@@ -236,9 +236,13 @@ export function projectActionDeniedReason(ctx, action) {
 
   switch (action) {
     // Denied only when staffed AND (reviewer | no seat).
+    // The reviewer sentence names what a reviewer CAN write since 0084 (D8:
+    // shot lists and edits, project.shotlist.write) — "cannot change
+    // anything" became false the day reviewers could build a list, and a
+    // reason that drifts from the rule teaches the user something false.
     case 'project.entity.write':
       return seated
-        ? 'Reviewers can read and comment, but not change anything. Ask a project manager for a member or manager seat.'
+        ? 'Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project\'s other items. Ask a project manager for a member or manager seat.'
         : 'You have no seat on this project. Only its managers and members can add or change items — ask a project manager to add you.'
 
     // Denied only when staffed AND no seat (any seat may comment).

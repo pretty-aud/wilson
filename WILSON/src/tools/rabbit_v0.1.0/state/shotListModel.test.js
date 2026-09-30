@@ -13,7 +13,9 @@ import {
   compareScenesForList,
   compareShotsForList,
   backfillItems,
-  backfillShotList,
+  unlistedScenesOf,
+  unlistedShotsOf,
+  editChainTip,
   formatShotListLabel,
   sortShotLists,
   activeShotListOf,
@@ -90,13 +92,9 @@ describe('ordering — the same rule as 0084', () => {
     for (const i of items) expect((i.scene_id == null) !== (i.shot_id == null)).toBe(true)
   })
 
-  it('backfillShotList makes "Shot list 1 · v1" with the D11 summary', () => {
-    const { list, items } = backfillShotList({ projectId: 'p1', scenes: SCENES, shots: SHOTS, newId: idGen(), now: 'T' })
-    expect(list.title).toBe(SHOT_LIST_BACKFILL_TITLE)
-    expect(list.version).toBe(1)
-    expect(list.summary).toBe(SHOT_LIST_BACKFILL_SUMMARY)
-    expect(formatShotListLabel(list)).toBe('Shot list 1 · v1')
-    expect(items.every(i => i.shot_list_id === list.id && i.project_id === 'p1')).toBe(true)
+  it('the D11 list is "Shot list 1 · v1"', () => {
+    expect(formatShotListLabel({ title: SHOT_LIST_BACKFILL_TITLE, version: 1 })).toBe('Shot list 1 · v1')
+    expect(SHOT_LIST_BACKFILL_SUMMARY).toBe('Created from existing scenes')
   })
 
   it('PIN: 0084 orders its backfill by the same columns, in the same order', () => {
@@ -125,13 +123,27 @@ describe('selectors (D10)', () => {
     expect(activeScenesOf({ project, shotLists: lists, shotListItems: items, scenes: SCENES, shots: SHOTS })).toBe(SCENES)
   })
 
-  it('an active list filters to its members but keeps LOAD order (views sort by number themselves)', () => {
-    const partial = items.filter(i => i.scene_id !== 'sc-b' && i.shot_id !== 'sh-b1')
+  it('an active list hides what ANOTHER list holds, keeps LOAD order (views sort by number themselves)', () => {
+    // sc-b and sh-b1 move to list L2: another list holds them, so the active
+    // L1 no longer shows them on the other surfaces.
+    const moved = items.map(i => (i.scene_id === 'sc-b' || i.shot_id === 'sh-b1' ? { ...i, shot_list_id: 'L2' } : i))
+    const lists2 = [...lists, { id: 'L2', title: 'Alt', version: 1 }]
     const project = { id: 'p1', active_shot_list_id: 'L1' }
-    const scenes = activeScenesOf({ project, shotLists: lists, shotListItems: partial, scenes: SCENES, shots: SHOTS })
+    const scenes = activeScenesOf({ project, shotLists: lists2, shotListItems: moved, scenes: SCENES, shots: SHOTS })
     expect(scenes.map(s => s.id)).toEqual(['sc-a'])
-    const shots = activeShotsOf({ project, shotLists: lists, shotListItems: partial, shots: SHOTS })
+    const shots = activeShotsOf({ project, shotLists: lists2, shotListItems: moved, shots: SHOTS })
     expect(shots.map(s => s.id)).toEqual(['sh-a2', 'sh-a1', 'sh-x'])
+  })
+
+  it('a row in NO list is still shown (nothing is hidden by accident): an old client, a failed membership write', () => {
+    const without = items.filter(i => i.scene_id !== 'sc-b' && i.shot_id !== 'sh-b1')
+    const project = { id: 'p1', active_shot_list_id: 'L1' }
+    expect(activeScenesOf({ project, shotLists: lists, shotListItems: without, scenes: SCENES, shots: SHOTS }).map(s => s.id)).toEqual(['sc-b', 'sc-a'])
+    expect(activeShotsOf({ project, shotLists: lists, shotListItems: without, shots: SHOTS }).map(s => s.id)).toEqual(['sh-a2', 'sh-a1', 'sh-b1', 'sh-x'])
+    expect(unlistedScenesOf({ shotListItems: without, scenes: SCENES, shots: SHOTS }).map(s => s.id)).toEqual(['sc-b'])
+    expect(unlistedShotsOf({ shotListItems: without, shots: SHOTS }).map(s => s.id)).toEqual(['sh-b1'])
+    // Control: with every row listed there is nothing unlisted.
+    expect(unlistedScenesOf({ shotListItems: items, scenes: SCENES, shots: SHOTS })).toEqual([])
   })
 
   it('after the backfill the active list equals every row (nothing visible changes)', () => {
@@ -172,6 +184,10 @@ describe('selectors (D10)', () => {
     const eds = [{ id: 'e1', shot_list_id: 'L1', title: 'Cut', version: 2, created_at: 'b' }, { id: 'e0', shot_list_id: 'L1', title: 'Cut', version: 1, created_at: 'a' }, { id: 'e9', shot_list_id: 'L9', title: 'Cut', version: 7 }]
     expect(nextEditVersion(eds, 'L1', 'Cut')).toBe(3)
     expect(editsOfList(eds, 'L1').map(e => e.id)).toEqual(['e0', 'e1'])
+    // D6: the chain tip is the edit nobody names as parent.
+    const chain = [{ id: 'a', shot_list_id: 'L1', parent_edit_id: null }, { id: 'b', shot_list_id: 'L1', parent_edit_id: 'a' }]
+    expect(editChainTip(chain, 'L1').id).toBe('b')
+    expect(editChainTip(chain, 'L9')).toBeNull()
   })
 })
 
@@ -223,7 +239,10 @@ describe('plans — each returns the new item set of ONE list', () => {
     const scenes = planReorderList({ items, listId: 'L', shots: SHOTS, orderedIds: ['sc-b', 'sc-a'] }).next
     expect(scenes.find(i => i.scene_id === 'sc-b').position).toBe(0)
     expect(scenes.find(i => i.scene_id === 'sc-a').position).toBe(1)
-    const shots = planReorderList({ items, listId: 'L', shots: SHOTS, orderedIds: ['sh-a2'] }).next
+    const plan = planReorderList({ items, listId: 'L', shots: SHOTS, orderedIds: ['sh-a2'] })
+    const shots = plan.next
+    // Only the two shots whose position moved are written (a delta).
+    expect(plan.changed.map(i => i.shot_id).sort()).toEqual(['sh-a1', 'sh-a2'])
     expect(shots.find(i => i.shot_id === 'sh-a2').position).toBe(0)
     expect(shots.find(i => i.shot_id === 'sh-a1').position).toBe(1)
     expect(() => planReorderList({ items, listId: 'L', shots: SHOTS, orderedIds: ['sc-a', 'sh-a1'] })).toThrow('Scenes and shots are reordered separately.')

@@ -25,14 +25,16 @@ const {
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
 const ffmpeg = require('./ffmpeg.cjs');
 // Post-overhaul S3a (0084): shot lists, their membership and edits on the
-// Local Server. The routes are mounted inside startLocalServer; the two
-// read-time helpers run in readRabbitBundle (D11's backfill) and the sweep
-// runs in the scene / shot DELETE (the desktop's copy of 0084's FK actions).
+// Local Server. The routes are mounted inside startLocalServer; the three
+// read-time helpers run in readRabbitBundle (D11's backfill, and the prune of
+// items whose scene or shot is gone) and the cascade runs in the scene / shot
+// DELETE (the desktop's copy of 0040's and 0084's FK actions).
 const {
   mountRabbitShotLists,
   ensureShotListKeys,
   backfillShotListsOnRead,
-  sweepShotListLinks,
+  pruneDanglingShotListItems,
+  cascadeSceneOrShotDelete,
 } = require('./rabbitShotLists.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
@@ -1338,10 +1340,24 @@ function startLocalServer(distPath) {
       // again; for those only the two sibling arrays are ensured. Either way
       // the change is persisted by the dirty write below, so it happens once.
       // Guarded: the backfill computes before it mutates, so a throw leaves
-      // the bundle as it was and the next read tries again.
+      // the bundle as it was and the next read tries again. Its ids are
+      // derived from the project (review R1, addendum H), so if the dirty
+      // write below fails, the next read mints the SAME list and items and a
+      // renderer holding the first answer is not left with a 404.
+      //
+      // Then the prune (addendum H): an item whose scene or shot is gone —
+      // one a build older than S3a left behind, deleting without the rule-8
+      // sweep — is dropped, as the cloud's FK CASCADE would have dropped it.
+      // Left in place it made every membership write to its list fail.
+      // Converges: once nothing dangles it returns 0 and nothing is written.
+      let backfilled = false;
       try {
-        if (backfillShotListsOnRead(bundle, { newId: uuidv4, now: new Date().toISOString(), projectId })) dirty = true;
+        if (backfillShotListsOnRead(bundle, { newId: uuidv4, now: new Date().toISOString(), projectId })) {
+          backfilled = true;
+          dirty = true;
+        }
         if (ensureShotListKeys(bundle)) dirty = true;
+        if (pruneDanglingShotListItems(bundle)) dirty = true;
       } catch (e) { console.error('shot list backfill failed:', e.message); }
       // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
       // is stored absolute (the project POST writes <root>/<slug>), so a folder
@@ -1410,6 +1426,18 @@ function startLocalServer(distPath) {
       } catch (e) { console.error('folder reconcile failed:', e.message); }
       if (dirty) {
         try { writeJSON(rabbitBundlePath(projectId), bundle); } catch {}
+      }
+      // D21 (review R1 local#4): the persist above is a raw writeJSON — no
+      // mirror — so a legacy project that was only ever READ never got
+      // <slug>_DATABASES/scenes.json. Mirrored here, ONLY when this read ran
+      // the backfill: GET /api/rabbit/projects reads every project's bundle,
+      // and a mirror per project per list would rewrite six files each for
+      // nothing. The backfill runs once per bundle (twice only if the write
+      // above failed, and its ids are the same then). Last, so the mirror
+      // sees the sanitised folder_slug and the rebased folder_root; guarded,
+      // because the mirror makes a directory outside its own try.
+      if (backfilled) {
+        try { mirrorProjectDatabases(projectId, bundle); } catch (e) { console.error('shot list backfill mirror failed:', e.message); }
       }
       return bundle;
     }
@@ -2235,11 +2263,15 @@ function startLocalServer(distPath) {
       // makes "Recently deleted" and Undo work here at all.
       const softDelete = !!(opts && opts.softDelete);
       // Post-overhaul S3a, rule 8: `shotListLinks: 'scene' | 'shot'` makes a
-      // hard DELETE run sweepShotListLinks (electron/rabbitShotLists.cjs) in
-      // the same write — the row's shot-list items leave every list and the
-      // tasks pointing at it are unlinked, as 0084's FKs CASCADE / SET NULL.
-      // Replayed with a failing control by desktopDeleteSweep.test.js, which
-      // passes the real sweepShotListLinks into its lifted copy of this
+      // hard DELETE run cascadeSceneOrShotDelete (electron/rabbitShotLists.cjs)
+      // in the same write — the row's shot-list items leave every list
+      // (archived ones too) and the tasks pointing at it are unlinked, as
+      // 0084's FKs CASCADE / SET NULL. A SCENE also takes its shots with it
+      // (review R1, addendum C: 0040's shots.scene_id CASCADE, which the
+      // desktop never had), each swept the same way — including a shot only
+      // another list holds, which a screen reading the active list cannot see.
+      // Replayed with failing controls by desktopDeleteSweep.test.js, which
+      // passes the real cascadeSceneOrShotDelete into its lifted copy of this
       // function (so it stays a plain name here, not an opts callback).
       const shotListLinks = (opts && opts.shotListLinks) || null;
       // POST insert / upsert
@@ -2301,9 +2333,11 @@ function startLocalServer(distPath) {
         const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
         if (!removed) return rabbitNotFound(res, entityName);
         const swept = sweepDependencies ? sweepDependencyEdges(bundle, req.params.id) : 0;
-        // `unlinked` ({ items, tasks }) appears only for an entity registered
-        // with shotListLinks, so every other entity answers exactly as before.
-        const unlinked = shotListLinks ? sweepShotListLinks(bundle, shotListLinks, req.params.id) : null;
+        // `unlinked` appears only for an entity registered with shotListLinks,
+        // so every other entity answers exactly as before: { items, tasks }
+        // for a shot, { items, tasks, shots } for a scene (shots = how many
+        // of its shots went with it).
+        const unlinked = shotListLinks ? cascadeSceneOrShotDelete(bundle, shotListLinks, req.params.id) : null;
         writeRabbitBundle(req.params.projectId, bundle);
         res.json(unlinked ? { ok: true, swept, unlinked } : { ok: true, swept });
       });

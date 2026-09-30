@@ -36,13 +36,21 @@ export const REVERTABLE_TABLES = {
 }
 
 // Columns that must never ride along on a revert write: server-managed
-// audit stamps, identity/tenancy, and the trash columns (RPC-only — a
-// plain UPDATE carrying deleted_at would violate the 0014 policies).
+// audit stamps, identity/tenancy, the trash columns (RPC-only — a
+// plain UPDATE carrying deleted_at would violate the 0014 policies), and
+// the project's active shot list. That pointer is RPC-only too (0084,
+// D8): trg_projects_active_shot_list_guard refuses ANY change through a
+// projects UPDATE — for an admin as well — so a revert carrying it could
+// only fail. The 0084 backfill and every set_active_shot_list() write a
+// projects history entry for it; excluded, a pointer-only entry plans as
+// a noop (no Revert button) and a mixed one reverts its other fields
+// (S3a review round 1, sql#3).
 const EXCLUDED_FIELDS = new Set([
   'id', 'workspace_id',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by',
   'deleted_at', 'deleted_by',
+  'active_shot_list_id',
 ])
 
 /**

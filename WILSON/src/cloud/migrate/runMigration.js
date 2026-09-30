@@ -153,11 +153,21 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
 
     // Project row. Drop workspace_id if already present on the local row
     // (shouldn't be; v0.1 seeded a hardcoded uuid) and set our target.
+    //
+    // active_shot_list_id is dropped too (0084; S3a review round 1, scope#9).
+    // The Local Server sets it (its read-time backfill on every legacy bundle,
+    // set-active after that), but it names a LOCAL list this runner never
+    // copies (it carries no scenes, shots or lists), so the composite FK
+    // projects_active_shot_list_fk refused the whole project (23503) — and
+    // its phases, assets and tasks with it. A database without 0084 has no
+    // such column at all (PGRST204). The migrated project starts with no
+    // active list: every scene and shot shows (D10).
     try {
       const p = {
         ...(bundle.project ?? {}),
         workspace_id: workspaceId,
       }
+      delete p.active_shot_list_id
       const r = await insertOrSkip('projects', p)
       if (r.status === 'inserted') bumpInserted(report.projects)
       else bumpSkipped(report.projects)

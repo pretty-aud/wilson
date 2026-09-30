@@ -73,6 +73,14 @@
 --   * tasks.level_id / experience_id: the Timeline sends them too (0034's
 --     header); they stay local-only. D9 names scene and shot only.
 --
+-- REVIEW ROUND 1 (2026-09-30), folded in before the file ever reached a
+-- database: an archived list's MEMBERSHIP is frozen too (the items write
+-- policies), membership deltas get their own invoker function
+-- (upsert_shot_list_items) so no client rewrites a whole list from a stale
+-- view, the edit chain is enforced (one root, one child, a fixed parent),
+-- titles are stored trimmed, and passes_project_privacy's caller roll-call
+-- names the three new definers.
+--
 -- Numbers: 0084 was the next free migration after the merge's 0082 and 0083
 -- (0079/0080 stay reserved on paper). pgTAP: 84_shot_lists.sql,
 -- 85_shot_list_items.sql, 86_edits.sql; probes added to 01_projects,
@@ -229,7 +237,7 @@ COMMENT ON TABLE public.shot_lists IS
 COMMENT ON COLUMN public.shot_lists.snapshot IS
   'Written on "Save" (D5): the list''s scenes, shots and membership as they were, for history — the rows themselves are shared and keep changing. {} until the first save.';
 COMMENT ON COLUMN public.shot_lists.archived_at IS
-  'Set and cleared ONLY by archive_shot_list() (manager/admin; refuses the active list). trg_shot_lists_guard refuses any other change, and any edit of an archived list.';
+  'Set and cleared ONLY by archive_shot_list() (manager/admin; refuses the active list). trg_shot_lists_guard refuses any other change and any edit of an archived list''s row; the shot_list_items write policies refuse any change to an archived list''s membership.';
 
 
 -- =============================================================================
@@ -350,8 +358,18 @@ CREATE TABLE IF NOT EXISTS public.edits (
 CREATE INDEX IF NOT EXISTS edits_project_idx ON public.edits (project_id);
 CREATE INDEX IF NOT EXISTS edits_list_idx    ON public.edits (shot_list_id);
 
+-- D6, "one linear chain per list" (review R1: branching and cycles were
+-- accepted). No edit has two children, and a list has one root; the guard
+-- (§7a) makes parent_edit_id immutable, so no cycle can form. Edits are never
+-- deleted singly (archive only; a list's edits go together with it), so the
+-- FK's SET NULL can never promote a second root.
+CREATE UNIQUE INDEX IF NOT EXISTS edits_one_child_key
+  ON public.edits (parent_edit_id) WHERE parent_edit_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS edits_one_root_per_list_key
+  ON public.edits (shot_list_id) WHERE parent_edit_id IS NULL;
+
 COMMENT ON TABLE public.edits IS
-  '0084: an edit (D6) — an ordered list of items referencing shot ids (repeats allowed, scene order, no in/out points), one linear chain per list via parent_edit_id (same-list composite FK). Edits may exist on any list, active or not. Archived, never deleted (no DELETE policy or grant).';
+  '0084: an edit (D6) — an ordered list of items referencing shot ids (repeats allowed, scene order, no in/out points), ONE linear chain per list via parent_edit_id (same-list composite FK; one root and one child each, by unique index; the parent is fixed at creation). Edits may exist on any list, active or not. Archived, never deleted (no DELETE policy or grant).';
 COMMENT ON COLUMN public.edits.items IS
   'JSONB array of { id, scene_id, shot_id, label, notes }. Not a child table — see 0084 §5 (0044''s three reasons, plus D17: a deleted shot stays as "Missing shot").';
 
@@ -537,6 +555,11 @@ DECLARE
                                        ELSE 'wilson.edit_archive' END, true) = OLD.id::text,
     false);
 BEGIN
+  -- Titles are stored trimmed on every path (review R1: the Local Server and
+  -- the provider compare TRIMMED titles for the (title, version) key; the
+  -- UNIQUE here would otherwise treat "Main" and "Main " as two lists).
+  NEW.title := btrim(NEW.title);
+
   IF current_setting('role', true) = 'service_role' THEN
     RETURN NEW;
   END IF;
@@ -579,6 +602,13 @@ BEGIN
   IF TG_TABLE_NAME = 'edits' THEN
     IF NEW.shot_list_id IS DISTINCT FROM OLD.shot_list_id THEN
       RAISE EXCEPTION 'an edit cannot move to another shot list' USING ERRCODE = '42501';
+    END IF;
+    -- D6: one linear chain per list. An edit's place in the chain is fixed
+    -- when it is made (its parent already exists then), which is what makes a
+    -- cycle impossible; the two unique indexes in §5 forbid a branch and a
+    -- second root. The FK's own SET NULL passed above (depth > 1).
+    IF NEW.parent_edit_id IS DISTINCT FROM OLD.parent_edit_id THEN
+      RAISE EXCEPTION 'an edit''s place in its chain cannot change' USING ERRCODE = '42501';
     END IF;
   END IF;
 
@@ -730,7 +760,13 @@ CREATE POLICY shot_lists_update ON public.shot_lists
     AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = shot_lists.project_id)
   );
 
--- shot_list_items (removing a shot from a list IS a delete here)
+-- shot_list_items (removing a shot from a list IS a delete here).
+-- Every write also requires the parent list NOT to be archived (review R1:
+-- D4/D18 — "saved lists are never cleared" — held only for the list ROW; a
+-- reviewer could empty an archived list's membership through PostgREST or
+-- replace_shot_list_items). A scene or shot DELETE still takes its items out
+-- of archived lists too: the FK CASCADE is a referential action, which RLS
+-- does not judge — the shared-row rule (D3) wins over the freeze.
 DROP POLICY IF EXISTS shot_list_items_select ON public.shot_list_items;
 CREATE POLICY shot_list_items_select ON public.shot_list_items
   FOR SELECT USING (
@@ -745,6 +781,8 @@ CREATE POLICY shot_list_items_insert ON public.shot_list_items
     AND public.has_active_membership(workspace_id)
     AND public.can_edit_shot_lists(project_id)
     AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = shot_list_items.project_id)
+    AND NOT EXISTS (SELECT 1 FROM public.shot_lists l
+                     WHERE l.id = shot_list_items.shot_list_id AND l.archived_at IS NOT NULL)
   );
 
 DROP POLICY IF EXISTS shot_list_items_update ON public.shot_list_items;
@@ -754,11 +792,15 @@ CREATE POLICY shot_list_items_update ON public.shot_list_items
     AND public.has_active_membership(workspace_id)
     AND public.can_edit_shot_lists(project_id)
     AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = shot_list_items.project_id)
+    AND NOT EXISTS (SELECT 1 FROM public.shot_lists l
+                     WHERE l.id = shot_list_items.shot_list_id AND l.archived_at IS NOT NULL)
   ) WITH CHECK (
     workspace_id = public.current_workspace_id()
     AND public.has_active_membership(workspace_id)
     AND public.can_edit_shot_lists(project_id)
     AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = shot_list_items.project_id)
+    AND NOT EXISTS (SELECT 1 FROM public.shot_lists l
+                     WHERE l.id = shot_list_items.shot_list_id AND l.archived_at IS NOT NULL)
   );
 
 DROP POLICY IF EXISTS shot_list_items_delete ON public.shot_list_items;
@@ -768,6 +810,8 @@ CREATE POLICY shot_list_items_delete ON public.shot_list_items
     AND public.has_active_membership(workspace_id)
     AND public.can_edit_shot_lists(project_id)
     AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = shot_list_items.project_id)
+    AND NOT EXISTS (SELECT 1 FROM public.shot_lists l
+                     WHERE l.id = shot_list_items.shot_list_id AND l.archived_at IS NOT NULL)
   );
 
 -- edits
@@ -1037,15 +1081,22 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
 DECLARE
-  v_project UUID;
+  v_project  UUID;
+  v_archived TIMESTAMPTZ;
 BEGIN
   IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' THEN
     RAISE EXCEPTION 'items must be a JSON array' USING ERRCODE = '22023';
   END IF;
 
-  SELECT l.project_id INTO v_project FROM public.shot_lists l WHERE l.id = p_list;
+  SELECT l.project_id, l.archived_at INTO v_project, v_archived FROM public.shot_lists l WHERE l.id = p_list;
   IF v_project IS NULL THEN
     RAISE EXCEPTION 'shot list not found' USING ERRCODE = 'P0002';
+  END IF;
+  -- Said out loud (review round 1): the items policies already refuse an
+  -- archived list's writes, but a DELETE the policy filters out, or an empty
+  -- set, would otherwise succeed in silence. Same sentence as every backend.
+  IF v_archived IS NOT NULL THEN
+    RAISE EXCEPTION 'this shot list is archived — restore it before changing it' USING ERRCODE = '42501';
   END IF;
 
   DELETE FROM public.shot_list_items i
@@ -1079,7 +1130,74 @@ REVOKE EXECUTE ON FUNCTION public.replace_shot_list_items(UUID, JSONB) FROM PUBL
 GRANT  EXECUTE ON FUNCTION public.replace_shot_list_items(UUID, JSONB) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.replace_shot_list_items(UUID, JSONB) IS
-  '0084: replace one list''s membership with p_items ([{id?, scene_id | shot_id, position?}]) in one transaction — delete the rows not named, upsert the rest. SECURITY INVOKER: every row passes shot_list_items'' own policies. An id belonging to another list is skipped. Returns the list''s items, ordered.';
+  '0084: replace one list''s membership with p_items ([{id?, scene_id | shot_id, position?}]) in one transaction — delete the rows not named, upsert the rest. SECURITY INVOKER: every row passes shot_list_items'' own policies (incl. the archived-list freeze). An id belonging to another list is skipped. Returns the list''s items, ordered. The provider writes DELTAS (upsert_shot_list_items + a DELETE of named ids); this whole-set form is for tooling and bulk restores.';
+
+
+-- ── 10e. upsert_shot_list_items — the DELTA write (SECURITY INVOKER) ────────
+-- Review R1 (provider#0): membership changes written as whole-list replaces
+-- from one client's view deleted the items a collaborator had added since
+-- that client loaded (items are not broadcast). Adds, reorders and the undo of
+-- a removal write ONLY the rows they name through this; removals delete only
+-- named ids (a plain PostgREST DELETE). Nothing unnamed is ever touched.
+-- As the caller, under shot_list_items' own policies; an id that belongs to
+-- ANOTHER list is skipped, never moved. Returns the rows it wrote.
+
+CREATE OR REPLACE FUNCTION public.upsert_shot_list_items(p_list UUID, p_items JSONB)
+RETURNS SETOF public.shot_list_items
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_project  UUID;
+  v_archived TIMESTAMPTZ;
+BEGIN
+  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' THEN
+    RAISE EXCEPTION 'items must be a JSON array' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT l.project_id, l.archived_at INTO v_project, v_archived FROM public.shot_lists l WHERE l.id = p_list;
+  IF v_project IS NULL THEN
+    RAISE EXCEPTION 'shot list not found' USING ERRCODE = 'P0002';
+  END IF;
+  -- Said out loud (review round 1): the items policies already refuse an
+  -- archived list's writes, but a DELETE the policy filters out, or an empty
+  -- set, would otherwise succeed in silence. Same sentence as every backend.
+  IF v_archived IS NOT NULL THEN
+    RAISE EXCEPTION 'this shot list is archived — restore it before changing it' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  INSERT INTO public.shot_list_items AS t (id, shot_list_id, project_id, scene_id, shot_id, position)
+  SELECT COALESCE((e ->> 'id')::uuid, gen_random_uuid()),
+         p_list,
+         v_project,
+         NULLIF(e ->> 'scene_id', '')::uuid,
+         NULLIF(e ->> 'shot_id', '')::uuid,
+         COALESCE((e ->> 'position')::int, (ord - 1)::int)
+    FROM jsonb_array_elements(p_items) WITH ORDINALITY AS x(e, ord)
+  ON CONFLICT (id) DO UPDATE
+     SET scene_id = EXCLUDED.scene_id,
+         shot_id  = EXCLUDED.shot_id,
+         position = EXCLUDED.position
+   WHERE t.shot_list_id = EXCLUDED.shot_list_id
+  RETURNING t.*;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.upsert_shot_list_items(UUID, JSONB) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.upsert_shot_list_items(UUID, JSONB) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.upsert_shot_list_items(UUID, JSONB) IS
+  '0084 (review R1): write ONLY the named items of one list ([{id?, scene_id | shot_id, position?}]) — insert new ids, update existing ones of THIS list, skip ids of another list, delete nothing. SECURITY INVOKER: every row passes shot_list_items'' own policies (incl. the archived-list freeze). Returns the rows written.';
+
+
+-- ── 10f. passes_project_privacy — its caller roll-call ────────────────────────
+-- 0082's COMMENT names its callers so the next reader finds every definer
+-- that restates the privacy arm; 0084 adds three. The function itself is NOT
+-- redefined (0082 owns it; 0082's post-conditions pin its body).
+COMMENT ON FUNCTION public.passes_project_privacy(UUID) IS
+  '0082: the privacy arm of projects_select (0072) — the project is not private, or the caller created it, or the caller is a workspace admin — restated for SECURITY DEFINER bodies, which bypass RLS and cannot delegate to the policy (a SECURITY INVOKER helper called from a definer body runs as the owner). Callers: milestones_trash_index, fn_trash_authz (0082); set_active_shot_list, archive_shot_list, archive_edit (0084). Keep it word-for-word with the policy; suite 82 and 0082''s post-conditions pin both. No client role executes it.';
 
 
 -- =============================================================================
@@ -1324,6 +1442,24 @@ BEGIN
   END IF;
   IF has_function_privilege('anon', 'public.replace_shot_list_items(uuid, jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION '0084 post-condition failed: anon can execute replace_shot_list_items';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.upsert_shot_list_items(uuid, jsonb)'::regprocedure AND prosecdef)
+     OR has_function_privilege('anon', 'public.upsert_shot_list_items(uuid, jsonb)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.upsert_shot_list_items(uuid, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION '0084 post-condition failed: upsert_shot_list_items must be SECURITY INVOKER, executable by authenticated and not by anon';
+  END IF;
+
+  -- 12g. the archived-list freeze on every items write policy (review R1),
+  --      and the D6 chain indexes.
+  SELECT count(*) INTO v_n FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'shot_list_items' AND cmd IN ('INSERT', 'UPDATE', 'DELETE')
+     AND (position('archived_at' IN COALESCE(with_check, qual, '')) = 0
+          OR (cmd = 'UPDATE' AND position('archived_at' IN COALESCE(qual, '')) = 0));
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '0084 post-condition failed: a shot_list_items write policy lacks the archived-list freeze';
+  END IF;
+  IF to_regclass('public.edits_one_child_key') IS NULL OR to_regclass('public.edits_one_root_per_list_key') IS NULL THEN
+    RAISE EXCEPTION '0084 post-condition failed: the D6 one-chain indexes are missing';
   END IF;
   IF has_function_privilege('authenticated', 'public.fn_projects_active_shot_list_guard()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_shot_list_archive_guard()', 'EXECUTE') THEN

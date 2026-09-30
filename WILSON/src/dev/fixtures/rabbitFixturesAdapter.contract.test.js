@@ -54,11 +54,13 @@ const BUNDLE_KEYS = [
   'shotLists', 'shotListItems', 'edits',
 ]
 
-// The S3a contract's nine shot-list methods, by name. The cloud-surface test
-// above already demands them once the Supabase adapter has them; this pins
-// them on the fixtures side independently, so a rename on either side fails.
+// The S3a contract's nine shot-list methods plus review round 1's two
+// membership deltas (addendum A), by name. The cloud-surface test above
+// already demands them once the Supabase adapter has them; this pins them on
+// the fixtures side independently, so a rename on either side fails.
 const SHOT_LIST_SURFACE = [
   'listShotLists', 'upsertShotList', 'listShotListItems', 'replaceShotListItems',
+  'upsertShotListItems', 'deleteShotListItems',
   'listEdits', 'upsertEdit', 'setActiveShotList', 'archiveShotList', 'archiveEdit',
 ]
 
@@ -86,7 +88,7 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     expect(missing).toEqual([])
   })
 
-  it('the nine shot-list methods (S3a contract) exist, by name', () => {
+  it('the eleven shot-list methods (S3a contract + the round-1 deltas) exist, by name', () => {
     const fx = buildDevFixtures().rabbitAdapter()
     expect(SHOT_LIST_SURFACE.filter((k) => typeof fx[k] !== 'function')).toEqual([])
   })
@@ -251,10 +253,12 @@ describe('the fixtures adapter behaves like a backend', () => {
 })
 
 // =============================================================================
-// Shot lists, items and edits — the S3a contract's rules 1–8 (migration 0084).
-// Every refusal is checked for its exact text, HTTP status and code: the
-// provider shows the text, and the Local Server and the database refuse the
-// same inputs with the same words.
+// Shot lists, items and edits — the S3a contract's rules 1–8 (migration 0084)
+// and its round-1 addendum (A: membership deltas, B: an archived list's
+// membership is frozen, C: a scene delete takes its shots, D: titles stored
+// trimmed, E: one linear chain of edits per list). Every refusal is checked
+// for its exact text, HTTP status and code: the provider shows the text, and
+// the Local Server and the database refuse the same inputs with the same words.
 // =============================================================================
 
 describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
@@ -404,6 +408,10 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     const badPosition = no(400, 'invalid', "an item's position must be a whole number of at least 0")
     await expect(fx.replaceShotListItems(PROJECT_ID, LIST_1, [{ shot_id: SHOT(1), position: -1 }])).rejects.toMatchObject(badPosition)
     await expect(fx.replaceShotListItems(PROJECT_ID, LIST_1, [{ shot_id: SHOT(1), position: 1.5 }])).rejects.toMatchObject(badPosition)
+    // The Local Server's words for one id twice (the database's "cannot affect row a second time").
+    const twice = current[0].id
+    await expect(fx.replaceShotListItems(PROJECT_ID, LIST_1, [{ id: twice, scene_id: SCENE(1) }, { id: twice, scene_id: SCENE(2) }]))
+      .rejects.toMatchObject(no(400, 'invalid', 'an item id appears more than once'))
 
     // All-or-nothing: a whole valid list with one bad item at the END wrote nothing.
     expect(await fx.listShotListItems(PROJECT_ID)).toEqual(before)
@@ -439,39 +447,55 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     const reread = await fx.listShotListItems(PROJECT_ID)
     expect(reread.filter((i) => i.shot_list_id === LIST_2)).toEqual(two) // the other list is untouched
     expect(reread.filter((i) => i.shot_list_id === LIST_1).map((i) => i.id).sort()).toEqual(after.map((i) => i.id).sort())
-    // An archived list is not frozen here (the database does not freeze it either).
-    expect((await fx.replaceShotListItems(PROJECT_ID, LIST_2, two.slice(0, 2))).length).toBe(2)
+    // An archived list's membership is frozen (review round 1, addendum B; it
+    // was not before R1): refused, and list 2 is exactly as it was.
+    await expect(fx.replaceShotListItems(PROJECT_ID, LIST_2, two.slice(0, 2))).rejects.toMatchObject(
+      no(409, 'conflict', 'this shot list is archived — restore it before changing it'))
+    expect((await fx.listShotListItems(PROJECT_ID)).filter((i) => i.shot_list_id === LIST_2)).toEqual(two)
   })
 
-  it('deleting a scene or a shot takes it out of every list and unlinks tasks; asset arrays and edits keep it', async () => {
+  it('deleting a scene takes its SHOTS too; each leaves every list and unlinks its tasks; asset arrays and edits keep them', async () => {
     const fx = fresh()
-    const [task] = await fx.listTasks(PROJECT_ID)
-    await fx.patchTask(task.id, { scene_id: SCENE(3), shot_id: SHOT(7) })
+    const [t1, t2, t3] = await fx.listTasks(PROJECT_ID)
+    await fx.patchTask(t1.id, { scene_id: SCENE(3), shot_id: SHOT(7) })
+    await fx.patchTask(t2.id, { shot_id: SHOT(8) }) // linked to a shot of scene 3 only
+    await fx.patchTask(t3.id, { scene_id: SCENE(4), shot_id: SHOT(10) }) // the control: another scene
     const [asset] = await fx.listAssets(PROJECT_ID)
-    await fx.patchAsset(asset.id, { scene_ids: [SCENE(3)], shot_ids: [SHOT(7)] })
+    await fx.patchAsset(asset.id, { scene_ids: [SCENE(3)], shot_ids: [SHOT(7), SHOT(8)] })
     const edit = await fx.upsertEdit({
       project_id: PROJECT_ID, shot_list_id: LIST_1, title: 'Assembly',
-      items: [{ id: 'e1', scene_id: SCENE(3), shot_id: SHOT(7), label: 'Two-shot', notes: '' }],
+      items: [{ id: 'e1', scene_id: SCENE(3), shot_id: SHOT(8), label: 'Her side', notes: '' }],
     })
     const before = await fx.listShotListItems(PROJECT_ID)
-    expect(before.filter((i) => i.shot_id === SHOT(7)).length).toBe(2) // in both lists
-    expect(before.filter((i) => i.scene_id === SCENE(3)).length).toBe(2)
+    const held = (id) => before.filter((i) => i.scene_id === id || i.shot_id === id).length
+    expect([SCENE(3), SHOT(7), SHOT(8), SHOT(9)].map(held)).toEqual([2, 2, 2, 2]) // in both lists (Pickups is archived)
+    const taskOf = async (id) => (await fx.listTasks(PROJECT_ID)).find((t) => t.id === id)
 
     await fx.deleteShot(SHOT(7), PROJECT_ID)
     let items = await fx.listShotListItems(PROJECT_ID)
     expect(items.some((i) => i.shot_id === SHOT(7))).toBe(false)
     expect(items.length).toBe(before.length - 2)
-    expect((await fx.listTasks(PROJECT_ID)).find((t) => t.id === task.id)).toMatchObject({ scene_id: SCENE(3), shot_id: null })
+    expect(await taskOf(t1.id)).toMatchObject({ scene_id: SCENE(3), shot_id: null })
 
+    // Review round 1, addendum C: 0040's shots.scene_id is ON DELETE CASCADE,
+    // so the scene's two remaining shots (8, 9) go in the SAME write, and each
+    // one's own rule-8 sweep runs. Before R1 the fixtures kept them.
     await fx.deleteScene(SCENE(3), PROJECT_ID)
+    expect((await fx.listScenes(PROJECT_ID)).some((s) => s.id === SCENE(3))).toBe(false)
+    const shots = await fx.listShots(PROJECT_ID)
+    expect(shots.some((s) => s.scene_id === SCENE(3))).toBe(false)
+    expect(shots.length).toBe(16 - 3)
     items = await fx.listShotListItems(PROJECT_ID)
-    expect(items.some((i) => i.scene_id === SCENE(3))).toBe(false)
-    expect(items.length).toBe(before.length - 4)
-    expect(items.filter((i) => i.shot_id === SHOT(8)).length).toBe(2) // only the scene's own item goes
-    expect((await fx.listTasks(PROJECT_ID)).find((t) => t.id === task.id)).toMatchObject({ scene_id: null, shot_id: null })
+    expect(items.some((i) => [SCENE(3), SHOT(8), SHOT(9)].includes(i.scene_id || i.shot_id))).toBe(false)
+    expect(items.length).toBe(before.length - 8) // scene 3's 2 items, and 2 each for shots 7, 8, 9
+    expect(await taskOf(t1.id)).toMatchObject({ scene_id: null, shot_id: null })
+    expect(await taskOf(t2.id)).toMatchObject({ shot_id: null }) // swept by the CASCADED shot
+    expect(await taskOf(t3.id)).toMatchObject({ scene_id: SCENE(4), shot_id: SHOT(10) }) // another scene: untouched
+    expect(items.filter((i) => i.shot_id === SHOT(10)).length).toBe(1) // ...and so are its items
 
-    expect((await fx.listAssets(PROJECT_ID)).find((a) => a.id === asset.id)).toMatchObject({ scene_ids: [SCENE(3)], shot_ids: [SHOT(7)] })
-    expect((await fx.listEdits(PROJECT_ID)).find((e) => e.id === edit.id).items[0].shot_id).toBe(SHOT(7)) // D17: "Missing shot"
+    // Not swept, as in the cloud: asset arrays (not FKs) and edits (D17: "Missing shot").
+    expect((await fx.listAssets(PROJECT_ID)).find((a) => a.id === asset.id)).toMatchObject({ scene_ids: [SCENE(3)], shot_ids: [SHOT(7), SHOT(8)] })
+    expect((await fx.listEdits(PROJECT_ID)).find((e) => e.id === edit.id).items[0].shot_id).toBe(SHOT(8))
   })
 
   it('upsertEdit: validation, one (title, version) per list, the parent chain, and the move and archive guards', async () => {
@@ -494,7 +518,9 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     const badParent = no(400, 'invalid', "an edit's parent must be another edit of the same shot list")
     const second = await fx.upsertEdit({ ...base, version: 2, parent_edit_id: first.id, snapshot: { kind: 'edit' } })
     expect(second.parent_edit_id).toBe(first.id)
-    await expect(fx.upsertEdit({ ...second, parent_edit_id: second.id })).rejects.toMatchObject(badParent)
+    // A NEW edit naming itself (edits_not_own_parent_chk). A STORED edit
+    // cannot change its parent at all since R1 (the chain test below: 403).
+    await expect(fx.upsertEdit({ ...base, id: fid('edit', 50), version: 3, parent_edit_id: fid('edit', 50) })).rejects.toMatchObject(badParent)
     await expect(fx.upsertEdit({ ...base, version: 3, parent_edit_id: onTwo.id })).rejects.toMatchObject(badParent)
     await expect(fx.upsertEdit({ ...base, version: 3, parent_edit_id: fid('edit', 99) })).rejects.toMatchObject(badParent)
     await expect(fx.upsertEdit({ ...second, shot_list_id: LIST_2 })).rejects.toMatchObject(
@@ -516,5 +542,177 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect(edits.map((e) => e.id).sort()).toEqual([first.id, second.id, onTwo.id].sort())
     expect(inCreatedOrder(edits)).toBe(true)
     expect((await fx.loadProject(PROJECT_ID)).edits).toEqual(edits)
+  })
+
+  // ── Review round 1 (the S3a addendum) ─────────────────────────────────────
+
+  it("A: upsertShotListItems writes ONLY the named rows — inserts, updates its own, skips another list's ids, deletes nothing", async () => {
+    const fx = fresh()
+    const all = await fx.listShotListItems(PROJECT_ID)
+    const one = all.filter((i) => i.shot_list_id === LIST_1)
+    const two = all.filter((i) => i.shot_list_id === LIST_2)
+    const scene7 = await fx.upsertScene({ project_id: PROJECT_ID, name: 'Epilogue', scene_number: 7 })
+    const shot17 = await fx.upsertShot({ project_id: PROJECT_ID, scene_id: scene7.id, name: 'Last light', shot_number: 10 })
+    const keep = one.find((i) => i.scene_id === SCENE(1))
+    const unknownId = fid('shotListItem', 900)
+    const written = await fx.upsertShotListItems(PROJECT_ID, LIST_1, [
+      { id: keep.id, scene_id: SCENE(1), position: 5 }, // its own row, moved
+      { scene_id: scene7.id, position: 6 }, // no id: a new one
+      { id: two[0].id, scene_id: SCENE(6) }, // list 2's id: skipped — so not a second SCENE(6) either
+      { id: unknownId, shot_id: shot17.id }, // an unknown id is inserted with it; no position = its index, 3
+    ])
+    // The rows written, in the order given; the skipped one is absent.
+    expect(written.map((i) => [i.scene_id || i.shot_id, i.position])).toEqual([[SCENE(1), 5], [scene7.id, 6], [shot17.id, 3]])
+    expect(written[0]).toMatchObject({ id: keep.id, created_at: keep.created_at })
+    expect(written[0].updated_at).not.toBe(keep.updated_at)
+    expect(written[1].id).not.toBe(two[0].id)
+    expect(written[2].id).toBe(unknownId)
+    expect(written.every((i) => i.shot_list_id === LIST_1 && i.project_id === PROJECT_ID && i.workspace_id === WORKSPACE_ID)).toBe(true)
+
+    const after = await fx.listShotListItems(PROJECT_ID)
+    const oneAfter = after.filter((i) => i.shot_list_id === LIST_1)
+    expect(oneAfter.length).toBe(one.length + 2) // nothing unnamed was deleted
+    for (const i of one) if (i.id !== keep.id) expect(oneAfter.find((r) => r.id === i.id), i.id).toEqual(i)
+    expect(after.filter((i) => i.shot_list_id === LIST_2)).toEqual(two)
+
+    // A row re-sent with its OWN scene is not a duplicate of itself.
+    expect((await fx.upsertShotListItems(PROJECT_ID, LIST_1, [{ id: keep.id, scene_id: SCENE(1), position: 0 }]))[0].position).toBe(0)
+    expect(await fx.upsertShotListItems(PROJECT_ID, LIST_1, [])).toEqual([])
+  })
+
+  it('A: upsertShotListItems refuses every bad input, and a duplicate across the WHOLE list after the write, writing nothing', async () => {
+    const fx = fresh()
+    const other = await fx.createProject({ title: 'Another film' })
+    const foreign = await fx.upsertScene({ project_id: other.id, name: 'Elsewhere', scene_number: 1 })
+    const scene7 = await fx.upsertScene({ project_id: PROJECT_ID, name: 'Epilogue', scene_number: 7 })
+    const before = await fx.listShotListItems(PROJECT_ID)
+    const rowOf = (id) => before.find((i) => i.shot_list_id === LIST_1 && (i.scene_id === id || i.shot_id === id))
+    const up = (items, listId = LIST_1, projectId = PROJECT_ID) => fx.upsertShotListItems(projectId, listId, items)
+    const shape = no(400, 'invalid', 'each item names exactly one scene or one shot')
+    const once = no(409, 'conflict', 'a shot list holds each scene and each shot once')
+
+    await expect(up([], fid('shotList', 99))).rejects.toMatchObject(no(404, 'not_found', 'shot list not found'))
+    await expect(up([], LIST_1, other.id)).rejects.toMatchObject(no(404, 'not_found', 'shot list not found'))
+    await expect(up({ items: [] })).rejects.toMatchObject(no(400, 'invalid', 'items must be a JSON array'))
+    await expect(up([{ scene_id: SCENE(1), shot_id: SHOT(1) }])).rejects.toMatchObject(shape)
+    await expect(up([{ scene_id: '', position: 0 }])).rejects.toMatchObject(shape)
+    await expect(up(['x'])).rejects.toMatchObject(shape)
+    await expect(up([{ scene_id: foreign.id }])).rejects.toMatchObject(no(400, 'invalid', 'an item names a scene or shot that is not in this project'))
+    await expect(up([{ id: rowOf(SHOT(1)).id, shot_id: SHOT(1), position: -1 }])).rejects.toMatchObject(
+      no(400, 'invalid', "an item's position must be a whole number of at least 0"))
+    await expect(up([{ id: rowOf(SHOT(1)).id, shot_id: SHOT(1) }, { id: rowOf(SHOT(1)).id, shot_id: SHOT(1) }])).rejects.toMatchObject(
+      no(400, 'invalid', 'an item id appears more than once'))
+    // Once in the list AFTER the write — the unnamed rows count, not only the payload:
+    await expect(up([{ scene_id: SCENE(2) }])).rejects.toMatchObject(once) // SCENE(2) is already held by another row
+    await expect(up([{ id: rowOf(SCENE(1)).id, scene_id: SCENE(2) }])).rejects.toMatchObject(once) // re-pointed onto a held scene
+    await expect(up([{ scene_id: scene7.id }, { scene_id: scene7.id }])).rejects.toMatchObject(once) // twice in the payload
+    // All-or-nothing: a valid move followed by one bad item wrote nothing.
+    await expect(up([{ id: rowOf(SCENE(1)).id, scene_id: SCENE(1), position: 9 }, { scene_id: foreign.id }])).rejects.toMatchObject({ status: 400 })
+    expect(await fx.listShotListItems(PROJECT_ID)).toEqual(before)
+  })
+
+  it('A: deleteShotListItems deletes exactly the named items of THIS list and reports them; anything else is ignored', async () => {
+    const fx = fresh()
+    const before = await fx.listShotListItems(PROJECT_ID)
+    const one = before.filter((i) => i.shot_list_id === LIST_1)
+    const two = before.filter((i) => i.shot_list_id === LIST_2)
+    const [a, b] = [one[0].id, one[5].id]
+    const answer = await fx.deleteShotListItems(PROJECT_ID, LIST_1, [b, a, fid('shotListItem', 900), two[0].id, a, '', null])
+    expect(answer).toEqual({ deleted: [b, a] }) // the order given, each once; the unknown id and list 2's id are ignored
+    const after = await fx.listShotListItems(PROJECT_ID)
+    expect(after.filter((i) => i.shot_list_id === LIST_1).map((i) => i.id).sort())
+      .toEqual(one.map((i) => i.id).filter((id) => id !== a && id !== b).sort())
+    expect(after.filter((i) => i.shot_list_id === LIST_2)).toEqual(two)
+    expect(await fx.deleteShotListItems(PROJECT_ID, LIST_1, [a])).toEqual({ deleted: [] }) // already gone: not an error
+    await expect(fx.deleteShotListItems(PROJECT_ID, LIST_1, a)).rejects.toMatchObject(no(400, 'invalid', 'ids must be a JSON array'))
+    await expect(fx.deleteShotListItems(PROJECT_ID, fid('shotList', 99), [])).rejects.toMatchObject(no(404, 'not_found', 'shot list not found'))
+    expect((await fx.listShotListItems(PROJECT_ID)).length).toBe(before.length - 2)
+  })
+
+  it("B: an ARCHIVED list's membership is frozen to replace, upsert and delete — and a scene or shot delete still reaches it", async () => {
+    const fx = fresh()
+    const frozen = no(409, 'conflict', 'this shot list is archived — restore it before changing it')
+    const pickups = async () => (await fx.listShotListItems(PROJECT_ID)).filter((i) => i.shot_list_id === LIST_2)
+    const seeded = await pickups()
+    expect(seeded.length).toBe(7) // the seeded "Pickups · v1" IS archived
+    const listRow = (await fx.listShotLists(PROJECT_ID)).find((l) => l.id === LIST_2)
+    expect(typeof listRow.archived_at).toBe('string')
+
+    // Every membership write is refused — including the ones that would change nothing.
+    await expect(fx.replaceShotListItems(PROJECT_ID, LIST_2, seeded.slice(0, 2))).rejects.toMatchObject(frozen)
+    await expect(fx.replaceShotListItems(PROJECT_ID, LIST_2, [])).rejects.toMatchObject(frozen)
+    await expect(fx.upsertShotListItems(PROJECT_ID, LIST_2, [{ scene_id: SCENE(1) }])).rejects.toMatchObject(frozen)
+    await expect(fx.upsertShotListItems(PROJECT_ID, LIST_2, [{ id: seeded[0].id, scene_id: seeded[0].scene_id, position: 5 }])).rejects.toMatchObject(frozen)
+    await expect(fx.upsertShotListItems(PROJECT_ID, LIST_2, [])).rejects.toMatchObject(frozen)
+    await expect(fx.deleteShotListItems(PROJECT_ID, LIST_2, seeded.map((i) => i.id))).rejects.toMatchObject(frozen)
+    await expect(fx.deleteShotListItems(PROJECT_ID, LIST_2, [])).rejects.toMatchObject(frozen)
+    await expect(fx.upsertShotList({ ...listRow, summary: 'x' })).rejects.toMatchObject(frozen) // the row too (rule 1)
+    // Writes to the LIVE list that name list 2's ids never reach it.
+    expect(await fx.upsertShotListItems(PROJECT_ID, LIST_1, [{ id: seeded[1].id, scene_id: SCENE(6) }])).toEqual([])
+    expect(await fx.deleteShotListItems(PROJECT_ID, LIST_1, seeded.map((i) => i.id))).toEqual({ deleted: [] })
+    expect(await pickups()).toEqual(seeded)
+
+    // The sweep is not a membership write (the cloud's FK CASCADE, which RLS
+    // does not judge): scene 3 and — addendum C — its shots 7, 8, 9 leave the
+    // archived list; scene 5's rows stay exactly as they were.
+    const kept = (...ids) => seeded.filter((i) => ids.includes(i.scene_id || i.shot_id))
+    await fx.deleteScene(SCENE(3), PROJECT_ID)
+    expect(await pickups()).toEqual(kept(SCENE(5), SHOT(13), SHOT(14)))
+    await fx.deleteShot(SHOT(13), PROJECT_ID)
+    expect(await pickups()).toEqual(kept(SCENE(5), SHOT(14)))
+    expect((await fx.listShotLists(PROJECT_ID)).find((l) => l.id === LIST_2)).toEqual(listRow) // still archived, row untouched
+
+    // The control: restored, the same list takes membership writes again.
+    await fx.archiveShotList(PROJECT_ID, LIST_2, false)
+    expect((await fx.upsertShotListItems(PROJECT_ID, LIST_2, [{ scene_id: SCENE(1), position: 1 }])).length).toBe(1)
+    expect(await fx.deleteShotListItems(PROJECT_ID, LIST_2, [kept(SHOT(14))[0].id])).toEqual({ deleted: [kept(SHOT(14))[0].id] })
+    expect((await fx.replaceShotListItems(PROJECT_ID, LIST_2, [])).length).toBe(0)
+  })
+
+  it('D: titles are stored TRIMMED, for lists and edits, and the (title, version) key compares the stored title', async () => {
+    const fx = fresh()
+    const list = await fx.upsertShotList({ project_id: PROJECT_ID, title: "  Director's cut  ", version: 1 })
+    expect(list.title).toBe("Director's cut")
+    expect((await fx.listShotLists(PROJECT_ID)).find((l) => l.id === list.id).title).toBe("Director's cut")
+    await expect(fx.upsertShotList({ project_id: PROJECT_ID, title: "Director's cut", version: 1 })).rejects.toMatchObject(
+      no(409, 'conflict', 'There is already a shot list called "Director\'s cut · v1".'))
+    expect((await fx.upsertShotList({ ...list, title: ' Final ' })).title).toBe('Final')
+
+    const edit = await fx.upsertEdit({ project_id: PROJECT_ID, shot_list_id: LIST_1, title: ' Assembly ', items: [] })
+    expect(edit.title).toBe('Assembly')
+    expect((await fx.listEdits(PROJECT_ID)).find((e) => e.id === edit.id).title).toBe('Assembly')
+    expect((await fx.upsertEdit({ ...edit, title: 'Assembly, tightened  ' })).title).toBe('Assembly, tightened')
+  })
+
+  it('E: edits form ONE linear chain per list — one root, one child each, and a place that never changes (D6)', async () => {
+    const fx = fresh()
+    const base = { project_id: PROJECT_ID, shot_list_id: LIST_1, title: 'Cut', items: [] }
+    const oneRoot = no(409, 'conflict', "this shot list's edits form one chain — a new edit continues from the latest one")
+    const oneChild = no(409, 'conflict', "an edit's parent must be the latest edit of its shot list")
+    const fixed = no(403, 'forbidden', "an edit's place in its chain cannot change")
+
+    const v1 = await fx.upsertEdit({ ...base, version: 1 })
+    await expect(fx.upsertEdit({ ...base, title: 'Another start', version: 1 })).rejects.toMatchObject(oneRoot)
+    await expect(fx.upsertEdit({ ...base, version: 2, parent_edit_id: null })).rejects.toMatchObject(oneRoot)
+    const v2 = await fx.upsertEdit({ ...base, version: 2, parent_edit_id: v1.id })
+    await expect(fx.upsertEdit({ ...base, title: 'Branch', version: 1, parent_edit_id: v1.id })).rejects.toMatchObject(oneChild) // v1 already continues as v2
+    const v3 = await fx.upsertEdit({ ...base, version: 3, parent_edit_id: v2.id }) // from the latest: accepted
+    expect(v3.parent_edit_id).toBe(v2.id)
+
+    // A stored edit never changes its place: not to another parent, not to none, not into a cycle.
+    await expect(fx.upsertEdit({ ...v1, parent_edit_id: v3.id })).rejects.toMatchObject(fixed) // would close a cycle
+    await expect(fx.upsertEdit({ ...v2, parent_edit_id: null })).rejects.toMatchObject(fixed)
+    await expect(fx.upsertEdit({ ...v3, parent_edit_id: v1.id })).rejects.toMatchObject(fixed)
+    // Only a CHANGE is refused: the whole row back, or a patch without the key, passes.
+    expect((await fx.upsertEdit({ ...v3, summary: 'Tightened' })).parent_edit_id).toBe(v2.id)
+    expect((await fx.upsertEdit({ id: v2.id, project_id: PROJECT_ID, summary: 'Second pass' })).parent_edit_id).toBe(v1.id)
+
+    // The indexes cover archived edits too: v2's child is still v3.
+    await fx.archiveEdit(PROJECT_ID, v3.id)
+    await expect(fx.upsertEdit({ ...base, version: 4, parent_edit_id: v2.id })).rejects.toMatchObject(oneChild)
+    // One root per LIST: another list starts its own chain.
+    const other = await fx.upsertShotList({ project_id: PROJECT_ID, title: 'Second unit', version: 1 })
+    expect((await fx.upsertEdit({ ...base, shot_list_id: other.id, version: 1 })).parent_edit_id).toBeNull()
+    expect((await fx.listEdits(PROJECT_ID)).length).toBe(4) // nothing refused was written
   })
 })

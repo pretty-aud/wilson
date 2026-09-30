@@ -23,7 +23,10 @@
 // S3a contract's rules here the way the database does — uniqueness, the
 // archive guard, the active-list guard on the project row, same-project
 // membership, and the delete sweep — so a screen walked on the fixtures sees
-// the refusals Audrey will see on a real backend.
+// the refusals Audrey will see on a real backend. Review round 1 added the
+// membership deltas (upsert / delete named items), the frozen membership of
+// an archived list, a scene delete that takes its shots, trimmed titles and
+// the one-chain rule for edits (the round-1 addendum, sections A to E).
 // =============================================================================
 
 import { devWriteRefused } from '../devFixtures'
@@ -65,12 +68,34 @@ const missing = (message) => refusal(404, 'not_found', message)
 const LIST_ARCHIVE_ONLY = 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()'
 const EDIT_ARCHIVE_ONLY = 'edits are archived and restored only by a project manager or a workspace admin, through archive_edit()'
 const ACTIVE_LIST_ONLY = 'the active shot list is changed only by a project manager or a workspace admin, through set_active_shot_list()'
+// 0084 §7a's frozen-row sentences. LIST_FROZEN is also the answer to every
+// membership write on an archived list (review round 1, addendum B).
+const LIST_FROZEN = 'this shot list is archived — restore it before changing it'
+const EDIT_FROZEN = 'this edit is archived — restore it before changing it'
+// D6, one linear chain of edits per list (review round 1, addendum E): 0084 §5's
+// edits_one_root_per_list_key and edits_one_child_key, and §7a's guard.
+const CHAIN_ONE_ROOT = "this shot list's edits form one chain — a new edit continues from the latest one"
+const CHAIN_ONE_CHILD = "an edit's parent must be the latest edit of its shot list"
+const CHAIN_FIXED = "an edit's place in its chain cannot change"
+// Membership refusals — the Local Server's words (electron/rabbitShotLists.cjs),
+// shared by the whole-list replace and the two delta writes.
+const ITEM = {
+  notArray: 'items must be a JSON array',
+  idsNotArray: 'ids must be a JSON array',
+  shape: 'each item names exactly one scene or one shot',
+  foreign: 'an item names a scene or shot that is not in this project',
+  once: 'a shot list holds each scene and each shot once',
+  position: "an item's position must be a whole number of at least 0",
+  idTwice: 'an item id appears more than once',
+}
 
 function isPlainObject(v) {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
   const proto = Object.getPrototypeOf(v)
   return proto === Object.prototype || proto === null
 }
+// '' counts as absent, as the database's NULLIF(e ->> 'scene_id', '') does.
+const present = (v) => v !== undefined && v !== null && v !== ''
 // Plain code-unit order, not localeCompare: Postgres orders uuids byte-wise,
 // which for lowercase hex is exactly this.
 function cmpText(a, b) {
@@ -173,10 +198,98 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
    * ON DELETE CASCADE, tasks SET NULL). Edits keep their items (D17: a deleted
    * shot shows as "Missing shot"), and assets.scene_ids / shot_ids are NOT
    * swept (arrays are not FKs; the cloud leaves them too).
+   *
+   * EVERY list includes ARCHIVED ones, on purpose: the membership freeze
+   * (writableList below) does not apply here, because in the cloud this is
+   * the FK's CASCADE — a referential action, which RLS does not judge — and
+   * the shared-row rule (D3) wins over the freeze (review round 1, addendum B).
    */
   function sweepShotListLinks(column, id) {
     store.shotListItems = store.shotListItems.filter(i => i[column] !== id)
     for (const t of store.tasks) if (t[column] === id) { t[column] = null; t.updated_at = now() }
+  }
+
+  /**
+   * The list a membership write names, or the refusal. Every membership
+   * write — replace, upsert, delete — on an ARCHIVED list is refused with the
+   * frozen sentence (review round 1, addendum B; 0084 §8's shot_list_items
+   * write policies: D4/D18, a saved list is never cleared). Rule 8's sweep
+   * never comes through here.
+   */
+  function writableList(projectId, listId) {
+    const list = liveProject(projectId) ? listIn(projectId, listId) : null
+    if (!list) throw missing('shot list not found')
+    if (list.archived_at) throw conflict(LIST_FROZEN)
+    return list
+  }
+
+  /**
+   * Validate a membership payload for one list and plan the rows it writes —
+   * the part replace_shot_list_items() and upsert_shot_list_items() share
+   * (0084 §10d / §10e). Nothing is written here, so any refusal leaves the
+   * store as it was (all-or-nothing). A missing position is the item's index
+   * (COALESCE(position, ord - 1)). An id that belongs to ANOTHER list's item
+   * is dropped from the plan — not written, not returned — which is the
+   * database's ON CONFLICT (id) DO UPDATE ... WHERE same list; the item is
+   * still validated first, in the Local Server's order.
+   */
+  function planItemWrites(projectId, listId, items) {
+    if (!Array.isArray(items)) throw invalid(ITEM.notArray)
+    const sceneIds = new Set(store.scenes.filter(s => s.project_id === projectId).map(s => s.id))
+    const shotIds = new Set(store.shots.filter(s => s.project_id === projectId).map(s => s.id))
+    const elsewhere = new Set(store.shotListItems.filter(r => r.shot_list_id !== listId).map(r => r.id))
+    const seenIds = new Set()
+    const planned = []
+    items.forEach((it, i) => {
+      if (!isPlainObject(it)) throw invalid(ITEM.shape)
+      const scene_id = present(it.scene_id) ? String(it.scene_id) : null
+      const shot_id = present(it.shot_id) ? String(it.shot_id) : null
+      if ((scene_id === null) === (shot_id === null)) throw invalid(ITEM.shape)
+      if (scene_id ? !sceneIds.has(scene_id) : !shotIds.has(shot_id)) throw invalid(ITEM.foreign)
+      const position = it.position != null ? it.position : i
+      if (!Number.isInteger(position) || position < 0) throw invalid(ITEM.position)
+      const id = present(it.id) ? String(it.id) : null
+      if (id && elsewhere.has(id)) return
+      if (id) {
+        // Not in the contract's list: the database answers two rows with one
+        // id with "ON CONFLICT DO UPDATE command cannot affect row a second
+        // time", so it is refused here by name rather than keeping the last.
+        if (seenIds.has(id)) throw invalid(ITEM.idTwice)
+        seenIds.add(id)
+      }
+      planned.push({ id, scene_id, shot_id, position })
+    })
+    return planned
+  }
+
+  /** 0084's two partial unique indexes: a list holds each scene and each shot once. */
+  function assertEachOnce(rows) {
+    const seen = new Set()
+    for (const r of rows) {
+      const key = r.scene_id ? `scene:${r.scene_id}` : `shot:${r.shot_id}`
+      if (seen.has(key)) throw conflict(ITEM.once)
+      seen.add(key)
+    }
+  }
+
+  /**
+   * Planned rows to stored rows. An id of THIS list keeps its row (created_at
+   * kept, updated_at bumped as fn_audit_touch bumps it on the ON CONFLICT
+   * update); an unknown id is inserted with that id; no id mints one.
+   */
+  function materialiseItems(list, planned) {
+    const at = now()
+    const own = new Map(store.shotListItems.filter(r => r.shot_list_id === list.id).map(r => [r.id, r]))
+    return planned.map(({ id, ...fields }) => {
+      const kept = id ? own.get(id) : null
+      return kept
+        ? { ...kept, ...fields, updated_at: at, updated_by: by }
+        : {
+          id: id || newId(), shot_list_id: list.id, project_id: list.project_id,
+          workspace_id: list.workspace_id ?? workspaceId, ...fields,
+          created_at: at, created_by: by, updated_at: at, updated_by: by,
+        }
+    })
   }
 
   /**
@@ -487,7 +600,24 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async listScenes(projectId) { return clone(store.scenes.filter(s => s.project_id === projectId)) },
     async upsertScene(scene) { return clone(upsert(store.scenes, { workspace_id: workspaceId, created_by: by, ...scene, updated_by: by })) },
     // Hard deletes, as in the cloud; rule 8's sweep runs with each (above).
-    async deleteScene(id, _projectId) { remove(store.scenes, id); sweepShotListLinks('scene_id', id) },
+    //
+    // A scene takes its SHOTS with it (review round 1, addendum C). In the
+    // cloud 0040's shots.scene_id is ON DELETE CASCADE, so every shot of the
+    // scene goes in the same statement and each shot's own FK actions follow:
+    // its items leave every list, archived ones included, and its tasks lose
+    // their shot_id. Keeping the shots here (as the fixtures did until R1)
+    // left a shot with a dangling scene_id still listed in other lists, a
+    // state the cloud cannot hold — and a walkthrough on the fixtures could
+    // never show the stale item a cloud list write would then trip over.
+    async deleteScene(id, _projectId) {
+      const shotIds = store.shots.filter(s => s.scene_id === id).map(s => s.id)
+      remove(store.scenes, id)
+      sweepShotListLinks('scene_id', id)
+      for (const shotId of shotIds) {
+        remove(store.shots, shotId)
+        sweepShotListLinks('shot_id', shotId)
+      }
+    },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
     async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id) },
@@ -498,17 +628,21 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async upsertExperience(exp) { return clone(upsert(store.experiences, { workspace_id: workspaceId, created_by: by, ...exp, updated_by: by })) },
     async deleteExperience(id) { remove(store.experiences, id) },
 
-    // ── Shot lists, items, edits (0084; the S3a contract's nine methods) ─────
+    // ── Shot lists, items, edits (0084; the S3a contract's nine methods plus
+    //    round 1's two membership deltas) ─────────────────────────────────────
     // Same names, signatures, rules and refusal texts as the Supabase and
-    // Local Server adapters. There is no delete: lists and edits are archived,
-    // never deleted (D4/D18). No role check here — the fixtures sign in as
-    // Mara, a workspace admin, who may do everything D8 allows.
+    // Local Server adapters. There is no delete of a list or an edit: they
+    // are archived, never deleted (D4/D18). No role check here — the fixtures
+    // sign in as Mara, a workspace admin, who may do everything D8 allows.
     //
     // Where one input breaks several rules, the refusal is the one the
-    // database reaches first: on an UPDATE the guard trigger (moves, archive
-    // columns, a frozen archived row), then the CHECK constraints (title,
-    // version, snapshot / items shape, own parent), then the unique key, then
-    // the foreign keys (list and parent in this project).
+    // database reaches first: on an UPDATE the guard trigger (moves, the
+    // chain position, archive columns, a frozen archived row), then the CHECK
+    // constraints (title, version, snapshot / items shape, own parent), then
+    // the unique keys in their creation order ((title, version), then an
+    // edit's one child and one root), then the foreign keys (list and parent
+    // in this project). A membership write answers "not found", then the
+    // archived-list freeze, before it looks at the payload.
     async listShotLists(projectId) {
       return clone(store.shotLists.filter(l => l.project_id === projectId).sort(byCreated))
     },
@@ -521,7 +655,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
       const stored = body.id ? findById(store.shotLists, body.id) : null
       if (stored) {
         if (stored.project_id !== body.project_id) throw forbidden('a shot_lists row cannot move to another project')
-        guardArchived(body, stored, { archiveOnly: LIST_ARCHIVE_ONLY, frozen: 'this shot list is archived — restore it before changing it' })
+        guardArchived(body, stored, { archiveOnly: LIST_ARCHIVE_ONLY, frozen: LIST_FROZEN })
       } else if (body.archived_at || body.archived_by) {
         throw forbidden(LIST_ARCHIVE_ONLY)
       }
@@ -530,9 +664,12 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         : { version: 1, summary: null, snapshot: {}, archived_at: null, archived_by: null, ...body }
       validateVersioned(row, 'A shot list')
       if ('snapshot' in body && !isPlainObject(body.snapshot)) throw invalid("A shot list's snapshot must be an object.")
-      const title = row.title.trim()
+      // Stored TRIMMED (review round 1, addendum D; 0084's guard does
+      // NEW.title := btrim(NEW.title)), so "Main" and "Main " are one title
+      // and the (title, version) key compares what is actually stored.
+      row.title = row.title.trim()
       const clash = store.shotLists.find(l => l.project_id === row.project_id && l.id !== row.id
-        && String(l.title || '').trim() === title && Number(l.version) === row.version)
+        && String(l.title || '').trim() === row.title && Number(l.version) === row.version)
       if (clash) throw conflict(`There is already a shot list called "${versionedLabel(clash)}".`)
       return clone(upsert(store.shotLists, stored
         ? { ...row, updated_by: by }
@@ -545,59 +682,63 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
 
     /**
      * Replace ONE list's whole membership (replace_shot_list_items(), 0084
-     * §10d). Everything is validated before anything is written. An id of this
-     * list keeps its row (created_at kept, updated_at bumped); an unknown id is
-     * inserted with that id; no id mints one; an id that belongs to ANOTHER
-     * list's item is skipped (the database's ON CONFLICT ... WHERE same list).
-     * Items of this list that are not named are deleted. An archived list is
-     * not frozen here (the database does not freeze it either — the provider
-     * refuses client-side).
+     * §10d) — tooling and bulk restores only; the provider writes deltas
+     * (below), because a whole set from one client's stale view deletes a
+     * collaborator's newer items (review round 1, addendum A). Everything is
+     * validated before anything is written (planItemWrites). Items of this
+     * list that are not named are deleted. An archived list is refused
+     * (addendum B).
      */
     async replaceShotListItems(projectId, listId, items) {
-      const list = liveProject(projectId) ? listIn(projectId, listId) : null
-      if (!list) throw missing('shot list not found')
-      if (!Array.isArray(items)) throw invalid('items must be a JSON array')
-      const sceneIds = new Set(store.scenes.filter(s => s.project_id === projectId).map(s => s.id))
-      const shotIds = new Set(store.shots.filter(s => s.project_id === projectId).map(s => s.id))
-      const seen = new Set()
-      const seenIds = new Set()
-      for (const it of items) {
-        if (!isPlainObject(it) || !it.scene_id === !it.shot_id) throw invalid('each item names exactly one scene or one shot')
-        if (it.scene_id ? !sceneIds.has(it.scene_id) : !shotIds.has(it.shot_id)) {
-          throw invalid('an item names a scene or shot that is not in this project')
-        }
-        const key = it.scene_id ? `scene:${it.scene_id}` : `shot:${it.shot_id}`
-        if (seen.has(key)) throw conflict('a shot list holds each scene and each shot once')
-        seen.add(key)
-        if (it.position != null && !(Number.isInteger(it.position) && it.position >= 0)) {
-          throw invalid("an item's position must be a whole number of at least 0")
-        }
-        // Not in the contract's list: the database answers two rows with one
-        // id with "ON CONFLICT DO UPDATE command cannot affect row a second
-        // time", so the fixtures refuse it too rather than keep the last one.
-        if (it.id) {
-          if (seenIds.has(it.id)) throw invalid('an item id appears twice')
-          seenIds.add(it.id)
-        }
-      }
-      const at = now()
-      const own = new Map(store.shotListItems.filter(r => r.shot_list_id === listId).map(r => [r.id, r]))
-      const elsewhere = new Set(store.shotListItems.filter(r => r.shot_list_id !== listId).map(r => r.id))
-      const next = []
-      items.forEach((it, i) => {
-        if (it.id && elsewhere.has(it.id)) return
-        const fields = { scene_id: it.scene_id || null, shot_id: it.shot_id || null, position: it.position ?? i }
-        const kept = it.id ? own.get(it.id) : null
-        next.push(kept
-          ? { ...kept, ...fields, updated_at: at, updated_by: by }
-          : {
-            id: it.id || newId(), shot_list_id: listId, project_id: projectId,
-            workspace_id: list.workspace_id ?? workspaceId, ...fields,
-            created_at: at, created_by: by, updated_at: at, updated_by: by,
-          })
-      })
+      const list = writableList(projectId, listId)
+      const planned = planItemWrites(projectId, listId, items)
+      assertEachOnce(planned)
+      const next = materialiseItems(list, planned)
       store.shotListItems = [...store.shotListItems.filter(r => r.shot_list_id !== listId), ...next]
       return clone([...next].sort(byPosition))
+    },
+
+    /**
+     * The membership DELTA write (upsert_shot_list_items(), 0084 §10e; review
+     * round 1, addendum A): insert the given rows and update the given rows of
+     * THIS list, and touch nothing else — no unnamed item is ever deleted, so
+     * an add or a reorder from a stale view cannot remove what a collaborator
+     * added since. An id of another list is skipped. Validation is the
+     * replace's, and the list AFTER the write must still hold each scene and
+     * shot once: the unnamed rows are counted with the written ones (a row
+     * re-sent with its own scene is not a duplicate of itself). Returns the
+     * rows written, in the order given (the RPC's RETURNING); skipped ones
+     * are absent.
+     */
+    async upsertShotListItems(projectId, listId, items) {
+      const list = writableList(projectId, listId)
+      const planned = planItemWrites(projectId, listId, items)
+      const named = new Set(planned.map(p => p.id).filter(Boolean))
+      assertEachOnce([
+        ...store.shotListItems.filter(r => r.shot_list_id === listId && !named.has(r.id)),
+        ...planned,
+      ])
+      const written = materialiseItems(list, planned)
+      const writtenIds = new Set(written.map(r => r.id))
+      store.shotListItems = [...store.shotListItems.filter(r => !writtenIds.has(r.id)), ...written]
+      return clone(written)
+    },
+
+    /**
+     * Remove exactly the named items of THIS list (the cloud's plain DELETE
+     * ... WHERE shot_list_id = list AND id IN (...); review round 1, addendum
+     * A). An id that is not one of this list's items — unknown, or another
+     * list's — is ignored, never an error. Returns { deleted: [ids actually
+     * deleted] }, in the order given, each once.
+     */
+    async deleteShotListItems(projectId, listId, itemIds) {
+      writableList(projectId, listId)
+      if (!Array.isArray(itemIds)) throw invalid(ITEM.idsNotArray)
+      const own = new Set(store.shotListItems.filter(r => r.shot_list_id === listId).map(r => r.id))
+      const deleted = [...new Set(itemIds.filter(present).map(String))].filter(id => own.has(id))
+      const gone = new Set(deleted)
+      store.shotListItems = store.shotListItems.filter(r => !gone.has(r.id))
+      return { deleted }
     },
 
     async listEdits(projectId) {
@@ -615,7 +756,14 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         if ('shot_list_id' in body && body.shot_list_id !== stored.shot_list_id) {
           throw forbidden('an edit cannot move to another shot list')
         }
-        guardArchived(body, stored, { archiveOnly: EDIT_ARCHIVE_ONLY, frozen: 'this edit is archived — restore it before changing it' })
+        // D6 (review round 1, addendum E; 0084 §7a): an edit's place in its
+        // chain is fixed when it is made — its parent already exists then —
+        // which is what makes a cycle impossible. Only a CHANGE is refused:
+        // the whole row re-sent with its own parent passes.
+        if ('parent_edit_id' in body && (body.parent_edit_id || null) !== (stored.parent_edit_id || null)) {
+          throw forbidden(CHAIN_FIXED)
+        }
+        guardArchived(body, stored, { archiveOnly: EDIT_ARCHIVE_ONLY, frozen: EDIT_FROZEN })
       } else if (body.archived_at || body.archived_by) {
         throw forbidden(EDIT_ARCHIVE_ONLY)
       }
@@ -627,10 +775,21 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
       if (row.snapshot != null && !isPlainObject(row.snapshot)) throw invalid("An edit's snapshot must be an object.")
       const badParent = "an edit's parent must be another edit of the same shot list"
       if (row.parent_edit_id && row.parent_edit_id === row.id) throw invalid(badParent) // edits_not_own_parent_chk
-      const title = row.title.trim()
+      row.title = row.title.trim() // stored trimmed (addendum D), as for lists
       const clash = store.edits.find(e => e.project_id === row.project_id && e.shot_list_id === row.shot_list_id
-        && e.id !== row.id && String(e.title || '').trim() === title && Number(e.version) === row.version)
+        && e.id !== row.id && String(e.title || '').trim() === row.title && Number(e.version) === row.version)
       if (clash) throw conflict(`This shot list already has an edit called "${versionedLabel(clash)}".`)
+      // D6, one linear chain per list (addendum E; 0084 §5's two partial
+      // unique indexes, archived edits included): no edit has two children,
+      // and a list has one root. A new edit continues from the LATEST one.
+      // The child index is not per list, exactly as in 0084.
+      const parentId = row.parent_edit_id || null
+      if (parentId && store.edits.some(e => e.id !== row.id && e.parent_edit_id === parentId)) {
+        throw conflict(CHAIN_ONE_CHILD)
+      }
+      if (!parentId && store.edits.some(e => e.id !== row.id && e.shot_list_id === row.shot_list_id && !e.parent_edit_id)) {
+        throw conflict(CHAIN_ONE_ROOT)
+      }
       if (!row.shot_list_id || !listIn(row.project_id, row.shot_list_id)) {
         throw invalid('an edit belongs to a shot list of this project')
       }

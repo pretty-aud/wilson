@@ -564,9 +564,12 @@ describe('the three 0084 tables have entries, and each is EXACTLY its row shape'
 
 describe('shot_lists — the whole row the provider re-sends (0084)', () => {
   it('keeps every column, archived_at / archived_by included', () => {
-    // archived_* are kept ON PURPOSE: 0084's guard refuses a change to them
-    // with the contract's sentence. Dropping them here would turn an
-    // archive-by-upsert into a silent success on cloud and a 403 elsewhere.
+    // The allowlist describes the TABLE, so all of the row survives here.
+    // What an upsert SENDS is narrower: upsertShotList / upsertEdit strip the
+    // four audit columns and archived_* BEFORE toColumns (S3a review round 1,
+    // addendum F) — pinned by supabaseLoadProject.test.js, "send no audit or
+    // archive column". Dropping them here instead would hide them from every
+    // future writer of the table, not just from the upsert.
     expect(toColumns('shot_lists', SHOT_LIST_ROW)).toEqual(SHOT_LIST_ROW)
     expect(warn).not.toHaveBeenCalled()
   })

@@ -29,12 +29,12 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 const MAIN_CJS = readFileSync(new URL('../../../electron/main.cjs', import.meta.url), 'utf-8')
-// Post-overhaul S3a: rabbitSubentityRoutes now calls sweepShotListLinks, which
-// main.cjs requires from electron/rabbitShotLists.cjs. The REAL function is
-// passed into the lifted factory, so the replay runs the shipped sweep and not
-// a restatement of it.
+// Post-overhaul S3a: rabbitSubentityRoutes now calls cascadeSceneOrShotDelete,
+// which main.cjs requires from electron/rabbitShotLists.cjs. The REAL function
+// is passed into the lifted factory, so the replay runs the shipped cascade
+// and not a restatement of it.
 const require = createRequire(import.meta.url)
-const { sweepShotListLinks } = require('../../../electron/rabbitShotLists.cjs')
+const { cascadeSceneOrShotDelete } = require('../../../electron/rabbitShotLists.cjs')
 
 /** Lift `function name(...) { ... }` out of the source by brace matching. */
 function extractFunction(source, name) {
@@ -102,14 +102,14 @@ function harness(bundle) {
   // eslint-disable-next-line no-new-func
   const register = new Function(
     'expressApp', 'readRabbitBundle', 'writeRabbitBundle', 'rabbitNotFound',
-    'ensureEntityFolderRow', 'materializeFolderDirs', 'uuidv4', 'sweepShotListLinks',
+    'ensureEntityFolderRow', 'materializeFolderDirs', 'uuidv4', 'cascadeSceneOrShotDelete',
     `${extractFunction(MAIN_CJS, 'rabbitTouch')}
      ${extractFunction(MAIN_CJS, 'rabbitUpsertInto')}
      ${extractFunction(MAIN_CJS, 'rabbitRemoveFrom')}
      ${extractFunction(MAIN_CJS, 'sweepDependencyEdges')}
      ${extractFunction(MAIN_CJS, 'rabbitSubentityRoutes')}
      return rabbitSubentityRoutes;`,
-  )(expressApp, readRabbitBundle, writeRabbitBundle, rabbitNotFound, ensureEntityFolderRow, materializeFolderDirs, uuidv4, sweepShotListLinks)
+  )(expressApp, readRabbitBundle, writeRabbitBundle, rabbitNotFound, ensureEntityFolderRow, materializeFolderDirs, uuidv4, cascadeSceneOrShotDelete)
   return { routes, writes, register }
 }
 
@@ -244,10 +244,19 @@ describe('the sweep is opt-in per entity, and main.cjs opts tasks and phases in'
 //
 // 0084's foreign keys do this in the cloud: shot_list_items' scene and shot
 // FKs CASCADE, tasks' scene_id / shot_id FKs SET NULL. The desktop has no FKs,
-// so the factory's DELETE runs sweepShotListLinks in the same write when an
-// entity is registered with `shotListLinks`. NOT swept, in either place:
+// so the factory's DELETE runs cascadeSceneOrShotDelete in the same write when
+// an entity is registered with `shotListLinks`. NOT swept, in either place:
 // assets.scene_ids / shot_ids (arrays, not FKs) and edits' items (D17 —
 // "Missing shot").
+//
+// Review R1 (addendum C): a SCENE delete also deletes the scene's SHOTS —
+// 0040's shots.scene_id ON DELETE CASCADE, which the cloud always did and the
+// desktop never did — and sweeps each. Before, ScenesView deleted "the
+// scene's shots, then the scene" from ctx.shots, which since D10 holds only
+// the ACTIVE list's shots; a shot only another list held survived with a
+// dangling scene_id, its items and its tasks' shot_id. The fixture's L2 is
+// ARCHIVED on purpose in those cases: the freeze (addendum B) is on
+// membership writes, and a delete sweep must still reach it.
 
 function s3aFixture() {
   return {
@@ -293,13 +302,15 @@ describe('deleting a scene on the desktop takes it out of every shot list (S3a r
     const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' })
 
     expect(res.code).toBe(200)
-    expect(res.body).toEqual({ ok: true, swept: 0, unlinked: { items: 2, tasks: 2 } })
+    // items: i1 + i5 (the scene's, in L1 and L2) and i3 + i6 (its shot sh-1's);
+    // tasks: t-sc1 and t-sh1 — t-sh1 is linked to both and counts ONCE;
+    // shots: sh-1 went with its scene (addendum C).
+    expect(res.body).toEqual({ ok: true, swept: 0, unlinked: { items: 4, tasks: 2, shots: 1 } })
     expect(ids(bundle.scenes)).toEqual(['sc-2'])
-    // i1 (L1) and i5 (L2) named sc-1; the shot items of sh-1 stay — the shot
-    // itself still exists on the desktop.
-    expect(ids(bundle.shotListItems)).toEqual(['i2', 'i3', 'i4', 'i6'])
+    expect(ids(bundle.shots)).toEqual(['sh-2'])
+    expect(ids(bundle.shotListItems)).toEqual(['i2', 'i4'])
     expect(bundle.tasks.find(t => t.id === 't-sc1').scene_id).toBeNull()
-    expect(bundle.tasks.find(t => t.id === 't-sh1')).toMatchObject({ scene_id: null, shot_id: 'sh-1' })
+    expect(bundle.tasks.find(t => t.id === 't-sh1')).toMatchObject({ scene_id: null, shot_id: null })
     expect(bundle.tasks.find(t => t.id === 't-sc1').updated_at).not.toBe('2026-01-01T00:00:00.000Z')
     expect(bundle.tasks.find(t => t.id === 't-other')).toEqual(before.tasks[2])
     // Not foreign keys in the cloud either: untouched.
@@ -307,12 +318,49 @@ describe('deleting a scene on the desktop takes it out of every shot list (S3a r
     expect(bundle.edits).toEqual(before.edits)
     expect(bundle.shotLists).toEqual(before.shotLists)
     expect(bundle.project).toEqual(before.project)
-    // One write, and it carries the sweep (the mirrors render from it).
+    // One write, and it carries the whole cascade (the mirrors render from it).
     expect(h.writes).toHaveLength(1)
-    expect(ids(h.writes[0].shotListItems)).toEqual(['i2', 'i3', 'i4', 'i6'])
+    expect(ids(h.writes[0].shotListItems)).toEqual(['i2', 'i4'])
+    expect(ids(h.writes[0].shots)).toEqual(['sh-2'])
   })
 
-  it('FAILING CONTROL: deleting a scene no list or task names leaves items and tasks identical', () => {
+  it('R1 local#0: a shot only an ARCHIVED list holds goes with its scene — items, task link and all', () => {
+    // The reviewer's replay: sh-b belongs to sc-1 but is in no active-list
+    // view (only L2 holds it), so a screen deleting "the scene's shots" from
+    // ctx.shots never named it. The backend must.
+    const bundle = s3aFixture()
+    bundle.shotLists[1].archived_at = '2026-09-01T00:00:00.000Z'
+    bundle.shots.push({ id: 'sh-b', scene_id: 'sc-1' })
+    bundle.shotListItems.push({ id: 'j3', shot_list_id: 'L2', scene_id: null, shot_id: 'sh-b', position: 1 })
+    bundle.tasks.push({ id: 't-b', scene_id: null, shot_id: 'sh-b', updated_at: '2026-01-01T00:00:00.000Z' })
+    const h = harness(bundle)
+    registerScenesLikeMain(h)
+
+    const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' })
+
+    expect(res.body).toEqual({ ok: true, swept: 0, unlinked: { items: 5, tasks: 3, shots: 2 } })
+    expect(ids(bundle.shots)).toEqual(['sh-2'])
+    expect(bundle.shotListItems.some(i => i.id === 'j3' || i.shot_id === 'sh-b')).toBe(false)
+    expect(bundle.tasks.find(t => t.id === 't-b')).toMatchObject({ scene_id: null, shot_id: null })
+    // The archived list is still archived: a delete sweep is not a membership
+    // write, so the freeze does not stop it (and does not undo the archive).
+    expect(bundle.shotLists[1].archived_at).toBe('2026-09-01T00:00:00.000Z')
+  })
+
+  it('FAILING CONTROL: a shot of ANOTHER scene, and its items and tasks, survive the cascade', () => {
+    // A cascade matching on the wrong field (id, or any scene_id) would take
+    // sh-2 too; so would one that deleted every shot "of a deleted scene".
+    const bundle = s3aFixture()
+    const before = structuredClone(bundle)
+    const h = harness(bundle)
+    registerScenesLikeMain(h)
+    call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' })
+    expect(bundle.shots).toEqual([before.shots[1]])
+    expect(bundle.shotListItems.find(i => i.id === 'i4')).toEqual(before.shotListItems[3])
+    expect(bundle.tasks.find(t => t.id === 't-other')).toEqual(before.tasks[2])
+  })
+
+  it('FAILING CONTROL: deleting a scene no list, task or shot names leaves items, tasks and shots identical', () => {
     const bundle = s3aFixture()
     bundle.scenes.push({ id: 'sc-lonely' })
     const before = structuredClone(bundle)
@@ -321,9 +369,10 @@ describe('deleting a scene on the desktop takes it out of every shot list (S3a r
 
     const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-lonely' })
 
-    expect(res.body).toEqual({ ok: true, swept: 0, unlinked: { items: 0, tasks: 0 } })
+    expect(res.body).toEqual({ ok: true, swept: 0, unlinked: { items: 0, tasks: 0, shots: 0 } })
     expect(bundle.shotListItems).toEqual(before.shotListItems)
     expect(bundle.tasks).toEqual(before.tasks)
+    expect(bundle.shots).toEqual(before.shots)
     expect(ids(bundle.scenes)).toEqual(['sc-1', 'sc-2'])
   })
 
@@ -368,6 +417,7 @@ describe('the shot-list sweep is opt-in, and main.cjs opts scenes and shots in',
     expect(res.body).toEqual({ ok: true, swept: 0 })
     expect(bundle.shotListItems).toEqual(before.shotListItems) // the orphans rule 8 exists to prevent
     expect(bundle.tasks).toEqual(before.tasks)
+    expect(bundle.shots).toEqual(before.shots) // …and the shots addendum C exists to take
   })
 
   it('main.cjs registers scenes and shots with shotListLinks', () => {
@@ -377,8 +427,13 @@ describe('the shot-list sweep is opt-in, and main.cjs opts scenes and shots in',
     expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'shots',\s*'shots',\s*'shot',\s*\{\s*shotListLinks:\s*'shot'\s*\}\s*\)/)
   })
 
-  it('main.cjs takes sweepShotListLinks from electron/rabbitShotLists.cjs — the function this replay runs', () => {
-    expect(MAIN_CJS).toMatch(/sweepShotListLinks,?\s*\n?\s*\}\s*=\s*require\('\.\/rabbitShotLists\.cjs'\)/)
-    expect(MAIN_CJS).not.toMatch(/function sweepShotListLinks\(/)
+  it('main.cjs takes cascadeSceneOrShotDelete from electron/rabbitShotLists.cjs — the function this replay runs', () => {
+    expect(MAIN_CJS).toMatch(/cascadeSceneOrShotDelete,?\s*\n?\s*\}\s*=\s*require\('\.\/rabbitShotLists\.cjs'\)/)
+    expect(MAIN_CJS).not.toMatch(/function cascadeSceneOrShotDelete\(/)
+    // …and the factory calls it, not the links-only sweep (which would keep
+    // a deleted scene's shots — the R1 local#0 defect).
+    const factory = extractFunction(MAIN_CJS, 'rabbitSubentityRoutes')
+    expect(factory).toMatch(/cascadeSceneOrShotDelete\(bundle, shotListLinks, req\.params\.id\)/)
+    expect(factory).not.toMatch(/sweepShotListLinks\(/)
   })
 })

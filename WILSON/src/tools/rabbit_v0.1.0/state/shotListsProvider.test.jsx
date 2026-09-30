@@ -75,17 +75,26 @@ function makeAdapter() {
     db,
     status: async () => ({ online: true, lastSyncAt: null }),
     listProjects: async () => [clone(db.project)],
+    hideFromLoad: new Set(),
     loadProject: async () => clone({
       project: db.project, scenes: db.scenes, shots: db.shots, tasks: db.tasks,
-      shotLists: db.shotLists, shotListItems: db.shotListItems, edits: db.edits,
+      shotLists: db.shotLists.filter(l => !a.hideFromLoad.has(l.id)), shotListItems: db.shotListItems, edits: db.edits,
     }),
     upsertScene: async (row) => { db.scenes = [...db.scenes.filter(s => s.id !== row.id), clone(row)]; return clone(row) },
     upsertShot: async (row) => { db.shots = [...db.shots.filter(s => s.id !== row.id), clone(row)]; return clone(row) },
     // Rule 8: out of every list, tasks un-linked (the cloud's CASCADE / SET NULL).
+    // Rule 8 + round-1 C: the scene's shots go too (0040's CASCADE), each
+    // swept out of every list, archived ones included, and tasks un-linked.
     deleteScene: async (sid) => {
+      const shotIds = new Set(db.shots.filter(s => s.scene_id === sid).map(s => s.id))
       db.scenes = db.scenes.filter(s => s.id !== sid)
-      db.shotListItems = db.shotListItems.filter(i => i.scene_id !== sid)
-      db.tasks = db.tasks.map(t => (t.scene_id === sid ? { ...t, scene_id: null } : t))
+      db.shots = db.shots.filter(s => !shotIds.has(s.id))
+      db.shotListItems = db.shotListItems.filter(i => i.scene_id !== sid && !shotIds.has(i.shot_id))
+      db.tasks = db.tasks.map(t => ({
+        ...t,
+        ...(t.scene_id === sid ? { scene_id: null } : {}),
+        ...(shotIds.has(t.shot_id) ? { shot_id: null } : {}),
+      }))
     },
     deleteShot: async (sid) => {
       db.shots = db.shots.filter(s => s.id !== sid)
@@ -106,6 +115,32 @@ function makeAdapter() {
       const next = { ...(stored || {}), ...clone(row), created_at: stored?.created_at || '2026-09-30' }
       db.shotLists = [...db.shotLists.filter(l => l.id !== row.id), next]
       return clone(next)
+    },
+    failNextUpsert: false,
+    upsertShotListItems: async (_pid, listId, items) => {
+      calls.push(['upsertShotListItems', listId, items.length])
+      if (a.failNextUpsert) { a.failNextUpsert = false; throw httpError(500, 'disk full') }
+      const list = db.shotLists.find(l => l.id === listId)
+      if (!list) throw httpError(404, 'shot list not found')
+      if (list.archived_at) throw httpError(409, 'this shot list is archived — restore it before changing it')
+      const written = []
+      for (const it of items) {
+        const existing = db.shotListItems.find(i => i.id === it.id)
+        if (existing && existing.shot_list_id !== listId) continue
+        const row = { id: it.id || id('item'), shot_list_id: listId, project_id: 'p1',
+          scene_id: it.scene_id || null, shot_id: it.shot_id || null, position: it.position ?? 0 }
+        db.shotListItems = [...db.shotListItems.filter(i => i.id !== row.id), row]
+        written.push(row)
+      }
+      return clone(written)
+    },
+    deleteShotListItems: async (_pid, listId, ids) => {
+      calls.push(['deleteShotListItems', listId, ids.length])
+      const list = db.shotLists.find(l => l.id === listId)
+      if (list?.archived_at) throw httpError(409, 'this shot list is archived — restore it before changing it')
+      const gone = db.shotListItems.filter(i => i.shot_list_id === listId && ids.includes(i.id)).map(i => i.id)
+      db.shotListItems = db.shotListItems.filter(i => !gone.includes(i.id))
+      return { deleted: gone }
     },
     replaceShotListItems: async (_pid, listId, items) => {
       calls.push(['replaceShotListItems', listId, items.length])
@@ -217,8 +252,9 @@ describe('S3a — shot lists through the real provider', () => {
     expect(ids(ctxRef.scenes)).toEqual(['sc1', 'sc2'])
   })
 
-  it('remove from the active list hides the scene everywhere else (D10); undo brings it back', async () => {
+  it('remove from the active list hides a scene ANOTHER list holds (D10); undo brings it back', async () => {
     await mount()
+    await act(async () => { await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) })
     await act(async () => { await ctxRef.removeFromShotList('L1', { sceneId: 'sc1' }) })
     expect(ids(ctxRef.scenes)).toEqual(['sc2'])
     expect(ids(ctxRef.shots)).toEqual(['sh2'])
@@ -226,6 +262,14 @@ describe('S3a — shot lists through the real provider', () => {
     await act(async () => { await ctxRef.undo() })
     expect(ids(ctxRef.scenes)).toEqual(['sc1', 'sc2'])
     expect(holder.adapter.db.shotListItems.filter(i => i.shot_list_id === 'L1')).toHaveLength(4)
+  })
+
+  it('a scene removed from its ONLY list is in no list, and stays visible (nothing hidden by accident)', async () => {
+    await mount()
+    await act(async () => { await ctxRef.removeFromShotList('L1', { sceneId: 'sc1' }) })
+    expect(ids(ctxRef.scenes)).toEqual(['sc1', 'sc2'])
+    expect(ids(ctxRef.unlistedScenes)).toEqual(['sc1'])
+    expect(ids(ctxRef.unlistedShots)).toEqual(['sh1'])
   })
 
   it('reorder is one undo step on the list order', async () => {
@@ -242,15 +286,19 @@ describe('S3a — shot lists through the real provider', () => {
     await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) })
     await act(async () => { await ctxRef.deleteScene('sc2') })
     expect(ids(ctxRef.scenes)).toEqual(['sc1'])
-    // Its own items left every list. (Its shot sh2 is a separate row that
-    // ScenesView deletes first; while it remains, lists still IMPLY sc2.)
-    expect(ctxRef.shotListItems.some(i => i.scene_id === 'sc2')).toBe(false)
-    expect(holder.adapter.db.shotListItems.some(i => i.scene_id === 'sc2')).toBe(false)
+    // Its shot went with it (0040's CASCADE, on every backend since round 1),
+    // and both left every list.
+    expect(ids(ctxRef.allShots)).toEqual(['sh1'])
+    expect(ctxRef.shotListItems.some(i => i.scene_id === 'sc2' || i.shot_id === 'sh2')).toBe(false)
+    expect(holder.adapter.db.shotListItems.some(i => i.scene_id === 'sc2' || i.shot_id === 'sh2')).toBe(false)
     expect(ctxRef.tasks.find(t => t.id === 't1').scene_id).toBeNull()
     await act(async () => { await ctxRef.undo() })
-    // Visible again under D10: its membership in BOTH lists came back.
+    // Visible again under D10: the scene, its shot, and their membership in
+    // BOTH lists came back.
     await waitFor(() => expect(ids(ctxRef.scenes).sort()).toEqual(['sc1', 'sc2']))
+    expect(ids(ctxRef.shots).sort()).toEqual(['sh1', 'sh2'])
     expect(ctxRef.shotListItems.filter(i => i.scene_id === 'sc2').map(i => i.shot_list_id).sort()).toEqual(['L1', alt.id].sort())
+    expect(ctxRef.shotListItems.filter(i => i.shot_id === 'sh2').map(i => i.shot_list_id).sort()).toEqual(['L1', alt.id].sort())
     expect(ctxRef.tasks.find(t => t.id === 't1').scene_id).toBe('sc2')
     expect(holder.adapter.db.tasks.find(t => t.id === 't1').scene_id).toBe('sc2')
   })
@@ -302,5 +350,78 @@ describe('S3a — shot lists through the real provider', () => {
     let v2
     await act(async () => { v2 = await ctxRef.addShotList({ title: 'Shot list 1', from: 'L1' }) })
     expect(v2.version).toBe(2)
+  })
+
+  it('DELTAS: a collaborator\'s newer item survives this client\'s remove, reorder and their undo (review round 1)', async () => {
+    await mount()
+    // Another window adds sc9 to L1 after this client loaded (items are not broadcast).
+    holder.adapter.db.scenes.push({ id: 'sc9', project_id: 'p1', name: 'Nine', scene_number: 9 })
+    holder.adapter.db.shotListItems.push({ id: 'theirs', shot_list_id: 'L1', project_id: 'p1', scene_id: 'sc9', shot_id: null, position: 2 })
+    await act(async () => { await ctxRef.removeFromShotList('L1', { sceneId: 'sc1' }) })
+    await act(async () => { await ctxRef.reorderShotListItems('L1', ['sc2']) })
+    await act(async () => { await ctxRef.undo() })
+    await act(async () => { await ctxRef.undo() })
+    expect(holder.adapter.db.shotListItems.some(i => i.id === 'theirs')).toBe(true)
+    expect(holder.adapter.db.shotListItems.filter(i => i.shot_list_id === 'L1')).toHaveLength(5)
+    // Control: no whole-list write happened at all.
+    expect(holder.adapter.calls.some(c => c[0] === 'replaceShotListItems')).toBe(false)
+  })
+
+  it('a failed membership write keeps the saved scene in state and says why (no stale rollback)', async () => {
+    await mount()
+    holder.adapter.failNextUpsert = true
+    let s3
+    await act(async () => { s3 = await ctxRef.addScene({ name: 'Three', scene_number: 3 }) })
+    expect(ids(ctxRef.allScenes)).toContain(s3.id)
+    // In no list, so still shown everywhere.
+    expect(ids(ctxRef.scenes)).toContain(s3.id)
+    await waitFor(() => expect(ctxRef.error).toMatch(/disk full/))
+  })
+
+  it('an active list this client never loaded is fetched, and meanwhile every row shows', async () => {
+    holder.adapter.db.shotLists.push({ id: 'L2', project_id: 'p1', title: 'Alt', version: 1, summary: null, snapshot: {}, archived_at: null, archived_by: null, created_at: '2026-09-02' })
+    holder.adapter.db.shotListItems.push({ id: 'k1', shot_list_id: 'L2', project_id: 'p1', scene_id: 'sc2', shot_id: null, position: 0 })
+    holder.adapter.db.project.active_shot_list_id = 'L2'
+    holder.adapter.hideFromLoad.add('L2')
+    render(<RabbitProvider><Probe /></RabbitProvider>)
+    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+    await waitFor(() => expect(ctxRef.activeShotList?.id).toBe('L2'))
+    expect(ids(ctxRef.scenes)).toEqual(['sc2'])
+  })
+
+  it('undoable: false leaves nothing a member\'s Ctrl+Z could land on', async () => {
+    await mount()
+    await act(async () => { await ctxRef.addShotList({ title: 'Alt', from: 'L1', undoable: false }) })
+    expect(ctxRef.canUndo).toBe(false)
+    await act(async () => { await ctxRef.createEditFrom({ listId: 'L1', title: 'Cut', undoable: false }) })
+    expect(ctxRef.canUndo).toBe(false)
+    // Control: the default records the undo.
+    await act(async () => { await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) })
+    expect(ctxRef.canUndo).toBe(true)
+  })
+
+  it('edits form ONE chain per list (D6): a new edit continues from the tip; a second root or a branch is refused', async () => {
+    await mount()
+    let e1, e2
+    await act(async () => { e1 = await ctxRef.createEditFrom({ listId: 'L1', title: 'Cut' }) })
+    await act(async () => { e2 = await ctxRef.createEditFrom({ listId: 'L1', title: 'Cut' }) })
+    expect(e2.parent_edit_id).toBe(e1.id)
+    expect(e2.version).toBe(2)
+    expect(ctxRef.editChainTip('L1').id).toBe(e2.id)
+    await expect(ctxRef.createEditFrom({ listId: 'L1', title: 'Other', parentEditId: null })).rejects.toThrow("this shot list's edits form one chain — a new edit continues from the latest one")
+    await expect(ctxRef.createEditFrom({ listId: 'L1', title: 'Other', parentEditId: e1.id })).rejects.toThrow("an edit's parent must be the latest edit of its shot list")
+  })
+
+  it('an ARCHIVED list\'s membership is not restored by a delete\'s undo (it is frozen; its snapshot keeps history)', async () => {
+    await mount()
+    let alt
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) })
+    await act(async () => { await ctxRef.archiveShotList(alt.id) })
+    await act(async () => { await ctxRef.deleteScene('sc2') })
+    // The delete reaches the archived list too (the cloud's CASCADE).
+    expect(holder.adapter.db.shotListItems.some(i => i.shot_list_id === alt.id && i.scene_id === 'sc2')).toBe(false)
+    await act(async () => { await ctxRef.undo() })
+    await waitFor(() => expect(ids(ctxRef.scenes).sort()).toEqual(['sc1', 'sc2']))
+    expect(ctxRef.shotListItems.filter(i => i.scene_id === 'sc2').map(i => i.shot_list_id)).toEqual(['L1'])
   })
 })

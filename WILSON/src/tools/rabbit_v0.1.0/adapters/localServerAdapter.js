@@ -552,8 +552,9 @@ export function localServerAdapter() {
 
     // ── Shot lists, items and edits (post-overhaul S3a, 0084) ──────────────
     //
-    // The same nine methods, with the same signatures, on every adapter (the
-    // S3a contract). The routes are electron/rabbitShotLists.cjs; they refuse
+    // The same eleven methods, with the same signatures, on every adapter (the
+    // S3a contract and its round-1 addendum, which added the two membership
+    // DELTA writes). The routes are electron/rabbitShotLists.cjs; they refuse
     // with `{ error, code }`, which jfetch turns into an Error carrying
     // `.status` and `.code`. Lists and edits are archived, never deleted
     // (D4/D18), so there is no delete method. The list* methods read the
@@ -572,11 +573,32 @@ export function localServerAdapter() {
       sortByPositionThenId((await jfetch(`${BASE}/projects/${projectId}`)).shotListItems),
     // The WHOLE membership of one list, in one request: rows not named are
     // removed, named ids keep their rows. Answers that list's rows, ordered.
+    // For tooling and bulk restores — a whole set sent from one client's view
+    // deletes what a collaborator added since it loaded (review R1), so the
+    // provider writes the two deltas below instead.
     replaceShotListItems: (projectId, listId, items) =>
       jfetch(`${BASE}/projects/${projectId}/shot-lists/${listId}/items`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ items }),
+      }),
+    // Addendum A: write ONLY the named rows of one list — new ids inserted,
+    // this list's ids updated, another list's ids skipped, nothing deleted.
+    // Answers the rows written. POST where replace is PUT: same URL, and the
+    // verb is what tells the route "delta" from "whole set".
+    upsertShotListItems: (projectId, listId, items) =>
+      jfetch(`${BASE}/projects/${projectId}/shot-lists/${listId}/items`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ items }),
+      }),
+    // Addendum A: delete exactly these item ids of one list (ids of another
+    // list, or of nothing, are ignored). Answers { deleted: [ids] }.
+    deleteShotListItems: (projectId, listId, itemIds) =>
+      jfetch(`${BASE}/projects/${projectId}/shot-lists/${listId}/items/delete`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ids: itemIds }),
       }),
     listEdits: async (projectId) =>
       sortByCreatedThenId((await jfetch(`${BASE}/projects/${projectId}`)).edits),

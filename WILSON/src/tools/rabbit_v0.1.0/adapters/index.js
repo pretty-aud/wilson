@@ -211,6 +211,8 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {(list: object) => Promise<object>}                    upsertShotList
  * @property {(projectId: string) => Promise<object[]>}             listShotListItems
  * @property {(projectId: string, listId: string, items: Array<{id?: string, scene_id?: string|null, shot_id?: string|null, position?: number}>) => Promise<object[]>} replaceShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id?: string, scene_id?: string|null, shot_id?: string|null, position?: number}>) => Promise<object[]>} upsertShotListItems
+ * @property {(projectId: string, listId: string, itemIds: string[]) => Promise<{deleted: string[]}>} deleteShotListItems
  * @property {(projectId: string) => Promise<object[]>}             listEdits
  * @property {(edit: object) => Promise<object>}                    upsertEdit
  * @property {(projectId: string, listId: string|null) => Promise<string|null>} setActiveShotList
@@ -220,7 +222,7 @@ import { devFixtures } from '../../../dev/devFixtures';
  *   S3a; the rulings are D1–D22 in docs/design/POST_OVERHAUL_PLAN.md §0.1).
  *   Same names, signatures and row shapes on supabase, local_server and the
  *   dev fixtures; google_drive answers the three reads from its exported
- *   bundle ([] when it has none) and throws readOnly() on the six writes.
+ *   bundle ([] when it has none) and throws readOnly() on the eight writes.
  *   loadProject carries the same three collections as `shotLists` /
  *   `shotListItems` / `edits` — lists and edits ordered created_at, id;
  *   items position, id.
@@ -229,9 +231,23 @@ import { devFixtures } from '../../../dev/devFixtures';
  *     items order a list's scenes; shot items order shots within their
  *     scene (restarting at 0 per scene and for the unlinked bucket).
  *   - upsertShotList / upsertEdit need `project_id` on the row and return
- *     the stored row. replaceShotListItems replaces the WHOLE membership of
- *     that one list ([{ id?, scene_id | shot_id, position? }], a missing
- *     position = its index) and returns that list's rows, ordered.
+ *     the stored row (the cloud sends neither the audit columns nor
+ *     archived_at / archived_by — the database stamps the first four and
+ *     only the archive RPCs change the last two).
+ *   - Membership is written as DELTAS (S3a review round 1): items are not
+ *     broadcast, so a whole-list write from one client's view would delete
+ *     what a collaborator added since it loaded.
+ *     upsertShotListItems writes ONLY the named rows ([{ id?, scene_id |
+ *     shot_id, position? }], a missing position = its index): new ids are
+ *     inserted, ids of THIS list updated, an id of ANOTHER list skipped;
+ *     nothing is deleted; it returns the rows written. deleteShotListItems
+ *     deletes exactly the named ids of THIS list (others are ignored) and
+ *     returns { deleted: [ids actually deleted] }. replaceShotListItems
+ *     replaces the WHOLE membership of that one list — for tooling and bulk
+ *     restores — and returns that list's rows, ordered.
+ *   - An ARCHIVED list's membership is frozen: all three item writes refuse
+ *     it ("this shot list is archived — restore it before changing it").
+ *     Deleting a scene or shot still removes its items from every list.
  *   - setActiveShotList(projectId, null) clears the pointer; it returns the
  *     new active id. archive* with archived = false restores; they return
  *     the row. Lists and edits are archived, never deleted (D4 / D18): no

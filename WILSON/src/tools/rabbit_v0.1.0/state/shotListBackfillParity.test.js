@@ -18,7 +18,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { createRequire } from 'node:module'
-import { backfillItems, backfillShotList, compareScenesForList, compareShotsForList } from './shotListModel'
+import {
+  backfillItems, compareScenesForList, compareShotsForList, SHOT_LIST_BACKFILL_TITLE, SHOT_LIST_BACKFILL_SUMMARY,
+} from './shotListModel'
 
 const require = createRequire(import.meta.url)
 const cjs = require('../../../../electron/rabbitShotLists.cjs')
@@ -128,19 +130,23 @@ describe('the Local Server backfill order equals shotListModel.backfillItems', (
     })
   })
 
-  it('backfillShotListsOnRead writes the model\'s backfillShotList membership (ids and stamps aside)', () => {
-    let n = 0
-    const newId = () => `id-${++n}`
+  it('backfillShotListsOnRead writes the model\'s backfillItems membership and the model\'s D11 list (ids and stamps aside)', () => {
+    // Against backfillItems and the model's two constants: the model's
+    // backfillShotList wrapper went in review round 1 (no caller), and these
+    // are what it was built from.
     const scenes = shuffle(SCENES, 11)
     const shots = shuffle(SHOTS, 12)
     const bundle = { project: { id: 'p1' }, scenes, shots }
-    cjs.backfillShotListsOnRead(bundle, { newId, now: '2026-09-30T00:00:00.000Z' })
-    const { list, items } = backfillShotList({ projectId: 'p1', scenes, shots, newId: () => 'm', now: '2026-09-30T00:00:00.000Z' })
-    expect(triple(bundle.shotListItems)).toEqual(triple(items))
+    cjs.backfillShotListsOnRead(bundle, { now: '2026-09-30T00:00:00.000Z' })
+    expect(triple(bundle.shotListItems)).toEqual(triple(backfillItems(scenes, shots)))
+    expect(bundle.shotLists).toHaveLength(1)
     expect(bundle.shotLists[0]).toMatchObject({
-      title: list.title, version: list.version, summary: list.summary, snapshot: list.snapshot,
+      title: SHOT_LIST_BACKFILL_TITLE, version: 1, summary: SHOT_LIST_BACKFILL_SUMMARY, snapshot: {},
       archived_at: null, project_id: 'p1',
     })
+    expect(cjs.SHOT_LIST_BACKFILL_TITLE).toBe(SHOT_LIST_BACKFILL_TITLE)
+    expect(cjs.SHOT_LIST_BACKFILL_SUMMARY).toBe(SHOT_LIST_BACKFILL_SUMMARY)
+    for (const i of bundle.shotListItems) expect(i.shot_list_id).toBe(bundle.shotLists[0].id)
   })
 })
 

@@ -51,18 +51,24 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   get supabase() { return globalThis.__testSupabase },
 }))
 
-const { supabaseAdapter, resetSupabaseAdapter } = await import('./supabaseAdapter')
+const { supabaseAdapter, resetSupabaseAdapter, resetShotListSchemaState } = await import('./supabaseAdapter')
+const { googleDriveAdapter } = await import('./googleDriveAdapter')
 
+// resetSupabaseAdapter no longer forgets what a load learned about 0084 (S3a
+// review R1, cloud#0 — auth events call it), so every test forgets it here
+// with the test-only reset, or a "0084 absent" load would leak into the next.
 beforeEach(() => {
   client = makeClient({
     projects: { data: { id: 'p1', title: 'Project One' }, error: null },
   })
   globalThis.__testSupabase = client
   resetSupabaseAdapter()
+  resetShotListSchemaState()
 })
 
 afterEach(() => {
   resetSupabaseAdapter()
+  resetShotListSchemaState()
   delete globalThis.__testSupabase
   vi.restoreAllMocks()
 })
@@ -521,23 +527,41 @@ describe('shot lists ride the same load (0084)', () => {
 })
 
 // A client that records every write and RPC. Reads resolve from `perTable`
-// exactly as makeClient's do; a write resolves to `perWrite[table]` when given,
-// else echoes the row back as the stored row.
+// exactly as makeClient's do; a write resolves to `perWrite[table]` when given
+// (a function of the recorded write, or a fixed result), else echoes the row
+// back as the stored row.
+//
+// DELETE (round 1, deleteShotListItems) records its filters: a delete entry is
+// `{ table, op: 'delete', filters: [['eq', col, v] | ['in', col, vs]], select }`,
+// and by default answers the `in` ids as the deleted rows. Only a delete entry
+// carries `filters` / `select`, so the upsert entries the older tests compare
+// with toEqual keep their three keys. `reads` lists every table READ, in order.
 function recordingClient(perTable = {}, { perWrite = {}, rpc = null } = {}) {
   const writes = []
   const rpcs = []
+  const reads = []
   const c = {
     auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
     from: (table) => {
       let written = null
-      const record = (op) => (row) => { written = row; writes.push({ table, op, row }); return b }
+      let entry = null
+      const record = (op) => (row) => { written = row; entry = { table, op, row }; writes.push(entry); return b }
       const b = {
-        select: () => b, eq: () => b, order: () => b, single: () => b,
+        select: (cols) => { if (entry?.op === 'delete') entry.select = cols; return b },
+        eq: (col, v) => { if (entry?.op === 'delete') entry.filters.push(['eq', col, v]); return b },
+        in: (col, vs) => { if (entry?.op === 'delete') entry.filters.push(['in', col, vs]); return b },
+        order: () => b, single: () => b,
         upsert: record('upsert'), update: record('update'), insert: record('insert'),
+        delete: () => { written = {}; entry = { table, op: 'delete', filters: [] }; writes.push(entry); return b },
         then: (resolve, reject) => {
+          if (written === null) reads.push(table)
+          const echo = () => entry?.op === 'delete'
+            ? { data: ((entry.filters.find(f => f[0] === 'in') || [])[2] || []).map(id => ({ id })), error: null }
+            : { data: { ...written }, error: null }
+          const given = perWrite[table]
           const result = written === null
             ? (table in perTable ? perTable[table] : { data: [], error: null })
-            : (table in perWrite ? perWrite[table] : { data: { ...written }, error: null })
+            : (table in perWrite ? (typeof given === 'function' ? given(entry) : given) : echo())
           return Promise.resolve(result).then(resolve, reject)
         },
       }
@@ -548,12 +572,13 @@ function recordingClient(perTable = {}, { perWrite = {}, rpc = null } = {}) {
       return rpc ? rpc(name, args) : { data: null, error: null }
     },
   }
-  return { client: c, writes, rpcs, perTable }
+  return { client: c, writes, rpcs, reads, perTable }
 }
 
 function install(rec) {
   globalThis.__testSupabase = rec.client
   resetSupabaseAdapter()
+  resetShotListSchemaState()
   return supabaseAdapter()
 }
 
@@ -661,11 +686,41 @@ describe('a database WITHOUT 0084 — the load is the probe', () => {
     expect(rec.writes).toEqual([])
   })
 
-  it('resetSupabaseAdapter clears the absent flag', async () => {
+  it('an AUTH EVENT does not forget it: after resetSupabaseAdapter the Timeline save still strips (R1 cloud#0)', async () => {
+    // RabbitProvider's onAuthStateChange calls resetSupabaseAdapter() on the
+    // hourly TOKEN_REFRESHED and on the SIGNED_IN auth-js emits at every
+    // hidden-to-visible switch, then reloads only the project LIST — never
+    // the project, so no load re-learns the answer. When the reset cleared
+    // the flag, TimelineView's next save (it always carries scene_id and
+    // shot_id) went out whole and PGRST204'd on a database without 0084.
     const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: MISSING_42P01('shot_lists') })
     const adapter = install(rec)
     await adapter.loadProject('p1')
-    resetSupabaseAdapter()
+
+    resetSupabaseAdapter()   // TOKEN_REFRESHED
+    resetSupabaseAdapter()   // SIGNED_IN on the tab coming back
+    const after = supabaseAdapter()
+    await after.upsertTask({ id: 't1', project_id: 'p1', title: 'Grade', scene_id: 'sc1', shot_id: null })
+    await after.patchTask('t1', { title: 'Grade SC1', scene_id: 'sc1', shot_id: 'sh1' })
+    await after.patchAsset('a1', { name: 'Hero', scene_ids: ['sc1'] })
+    expect(keysOf0084(rec.writes)).toEqual([
+      { table: 'tasks', op: 'upsert', kept: [] },
+      { table: 'tasks', op: 'update', kept: [] },
+      { table: 'assets', op: 'update', kept: [] },
+    ])
+    // The shot-list writes keep refusing without a request, too.
+    const err = await after.upsertShotListItems('p1', 'l1', [{ scene_id: 'sc1' }]).then(() => null, e => e)
+    expect(err?.code).toBe('shot_lists_unavailable')
+    expect(rec.rpcs).toEqual([])
+  })
+
+  it('CONTROL: resetShotListSchemaState (tests only) does forget it — the writes carry the columns again', async () => {
+    // The pair to the test above: the flag is real state, and this is the
+    // one reset that clears it outside a successful load.
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: MISSING_42P01('shot_lists') })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    resetShotListSchemaState()
     await adapter.upsertTask({ id: 't1', project_id: 'p1', title: 'Grade', scene_id: 'sc1' })
     expect(rec.writes[0].row).toHaveProperty('scene_id', 'sc1')
   })
@@ -702,6 +757,8 @@ describe('a database WITHOUT 0084 — the load is the probe', () => {
     const calls = {
       upsertShotList:       () => adapter.upsertShotList({ project_id: 'p1', title: 'Pickups', version: 1 }),
       replaceShotListItems: () => adapter.replaceShotListItems('p1', 'l1', [{ scene_id: 'sc1' }]),
+      upsertShotListItems:  () => adapter.upsertShotListItems('p1', 'l1', [{ scene_id: 'sc1' }]),
+      deleteShotListItems:  () => adapter.deleteShotListItems('p1', 'l1', ['i1']),
       upsertEdit:           () => adapter.upsertEdit({ project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [] }),
       setActiveShotList:    () => adapter.setActiveShotList('p1', 'l1'),
       archiveShotList:      () => adapter.archiveShotList('p1', 'l1'),
@@ -963,5 +1020,243 @@ describe('refusals keep the Postgres / PostgREST code on err.code (0084)', () =>
     expect(body).toContain('lastError  = null')
     expect(body).toContain('lastSyncAt = new Date()')
     expect(body).toContain('err.code = error.code')
+  })
+})
+
+
+// ── Review round 1 (2026-09-30): deltas, the frozen archive, the strip ──────
+
+describe('membership is written as DELTAS (R1 addendum A)', () => {
+  // Items are not broadcast, so a whole-set replace from one client's view
+  // deleted the items a collaborator had added since it loaded (R1
+  // provider#0). The provider now writes only the rows it names.
+
+  it('upsertShotListItems → upsert_shot_list_items(p_list, p_items), items cut to the four keys; answers the rows the database wrote', async () => {
+    // The function SKIPS an id that belongs to another list (its ON CONFLICT
+    // … WHERE same list), so the answer is the database's rows, not the input
+    // echoed back.
+    const written = [{ id: 'i1', shot_list_id: 'l1', scene_id: 'sc1', shot_id: null, position: 2 }]
+    const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: written, error: null }) })
+    const adapter = install(rec)
+    const out = await adapter.upsertShotListItems('p1', 'l1', [
+      // a whole provider row: the extra keys must not reach the RPC
+      { id: 'i1', shot_list_id: 'l1', project_id: 'p1', scene_id: 'sc1', shot_id: null, position: 2, created_at: 'x' },
+      { id: 'i-other-list', shot_id: 'sh9', position: 0 },
+      // a new item: no id, no position (the function uses its index)
+      { shot_id: 'sh1' },
+    ])
+    expect(out).toEqual(written)
+    expect(rec.rpcs).toStrictEqual([{
+      name: 'upsert_shot_list_items',
+      args: {
+        p_list: 'l1',
+        p_items: [
+          { id: 'i1', scene_id: 'sc1', shot_id: null, position: 2 },
+          { id: 'i-other-list', scene_id: null, shot_id: 'sh9', position: 0 },
+          { id: null, scene_id: null, shot_id: 'sh1', position: null },
+        ],
+      },
+    }])
+    // A delta: never the whole-set swap, and no direct table write.
+    expect(rec.writes).toEqual([])
+  })
+
+  it('upsertShotListItems names BOTH parameters with nothing to name — the database answers, not PGRST202', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: null, error: { code: '22023', message: 'items must be a JSON array' } }),
+    })
+    const adapter = install(rec)
+    const err = await adapter.upsertShotListItems('p1', undefined, undefined).then(() => null, e => e)
+    expect(rec.rpcs[0].args).toStrictEqual({ p_list: null, p_items: null })
+    expect(err.code).toBe('22023')
+    expect(err.message).toBe('[supabase] items must be a JSON array')
+  })
+
+  it('an upsert the table refuses keeps its code: the archived-list freeze (42501), a scene or shot twice (23505)', async () => {
+    for (const error of [
+      { code: '42501', message: 'new row violates row-level security policy for table "shot_list_items"' },
+      { code: '23505', message: 'duplicate key value violates unique constraint "shot_list_items_list_shot_key"' },
+    ]) {
+      const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: null, error }) })
+      const adapter = install(rec)
+      const err = await adapter.upsertShotListItems('p1', 'l1', [{ shot_id: 'sh1' }]).then(() => null, e => e)
+      expect(err, error.code).toBeInstanceOf(Error)
+      expect(err.code).toBe(error.code)
+      expect(err.message).toBe(`[supabase] ${error.message}`)
+    }
+  })
+
+  it('deleteShotListItems → DELETE shot_list_items WHERE shot_list_id = list AND id IN (ids) RETURNING id; answers { deleted }', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const adapter = install(rec)
+    // A repeat is sent once; a blank is not sent.
+    const out = await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i2', 'i1', null, ''])
+    expect(out).toStrictEqual({ deleted: ['i1', 'i2'] })
+    expect(rec.writes).toStrictEqual([{
+      table: 'shot_list_items', op: 'delete',
+      // The list filter is what leaves ANOTHER list's item alone when its id
+      // is named; `select('id')` makes the answer what was really deleted.
+      filters: [['eq', 'shot_list_id', 'l1'], ['in', 'id', ['i1', 'i2']]],
+      select: 'id',
+    }])
+    // Everything named was deleted: no second request.
+    expect(rec.reads).toEqual([])
+    expect(rec.rpcs).toEqual([])
+  })
+
+  it('an id not in the list is ignored: a shortfall on a LIVE list answers what was really deleted', async () => {
+    const rec = recordingClient(
+      { projects: PROJECT_ROW, shot_lists: { data: [{ id: 'l1', archived_at: null }], error: null } },
+      { perWrite: { shot_list_items: { data: [{ id: 'i1' }], error: null } } },
+    )
+    const adapter = install(rec)
+    expect(await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i-elsewhere'])).toStrictEqual({ deleted: ['i1'] })
+    expect(rec.reads).toEqual(['shot_lists'])
+  })
+
+  it('an ARCHIVED list is frozen (R1 addendum B): RLS filters the DELETE to nothing, and the adapter says why', async () => {
+    // 🚨 A DELETE whose rows fail a policy's USING clause is not REFUSED —
+    // the rows are invisible to it, and PostgREST answers 200 with []. Without
+    // the shortfall read this came back as { deleted: [] }, a quiet success,
+    // where the Local Server and the fixtures answer 409 with this sentence.
+    const rec = recordingClient(
+      { projects: PROJECT_ROW, shot_lists: { data: [{ id: 'l2', archived_at: '2026-09-30T00:00:00Z' }], error: null } },
+      { perWrite: { shot_list_items: { data: [], error: null } } },
+    )
+    const adapter = install(rec)
+    const err = await adapter.deleteShotListItems('p1', 'l2', ['i1', 'i2']).then(() => null, e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.code).toBe('42501')
+    expect(err.message).toBe('[supabase] this shot list is archived — restore it before changing it')
+  })
+
+  it('a list that is gone (or not visible) answers "shot list not found" (P0002, the RPCs\' answer)', async () => {
+    const rec = recordingClient(
+      { projects: PROJECT_ROW, shot_lists: { data: [], error: null } },
+      { perWrite: { shot_list_items: { data: [], error: null } } },
+    )
+    const adapter = install(rec)
+    const err = await adapter.deleteShotListItems('p1', 'l-gone', ['i1']).then(() => null, e => e)
+    expect(err.code).toBe('P0002')
+    expect(err.message).toBe('[supabase] shot list not found')
+  })
+
+  it('the shortfall read is best effort: when it fails, the rows really deleted are still the answer', async () => {
+    // The DELETE happened. Throwing the read's error would make the provider
+    // roll back items that are gone from the database.
+    const rec = recordingClient(
+      { projects: PROJECT_ROW, shot_lists: { data: null, error: { code: '08006', message: 'connection failure' } } },
+      { perWrite: { shot_list_items: { data: [{ id: 'i1' }], error: null } } },
+    )
+    const adapter = install(rec)
+    expect(await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i2'])).toStrictEqual({ deleted: ['i1'] })
+  })
+
+  it('a DELETE refused outright keeps its code, and nothing is read after it', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      perWrite: { shot_list_items: { data: null, error: { code: '42501', message: 'permission denied for table shot_list_items' } } },
+    })
+    const adapter = install(rec)
+    const err = await adapter.deleteShotListItems('p1', 'l1', ['i1']).then(() => null, e => e)
+    expect(err.code).toBe('42501')
+    expect(err.message).toBe('[supabase] permission denied for table shot_list_items')
+    expect(rec.reads).toEqual([])
+  })
+
+  it('refuses before any request: no list id (P0002), ids not an array (invalid); an empty list of ids sends nothing', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const adapter = install(rec)
+    // `.eq('shot_list_id', null)` would reach PostgREST as the TEXT 'null'.
+    const noList = await adapter.deleteShotListItems('p1', undefined, ['i1']).then(() => null, e => e)
+    expect(noList.code).toBe('P0002')
+    // A bare id string must not be read as "nothing to delete".
+    const notArray = await adapter.deleteShotListItems('p1', 'l1', 'i1').then(() => null, e => e)
+    expect(notArray.code).toBe('invalid')
+    expect(await adapter.deleteShotListItems('p1', 'l1', [])).toStrictEqual({ deleted: [] })
+    expect(rec.writes).toEqual([])
+    expect(rec.reads).toEqual([])
+  })
+
+  it('a database without 0084: a missing upsert_shot_list_items (PGRST202) or shot_list_items (PGRST205) is shot_lists_unavailable, and remembered', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.upsert_shot_list_items(p_items, p_list) in the schema cache' } }),
+    })
+    const adapter = install(rec)
+    const err = await adapter.upsertShotListItems('p1', 'l1', [{ shot_id: 'sh1' }]).then(() => null, e => e)
+    expect(err.code).toBe('shot_lists_unavailable')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await adapter.upsertTask({ id: 't1', project_id: 'p1', title: 'Grade', scene_id: 'sc1' })
+    expect(rec.writes[0].row).not.toHaveProperty('scene_id')
+
+    const rec2 = recordingClient({ projects: PROJECT_ROW }, { perWrite: { shot_list_items: MISSING_PGRST205('shot_list_items') } })
+    const adapter2 = install(rec2)
+    const gone = await adapter2.deleteShotListItems('p1', 'l1', ['i1']).then(() => null, e => e)
+    expect(gone.code).toBe('shot_lists_unavailable')
+    expect(gone.message).toBe('[supabase] Shot lists are not on this database yet (migration 0084).')
+    expect(rec2.reads).toEqual([])
+  })
+})
+
+describe('upsertShotList / upsertEdit send no audit or archive column (R1 addendum F)', () => {
+  const SERVER_OWNED = ['created_at', 'created_by', 'updated_at', 'updated_by', 'archived_at', 'archived_by']
+  const rest = (row) => Object.fromEntries(Object.entries(row).filter(([k]) => !SERVER_OWNED.includes(k)))
+
+  it('the six never go out; every other column still does', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const adapter = install(rec)
+    // The backfilled list, re-sent whole by a rename: created_by NULL (the
+    // migration had no auth.uid()). Forwarded, fn_audit_touch stamped the
+    // renamer into it and merge-duplicates wrote that over the NULL (cloud#4).
+    const list = {
+      id: 'l1', project_id: 'p1', workspace_id: 'w1', title: 'Shot list 1', version: 1,
+      summary: 'Created from existing scenes', snapshot: {},
+      archived_at: null, archived_by: null,
+      created_at: '2026-09-30T00:00:00Z', created_by: null,
+      updated_at: '2026-09-30T00:00:00Z', updated_by: null,
+    }
+    // An archived edit re-sent whole: unsent, its archived_at cannot trip the
+    // guard's archive-columns arm, so the frozen-row sentence answers (cloud#3).
+    const edit = {
+      id: 'e1', project_id: 'p1', workspace_id: 'w1', shot_list_id: 'l1',
+      title: 'Assembly', version: 2, summary: 'first pass', parent_edit_id: 'e0',
+      items: [{ id: 'ei1', scene_id: 'sc1', shot_id: 'sh1', label: 'Wide', notes: '' }], snapshot: null,
+      archived_at: '2026-09-30T01:00:00Z', archived_by: 'u9',
+      created_at: '2026-09-30T00:00:00Z', created_by: 'u1',
+      updated_at: '2026-09-30T00:00:00Z', updated_by: 'u1',
+    }
+    await adapter.upsertShotList(list)
+    await adapter.upsertEdit(edit)
+    expect(rec.writes.map(w => [w.table, w.op])).toEqual([['shot_lists', 'upsert'], ['edits', 'upsert']])
+    const [sentList, sentEdit] = rec.writes.map(w => w.row)
+    for (const k of SERVER_OWNED) {
+      expect(sentList, `the shot_lists upsert sent ${k}`).not.toHaveProperty(k)
+      expect(sentEdit, `the edits upsert sent ${k}`).not.toHaveProperty(k)
+    }
+    // The planted half: everything else goes out exactly as given.
+    expect(sentList).toStrictEqual(rest(list))
+    expect(sentEdit).toStrictEqual(rest(edit))
+    // Stripped BEFORE toColumns (the allowlists still list all six — they
+    // describe the table), so a whole-row re-send warns about nothing.
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('Google Drive: every cloud shot-list write is a LOUD read-only stub there', () => {
+  it('each shot-list write on supabaseAdapter has a googleDriveAdapter twin that throws readOnly', async () => {
+    const WRITE = /^(upsert|replace|delete|set|archive)(ShotList|ShotListItems|ActiveShotList|Edit)$/
+    const writes = Object.keys(supabaseAdapter()).filter(k => WRITE.test(k)).sort()
+    // The instrument finds them at all — round 1's two deltas included.
+    expect(writes).toEqual([
+      'archiveEdit', 'archiveShotList', 'deleteShotListItems', 'replaceShotListItems',
+      'setActiveShotList', 'upsertEdit', 'upsertShotList', 'upsertShotListItems',
+    ])
+    const drive = googleDriveAdapter()
+    for (const name of writes) {
+      // A missing stub would be a TypeError at the call site; a silent one
+      // would report a list as changed when nothing changed anywhere.
+      expect(typeof drive[name], `googleDriveAdapter has no ${name}`).toBe('function')
+      await expect(drive[name]('p1', 'l1', []), name).rejects.toThrow(`[gdrive] ${name}() — Google Drive adapter is read-only`)
+    }
   })
 })

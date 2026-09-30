@@ -36,6 +36,14 @@
 --     in shot_number order per scene, and a second call makes nothing.
 --   * Deleting the ACTIVE list clears the pointer through the FK's SET NULL
 --     without tripping the §7b guard.
+--   * REVIEW ROUND 1 (§7a, §10, the R1 addendum's D and F): a list cannot be
+--     INSERTED already archived (either column); an upsert re-send of an
+--     archived list that omits the archive columns (what the cloud adapter
+--     now sends) gets "this shot list is archived — restore it before
+--     changing it"; a plain UPDATE cannot restore; a workspace ADMIN with no
+--     seat activates, archives and restores (the RPCs' other leg); titles
+--     are stored trimmed, on INSERT and UPDATE, and the (title, version) key
+--     compares them trimmed.
 --   * anon holds nothing; no client role executes the backfill.
 --
 -- Postgres-side reads are ALWAYS scoped to fixture ids — dev carries real
@@ -45,7 +53,7 @@
 
 BEGIN;
 
-SELECT plan(67);
+SELECT plan(84);
 
 SELECT * FROM tests.rls_setup();
 
@@ -669,7 +677,186 @@ SELECT is(
   0, 'and the list''s items went with it (§4 CASCADE)');
 
 
--- ── 65-67: privileges (§9, §10, §11) ──────────────────────────────────────
+-- ── 65-81: REVIEW ROUND 1 (2026-09-30) ────────────────────────────────────
+-- What round 1 added to §7a, and the coverage its reviewers found missing:
+-- a list cannot be BORN archived (the INSERT arm); a re-send of an archived
+-- list through the cloud adapter's upsert — which now strips archived_at /
+-- archived_by (the R1 addendum's F) — meets the UPDATE arm and gets the
+-- sentence the Local Server and the fixtures answer with; a plain UPDATE
+-- cannot restore; the workspace-ADMIN leg of the RPCs' seat check (every
+-- probe above used the project manager's seat); titles stored trimmed (D).
+-- Still postgres here (62-64).
+
+-- 65: user_a is tests.rls_setup()'s workspace admin. That helper runs as
+-- postgres with no auth.uid(), so 0020's auto-staff seats nobody, and no
+-- probe above seats them — checked, not assumed, so the admin leg of §10's
+-- seat check is the only thing that can admit them below.
+SELECT is(
+  (SELECT count(*)::int FROM public.project_members
+    WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001'
+      AND user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  0, 'PRECONDITION: the workspace admin holds no seat on the staffed project_a');
+
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+-- 66-69: D8 — SET ACTIVE and ARCHIVE are the workspace admin's as well as
+-- the project manager's. The active list is a2 here (probe 51's CONTROL moved
+-- it), so a3 can be made active and a1 is free to archive.
+SELECT lives_ok(
+  $$SELECT public.set_active_shot_list('aaaa1111-0000-0000-0000-000000000001',
+                                       '84840000-0000-0000-0000-0000000000a3')$$,
+  'a workspace ADMIN with no seat sets the active list (§10a: the current_app_role() = ''admin'' leg, D8)');
+
+SELECT is(
+  (SELECT active_shot_list_id FROM public.projects
+    WHERE id = 'aaaa1111-0000-0000-0000-000000000001'),
+  '84840000-0000-0000-0000-0000000000a3'::uuid,
+  'and the pointer moved to a3');
+
+SELECT lives_ok(
+  $$SELECT public.archive_shot_list('84840000-0000-0000-0000-0000000000a1', true)$$,
+  'the same admin archives a NON-active list (§10b, D8)');
+
+SELECT ok(
+  (SELECT archived_at IS NOT NULL AND archived_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid
+     FROM public.shot_lists WHERE id = '84840000-0000-0000-0000-0000000000a1'),
+  'the archive stamped archived_at and archived_by = the admin (§10b)');
+
+-- 70-73: the REVIEWER, while a1 is archived.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+-- §7a's INSERT arm (the merge review of S3a's adapters: the guard was
+-- UPDATE-only, so a row that ARRIVED archived skipped the RPC). The insert
+-- policy admits a reviewer (probe 16), so the guard is all that stands here.
+SELECT throws_ok(
+  $$INSERT INTO public.shot_lists (id, project_id, title, version, archived_at)
+    VALUES ('84840000-0000-0000-0000-0000000001a1',
+            'aaaa1111-0000-0000-0000-000000000001', 'Born archived', 1, now())$$,
+  '42501', 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()',
+  'a reviewer cannot INSERT a list that is already archived (§7a''s INSERT arm)');
+
+SELECT throws_ok(
+  $$INSERT INTO public.shot_lists (id, project_id, title, version, archived_by)
+    VALUES ('84840000-0000-0000-0000-0000000001a2',
+            'aaaa1111-0000-0000-0000-000000000001', 'Born archived by', 1,
+            'cccccccc-cccc-cccc-cccc-cccccccccccc')$$,
+  '42501', 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()',
+  'nor one carrying only archived_by — the arm checks either column (§7a)');
+
+-- The upsert the cloud adapter sends (R1 addendum F): every payload column in
+-- the ON CONFLICT SET list and NO archive column, so the proposed row passes
+-- the INSERT arm and the conflict reaches the UPDATE arm, which refuses any
+-- change to an archived row — the same sentence as the other two backends.
+SELECT throws_ok(
+  $$INSERT INTO public.shot_lists (id, project_id, title, version, summary)
+    VALUES ('84840000-0000-0000-0000-0000000000a1',
+            'aaaa1111-0000-0000-0000-000000000001', 'Main cut', 1, 'Re-sent while archived')
+    ON CONFLICT (id) DO UPDATE
+       SET project_id = EXCLUDED.project_id, title = EXCLUDED.title,
+           version = EXCLUDED.version, summary = EXCLUDED.summary$$,
+  '42501', 'this shot list is archived — restore it before changing it',
+  'an upsert re-send of an ARCHIVED list that omits archived_at/archived_by gets the archived sentence (§7a UPDATE arm, R1-F)');
+
+-- CONTROL: the identical re-send of a LIVE list lives, so the refusal above
+-- is the archived arm, not the upsert's shape or the reviewer's seat.
+SELECT lives_ok(
+  $$INSERT INTO public.shot_lists (id, project_id, title, version, summary)
+    VALUES ('84840000-0000-0000-0000-0000000000a4',
+            'aaaa1111-0000-0000-0000-000000000001', 'Manager draft', 1, 'Re-sent while live')
+    ON CONFLICT (id) DO UPDATE
+       SET project_id = EXCLUDED.project_id, title = EXCLUDED.title,
+           version = EXCLUDED.version, summary = EXCLUDED.summary$$,
+  'CONTROL: the same re-send of a LIVE list lives');
+
+-- 74: the MEMBER tries the restore a plain UPDATE would be.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT throws_ok(
+  $$UPDATE public.shot_lists SET archived_at = NULL
+     WHERE id = '84840000-0000-0000-0000-0000000000a1'$$,
+  '42501', 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()',
+  'a member cannot RESTORE a list by clearing archived_at — only archive_shot_list() restores (§7a, D8)');
+
+-- 75-81: the ADMIN restores; then titles are stored trimmed.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT lives_ok(
+  $$SELECT public.archive_shot_list('84840000-0000-0000-0000-0000000000a1', false)$$,
+  'the admin restores the list (p_archived false, §10b)');
+
+SELECT ok(
+  (SELECT archived_at IS NULL AND archived_by IS NULL
+     FROM public.shot_lists WHERE id = '84840000-0000-0000-0000-0000000000a1'),
+  'the restore cleared archived_at and archived_by (§10b)');
+
+-- R1 addendum D: §7a stores the title trimmed on every path, so the
+-- (project, title, version) key compares what the Local Server and the
+-- provider compare. Untrimmed, "Reviewer cut " and "Reviewer cut" would be two
+-- lists that both render as "Reviewer cut · v1".
+SELECT lives_ok(
+  $$INSERT INTO public.shot_lists (id, project_id, title, version)
+    VALUES ('84840000-0000-0000-0000-0000000001a3',
+            'aaaa1111-0000-0000-0000-000000000001', '  Trimmed  ', 1)$$,
+  'a list titled with surrounding spaces is created (§7a, R1-D)');
+
+SELECT is(
+  (SELECT title FROM public.shot_lists WHERE id = '84840000-0000-0000-0000-0000000001a3'),
+  'Trimmed', 'and its title is stored trimmed');
+
+SELECT throws_ok(
+  $$INSERT INTO public.shot_lists (project_id, title, version)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', 'Reviewer cut ', 1)$$,
+  '23505', 'duplicate key value violates unique constraint "shot_lists_project_title_version_key"',
+  'a trailing-space twin of the existing "Reviewer cut · v1" collides — the key compares the TRIMMED title (R1-D)');
+
+SELECT lives_ok(
+  $$UPDATE public.shot_lists SET title = '  Manager cut  '
+     WHERE id = '84840000-0000-0000-0000-0000000000a4'$$,
+  'a rename with surrounding spaces lives (the UPDATE path)');
+
+SELECT is(
+  (SELECT title FROM public.shot_lists WHERE id = '84840000-0000-0000-0000-0000000000a4'),
+  'Manager cut', 'and the UPDATE path stores it trimmed too (§7a trims before any other check)');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+
+-- ── 82-84: privileges (§9, §10, §11) ──────────────────────────────────────
 -- 0011's blanket GRANT plus its default privileges left anon holding every
 -- privilege on 25 tables until 0033; a policy-only check passes while a
 -- privilege hole is wide open (S21).

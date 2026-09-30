@@ -387,6 +387,7 @@ const ACTIVATE = 'project.shotlist.activate'
 const SL_WRITE = 'project.shotlist.write'
 const ACTIVATE_REASON = 'Only a project manager or a workspace admin can make a shot list active or archive one.'
 const SL_WRITE_REASON = 'Only this project\'s managers, members and reviewers can change its shot lists and edits.'
+const REVIEWER_ENTITY_REASON = 'Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project\'s other items. Ask a project manager for a member or manager seat.'
 const OLDER_ACTIONS = PROJECT_ACTIONS.filter(a => a !== ACTIVATE && a !== SL_WRITE)
 
 describe('project.shotlist.* (0084, D8)', () => {
@@ -450,6 +451,29 @@ describe('project.shotlist.* (0084, D8)', () => {
     expect(canOnProject(reviewer, SL_WRITE)).toBe(true)
     expect(canOnProject(reviewer, 'project.entity.write')).toBe(false)
     expect(canOnProject(reviewer, ACTIVATE)).toBe(false)
+  })
+
+  it('the reviewer\'s entity-write denial tells the truth after D8 (review R1, scope#6)', () => {
+    // Before 0084 a reviewer was told they could "not change anything". Since
+    // D8 they build shot lists and edits, so that sentence became false —
+    // the drift the S29 rule exists to stop. The sentence must name what a
+    // reviewer CAN write and what stays closed, and still name the seat that
+    // would open the rest.
+    const reviewer = { appRole: 'user', projectRole: 'reviewer', isStaffed: true }
+    const reason = projectActionDeniedReason(reviewer, 'project.entity.write')
+    expect(reason).toBe(REVIEWER_ENTITY_REASON)
+    expect(reason).not.toMatch(/not change anything/i)
+    expect(reason).toMatch(/shot lists and edits/)
+    for (const closed of ['scenes', 'shots', 'tasks', 'budgets']) {
+      expect(reason, closed).toMatch(new RegExp(`\\b${closed}\\b`))
+    }
+    expect(reason).toMatch(/member or manager seat/)
+    // …and the two claims it makes are the matrix's own answers.
+    expect(canOnProject(reviewer, SL_WRITE)).toBe(true)
+    expect(canOnProject(reviewer, 'project.entity.write')).toBe(false)
+    // The unseated sentence is untouched: no seat still reads as no seat.
+    const unseated = { appRole: 'user', projectRole: null, isStaffed: true }
+    expect(projectActionDeniedReason(unseated, 'project.entity.write')).toMatch(/no seat/i)
   })
 
   it('write is denied only to someone with no (recognised) seat on a staffed project', () => {

@@ -114,35 +114,6 @@ export function backfillItems(scenes, shots) {
   return out
 }
 
-/**
- * The whole backfill for one project, as rows. `newId` mints ids; `now` is an
- * ISO timestamp. Returns { list, items } — the list is NOT active by itself;
- * the caller stamps project.active_shot_list_id.
- */
-export function backfillShotList({ projectId, scenes, shots, newId, now }) {
-  const list = {
-    id: newId(),
-    project_id: projectId,
-    title: SHOT_LIST_BACKFILL_TITLE,
-    version: 1,
-    summary: SHOT_LIST_BACKFILL_SUMMARY,
-    snapshot: {},
-    archived_at: null,
-    archived_by: null,
-    created_at: now,
-    updated_at: now,
-  }
-  const items = backfillItems(scenes, shots).map(it => ({
-    id: newId(),
-    shot_list_id: list.id,
-    project_id: projectId,
-    ...it,
-    created_at: now,
-    updated_at: now,
-  }))
-  return { list, items }
-}
-
 // ── selectors ───────────────────────────────────────────────────────────────
 
 export function itemsOf(items, listId) {
@@ -216,24 +187,63 @@ export function shotsOfList(shots, items, listId, scenes) {
     })
 }
 
+/** Scene ids that belong to SOME list (explicitly, or implied by one of their shots). */
+function listedSceneIds(shotListItems, shots) {
+  const set = new Set()
+  const shotById = new Map((shots || []).map(s => [s.id, s]))
+  for (const i of shotListItems || []) {
+    if (i.scene_id) set.add(i.scene_id)
+    else if (i.shot_id) {
+      const sc = shotById.get(i.shot_id)?.scene_id
+      if (sc) set.add(sc)
+    }
+  }
+  return set
+}
+
+function listedShotIds(shotListItems) {
+  return new Set((shotListItems || []).filter(i => i.shot_id).map(i => i.shot_id))
+}
+
 /**
- * ctx.scenes (D10): the ACTIVE list's scenes, in the order they were LOADED
- * (every existing view sorts by number itself, so the order it receives is
- * unchanged); every scene when the project has no active list.
+ * ctx.scenes (D10): the ACTIVE list's scenes PLUS every scene that belongs to
+ * NO list at all, in the order they were LOADED (every existing view sorts by
+ * number itself, so the order it receives is unchanged); every scene when the
+ * project has no active list (or names one this client has not loaded).
+ *
+ * Why "plus no list" (review round 1, three reviewers independently): D10 is
+ * about a scene another list HOLDS not showing where the active list rules. A
+ * scene in no list was put nowhere — a client older than 0084, a membership
+ * write that failed, an Excel-style import — and hiding it would lose it from
+ * every surface with no way back. Only rows another list holds are hidden.
  */
 export function activeScenesOf({ project, shotLists, shotListItems, scenes, shots }) {
   const active = activeShotListOf(project, shotLists)
   if (!active) return scenes || []
-  const ids = sceneIdSetOf(shotListItems, active.id, shots)
-  return (scenes || []).filter(s => ids.has(s.id))
+  const inActive = sceneIdSetOf(shotListItems, active.id, shots)
+  const listed = listedSceneIds(shotListItems, shots)
+  return (scenes || []).filter(s => inActive.has(s.id) || !listed.has(s.id))
 }
 
-/** ctx.shots (D10): the ACTIVE list's shots, load order; every shot when there is no active list. */
+/** ctx.shots (D10): the ACTIVE list's shots plus shots in NO list, load order; every shot when there is no active list. */
 export function activeShotsOf({ project, shotLists, shotListItems, shots }) {
   const active = activeShotListOf(project, shotLists)
   if (!active) return shots || []
-  const ids = shotIdSetOf(shotListItems, active.id)
-  return (shots || []).filter(s => ids.has(s.id))
+  const inActive = shotIdSetOf(shotListItems, active.id)
+  const listed = listedShotIds(shotListItems)
+  return (shots || []).filter(s => inActive.has(s.id) || !listed.has(s.id))
+}
+
+/** Scenes that belong to no list (S3b's "not in any list" bucket). */
+export function unlistedScenesOf({ shotListItems, scenes, shots }) {
+  const listed = listedSceneIds(shotListItems, shots)
+  return (scenes || []).filter(s => !listed.has(s.id))
+}
+
+/** Shots that belong to no list. */
+export function unlistedShotsOf({ shotListItems, shots }) {
+  const listed = listedShotIds(shotListItems)
+  return (shots || []).filter(s => !listed.has(s.id))
 }
 
 /**
@@ -266,6 +276,21 @@ export function editsOfList(edits, listId) {
   return (edits || [])
     .filter(e => e.shot_list_id === listId)
     .sort((a, b) => cmpText(a.created_at, b.created_at) || (Number(a.version) || 0) - (Number(b.version) || 0) || cmpText(a.id, b.id))
+}
+
+/**
+ * D6: a list's edits form ONE linear chain. The tip is the edit no other edit
+ * names as its parent — where the next edit continues. null for a list with
+ * no edits. (With the database's one-root / one-child indexes there is exactly
+ * one; if data ever disagrees, the newest childless edit wins.)
+ */
+export function editChainTip(edits, listId) {
+  const own = (edits || []).filter(e => e.shot_list_id === listId)
+  if (!own.length) return null
+  const parents = new Set(own.map(e => e.parent_edit_id).filter(Boolean))
+  const tips = own.filter(e => !parents.has(e.id))
+  const pool = tips.length ? tips : own
+  return pool.sort((a, b) => cmpText(b.created_at, a.created_at) || (Number(b.version) || 0) - (Number(a.version) || 0) || cmpText(b.id, a.id))[0]
 }
 
 export function nextEditVersion(edits, listId, title) {
@@ -380,7 +405,7 @@ export function planReorderList({ items, listId, shots, orderedIds }) {
     if (!it) throw new Error('That scene or shot is not in this shot list.')
     if (!named.includes(it)) named.push(it)
   }
-  if (!named.length) return { next: current }
+  if (!named.length) return { next: current, changed: [] }
   const kind = named[0].scene_id ? 'scene' : 'shot'
   const groupOf = (i) => (i.scene_id ? 'scene' : `shot:${shotById.get(i.shot_id)?.scene_id || ''}`)
   const group = groupOf(named[0])
@@ -392,8 +417,10 @@ export function planReorderList({ items, listId, shots, orderedIds }) {
   const rest = current
     .filter(i => groupOf(i) === group && !named.includes(i))
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  const before = new Map(current.map(i => [i.id, i.position]))
   ;[...named, ...rest].forEach((i, n) => { i.position = n })
-  return { next: current }
+  const changed = current.filter(i => before.get(i.id) !== i.position)
+  return { next: current, changed }
 }
 
 /** Copy one list's membership into another (D3: the SAME scene and shot rows, new item ids). */

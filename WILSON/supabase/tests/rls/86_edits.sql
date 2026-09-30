@@ -17,6 +17,16 @@
 --     nor call archive_edit (§10c's seat check), and no edit moves to
 --     another list. The PROJECT manager archives; an archived edit is frozen;
 --     restore works. authenticated holds no DELETE privilege at all.
+--   * D6's ONE LINEAR CHAIN (review round 1, §5's two partial unique indexes
+--     and §7a): a second root on a list and a second child of one parent are
+--     refused (23505), a child of the latest edit lives, and an edit's parent
+--     never changes after creation — the probe is the cycle round 1 found.
+--   * PRIVATE projects (§8's hop, §10c's passes_project_privacy): a second
+--     manager SEATED on a private project they did not create can neither
+--     add an edit to it nor archive one — each beside a CONTROL on the public
+--     project — and the refusals change nothing.
+--   * A workspace ADMIN with no seat archives and restores an edit (§10c's
+--     admin leg; every other archive probe uses the project manager's seat).
 --   * D17: deleting a shot leaves the edits that name it alone — the item
 --     stays, to be shown as "Missing shot" (why items are JSONB, not FKs).
 --   * Deleting a PARENT edit (as postgres; clients cannot) whose ARCHIVED
@@ -34,7 +44,7 @@
 
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(51);
 
 SELECT * FROM tests.rls_setup();
 
@@ -42,7 +52,11 @@ SELECT * FROM tests.rls_setup();
 -- project_a is STAFFED (suite 84's shape):
 --   user_c  app_role 'user', project_a REVIEWER -> edits yes (D8)
 --   user_d  app_role 'user', project_a MEMBER   -> edits yes, archive NO
---   user_e  app_role 'user', project_a MANAGER  -> archive YES
+--   user_e  app_role 'user', project_a MANAGER  -> archive YES; also seated
+--           MANAGER on the private project, which they did not create
+--   user_f  app_role 'manager', no seat on project_a; the private project's
+--           creator (85's shape: seeded as postgres with created_by named)
+--   user_a  tests.rls_setup()'s workspace ADMIN, seated nowhere
 INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data, aud, role,
                         instance_id, created_at, updated_at)
@@ -58,6 +72,10 @@ VALUES
   ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user_e@test.local',
    crypt('testpw', gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'user_f@test.local',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
    'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
 ON CONFLICT (id) DO NOTHING;
 
@@ -66,8 +84,16 @@ INSERT INTO public.workspace_members
 VALUES
   ('11111111-1111-1111-1111-111111111111','cccccccc-cccc-cccc-cccc-cccccccccccc','user','user_c','User C',true),
   ('11111111-1111-1111-1111-111111111111','dddddddd-dddd-dddd-dddd-dddddddddddd','user','user_d','User D',true),
-  ('11111111-1111-1111-1111-111111111111','eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee','user','user_e','User E',true)
+  ('11111111-1111-1111-1111-111111111111','eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee','user','user_e','User E',true),
+  ('11111111-1111-1111-1111-111111111111','ffffffff-ffff-ffff-ffff-ffffffffffff','manager','user_f','User F',true)
 ON CONFLICT (workspace_id, user_id) DO NOTHING;
+
+-- The private project, created_by user_f: the privacy arm (0072) reads
+-- created_by, so seeding it as postgres with the creator named is the row the
+-- client path writes (suite 84 walks that path; this suite needs the row).
+INSERT INTO public.projects (id, workspace_id, title, is_private, created_by)
+VALUES ('aaaa1111-0000-0000-0000-000000000086', '11111111-1111-1111-1111-111111111111',
+        'Private P86', true, 'ffffffff-ffff-ffff-ffff-ffffffffffff');
 
 INSERT INTO public.project_members
   (project_id, user_id, workspace_id, project_role)
@@ -77,6 +103,10 @@ VALUES
   ('aaaa1111-0000-0000-0000-000000000001', 'dddddddd-dddd-dddd-dddd-dddddddddddd',
    '11111111-1111-1111-1111-111111111111', 'member'),
   ('aaaa1111-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+   '11111111-1111-1111-1111-111111111111', 'manager'),
+  ('aaaa1111-0000-0000-0000-000000000086', 'ffffffff-ffff-ffff-ffff-ffffffffffff',
+   '11111111-1111-1111-1111-111111111111', 'manager'),
+  ('aaaa1111-0000-0000-0000-000000000086', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
    '11111111-1111-1111-1111-111111111111', 'manager')
 ON CONFLICT (project_id, user_id) DO UPDATE SET project_role = EXCLUDED.project_role;
 
@@ -101,6 +131,14 @@ VALUES ('86860000-0000-0000-0000-0000000000e1', 'aaaa1111-0000-0000-0000-0000000
         '[{"id": "86860000-0000-0000-0000-0000000001f1", "scene_id": "86860000-0000-0000-0000-0000000000c1", "shot_id": "86860000-0000-0000-0000-0000000000d1", "label": "1A", "notes": ""}]'::jsonb),
        ('86860000-0000-0000-0000-0000000000eb', 'aaaa1111-0000-0000-0000-000000000001',
         '86860000-0000-0000-0000-0000000000a2', 'Assembly', 1, '[]'::jsonb);
+
+-- The private project's list and its root edit (ef), for 32-36.
+INSERT INTO public.shot_lists (id, project_id, title, version)
+VALUES ('86860000-0000-0000-0000-0000000000af', 'aaaa1111-0000-0000-0000-000000000086', 'Private list', 1);
+
+INSERT INTO public.edits (id, project_id, shot_list_id, title, version, items)
+VALUES ('86860000-0000-0000-0000-0000000000ef', 'aaaa1111-0000-0000-0000-000000000086',
+        '86860000-0000-0000-0000-0000000000af', 'Private assembly', 1, '[]'::jsonb);
 
 
 -- ── 1-10: structure (§5, §7, §8, §10c) ────────────────────────────────────
@@ -237,7 +275,44 @@ SELECT is(
   3, 'and the three-item array landed');
 
 
--- ── 19-21: the MEMBER cannot archive, and no edit changes list ────────────
+-- ── 19-22: D6 — ONE linear chain per list (review round 1) ────────────────
+-- Still the reviewer. Main's chain is e1 -> e2. Round 1 found branches and
+-- cycles accepted; §5's two partial unique indexes now forbid a second root
+-- and a second child, and §7a fixes an edit's parent when it is made. Each
+-- title below is new to Main, so the one key a probe can trip is its own.
+
+SELECT throws_ok(
+  $$INSERT INTO public.edits (project_id, shot_list_id, title, version)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', '86860000-0000-0000-0000-0000000000a1',
+            'Second root', 1)$$,
+  '23505', 'duplicate key value violates unique constraint "edits_one_root_per_list_key"',
+  'a list has ONE root edit — a second parentless edit on Main is refused (§5, D6)');
+
+SELECT throws_ok(
+  $$INSERT INTO public.edits (project_id, shot_list_id, title, version, parent_edit_id)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', '86860000-0000-0000-0000-0000000000a1',
+            'Branch', 1, '86860000-0000-0000-0000-0000000000e1')$$,
+  '23505', 'duplicate key value violates unique constraint "edits_one_child_key"',
+  'an edit has ONE child — a second child of e1, which already has e2, is refused: no branches (§5, D6)');
+
+SELECT lives_ok(
+  $$INSERT INTO public.edits (id, project_id, shot_list_id, title, version, parent_edit_id)
+    VALUES ('86860000-0000-0000-0000-0000000000e3', 'aaaa1111-0000-0000-0000-000000000001',
+            '86860000-0000-0000-0000-0000000000a1', 'Continued', 1,
+            '86860000-0000-0000-0000-0000000000e2')$$,
+  'CONTROL: a child of the LATEST edit (e2) lives — the chain continues from its end');
+
+-- The cycle round 1 named, e1 -> e2 -> e3 -> e1. Nothing but the guard
+-- refuses it: e3 has no child yet, Main would merely have no root, and e3 is
+-- an edit of the same list, so the composite FK is satisfied.
+SELECT throws_ok(
+  $$UPDATE public.edits SET parent_edit_id = '86860000-0000-0000-0000-0000000000e3'
+     WHERE id = '86860000-0000-0000-0000-0000000000e1'$$,
+  '42501', 'an edit''s place in its chain cannot change',
+  'an edit''s parent cannot change after creation — here the change would close a cycle (§7a, D6)');
+
+
+-- ── 23-25: the MEMBER cannot archive, and no edit changes list ────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -268,7 +343,7 @@ SELECT throws_ok(
   'an edit cannot move to another list — the guard pins it (§7a)');
 
 
--- ── 22-27: the PROJECT manager archives, and the archive freezes ──────────
+-- ── 26-31: the PROJECT manager archives, and the archive freezes ──────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -312,7 +387,95 @@ SELECT throws_ok(
   'authenticated holds no DELETE privilege on edits — archived, never deleted (§9, D4/D18)');
 
 
--- ── 28-29: an admin of ANOTHER workspace ──────────────────────────────────
+-- ── 32-36: a PRIVATE project and a second manager seated on it ────────────
+-- 84/85's shape. Still user_e: a project MANAGER here and, seated by
+-- postgres, on the private project user_f created. can_edit_shot_lists and
+-- archive_edit's seat check both say yes to them there, so the only arm left
+-- to refuse them is privacy — §8's projects hop on the INSERT policy, and
+-- passes_project_privacy in archive_edit.
+
+-- 🚨 workspace_id is SENT (suite 82's note): the populate trigger reads
+-- projects as the caller and would fill nothing on a private project, and the
+-- row would then fail the WORKSPACE arm — a refusal for the wrong reason. The
+-- intruder continues the private list's chain from ef, so nothing but RLS
+-- stands in its way (a parentless one would meet the one-root index).
+SELECT throws_ok($$
+  INSERT INTO public.edits (id, workspace_id, project_id, shot_list_id, title, version, parent_edit_id)
+  VALUES ('86860000-0000-0000-0000-0000000000e9', '11111111-1111-1111-1111-111111111111',
+          'aaaa1111-0000-0000-0000-000000000086', '86860000-0000-0000-0000-0000000000af',
+          'Intruder cut', 1, '86860000-0000-0000-0000-0000000000ef')
+$$, '42501', NULL,
+  'a manager SEATED on a private project they did not create cannot add an edit to it (§8''s hop — the gate alone says yes)');
+
+SELECT lives_ok($$
+  INSERT INTO public.edits (id, workspace_id, project_id, shot_list_id, title, version, parent_edit_id)
+  VALUES ('86860000-0000-0000-0000-0000000000e8', '11111111-1111-1111-1111-111111111111',
+          'aaaa1111-0000-0000-0000-000000000001', '86860000-0000-0000-0000-0000000000a2',
+          'Second manager cut', 1, '86860000-0000-0000-0000-0000000000eb')
+$$, 'CONTROL: the same INSERT on the PUBLIC project''s list lives');
+
+SELECT throws_ok(
+  $$SELECT public.archive_edit('86860000-0000-0000-0000-0000000000ef', true)$$,
+  'P0002', 'edit not found',
+  'nor archive the private project''s edit — archive_edit''s passes_project_privacy, and no hint that it exists (§10c)');
+
+SELECT lives_ok(
+  $$SELECT public.archive_edit('86860000-0000-0000-0000-0000000000e8', true)$$,
+  'CONTROL: the same caller archives the PUBLIC project''s edit it just made');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- The refusals wrote nothing (read as postgres, scoped to fixture ids).
+SELECT ok(
+  (SELECT archived_at IS NULL FROM public.edits
+    WHERE id = '86860000-0000-0000-0000-0000000000ef')
+  AND NOT EXISTS (SELECT 1 FROM public.edits
+                   WHERE id = '86860000-0000-0000-0000-0000000000e9')
+  AND (SELECT archived_at IS NOT NULL FROM public.edits
+        WHERE id = '86860000-0000-0000-0000-0000000000e8'),
+  'the refusals changed nothing on the private project (its edit live, no intruder row), and the CONTROL archive landed');
+
+
+-- ── 37-41: a workspace ADMIN with no seat archives and restores ──────────
+-- D8's other leg: 26-30 used the project manager's seat. user_a is
+-- tests.rls_setup()'s admin; that helper runs as postgres with no auth.uid(),
+-- so 0020's auto-staff seats nobody — checked first, not assumed.
+SELECT is(
+  (SELECT count(*)::int FROM public.project_members
+    WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001'
+      AND user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  0, 'PRECONDITION: the workspace admin holds no seat on the staffed project_a');
+
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT lives_ok(
+  $$SELECT public.archive_edit('86860000-0000-0000-0000-0000000000eb', true)$$,
+  'a workspace ADMIN with no seat archives an edit (§10c: the current_app_role() = ''admin'' leg, D8)');
+
+SELECT ok(
+  (SELECT archived_at IS NOT NULL AND archived_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid
+     FROM public.edits WHERE id = '86860000-0000-0000-0000-0000000000eb'),
+  'the archive stamped archived_at and archived_by = the admin (§10c)');
+
+SELECT lives_ok(
+  $$SELECT public.archive_edit('86860000-0000-0000-0000-0000000000eb', false)$$,
+  'the admin restores it (p_archived false, §10c)');
+
+SELECT ok(
+  (SELECT archived_at IS NULL AND archived_by IS NULL
+     FROM public.edits WHERE id = '86860000-0000-0000-0000-0000000000eb'),
+  'the restore cleared archived_at and archived_by (§10c)');
+
+
+-- ── 42-43: an admin of ANOTHER workspace ──────────────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -337,7 +500,7 @@ SELECT throws_ok(
   'an admin of a different workspace cannot archive an edit here, and is not told it exists (§10c)');
 
 
--- ── 30-37: as postgres — D17, the nested SET NULL, the CASCADE, privileges
+-- ── 44-51: as postgres — D17, the nested SET NULL, the CASCADE, privileges
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;

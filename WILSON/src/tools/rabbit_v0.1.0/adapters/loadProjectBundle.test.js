@@ -251,11 +251,12 @@ describe('byMilestoneDate matches ORDER BY date, id', () => {
 
 // ── Shot lists, items and edits (post-overhaul S3a, 0084) ───────────────────
 //
-// The nine adapter methods the S3a contract gives every backend, driven
-// against a fetch spy: each must hit the route electron/rabbitShotLists.cjs
-// registers, with the verb and body that route reads. A wrong URL here is a
-// 404 on the desktop and nothing anywhere else — the routes' own test mounts
-// the module on a fresh app and never sees the adapter.
+// The eleven adapter methods the S3a contract (and its round-1 addendum, A:
+// the two membership DELTA writes) gives every backend, driven against a
+// fetch spy: each must hit the route electron/rabbitShotLists.cjs registers,
+// with the verb and body that route reads. A wrong URL here is a 404 on the
+// desktop and nothing anywhere else — the routes' own test mounts the module
+// on a fresh app and never sees the adapter.
 
 describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
   function spyFetch(reply = { ok: true }) {
@@ -345,6 +346,34 @@ describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
     const items = [{ id: 'i1', scene_id: 's1', position: 0 }, { shot_id: 'sh1' }]
     expect(await localServerAdapter().replaceShotListItems('p1', 'l1', items)).toEqual(rows)
     expect(calls).toEqual([{ method: 'PUT', url: '/api/rabbit/projects/p1/shot-lists/l1/items', body: { items } }])
+  })
+
+  it('upsertShotListItems POSTs { items } to …/shot-lists/:listId/items — the DELTA, not the whole-set PUT', async () => {
+    // Same URL as replace; the verb is the whole difference, and a PUT here
+    // would delete every row of the list this client did not name (R1
+    // provider#0) — so the method is pinned, not just the URL.
+    const rows = [{ id: 'i9', shot_list_id: 'l1', scene_id: 's2', shot_id: null, position: 4 }]
+    const calls = spyFetch(rows)
+    const items = [{ scene_id: 's2', position: 4 }]
+    expect(await localServerAdapter().upsertShotListItems('p1', 'l1', items)).toEqual(rows)
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items', body: { items } }])
+  })
+
+  it('deleteShotListItems POSTs { ids } to …/shot-lists/:listId/items/delete and answers { deleted }', async () => {
+    const calls = spyFetch({ deleted: ['i1'] })
+    expect(await localServerAdapter().deleteShotListItems('p1', 'l1', ['i1', 'i2'])).toEqual({ deleted: ['i1'] })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items/delete', body: { ids: ['i1', 'i2'] } }])
+  })
+
+  it('an archived list\'s refusal of a delta arrives with its status and code (addendum B)', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 409, headers: { get: () => 'application/json' },
+      json: async () => ({ error: 'this shot list is archived — restore it before changing it', code: 'conflict' }),
+    }))
+    const err = await localServerAdapter().upsertShotListItems('p1', 'l1', [{ scene_id: 's1' }]).catch(e => e)
+    expect(err.status).toBe(409)
+    expect(err.code).toBe('conflict')
+    expect(err.message).toBe('[localServer] this shot list is archived — restore it before changing it')
   })
 
   it('setActiveShotList POSTs { listId } and answers the new active id', async () => {
