@@ -151,9 +151,17 @@ Window close is intercepted and handed to the renderer as a `close-requested`
 event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
 flag before `quitAndInstall()`.
 
-There is **no single-instance lock**: `app.requestSingleInstanceLock()` does not
-appear anywhere, so two copies can run against the same `userData` directory,
-each with its own Express port. (Tracked; see §17.)
+**Single instance (B3, 2026-09-07).** `app.requestSingleInstanceLock()` is taken
+immediately after the Squirrel guard — after, because an installer run is a
+legitimate second process. A second launch quits, and the running app's
+`second-instance` handler restores, shows and focuses the existing window; the
+flag is checked again at `whenReady` because `app.quit()` only STARTS the
+shutdown. Before this, two copies ran against the same `userData` directory,
+each with its own Express port, writing the same `otter-data/` and
+`rabbit-data/` JSON with last-writer-wins and no lock. MEASURED: no URL scheme
+is registered anywhere (`setAsDefaultProtocolClient` appears in no file, and
+neither packager declares one), so there is no deep link to forward yet; the
+handler is where one lands.
 
 #### The local Express server
 
@@ -163,10 +171,10 @@ Created inside `startLocalServer(distPath)` (`main.cjs:140-2086`).
 |---|---|---|
 | Bind | `listen(0, '127.0.0.1')` — **loopback only**, never reachable off-host | `main.cjs:2079` |
 | Port | OS-assigned ephemeral; read back and used as the window's own origin, so no port-discovery IPC exists | `main.cjs:2079-2082, 2121` |
-| CORS | `app.use(cors())` — no options, fully permissive | `main.cjs:143` |
+| CORS | Narrowed (B3) to the renderer's own origin, `credentials: true`; a missing `Origin` is allowed because a same-origin `fetch`, a plain `<img>` and a `<video crossOrigin>` all send none | `electron/localToken.cjs` `localCorsOptions` |
 | Body limit | `express.json({ limit: '50mb' })`; no multipart parser — uploads ride base64 inside JSON | `main.cjs:144` |
 | Static | `express.static(dist)` + an Express-5 catch-all `GET /{*splat}` → `index.html` | `main.cjs:2074-2077` |
-| Authentication | **None.** See the honesty note below. | — |
+| Authentication | **A per-launch token on every `/api` route** (B3): 32 random bytes, header `x-wilson-local-token` OR an httpOnly cookie, constant-time compare, bare 401. Static shell deliberately unguarded | `electron/localToken.cjs`, `src/lib/localServerFetch.js` |
 
 **Route families** — 89 literal route registrations; a generic sub-entity
 factory (18 entity names × 3 verbs) and a 4-entity thumbnail loop expand that to
@@ -197,13 +205,44 @@ roughly 144 endpoints at runtime.
 > called at `:2475`) unlinks `{userData}/otter-data/wilson-auth.json`, because
 > deleting code does not delete data.
 
-**Honesty note on the local server's security model.** The Express server is
-unauthenticated and mounts bare `cors()`. It is loopback-bound, so the exposure
-is to *other local processes and to web pages loaded in the user's own browser
-that can guess the ephemeral port* — not to the network. This is a known,
-tracked posture (TPN-NET-001; `/api/fetch-url` and `/api/fetch-raw` also accept
-arbitrary URLs with no allow-list — TPN-NET-002). Two route families do defend
-themselves, and the pattern is worth copying:
+**The local server's security model (rewritten by B3, 2026-09-07).** The Express
+server now requires a **per-launch token on every `/api` route** — Audrey's
+decision 21. `electron/localToken.cjs` is the whole of it: 32 random bytes
+minted in `startLocalServer`, one middleware mounted ahead of every route and
+**before `express.json`** (so an unauthenticated caller cannot make main buffer
+50 MB before being refused), accepting the header **or** the cookie, comparing
+in constant time, refusing with a bare 401 and no body.
+
+Two ways in, because two kinds of caller exist. The **header**
+(`x-wilson-local-token`) is attached by `src/lib/localServerFetch.js` from the
+token `preload.cjs` hands the renderer — and **only** to a same-origin URL,
+because `otterFetch` falls through to raw `fetch` for anything it does not
+recognise and `fetchImpl` is injected from outside in two more places, so an
+unconditional helper would post the launch secret to whatever host a widened
+call site named. The **cookie** is httpOnly, set on the loopback origin from
+main and awaited *before* `loadURL`; it is what carries `FileThumbnail`'s
+`<img src>`, `VideoPreview`'s `<video src>` and the hidden `<video>`
+`videoThumbnails.js` decodes frames from — element loads that cannot set a
+header.
+
+🚨 **The static shell and the SPA fallback are deliberately NOT guarded.** They
+serve `dist/` — the app's own built code, byte-identical on every machine and
+already in the installer on disk. The content TPN-NET is about is all under
+`/api`. Guarding them would turn a failed `cookies.set()` into a white window
+instead of a degraded feature. A local process that loads the shell gets a UI
+whose every call answers 401.
+
+🚨 **CORS is not the gate.** A non-browser caller ignores every CORS header;
+the narrowed allowlist only stops a page in the user's ordinary browser from
+*reading* a response it provoked. The token is the gate.
+
+Residual, recorded rather than mitigated: cookies are scoped by host and not by
+port, so the loopback cookie is offered to anything else listening on
+127.0.0.1 that this renderer contacts — it contacts nothing else, and the token
+is useless without the port. `/api/fetch-url` and `/api/fetch-raw` still accept
+arbitrary URLs with no allow-list (TPN-NET-002), but they are now behind the
+token. Two route families defend themselves in depth, and the pattern is worth
+copying:
 
 - `resolveContainedFilePath(baseDir, relPath)` (`electron/pathContainment.cjs`
   since S33, required by `main.cjs`; unit-tested in
@@ -3613,11 +3652,15 @@ of a session — this section is limits by design, that file is faults.
 
 **Video (S40) — §12.7c carries the detail**
 
-- 🚨 **The local Express server has NO authentication**, and since S40 it serves
-  **original media bytes** with Range support, not just manifests and 256px
-  derivatives. Loopback-bound, `cors()` with `Access-Control-Allow-Origin: *`,
-  ~94 routes. Tracked in `OUTSTANDING.md`; the fix is a per-launch bearer token
-  and it is its own session.
+- ✅ **The local Express server is authenticated (B3, 2026-09-07).** Its
+  `managed-files/:id/stream` route still serves **original media bytes** with
+  Range support — that is the feature — but every one of the ~94 `/api` routes
+  now demands the per-launch token, and `cors()` answers the renderer's own
+  origin instead of `*`. Measured on the running app: `GET
+  /api/rabbit/projects` from a process outside Electron returned the project
+  list before and returns 401 with an empty body after. See "The local server's
+  security model" above for the two arms and for what is deliberately left
+  unguarded.
 - **s3 video playback and s3 still-display are deferred**, matching S44's
   decision for images: no batch presign, a 300 s presigned-GET expiry against a
   3600 s Supabase one, and no S3 workspace anywhere to verify either against.
@@ -3982,19 +4025,109 @@ of a session — this section is limits by design, that file is faults.
   `platform_audit`'s action CHECK has no value that would let them
   (TPN-LOG-007). The same CHECK reserves `operator.granted` / `operator.revoked`,
   which nothing emits.
-- `resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
-  (client-supplied, spoofable) where `provision-workspace` correctly uses the
-  last (TPN-NET-004); both still use per-isolate in-memory buckets
-  (TPN-NET-005), and six other functions have no limiter at all.
+- ~~`resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
+  (client-supplied, spoofable) … both still use per-isolate in-memory buckets
+  (TPN-NET-005)~~ ✅ **CLOSED for `resolve-login` by Track B bundle B1
+  (2026-09-06).** It keys on Cloudflare's `cf-connecting-ip` (fallback: the
+  X-Forwarded-For hop BEFORE the platform relay) and counts through the
+  durable `fn_rate_limit_hit` (0028) in two buckets — `resolve-login:company`
+  (20/min/IP) and `resolve-login:user` (30/min/IP), both env-tunable — with
+  the shared limiter's new `{ failOpen: false }`, so a limiter that cannot
+  count refuses rather than waves through (TPN-NET-011's constraint for a
+  pre-auth path). A throttled caller gets 429 and the screen says `TOO MANY
+  ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.`; that status depends only on the
+  caller's own count in the window, never on whether a name exists.
+  `provision-workspace` is out of the source tree (S43); six other functions
+  still have no limiter at all. 🚨 **"Take the LAST X-Forwarded-For hop" is
+  WRONG on this platform** — measured in B1 with a throwaway header-echo
+  function: the chain is `<caller-supplied…>, <client via Cloudflare>,
+  <client via the AWS balancer>, <13.248.0.0/14 relay>`, so the last hop is
+  Supabase's own relay and varies per request. Keyed on it, 22 requests from
+  one machine spread over ten limiter rows and nothing was refused; and a
+  relay's pooled counter would eventually refuse every customer behind it.
+  Do not copy the S9 `provision-workspace` recipe anywhere.
+- **Accepted, rate-limited disclosure: the company step is a company-existence
+  oracle** (Track B bundle B1; Audrey's ruling, fix plan answer 34 — "the
+  system should confirm the company listed first exists and is real"). Step 1
+  of sign-in asks `resolve-login` whether the typed company exists and gets a
+  boolean plus the canonical slug back. Anyone holding the anon key — which
+  the web app ships — can therefore test whether a name is a Petal customer,
+  at up to 20 names per minute per address, each behind a response-time
+  floor that today's round trip exceeds (equal timing for a hit and a miss
+  is measured, not enforced — see `resolve-login`'s header). A `*` in the
+  typed name is NOT a wildcard: PostgREST aliases `*` to `%` in an `ilike`
+  pattern, and B1's review round R1 measured `smo*` resolving the smoke
+  workspace and returning its slug (dev v8); the resolver now folds `*` to a
+  one-character `_` and re-checks the returned names for equality, so the
+  step answers for the exact name typed, or for whatever slugifies to the
+  exact slug (`smoke!` finds `smoke`; `pet*` does not find `petal`), and
+  nothing wider. Scenario 5 of `tests/e2e/auth.spec.ts` and the limiter
+  probe both submit the display name minus its last character plus `*` —
+  the one input only the re-check turns into a miss (R2).
+  What it does NOT reveal: status (a suspended, soft-deleted workspace answers
+  exactly like a name that never existed — one wording, `COMPANY NOT
+  FOUND.`), members, counts, or anything about a person; the username path's
+  enumeration defence (uniform wording, fake-email sign-in, constant time) is
+  untouched and pinned by a Playwright scenario. The alternative — never
+  checking — shipped for one S43 commit and signed people into the wrong
+  company; she chose the oracle with the trade-off on the table. Recorded as
+  `TPN-AUTH-009` in `TPN_AUDIT/FINDINGS.md`.
+- **Authentication events are logged server-side since 0070 (Track B bundle
+  B2, part 1) — and the hooks that feed them are a per-project dashboard
+  switch.** Measured before building: hosted GoTrue writes NOTHING to
+  `auth.audit_log_entries` (0 rows on dev beside 1,101 sessions; 0 on staging
+  beside 26) and `auth.mfa_challenges` is empty too, so the brief's reader had
+  nothing to read. `public.auth_events` (FORCE RLS) takes `sign_in` and
+  `mfa_verify` success/failure rows from `hook_password_verification_attempt`
+  and `hook_mfa_verification_attempt` (SECURITY DEFINER, executable by
+  `supabase_auth_admin` only, always `{"decision":"continue"}` — logging
+  hooks, never lockout hooks), and `sign_in` / `sign_out` / `idle_timeout` /
+  `session_cap` rows the CLIENT inserts, stamped by `trg_auth_events_stamp`
+  from the JWT and `auth.sessions` (user, company, session id, address, user
+  agent) so the body can name nobody but the caller. Reads: an operator sees
+  everything, a person their own rows, a workspace admin their company's rows
+  plus the hook rows of its members. Residuals, on purpose: hook rows carry no
+  address (GoTrue passes none; the client's own `sign_in` row is where the
+  address lives); a person in two companies has their hook rows visible to
+  the admins of both (GoTrue does not know which company a password check was
+  for); an unknown username never reaches GoTrue and lives in
+  `auth_attempt_log` instead. Until the two hooks are enabled in each
+  project's dashboard (OWED_AUDREY §14) the functions are inert and only
+  client rows flow. Suite 74 pins all of it. **Part 2 shipped (2026-09-06):**
+  the client writes `sign_in` (after a completed sign-in), `sign_out`,
+  `idle_timeout` and `session_cap` rows with `context.surface` (`app` /
+  `admin`); the idle warning at 25 minutes and sign-out at 30, and the 4-hour
+  cap with a 5-minute notice — wall-clock, evaluated on a tick, on activity
+  and on every return to visibility (`sessionTimeouts.js`), with clocks that
+  hang off each surface's own session key, shared by two tabs of one surface
+  on purpose and never across surfaces; `WIL-1002` on both expiries; Admin
+  Terminal → Logs → Sign-ins and the operator console's Sign-ins (filtered to
+  `platform_operators`); and **0071**, which confines the admin arm's
+  membership clause to hook rows — 0070's applied to every row, so an admin
+  of company A could read a shared member's client rows, address included,
+  for company B. The connection-lost banner: `connectionWatchdog.js` wraps
+  the one fetch supabase-js uses and raises "Connection lost — reload to
+  continue" when an auth, PostgREST or storage-download request is pending
+  past 20 s while `navigator.onLine` is true; uploads, the resumable path and
+  every Edge Function call (all raw fetch) are outside it by construction;
+  reproduction in `scripts/probes/connection-hang.mjs`. Reconnect without a
+  reload is deferred (fix plan answer 10).
 
 **Correctness**
 
-- A username that collides across two workspaces makes sign-in unreachable: the
-  resolver treats "two matches" as a miss unless a workspace slug disambiguates,
-  and the login screen has no slug field. (The resolver already accepts the
-  slug and the client already has the parameter — only the form field is
-  missing, and adding one changes the first screen every user sees, which is
-  why S17 left it.)
+- ~~A username that collides across two workspaces makes sign-in unreachable~~
+  ✅ **CLOSED (S43 `bec9185` / `158172c`, finished by Track B bundle B1,
+  2026-09-06).** Sign-in is company-first: step 1 verifies the company and
+  captures its canonical slug, step 2 sends username + password scoped to
+  it, so the resolver's "two matches is a miss" branch is unreachable from
+  the client. The same username in two companies is two different people
+  (Audrey: "two files with the exact name as long as they are in a different
+  folder"); `UNIQUE (workspace_id, username)` has said so since 0001, and
+  `admin-create-user` / `invite-member` both pre-flight it into a
+  `username_taken` 409 rather than a raw constraint error. The branch stays
+  for older clients and for the CI smoke probe, which resolve by username
+  alone. The company is remembered per device and a `?company=` deep link
+  pre-fills it; neither skips the verification.
 - `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup
   **failed**" lands in the log stream indistinguishable from the success line.
   One line to fix — but `adminGuard.ts` is bundled by nine Edge Functions, so
@@ -4105,8 +4238,10 @@ documentation and starts being wrong answers.
   `storage-gc`, a *destruction risk* that would have deleted every project's
   manifest and rates mirror (§12.4). **A gap in what a sweep can SEE is also a
   gap in what a collector can KEEP — read every such note in both directions.**
-- **No single-instance lock** in Electron; two copies can run against one
-  `userData` directory.
+- ~~**No single-instance lock** in Electron; two copies can run against one
+  `userData` directory.~~ **Closed by B3 (2026-09-07)** —
+  `app.requestSingleInstanceLock()`; a second launch quits and focuses the
+  running window.
 - **Realtime probes are lenient in CI** by design — there is no realtime
   service in the CI stack; hosted coverage comes from live probes.
 - **WILSON never enumerates a customer's bucket (S37)** — read this one in

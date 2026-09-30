@@ -476,6 +476,8 @@ Severity revised to **HIGH**.
 
 The last_auth_at pseudo-session is gone with the module (electron/main.cjs:612-637). Real session management now exists: Supabase mints cryptographically random ES256 JWTs, access-token lifetime is 3600s (supabase/config.toml:27 jwt_expiry), the SDK rotates refresh tokens (src/cloud/auth/supabaseClient.js:39-46, autoRefreshToken:true, persistSession:false) and re-persists on TOKEN_REFRESHED (supabaseClient.js:51-55). Electron stores the session encrypted through the safeStorage/OS-keychain preload bridge (sessionStorage.js:55-57). Surface isolation between /wilson and /wilsonadmin is build-time and correct (sessionStorage.js:39-51, supabaseClient.js:44). STILL OPEN against AS-3.8: (1) NO idle timeout of any kind — `rg -ni "idle|inactivit|auto.?logout|sessionTimeout"` over src/ and electron/ returns only UI animation states (App.jsx:206, AuthShell.jsx:42, RelinkDialog.jsx:47 etc.); nothing tracks user inactivity, so the required 30-minute idle expiry does not exist. (2) NO absolute session cap — refresh rotation is unbounded, so there is no forced re-auth at 4 hours; config.toml sets no session time-box and Supabase's inactivity/time-box settings are not asserted anywhere in repo config. (3) NO concurrent-session control — `rg -ni "concurrent.session|single.session"` returns zero hits; nothing calls auth.admin.signOut() anywhere in supabase/functions/. (4) NO failed-attempt lockout (see TPN-AUTH-002 rationale (d)). (5) On the S12 web build (beta.petalstudios.co/wilson) the rotating refresh token is written to localStorage in cleartext — sessionStorage.js:60 `localStorage.setItem(STORAGE_KEY, JSON.stringify(session))`, read back at :69 — not an httpOnly, Secure, non-persistent cookie. The code comment at sessionStorage.js:6-11 argues this is unavoidable on a static host and that 'the token is a short-lived JWT + rotating refresh token, not a credential'; that is a reasonable engineering call but it is not a TPN-satisfying one, and it is NOT one of the risk-acceptances recorded in LEARNINGS.md, so it stays open.
 
+**Partly addressed — Track B bundle B2, part 2 (2026-09-06).** Against AS-3.8's list: **(1) idle timeout — done, client-side, both surfaces:** `src/cloud/auth/sessionTimeouts.js` warns at 25 minutes without pointer/key/wheel/touch activity and signs out at 30 with `scope: 'local'`, wall-clock (a tick, every activity while warned, every return to visibility — judged before it counts), clocks under each surface's own storage key so `/wilson` and `/wilsonadmin` cannot keep each other alive; the login screen states the reason and an `idle_timeout` row lands in `auth_events` plus `WIL-1002` in `app_events`. **(2) absolute cap — done: 4 hours** from sign-in regardless of activity, keyed by the JWT's `session_id` so a reload does not restart it, with a 5-minute notice; `session_cap` row, `WIL-1002`, reason on the login screen. Pinned by `sessionTimeouts.test.js` and `tests/e2e/sessions.spec.ts`. The server-side halves — Supabase's per-project *time-box* and *inactivity* settings — are Audrey's dashboard step (OWED_AUDREY §14) and are what makes the control hold against a client that does not run this code. **(3) concurrent-session control — still open. (4) lockout — still open** (see TPN-AUTH-002). **(5) web refresh token in localStorage — accepted by Audrey (fix plan answer 25), recorded there.** Session IDs are GoTrue's and rotate on refresh; the client now reads `session_id` from the token for the cap clock and the stamp trigger records it on every client `auth_events` row (0070).
+
 ---
 
 ## TPN-AUTH-005 — No RBAC; every authenticated user has full privilege
@@ -589,6 +591,43 @@ opened: 2026-07-30
 
 ---
 
+## TPN-AUTH-009 — The company step of sign-in is a company-existence oracle (accepted, rate-limited)
+
+```yaml
+id: TPN-AUTH-009
+severity: LOW
+control: AS-3.8
+domain: auth
+title: The company step of sign-in is a company-existence oracle (accepted, rate-limited)
+location: supabase/functions/resolve-login/index.ts (the company branch); src/cloud/auth/LoginScreen.jsx handleCompanySubmit
+evidence: |
+  // resolve-login/index.ts — the company branch answers, in constant time,
+  //   { exists: boolean, slug: string | null, v: 2 }
+  // to any caller holding the anon key, which the web app ships.
+required: |
+  AS-3.8: a pre-authentication endpoint discloses no more than the workflow needs, and what it does disclose is rate-limited and logged.
+gap: |
+  Recording an ACCEPTED disclosure, not a defect owed a fix.
+
+  Audrey's ruling (2026-08-10, reaffirmed 2026-09-04 as fix-plan answer 34): "the system should confirm the company listed first exists and is real, after it makes sure the company exists THEN it should pull from that companies list." The alternative — a company step that verifies nothing — shipped for one S43 commit and signed people into the wrong company; she chose the oracle with the trade-off on the table.
+
+  What it discloses: whether a typed name (display name or slug) is an existing, non-suspended workspace — at most 20 answers per minute per client address (`resolve-login:company`, durable, fail-closed, keyed on `cf-connecting-ip`), each behind a 180 ms response-time floor that today's ~320 ms round trip exceeds — so equal timing for a hit and a miss is MEASURED (B1 review round R1, wilson-dev, eight samples each: medians 326 ms and 329 ms), not enforced by the floor — each logged to auth_attempt_log with that address.
+
+  What it does NOT disclose: status (a suspended, soft-deleted workspace answers exactly like a name that never existed — one wording on screen, `COMPANY NOT FOUND.`), members, counts, the display name behind a slug or the slug behind a name beyond the one the caller typed, or anything about a person. The username path's defence — one generic wording, a fake-email sign-in so an unknown username costs the same as a known one, constant time — is untouched, and tests/e2e/auth.spec.ts scenario 4 pins the wording.
+
+  Residual: an actor with many addresses can enumerate customer names faster than 20 per minute. Accepted. Revisit if the customer list ever becomes commercially sensitive; the step could then accept only the slug (an identifier the company hands out) and stop matching display names, at the cost of every user having to know it.
+effort: none
+blocks_tier: none
+recommendation_ref: RECO-NET-SEG
+opened: 2026-09-06
+```
+
+**Opened by Track B bundle B1 (2026-09-06)** to record a product decision, as the B1 brief required: "record the residual risk … in the TPN pack as an accepted, rate-limited disclosure." (`TPN-AUTH-008` was merged into TPN-NET-005 during the 2026-07-30 re-audit, hence the gap in numbering.)
+
+**B1 review round R1 (2026-09-06) — the disclosure was wider than recorded, and was narrowed back (the commit after `397afef` on `track-b-auth`).** The name match is a PostgREST `ilike` with `%`, `_` and `\` escaped, but PostgREST also reads `*` as an alias of `%` in that filter and rewrites it before Postgres sees it. Measured on wilson-dev v8: `smo*`, `Smoke Work*` and `S*e Workspace` all answered `exists:true` with the smoke workspace's slug, so the step was a pattern search over customer names that handed back slugs the caller never typed — "the slug behind a name beyond the one the caller typed" was exactly what it disclosed. Fixed in `resolve-login` (dev v9, staging v11): `*` folds to a one-character `_` and the rows the pattern returns are re-checked for case-insensitive equality with the typed name, so the answer is about the exact name typed — or whatever slugifies to the exact slug, since the slug path was always punctuation-insensitive (`smoke!` finds `smoke`; that is not a search: `pet*` does not find `petal`). R2 then found both controls too weak — a three-letter prefix plus `*` already misses at the database, so they stayed green with the re-check deleted — and they now submit the display name minus its last character plus `*` (`Smoke Workspac*`), the one input only the re-check turns into a miss: `scripts/probes/resolve-login-limiter.mjs` (inert unless the fixture resolved on that project; a 429 is "not run", never a pass) and scenario 5 of `tests/e2e/auth.spec.ts`. The R2 commit is dev v10 / staging v12. The paragraph above is accurate again.
+
+---
+
 ## TPN-NET-001 — CORS wildcard-open on local Express server
 
 ```yaml
@@ -627,6 +666,52 @@ Unchanged. `expressApp.use(cors());` is still the first middleware on the embedd
 What DID change, and why it does not resolve the finding: (a) the server binds loopback + an EPHEMERAL port (`expressApp.listen(0, '127.0.0.1')`, main.cjs:2079), so it is not LAN-reachable and the port is not fixed; (b) the auth routes the baseline named as the CORS payload (/api/auth/session|verify|change) were deleted in S15 (main.cjs:612-637 is the tombstone comment). Both narrow the blast radius; neither restores default-deny.
 
 Residual exposure is still HIGH because ~80 unauthenticated routes remain and several are content-bearing or destructive: file download `/api/rabbit/projects/:projectId/files/:id/download` (main.cjs:1341), file delete (:1368), project delete (:1078), managed-file import-folder (:1806), relink-apply (:1500), full `/api/export-all` (:553). Because ACAO is `*`, a page the user visits can READ every response, which makes port discovery a straightforward loop over the ephemeral range rather than a blind write — the wildcard is what turns the random port from a secret into a speed bump. The S14 authors themselves rely on this being true: main.cjs:929 reasons about relink safety with the words "the Express server answers any local origin (cors())".
+
+
+**✅ FIXED — Track B bundle B3 (2026-09-07).** Both halves of the gap are closed,
+and the token — not the CORS change — is the control.
+
+* **Default-deny on the API boundary.** `electron/localToken.cjs` mints 32
+  random bytes per launch and mounts ONE middleware ahead of every route (and
+  ahead of `express.json`, so an unauthenticated caller cannot make the main
+  process buffer 50 MB before being refused). Every one of the ~94 `/api`
+  routes — including all six this finding named as content-bearing or
+  destructive — answers **401 with an empty body** without it. Accepted from a
+  header (`x-wilson-local-token`, attached by `src/lib/localServerFetch.js` from
+  the preload bridge) or from an httpOnly cookie set on the loopback origin
+  (which is what carries `<img>` and `<video>` loads, which cannot set a
+  header). Constant-time compare.
+* **The wildcard is gone.** `cors()` now answers only the renderer's own
+  origin, with `credentials: true`. 🚨 Recorded plainly because this finding's
+  own framing invites the opposite conclusion: **CORS is defence in depth here,
+  not the gate.** A non-browser caller — the "malicious postinstall" case —
+  ignores every CORS header, so narrowing ACAO alone would have left the
+  finding open. What it does close is precisely the vector the gap describes: a
+  page the user visits can no longer READ a response, so the ephemeral port
+  stops being merely "a speed bump".
+* `main.cjs`'s S14 relink comments that reasoned from *"the Express server
+  answers any local origin (cors())"* are no longer true of the `/api` surface.
+
+**Deliberately still open, and it is a scope decision, not an oversight:** the
+static bundle (`express.static(dist)`) and the SPA fallback are NOT guarded.
+They serve the app's own built code, byte-identical on every machine and
+already present in the installer on disk; the content this domain protects is
+all under `/api`. Guarding them would make a failed `cookies.set()` a white
+window rather than a degraded feature. A local process that loads the shell
+gets a UI whose every call answers 401.
+
+**Verification** — `scripts/local-server-lock-harness.mjs` (**31 checks** over a
+real socket, nine of them raw-socket request-target probes, plus a control that
+must fail; runs in CI's Vitest job), and by running the desktop app: from a process outside Electron, `GET
+/api/rabbit/projects` returned the project list before and returns 401 with an
+empty body after; with the header or the cookie it returns 200.
+
+**LEARNINGS.md re-audit checklist item 6** (`rg -n "expressApp\.use\(cors\(\)\)"`
+should return zero): no live code matches. ⚠️ Read the one hit it does return
+before concluding anything — it is the header comment in
+`electron/localToken.cjs` describing the state this annotation closes, not a
+call. `rg -n "use\(cors\(" electron/` returns two lines: that same comment,
+and the only actual call — `expressApp.use(cors(localCorsOptions(getOrigin)))`.
 
 ---
 
@@ -672,6 +757,8 @@ Unchanged, and slightly worse than the baseline described. Both handlers still t
 Two aggravators visible in the current code that the baseline did not record: (1) `/api/fetch-raw` accepts a client-controlled `redirect` mode (`const { url, redirect = 'follow' } = req.body`, :678) which it forwards to fetch, so even a future host allow-list applied to the initial URL would be bypassable by a 302 unless it is re-checked on `response.url`; (2) the advertised 5 MB cap is enforced AFTER the whole body is buffered (`const buf = await response.arrayBuffer()` at :696, size check at :697), so it bounds the response to the renderer but not main-process memory.
 
 Callers confirmed live: src/tools/otter_v0.3.1/Otter.jsx:880 (/api/fetch-url) and src/components/RateCard/importers/googleSheetImporter.js:91 (/api/fetch-raw). Combined with TPN-NET-001 still open, the baseline's stated chain — hostile web page -> WILSON -> user's private network -> data back to the page — is intact end to end.
+
+**Narrowed — Track B bundle B3 (2026-09-07), NOT fixed.** The allow-list is still absent, so this finding stands. What changed is the chain's first hop: both proxies are `/api` routes and now require the per-launch token (TPN-NET-001), so a hostile web page can no longer reach them — the stated end-to-end chain is broken at WILSON's door. The SSRF reachable by anything that DOES hold the token, including WILSON's own renderer following a URL a document handed it, is untouched.
 
 ---
 
@@ -766,6 +853,8 @@ opened: 2026-07-30
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
+**✅ FIXED, and this finding's own remedy corrected — Track B bundle B1 (2026-09-06).** Measured with a throwaway header-echo function on wilson-dev (deployed, called, deleted within the minute): a request to `<ref>.supabase.co` reaches the function with `x-forwarded-for` = `<client via Cloudflare>, <client via the AWS balancer>, <13.248.0.0/14 relay>`. A caller-supplied `x-forwarded-for` or `x-real-ip` is **stripped** before the function sees it, and a caller-supplied `cf-connecting-ip` is refused by Cloudflare with a 403. So on today's platform the first hop was not attacker-supplied after all — but the remedy prescribed above, "take the last hop as `provision-workspace` did", is **wrong**: the last hop is Supabase's own relay and varies per request. Deployed that way for eleven minutes (wilson-dev v7), 22 company checks from one machine spread across ten limiter rows of 1–4 hits and nothing was refused; at scale a relay's pooled counter would refuse every customer behind it at once. `clientIp()` now takes `cf-connecting-ip`, falling back to the hop *before* the relay. Wilson-dev v8: the 21st consecutive company check in a minute answers 429 and the credentials bucket stays open; `auth_attempt_log` records that address. **Do not copy the `provision-workspace` recipe quoted in the evidence anywhere.**
+
 ---
 
 ## TPN-NET-005 — Both pre-auth Edge Functions still use the per-isolate in-memory limiter S15 replaced everywhere else
@@ -812,6 +901,8 @@ opened: 2026-07-30
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
 Merged into this finding during the re-audit (same defect, reported from another domain pass): `TPN-AUTH-008`.
+
+**✅ FIXED for `resolve-login` — Track B bundle B1 (2026-09-06).** The per-isolate Map and its "Session 3" TODOs are gone; the function calls `isRateLimited()` (`fn_rate_limit_hit`, migration 0028) with `{ failOpen: false }` in two buckets — `resolve-login:company` (20/min per client address, `RESOLVE_LOGIN_COMPANY_RPM`) and `resolve-login:user` (30/min, `RESOLVE_LOGIN_USER_RPM`) — keyed as TPN-NET-004's annotation describes. Measured on wilson-dev v8: the 21st company check inside a minute answers 429 with the same body shape (the client says `TOO MANY ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.`); the user bucket is untouched by a company burst. The other half of this finding, `provision-workspace`, left the source tree in S43 and closes when the per-environment `functions delete` in `OUTSTANDING.md` runs.
 
 ---
 
@@ -1086,6 +1177,8 @@ opened: 2026-07-30
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
+**Applied — Track B bundle B1 (2026-09-06).** `isRateLimited()` gained `opts: { failOpen?: boolean }`, default `true`, so the eight authenticated callers are unchanged and were not redeployed. `resolve-login` passes `{ failOpen: false }`: if `fn_rate_limit_hit` errors or throws, the pre-auth caller is refused with 429, and the same `console.error` line names the bucket — a broken limiter now shows up as "everyone throttled", which gets noticed, rather than "nobody throttled", which does not.
+
 ---
 
 ## TPN-LOG-001 — No SIEM / centralized logging / log aggregation
@@ -1198,6 +1291,8 @@ Severity revised to **HIGH**.
 
 The baseline ARTIFACT is gone but the CONTROL is still unmet. Deletion confirmed: electron/main.cjs:612-636 is the tombstone for /api/auth/session, /api/auth/verify and /api/auth/change; the hardcoded master-override and default constants are gone; src/components/PasswordScreen.jsx no longer exists; cleanupLegacyAuthFile() at electron/main.cjs:2176 is invoked at boot (:2475). So the 'admin-override use' half is SUPERSEDED. The rest is STILL OPEN under the new architecture. auth_attempt_log (0001:107) is NOT an authentication log — resolve-login writes it before any password is checked (supabase/functions/resolve-login/index.ts:97, :120, :156, :176), so outcome='resolved' means 'this username exists', not 'this person authenticated'. In app_events, the ONLY event_type='auth' rows ever written in the entire codebase are MFA ENROLMENT FAILURES (src/cloud/auth/MfaSection.jsx:72 and :111) — verified by grepping every reportAppEvent call site. Unlogged: sign-in success (LoginScreen.jsx:162 signInWithPassword, success path falls through to :188-196 with no event), sign-in failure (LoginScreen.jsx:163-166 sets a generic string and returns), MFA challenge failure (LoginScreen.jsx:224), sign-out (src/App.jsx:334), session expiry, and self-service password change (ResetPasswordWizard.jsx:107 supabase.auth.updateUser({password}) — no event, no admin notification). Codes WIL-1001 'Sign-in failed', WIL-1002 'Session expired' and WIL-1003 'Multi-factor challenge failed' are declared at src/cloud/errorCodes.js:23-25 with ZERO call sites — the registry documents a control that was never wired. Partial credit: workspace-admin actions ARE audited (logAdminEvent, supabase/functions/_shared/adminGuard.ts:175, WIL-4101/4102/4103/4104) and operator ACTIONS reach platform_audit — but see new finding TPN-LOG-007 for operator ACCESS. Effort remains S.
 
+**Largely addressed — Track B bundle B2 (2026-09-06; 0070 in part 1, the client in part 2).** Sign-in success and failure and every MFA challenge are written server-side by the two GoTrue hooks into `public.auth_events` (per project, once the hooks are enabled in the dashboard — OWED_AUDREY §14); the client adds its own `sign_in` (with address, company and surface), `sign_out`, `idle_timeout` and `session_cap` rows through a stamped, RLS-guarded path (`src/cloud/auth/authEvents.js`), and `WIL-1002` "Session expired" — one of the three codes this finding notes as declared with zero call sites — now has two (`src/App.jsx`, both expiries). Session expiry is therefore logged; sign-out is logged; sign-in failure is logged by the server, not the client (a client cannot write a failure — the policy refuses it). Still open from this finding's list: `WIL-1001` and `WIL-1003` remain uncalled (the hook rows supersede them — a failed password check is a `sign_in / failure` row from `gotrue_hook`, a failed TOTP an `mfa_verify / failure` row); a self-service password change still writes no event; admin-override use is superseded. Visible in Admin Terminal → Logs → Sign-ins and the operator console's Sign-ins.
+
 ---
 
 ## TPN-LOG-004 — No retention policy on any log/event stream
@@ -1280,6 +1375,8 @@ opened: 2026-07-30
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
+**Not in this class — Track B bundle B2, part 1 (2026-09-06, migration 0070).** 0070's new audit writers are Postgres functions, not supabase-js calls: the two GoTrue hooks (`hook_password_verification_attempt`, `hook_mfa_verification_attempt`) catch their own insert failure, `RAISE WARNING` the reason into the Postgres log and still answer `continue`, so a lost row is visible in the database logs and never costs a sign-in; the client's own `auth_events` rows go through RLS, and a refused insert is an error the client receives. The finding stands for the supabase-js writers it names.
+
 ---
 
 ## TPN-LOG-007 — Platform Operator Console access — the highest-privilege surface in the system — is entirely unlogged, and platform_audit cannot express a session event
@@ -1304,6 +1401,10 @@ opened: 2026-07-30
 ```
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
+
+**Partly addressed — Track B bundle B2, part 1 (2026-09-06, migration 0070, suite 74).** Measured first, on wilson-dev AND wilson-staging: `auth.audit_log_entries` holds 0 rows beside 1,101 / 26 live `auth.sessions`, and `auth.mfa_challenges` is empty beside an enrolled factor — hosted GoTrue keeps no audit stream in the database, so the brief's reader had nothing to read. 0070 adds `public.auth_events` (FORCE RLS) and two Supabase Auth hooks that log every password check and every MFA challenge — success and failure, user id, factor type — for every GoTrue user, operators included, because the operator console signs in through the same GoTrue; both hooks always answer `continue`. Operators read every row (`is_platform_operator()`); a workspace admin reads their own company's. Still open for part 2: the hooks must be enabled per project in the dashboard (OWED_AUDREY §14) before a row is written; the operator-console mirror and the Admin Terminal "Sign-ins" view are not built; guard refusals are still unlogged; `platform_audit` still cannot express a session event, and no longer needs to; client-side sign-out, idle-timeout and cap rows have a write path (RLS + stamp trigger) but nothing in the app emits them yet.
+
+**Addressed for access — Track B bundle B2, part 2 (2026-09-06).** The operator console now writes its own `sign_in` (surface `admin`, with the address), `sign_out`, `idle_timeout` and `session_cap` rows to `auth_events` (`src/admin/OperatorApp.jsx`, `OperatorLogin.jsx`), and its new **Sign-ins** section (`src/admin/SignInsSection.jsx`) reads every `auth_events` row for the user ids in `platform_operators` — the server's password and MFA checks (once the hooks are enabled) beside the console's and the app's own rows, with a Surface column to tell the two doors apart. Operator ACCESS is therefore logged and visible; `platform_audit` still cannot express a session event and no longer needs to. Still open: operator status grants/revocations (`operator.granted` / `operator.revoked`) are written by nobody; guard refusals are unlogged. 0071 narrowed the workspace-admin read arm on `auth_events` (another company's client rows were in scope); operators were not affected.
 
 ---
 
@@ -1442,6 +1543,8 @@ Current location: `electron/main.cjs:1341 (was electron/main.cjs:1255); cloud ar
 Severity revised to **HIGH**.
 
 CLOUD ARM RESOLVED BY A DIFFERENT MECHANISM: there are no download links at all. `grep -rn 'createSignedUrl|getPublicUrl'` over src/supabase/electron returns exactly two hits, both for user-avatars — zero for project content. supabaseAdapter.js:452-457 `downloadFile` calls `client.storage.from('rabbit-files').download(file.storage_path)` — an authenticated fetch carrying a live JWT, gated by the rabbit_files_select policy (0027_file_lifecycle.sql:301-311). The bucket is PRIVATE (0027:287-291, `public=false`), post-condition-asserted at 0027:404-408 and pgTAP-pinned at supabase/tests/rls/33_file_lifecycle.sql:279-280. A URL that cannot be bookmarked or copied needs no expiry, so AS-3.7's link-expiration requirement is satisfied more strongly than the plan prescribed. LOCAL EXPRESS ARM STILL OPEN, AND WEAKER THAN AT BASELINE: electron/main.cjs:1341-1352 is byte-for-byte the same stable resource path (`/api/rabbit/projects/:projectId/files/:id/download` -> `res.sendFile(diskPath)`); the baseline's 'requires only a valid session' no longer holds because S15 deleted the only auth code in the server (main.cjs:612-637 is now a tombstone comment) — the route now requires NOTHING. `expressApp.use(cors())` at main.cjs:143 is still bare (LEARNINGS.md re-audit checklist item 6 expects zero hits; it has one), so any origin can read the response body cross-origin. The only remaining mitigation is the ephemeral loopback bind at main.cjs:2079 (`expressApp.listen(0, '127.0.0.1')`), which is port-scan-defeatable from JS. Neither arm has a per-user-per-asset download cap. Severity held at HIGH.
+
+**Local Express arm — updated by Track B bundle B3 (2026-09-07).** "The route now requires NOTHING" and "any origin can read the response body cross-origin" are both false as of this bundle: `/api/rabbit/projects/:projectId/files/:id/download` is an `/api` route, so it demands the **per-launch token** (header or httpOnly cookie) and answers 401 with an empty body without it, and `cors()` now answers only the renderer's own origin. The path is still a stable resource path with no expiry and no per-asset scope — which is what this finding is actually about — so it does NOT close; a token-holding caller can still replay a URL indefinitely, and there is still no per-user-per-asset download cap. What changed is who can be a caller at all: the ephemeral loopback bind is no longer "the only remaining mitigation", and port-scanning from JS no longer reaches it.
 
 ---
 
@@ -2006,6 +2109,8 @@ Current location: `C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/elec
 Severity revised to **LOW**.
 
 The exact pattern survives, at three sites, re-resolved: electron/main.cjs:668 `res.status(500).json({ error: e.message || 'Failed to fetch URL' });` (/api/fetch-url), electron/main.cjs:703 the identical line in /api/fetch-raw, and a third the baseline did not have, electron/main.cjs:2069 `res.status(500).json({ error: err.message || 'extract-pdf failed' });`. Partly improved: the three thumbnail routes now return a fixed string and keep the detail server-side (electron/main.cjs:1731-1732, :1765-1766, :1799-1800 log `err.message` to console and reply `{ error: 'thumbnail generation failed' }`). Downgraded MEDIUM->LOW on exposure, not on code: the baseline's escalation trigger was 'becomes HIGH once any of these routes are exposed off-machine', and that has NOT fired - electron/main.cjs:2079 now binds `expressApp.listen(0, '127.0.0.1', ...)`, i.e. loopback-only on an OS-assigned ephemeral port, and the network-facing Edge Functions on the unauthenticated path return opaque codes instead (supabase/functions/issue-session/index.ts:54,:67,:113 -> 'unauthorized'/'update_failed'; resolve-login/index.ts:103,:127,:148,:163,:171 -> a uniform `{ exists:false, email:null }` that does not even distinguish failure modes). Caveat carried, not re-filed: `expressApp.use(cors())` is still unparameterized at electron/main.cjs:143, which is TPN-NET-001's territory - if that is fixed the residual reachability here is nil, and if it is not, these three lines are the payload.
+
+**✅ That caveat has now fired the good way — Track B bundle B3 (2026-09-07).** TPN-NET-001 is fixed: `cors()` is parameterized to the renderer's own origin AND every `/api` route requires the per-launch token, so all three of these routes answer 401 to a caller that does not hold it. By this finding's own wording the residual reachability of the leaked `err.message` is now nil for an outside caller. The three lines were not changed; the boundary in front of them was.
 
 ---
 

@@ -166,7 +166,23 @@ const COMPARISON = new Set(['===', '!==', '==', '!=', '<', '>', '<=', '>='])
 // than `table` was: `table` had to be opted into per file by name, whereas a
 // `title:` property is recognised wherever it is written. The mechanism stays
 // for the next hand-written table and is kept honest by its own control below.
-const RENDER_TABLES = {}
+//
+// Track B's merge (2026-09-30) is that next table, three times over — and it
+// widened the form: a listed name may also be a `const NAME = 'string'`, the
+// one-row table (`ADDRESS_LEGEND`, the login screen's two message constants).
+// Each is a string the file renders through an expression (`{error}`,
+// `{ADDRESS_LEGEND}`, `{sourceLabel(r)}`, the login `notice`), which no other
+// provenance can see. Declared here, per file, by name — never guessed.
+const RENDER_TABLES = {
+  // `setError(GENERIC_ERROR)` / `setError(COMPANY_NOT_FOUND)`, rendered as
+  // `{error}`. auth.spec.ts scenarios 4 and 5 select both.
+  'src/cloud/auth/LoginScreen.jsx': ['GENERIC_ERROR', 'COMPANY_NOT_FOUND'],
+  // The Sign-ins tab's "Where" words and its legend, shared with the operator
+  // console's mirror. sessions.spec.ts selects the `'app'` cell and the legend.
+  'src/cloud/auth/authEventLabels.js': ['SOURCE_LABELS', 'ADDRESS_LEGEND'],
+  // The two post-sign-out notices the login screens show through `notice`.
+  'src/cloud/auth/SessionWarning.jsx': ['EXPIRY_NOTICES'],
+}
 
 function eachNode(node, visit, parent = null) {
   if (!node || typeof node !== 'object') return
@@ -230,12 +246,16 @@ export function renderSites(src, tables = []) {
       return
     }
 
-    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier'
-        && tables.includes(n.id.name) && n.init?.type === 'ObjectExpression') {
-      for (const p of n.init.properties) {
-        if (p.type === 'ObjectProperty' && p.value?.type === 'StringLiteral') add('table', p.value.value, n.id.name)
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && tables.includes(n.id.name)) {
+      if (n.init?.type === 'ObjectExpression') {
+        for (const p of n.init.properties) {
+          if (p.type === 'ObjectProperty' && p.value?.type === 'StringLiteral') add('table', p.value.value, n.id.name)
+        }
+        return
       }
-      return
+      // The one-row table: a listed `const NAME = 'string'`. Same provenance,
+      // same label, so a message constant is pinned exactly like a title map.
+      if (n.init?.type === 'StringLiteral') { add('table', n.init.value, n.id.name); return }
     }
 
     if (n.type === 'JSXElement') {
@@ -303,12 +323,21 @@ const specs = readdirSync(E2E)
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** `/^x$/i` → RegExp; `'x'` → the literal, case-insensitively. */
+/**
+ * `/^x$/i` → RegExp; `'x'` → the literal, case-insensitively; `'x' exact` →
+ * whole-string and case-sensitive; `NAME = 'x'` (a spec constant the
+ * extractor resolved) → the literal, case-insensitively. The last two are the
+ * extractors' own recorded forms — Track B's specs were the first to use
+ * either, and a pin whose source this could not read matched nothing at all.
+ */
 function reOfSource(source) {
   if (source.startsWith('/')) {
     const cut = source.lastIndexOf('/')
     return new RegExp(source.slice(1, cut), source.slice(cut + 1))
   }
+  const resolved = source.match(/^[A-Za-z_$][\w$]* = '(.*)'$/)
+  if (resolved) return new RegExp(escapeRe(resolved[1]), 'i')
+  if (source.endsWith(' exact')) return new RegExp(`^${escapeRe(source.slice(1, -' exact'.length - 1))}$`)
   return new RegExp(escapeRe(source.slice(1, -1)), 'i')
 }
 
@@ -489,10 +518,107 @@ const SELECTOR_HOME = {
     sites: ['attr[title]:Invite sent'],
   },
 
+  // Track B (B1, answer 12): the done screen now also says the global
+  // sign-out happened. The opening words — what the three call sites match —
+  // are unchanged; the whole sentence is recorded so the next edit is seen.
   '/password updated/i': {
     file: 'src/cloud/auth/ResetPasswordWizard.jsx',
     kind: 'text',
-    sites: ['jsxText:Password updated. Sign in with your new password.'],
+    sites: ['jsxText:Password updated. You have been signed out on every device — sign in again with your new password.'],
+  },
+
+  // ── Track B (2026-09-30 merge): auth.spec.ts scenarios 4–6 ───────────────
+  // Both are message constants rendered through `{error}` (RENDER_TABLES).
+  // The spec spells them shouted — the pre-overhaul copy — and getByText on
+  // a string is case-insensitive, so the sentence-case source still resolves.
+  "GENERIC_ERROR = 'SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.'": {
+    file: 'src/cloud/auth/LoginScreen.jsx',
+    kind: 'text',
+    sites: ['table[GENERIC_ERROR]:Sign-in failed. Check company, username and password.'],
+  },
+  "'COMPANY NOT FOUND.'": {
+    file: 'src/cloud/auth/LoginScreen.jsx',
+    kind: 'text',
+    sites: ['table[COMPANY_NOT_FOUND]:Company not found.'],
+  },
+
+  // ── Track B (2026-09-30 merge): sessions.spec.ts ─────────────────────────
+  // The Admin Terminal's nav strip is a table of `label:` records (the
+  // registry pattern), so this is a `prop` site like Home's tiles.
+  '/^logs$/i': {
+    file: 'src/components/AdminTerminal/AdminTerminalPage.jsx',
+    kind: 'name',
+    sites: ['prop[label]:Logs'],
+  },
+  // The kit Tabs' items — `{ id, label }` records — so the same provenance.
+  '/^sign-ins$/i': {
+    file: 'src/components/AdminTerminal/LogsSection.jsx',
+    kind: 'name',
+    sites: ['prop[label]:Sign-ins'],
+  },
+  // `{sourceLabel(r)}` in the Where cell reads the SOURCE_LABELS table; the
+  // `exact: true` selector is whole-string, so 'app' alone satisfies it and
+  // 'operator console' / 'sign-in server' / 'client' do not.
+  "'app' exact": {
+    file: 'src/cloud/auth/authEventLabels.js',
+    kind: 'name',
+    sites: ['table[SOURCE_LABELS]:app'],
+  },
+  '/addresses are recorded on the app/i': {
+    file: 'src/cloud/auth/authEventLabels.js',
+    kind: 'text',
+    sites: ['table[ADDRESS_LEGEND]:Addresses are recorded on the app’s own rows only; checks made by the sign-in server carry none.'],
+  },
+  // The idle notice is the kit Dialog: its string `title` is the heading AND
+  // the accessible name (Dialog.jsx sets aria-label from it), which is what
+  // getByRole('dialog', { name }) resolves against.
+  '/still there/i': {
+    file: 'src/cloud/auth/SessionWarning.jsx',
+    kind: 'name',
+    sites: ['attr[title]:Still there?'],
+  },
+  // Two sites on purpose: the button, and the body sentence that promises the
+  // same thing ("press a key to stay signed in"). Only the button is a
+  // `button`, so the role selector is unambiguous in a browser.
+  '/stay signed in/i': {
+    file: 'src/cloud/auth/SessionWarning.jsx',
+    kind: 'name',
+    sites: [
+      'jsxText:Stay signed in',
+      'jsxText:for inactivity. Move the mouse or press a key to stay signed in.',
+    ],
+  },
+  // The cap notice is the kit Toast (non-modal, R2): its `title` is the
+  // visible word and its `aria-label` the accessible name for getByRole('alert').
+  '/session ending/i': {
+    file: 'src/cloud/auth/SessionWarning.jsx',
+    kind: 'name',
+    sites: ['attr[title]:Session ending', 'aria[aria-label]:Session ending'],
+  },
+  // The two post-sign-out lines, from the EXPIRY_NOTICES table the login
+  // screens render as `notice`.
+  "IDLE_NOTICE = 'Signed out after 30 minutes without activity.'": {
+    file: 'src/cloud/auth/SessionWarning.jsx',
+    kind: 'text',
+    sites: ['table[EXPIRY_NOTICES]:Signed out after 30 minutes without activity.'],
+  },
+  "CAP_NOTICE = 'Signed out: sessions end after 4 hours. Sign in again to continue.'": {
+    file: 'src/cloud/auth/SessionWarning.jsx',
+    kind: 'text',
+    sites: ['table[EXPIRY_NOTICES]:Signed out: sessions end after 4 hours. Sign in again to continue.'],
+  },
+  // LogsSection's Refresh — the kit Button's child text. Other sections have
+  // a Refresh too; they are `display: none` while Logs is up, and Playwright's
+  // role query ignores hidden nodes, so the pin names the one that is shown.
+  '/^refresh$/i': {
+    file: 'src/components/AdminTerminal/LogsSection.jsx',
+    kind: 'name',
+    sites: ['jsxText:Refresh'],
+  },
+  '/^reload$/i': {
+    file: 'src/cloud/ConnectionLostBanner.jsx',
+    kind: 'name',
+    sites: ['jsxText:Reload'],
   },
 
   '/reset link is on its way/i': {
@@ -760,8 +886,35 @@ const LABEL_SITES_EXPECTED = {
 const SKIPPED_EXPECTED = [
   ['auth.spec.ts', "getByRole('img')", 4, "getByRole('img') has no name option"],
   ['auth.spec.ts', 'getByText(USERNAME)', 1, "USERNAME is imported from './authFlow', not a string literal in this spec"],
+  // sessions.spec.ts scenario 7 walks the Sign-ins table by ROW and CELL — a
+  // locator chain (`getByRole('row').filter(…)`, `row.getByRole('cell')`)
+  // rather than a named element, which is the shape the hand-off says to use
+  // ("assert on cells, never on the row's text"). Nothing here can name a
+  // row; the cells it reads are asserted by INDEX in the spec.
+  ['sessions.spec.ts', "getByRole('cell')", 1, "getByRole('cell') has no name option"],
+  ['sessions.spec.ts', "getByRole('row')", 1, "getByRole('row') has no name option"],
   ['web-path.spec.ts', "getByRole('img')", 1, "getByRole('img') has no name option"],
 ]
+
+// ── getByTestId ────────────────────────────────────────────────────────────
+// sessions.spec.ts scenario 11 reaches the connection-lost banner by test id
+// (it has no visible name of its own beyond its sentence). A test id is a
+// `data-testid` attribute, so the pin is that the recorded file declares it.
+const TESTID_HOME = {
+  'connection-lost-banner': 'src/cloud/ConnectionLostBanner.jsx',
+}
+
+/** Every `getByTestId('…')` in the suite. */
+function testIdSelectors(list = specs) {
+  const out = []
+  for (const { name, text } of list) {
+    for (const m of text.matchAll(/getByTestId\(\s*(?:'([^'\n]+)'|"([^"\n]+)")\s*\)/g)) {
+      out.push({ spec: name, id: m[1] ?? m[2] })
+    }
+  }
+  return out
+}
+const TESTID_SELECTORS = testIdSelectors()
 
 // ── The pin, as one function both the tests and the mutations call ─────────
 /** The render sites in `code` that `source` matches, recorded form, in order. */
@@ -795,7 +948,7 @@ function removeLineWith(src, needle) {
 describe('the e2e suite still has something to select', () => {
   it('the suite was actually found and read', () => {
     // A glob that silently matches nothing would make every loop below pass.
-    expect(specs.map((s) => s.name).sort()).toEqual(['auth.spec.ts', 'authFlow.ts', 'web-path.spec.ts'])
+    expect(specs.map((s) => s.name).sort()).toEqual(['auth.spec.ts', 'authFlow.ts', 'sessions.spec.ts', 'web-path.spec.ts'])
     expect(FILES.length).toBeGreaterThan(200)
     expect(CORPUS.length).toBeGreaterThan(500)
     expect(ARIA_LABELS.size).toBeGreaterThan(10)
@@ -885,6 +1038,13 @@ const A = () => <h1>{pageLabel}</h1>`
     // Not opted in → not harvested; and the keys are absent either way.
     expect(renderSites(src, []).sites).toEqual([])
     expect(sites.some((s) => s.value === 'dashboard')).toBe(false)
+    // The one-row form (Track B's merge): a listed string constant is a site
+    // under its own name; an unlisted one, or a listed non-string, is not.
+    const one = `const GENERIC_ERROR = 'Sign-in failed.'
+const OTHER = 'not a table'
+const COUNT = 4`
+    expect(renderSites(one, ['GENERIC_ERROR', 'COUNT']).sites.map(siteLabel)).toEqual(['table[GENERIC_ERROR]:Sign-in failed.'])
+    expect(renderSites(one, []).sites).toEqual([])
     // …and headingFacts still surfaces the table values a heading pin reads.
     expect(headingFacts(src, "'DASHBOARD'", ['PAGE_TITLES']).tableValues)
       .toEqual(['table[PAGE_TITLES]:DASHBOARD'])
@@ -1157,13 +1317,35 @@ describe('every getByLabel in the e2e suite still names a real aria-label', () =
   })
 })
 
+describe('every getByTestId in the e2e suite names a file that declares that test id', () => {
+  it('the map covers every test id, and nothing it does not', () => {
+    const selected = [...new Set(TESTID_SELECTORS.map((s) => s.id))].sort()
+    expect(selected).toEqual(Object.keys(TESTID_HOME).sort())
+  })
+
+  it.each(Object.entries(TESTID_HOME).map(([id, file]) => [`data-testid="${id}" in ${file}`, id, file]))(
+    '%s',
+    (_n, id, file) => {
+      const entry = BY_FILE.get(file)
+      expect(entry, `${file} is not a source file this test reads`).toBeTruthy()
+      // Exactly one declaration: a second element with the same id is a
+      // strict-mode violation waiting for the next Playwright run.
+      expect((entry.code.match(new RegExp(`data-testid="${escapeRe(id)}"`, 'g')) || []).length).toBe(1)
+      const elsewhere = FILES.filter((f) => f.path !== file && f.code.includes(`data-testid="${id}"`)).map((f) => f.path)
+      expect(elsewhere, `data-testid="${id}" is also declared in`).toEqual([])
+    },
+  )
+})
+
 describe('the extractors see every selector shape the suite uses', () => {
   it('there are selectors to check, and every role is handled', () => {
     expect(TEXT_SELECTORS.length).toBeGreaterThanOrEqual(10)
     expect(ROLE_SELECTORS.length).toBeGreaterThanOrEqual(5)
-    // R1 #1: the first draft understood 'button' only. Both roles the suite
-    // uses must be present, or the extractor has silently narrowed.
-    expect([...new Set(ROLE_SELECTORS.map((s) => s.role))].sort()).toEqual(['button', 'heading'])
+    // R1 #1: the first draft understood 'button' only. Every role the suite
+    // uses must be present, or the extractor has silently narrowed. Track B's
+    // sessions.spec.ts added four: the kit Dialog ('dialog'), the kit Toast
+    // ('alert'), the kit Tabs ('tab') and the Sign-ins table's named 'cell'.
+    expect([...new Set(ROLE_SELECTORS.map((s) => s.role))].sort()).toEqual(['alert', 'button', 'cell', 'dialog', 'heading', 'tab'])
   })
 
   it('the control: getByText honours { exact: true } the way getByRole does', () => {
@@ -1227,7 +1409,7 @@ describe('nothing in the suite is skipped silently', () => {
 
   it('every getBy* call site in each spec is either checked or named as skipped', () => {
     const checked = new Map(specs.map((s) => [s.name, 0]))
-    for (const s of [...TEXT_SELECTORS, ...LABEL_SELECTORS, ...ROLE_SELECTORS]) {
+    for (const s of [...TEXT_SELECTORS, ...LABEL_SELECTORS, ...ROLE_SELECTORS, ...TESTID_SELECTORS]) {
       checked.set(s.spec, checked.get(s.spec) + 1)
     }
     const skipped = new Map(specs.map((s) => [s.name, 0]))
@@ -1243,7 +1425,9 @@ describe('nothing in the suite is skipped silently', () => {
     // A regression that deletes a whole scenario would keep the equality above
     // true while quietly halving the coverage. Pin the totals.
     const sites = Object.fromEntries(specs.map((s) => [s.name, [...s.text.matchAll(/getBy[A-Z]\w*\(/g)].length]))
-    expect(sites).toEqual({ 'auth.spec.ts': 38, 'authFlow.ts': 9, 'web-path.spec.ts': 7 })
+    // Track B: auth.spec.ts grew scenarios 4–6 (38 → 63) and sessions.spec.ts
+    // arrived with five scenarios of its own.
+    expect(sites).toEqual({ 'auth.spec.ts': 63, 'authFlow.ts': 9, 'sessions.spec.ts': 22, 'web-path.spec.ts': 7 })
   })
 })
 
@@ -1319,24 +1503,42 @@ describe('known Playwright strict-mode ambiguities ((a)-(c) pre-existing, (d) fr
     const auth = specs.find((s) => s.name === 'auth.spec.ts').text
     const flow = specs.find((s) => s.name === 'authFlow.ts').text
     const web = specs.find((s) => s.name === 'web-path.spec.ts').text
+    const sessions = specs.find((s) => s.name === 'sessions.spec.ts').text
 
-    // web-path.spec.ts selects no labels of its own — all of its sign-in goes
-    // through authFlow — so it cannot reach this hazard at all.
+    // web-path.spec.ts and sessions.spec.ts select no labels of their own —
+    // all of their sign-in goes through authFlow — so neither can reach this
+    // hazard at all. (sessions.spec.ts is Track B's, and it is the spec that
+    // spends the LONGEST signed in, so this line is the one that matters.)
     expect([...web.matchAll(/getByLabel\(/g)].length).toBe(0)
+    expect([...sessions.matchAll(/getByLabel\(/g)].length).toBe(0)
     // Company, the Username visibility wait, Username.fill, Password.fill —
     // all four inside clearCompanyStep/signInHere, all on LoginScreen.
     expect([...flow.matchAll(/getByLabel\(/g)].length).toBe(4)
 
-    // In auth.spec.ts, every getByLabel must sit after a `test.skip(SKIP_EMAIL`
-    // in its own scenario. Scenario 1 — the one lane that signs in and is NOT
-    // skipped — must contain none.
+    // In auth.spec.ts, a getByLabel that runs SIGNED IN must sit after a
+    // `test.skip(SKIP_EMAIL` in its own scenario. Four scenarios run without
+    // the gate: 1 (signs in through authFlow, selects no label of its own)
+    // and Track B's 4, 5 and 6 (B1: wrong password, unknown company, the
+    // remembered company). Those three DO select Company / Username /
+    // Password — on LoginScreen, BEFORE any sign-in completes, and none of
+    // them ever completes one: no `/^HOME$/i` wait appears in any of them.
+    // So the rule is stated as it is meant: no getByLabel after the
+    // landed-on-Home wait that marks a completed sign-in.
     const scenarios = auth.split(/^test\(/m).slice(1)
     const unskipped = scenarios.filter((s) => !s.includes('test.skip(SKIP_EMAIL,'))
-    expect(unskipped.length, 'exactly one scenario runs without the email gate').toBe(1)
-    expect(
-      [...unskipped[0].matchAll(/getByLabel\(/g)].length,
-      'a getByLabel appeared in the ungated scenario — hazard (d) is now LIVE in CI',
-    ).toBe(0)
+    expect(unskipped.length, 'four scenarios run without the email gate (1, 4, 5, 6)').toBe(4)
+    for (const s of unskipped) {
+      const signedInAt = s.indexOf('/^HOME$/i')
+      const late = [...s.matchAll(/getByLabel\(/g)].filter((m) => signedInAt !== -1 && m.index > signedInAt)
+      expect(
+        late.length,
+        'a getByLabel appeared after a completed sign-in in an ungated scenario — hazard (d) is now LIVE in CI',
+      ).toBe(0)
+    }
+    // And the shape the loop relies on: exactly one of the four signs in,
+    // and the three that select labels are the three that never do.
+    expect(unskipped.filter((s) => s.includes('/^HOME$/i')).length).toBe(1)
+    expect(unskipped.filter((s) => /getByLabel\(/.test(s)).length).toBe(3)
   })
 
   it("getByText(/^NEW PASSWORD$/i) still matches the wizard's title AND its field label", () => {

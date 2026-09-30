@@ -20,6 +20,11 @@
 // =============================================================================
 
 import { parseOtterRoute } from './otterRoutes.js'
+// B3 (Track B): the local-server arm below talks to the desktop loopback API,
+// which now refuses any /api request without the per-launch token. localFetch
+// attaches it — and only for same-origin URLs, which matters here because this
+// fall-through takes whatever URL a call site hands otterFetch.
+import { localFetch } from '../../../lib/localServerFetch.js'
 import { supabaseOtterAdapter, OtterCloudError } from './supabaseOtterAdapter.js'
 import { supabase } from '../../../cloud/auth/supabaseClient.js'
 import { devFixtures } from '../../../dev/devFixtures.js'
@@ -212,7 +217,7 @@ export async function otterFetch(input, init) {
   const method = init?.method ?? (typeof input === 'object' ? input?.method : undefined) ?? 'GET'
 
   const route = parseOtterRoute(url, method)
-  if (!route) return fetch(input, init)
+  if (!route) return localFetch(input, init)
 
   // Dev fixtures (2026-09-11, dev builds only): every O.T.T.E.R. content route
   // is answered from src/dev/fixtures in memory; nothing reaches Supabase.
@@ -239,7 +244,7 @@ export async function otterFetch(input, init) {
       return jsonResponse(
         { error: 'O.T.T.E.R. requires a signed-in workspace on the web.' }, 401)
     }
-    return fetch(input, init)
+    return localFetch(input, init)
   }
 
   const handler = supabaseOtterAdapter[route.op]

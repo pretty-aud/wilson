@@ -111,7 +111,10 @@ describe('main.cjs — the data-root layer is root-aware through ONE module', ()
     expect(mount).toBeLessThan(mainCjs.indexOf("expressApp.get('/api/rabbit/projects'"))
   })
   it('the folder is loaded in app.whenReady BEFORE the legacy cleanups derive a data dir', () => {
-    const ready = mainCjs.slice(mainCjs.indexOf('app.whenReady().then('), mainCjs.indexOf('app.whenReady().then(') + 600)
+    // 1200, not 600: Track B (B3) opens the block with the single-instance
+    // re-check and its reasoning, which pushed the cleanup call past the old
+    // window and turned "found after" into "not found". The pin is the ORDER.
+    const ready = mainCjs.slice(mainCjs.indexOf('app.whenReady().then('), mainCjs.indexOf('app.whenReady().then(') + 1200)
     expect(ready.indexOf('localDemo().load()')).toBeGreaterThan(-1)
     expect(ready.indexOf('localDemo().load()')).toBeLessThan(ready.indexOf('cleanupLegacySupabaseConfig()'))
   })

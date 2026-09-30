@@ -23,8 +23,8 @@ import { supabase } from './auth/supabaseClient'
 
 // The workspace's storage row, or null when storage has never been
 // configured. Throws on a real error — callers must not treat a broken read
-// as "unconfigured" (useRosterMembers' silent [] is the standing example of
-// why not).
+// as "unconfigured" (useRosterMembers' silent [] was the standing example of
+// why not, until B1 made it return `error`).
 // 🚨 THIS SELECT LIST IS THE DE-FACTO READ ALLOWLIST, and it is the only one —
 // there is no WORKSPACE_STORAGE_COLUMNS constant, because this table is not
 // read through the RABBIT adapter. A column missing from this string is

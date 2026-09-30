@@ -62,6 +62,14 @@ import { withTimeout } from './cloud/auth/withTimeout'
 // The line above is pinned VERBATIM by src/tools/otter_v0.3.1/petKnowledgeWiring.test.js
 // (a tree this sprint does not edit), so the boot ceiling's constant rides its own import.
 import { AUTH_TIMEOUT_MS } from './cloud/auth/withTimeout'
+// B2 part 2 (Track B): the session block's own pieces — the auth_events
+// emitter, the idle/cap timeouts, their notice, the connection-lost banner
+// and the WIL-1002 reporter.
+import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from './cloud/auth/authEvents'
+import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from './cloud/auth/sessionTimeouts'
+import SessionWarning, { describeSessionExpiry } from './cloud/auth/SessionWarning'
+import ConnectionLostBanner from './cloud/ConnectionLostBanner'
+import { reportAppEvent } from './cloud/errorCodes'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
@@ -291,6 +299,11 @@ function petMaterialSignature(pet) {
 export default function App() {
   const [authed, setAuthed] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
+  // B2 part 2: the session's identity (the JWT's session_id) keys the 4-hour
+  // cap clock so a reload keeps it; the notice is the one line the login
+  // screen shows after a timed-out session says why it ended.
+  const [sessionId, setSessionId] = useState(null);
+  const [signedOutNotice, setSignedOutNotice] = useState('');
   const [sessionChecked, setSessionChecked] = useState(false);
   // 'login' (default) | 'forgot-password' | 'recovery'
   //
@@ -388,6 +401,9 @@ export default function App() {
     checkSessionValid().then(session => {
       if (session) {
         setAuthed(true);
+        // A resumed session is not a sign-in: no auth_events row here, but the
+        // cap clock must find its original start under this same session id.
+        setSessionId(sessionIdOf(session));
         // Session 17: a recovery / invite link must NOT be swallowed by an
         // existing session. The overlay is what mounts ResetPasswordWizard
         // (`showOverlay && sessionChecked && authMode === 'recovery'`), so
@@ -409,8 +425,15 @@ export default function App() {
   // Invoked by <LoginScreen/> on successful signInWithPassword. The session
   // has already been persisted by LoginScreen via sessionStorage.saveSession,
   // so we only need to flip the gate here.
-  const handleAuth = useCallback(() => {
+  const handleAuth = useCallback((session) => {
+    signingOutRef.current = null;   // a new session may be signed out again
+    setSessionId(sessionIdOf(session));
+    setSignedOutNotice('');
     setAuthed(true);
+    // B2 part 2: the client's own sign_in row — the one WITH the address and
+    // the company (the password hook's row carries neither). Fire-and-forget:
+    // it never gates the sign-in and it reports its own failure to the console.
+    recordAuthEvent('sign_in');
   }, []);
 
   // Whenever the user is authenticated, check their workspace_members row for
@@ -524,8 +547,29 @@ export default function App() {
   // ⚠️ The same unscoped call still exists in ResetPasswordWizard; it is left
   // alone here because changing what a password reset revokes is a security
   // decision, not a tidy-up. Recorded in docs/OUTSTANDING.md.
-  useEffect(() => {
-    window.wilsonSignOut = async () => {
+  //
+  // B2 part 2 (Track B): one exit for every way a session ends on this
+  // surface. `event` names the auth_events row written BEFORE the token is
+  // revoked (after it there is no JWT to write with): 'sign_out' for the
+  // button (the default, so the existing callers are unchanged), 'idle_timeout'
+  // or 'session_cap' from useSessionTimeouts, null for no row. An expiry also
+  // emits WIL-1002 — declared in errorCodes.js since S9 and wired by nothing
+  // until now (TPN-LOG-005) — and sets the one-line reason the login screen
+  // shows. Both writes are bounded and best-effort and run side by side, so
+  // leaving never waits more than one ceiling on a dead network.
+  //
+  // R2: ONE sign-out at a time, and the persisted session goes FIRST. The
+  // timeouts and the Settings button can both fire in the window the log
+  // writes take, which wrote two rows and clobbered the reason; `signingOut`
+  // makes the second caller await the first. And `clearSession()` runs
+  // before any network call, because `supabase.auth.signOut()` awaits
+  // `getSession()` internally and can hang forever on the silent-network
+  // failure this bundle's banner exists for — leaving the encrypted session
+  // on disk. The in-memory JWT still serves the two log writes.
+  const signingOutRef = useRef(null);
+  const signOutLocal = useCallback(async ({ event = 'sign_out' } = {}) => {
+    if (signingOutRef.current) return signingOutRef.current;
+    const run = (async () => {
       // 🚨 A3: THE CACHED PET LEAVES WITH THE PERSON.
       //
       // `clearSession()` clears the auth blob and nothing else. The per-device
@@ -541,9 +585,26 @@ export default function App() {
       // not cooperate must not trap somebody in a session they asked to leave.
       const leavingUserId = petUserIdRef.current || bootOwnerRef.current;
       bootOwnerRef.current = null;
-      try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* swallow */ }
+      const expiry = EXPIRE_REASONS.includes(event) ? event : null;
+      setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
       await clearSession();
+      // The cache goes right behind the session: a local write (or a loopback
+      // DELETE on the desktop), never a cloud call, so it sits ahead of the
+      // bounded log writes rather than behind a revoke that may hang.
       if (leavingUserId) await clearPetCache(leavingUserId);
+      const writes = [];
+      if (event) writes.push(recordAuthEvent(event));
+      if (expiry) {
+        writes.push(withTimeout(reportAppEvent({
+          code: 'WIL-1002', eventType: 'auth', severity: 'info',
+          context: { reason: expiry, surface: 'app' },
+        }), 4000, 'WIL-1002').catch(() => { /* best-effort */ }));
+      }
+      if (writes.length) await Promise.all(writes);
+      try {
+        await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
+      } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      setSessionId(null);
       // 🚨 Belt and braces with the perms.userId teardown effect: this runs
       // even if the permissions channel is slow to notice, so the next person
       // at this computer cannot see the previous person's pet for a beat.
@@ -566,9 +627,28 @@ export default function App() {
       // Arm the welcome again — signing back in during the same session is a
       // new arrival, and a once-per-page-load ref would silently skip it.
       welcomePlayedRef.current = false;
-    };
-    return () => { delete window.wilsonSignOut; };
+    })();
+    signingOutRef.current = run;
+    // Released on the next sign-in (handleAuth), not here: everything after
+    // this point is signed out, and a second call in that state should be
+    // the no-op the guard makes it.
+    return run;
   }, []);
+  useEffect(() => {
+    window.wilsonSignOut = signOutLocal;
+    return () => { delete window.wilsonSignOut; };
+  }, [signOutLocal]);
+
+  // B2 part 2: the idle warning at 25 minutes, sign-out at 30, and the
+  // absolute 4-hour cap — sessionTimeouts.js carries the numbers and the
+  // reasoning. Keyed on the session id so a reload keeps the cap clock; web
+  // and Electron alike; its clocks live under this surface's own storage key
+  // so the operator console's tab can neither keep this one alive nor end it.
+  const sessionTimeouts = useSessionTimeouts({
+    enabled: authed,
+    sessionId,
+    onExpire: (reason) => { signOutLocal({ event: reason }); },
+  });
 
   const handleAnimationComplete = () => {
     setShowOverlay(false);
@@ -2321,6 +2401,12 @@ export default function App() {
           `import.meta.env.DEV` is a build-time constant, so `vite build` drops
           the element and the import with it. */}
       {import.meta.env.DEV && <DevFixturesBadge />}
+      {/* B2 part 2: "Connection lost — reload to continue", fed by
+          connectionWatchdog through the Supabase client's fetch. Above every
+          overlay; under the 32 px title bar in Electron so the window
+          controls stay reachable. Rendered signed in or out — a hung sign-in
+          is the same hang. */}
+      <ConnectionLostBanner topOffset={typeof window !== 'undefined' && window.electronAPI ? 32 : 0} />
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -2596,9 +2682,10 @@ export default function App() {
           session check so returning users don't briefly see the login form. */}
       {showOverlay && sessionChecked && authMode === 'login' && (
         <LoginScreen
+          notice={signedOutNotice}
           onForgotPassword={() => setAuthMode('forgot-password')}
-          onAuthenticated={() => {
-            handleAuth();
+          onAuthenticated={(session) => {
+            handleAuth(session);
             handleAnimationComplete();
             setWelcomeQueued(true);
           }}
@@ -2650,6 +2737,17 @@ export default function App() {
         <UpdatePrompt
           version={updateOffer.version}
           onDismiss={() => setUpdateOffer(null)}
+        />
+      )}
+
+      {/* B2 part 2: "Still there?" at 25 idle minutes, "Session ending" five
+          minutes before the 4-hour cap. Above the gates (a person mid-wizard
+          is still a person about to be signed out), below the banner. */}
+      {authed && (
+        <SessionWarning
+          phase={sessionTimeouts.phase}
+          deadline={sessionTimeouts.deadline}
+          onStay={sessionTimeouts.stay}
         />
       )}
 

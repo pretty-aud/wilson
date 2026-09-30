@@ -1,23 +1,37 @@
 // =============================================================================
-// LogsSection — System (app_events) and Activity (edit_history) streams
-// (Session 9).
+// LogsSection — System (app_events), Activity (edit_history) and, since Track
+// B bundle B2 part 2, Sign-ins (auth_events) streams (Session 9; B2 2026-09-06).
 //
 // UX laws embodied:
-//   Hick's Law — two tabs, two selects, one refresh; nothing else.
+//   Hick's Law — three tabs, one select each, one refresh; nothing else.
 //   Doherty Threshold — refresh spinner + instant client-side filtering
-//     over the fetched 100 rows.
+//     over the fetched rows.
 //   Jakob's Law — same chip-tab + light-table grammar as the rest of the app.
 //
-// RLS: app_events is admin-only, edit_history admin/manager — both queries
-// ride the signed-in client. Missing-table errors ('42P01'/'PGRST205') are
-// a legitimate pre-deploy state, not a failure.
+// RLS: app_events is admin-only, edit_history admin/manager, auth_events
+// (0070) self + admin-of-the-company — every query rides the signed-in
+// client. Missing-table errors ('42P01'/'PGRST205') are a legitimate
+// pre-deploy state, not a failure.
+//
+// Sign-ins (B2): a plain `select … order by created_at desc` — the 0070
+// SELECT policy does the scoping (an admin sees rows tagged with their
+// company and the sign-in server's rows for its members). Names come from
+// the roster the page already holds (workspace_directory()); the sign-in
+// server's rows carry no address and say so in the legend. Unknown-username
+// attempts are NOT here: they never reach GoTrue, live in auth_attempt_log,
+// and that table is operator-readable only (0002) — showing them to a company
+// admin would need a policy decision and a migration, so they stay out.
 // =============================================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, ScrollText } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { describeErrorCode } from '../../cloud/errorCodes'
+import {
+  describeAuthEvent, sourceLabel, KIND_FILTERS, matchesFilter, ADDRESS_LEGEND, AUTH_EVENT_COLUMNS,
+} from '../../cloud/auth/authEventLabels'
 import Table, { Th, Td, Row } from '../../ui/Table'
+import StatusBadge from '../../ui/StatusBadge'
 import Toolbar from '../../ui/Toolbar'
 import Tabs from '../../ui/Tabs'
 import Button from '../../ui/Button'
@@ -51,6 +65,20 @@ const SEVERITY_OPTIONS = SEVERITIES.map(s => ({ value: s, label: s }))
 // activity; both measured at 1280 with the nav strip taking its 190px.
 const SYS_COLS = ['13%', '10%', '14%', '13%', '15%', '35%']
 const ACT_COLS = ['16%', '22%', '14%', '48%']
+// B2 part 2 (Track B): six for the sign-ins stream — time, event, person,
+// where, address, factor — on the same declared-grid rule as the other two.
+const SIGNIN_COLS = ['12%', '16%', '20%', '16%', '20%', '16%']
+
+// The sign-in filter vocabulary lives in authEventLabels (shared with the
+// operator console's mirror); the '' entry is the Select's placeholder and
+// the rest are its options, so the two views cannot drift.
+const ALL_KINDS_LABEL = KIND_FILTERS.find(([v]) => v === '')?.[1] ?? 'All events'
+const KIND_OPTIONS = KIND_FILTERS.filter(([v]) => v).map(([value, label]) => ({ value, label }))
+// describeAuthEvent's three tones onto the kit's: a failure is the danger
+// tone, a pass the success tone, an ending neutral. Like SEVERITY_TONE above,
+// a tone rather than a colour literal (AT-30); StatusBadge draws the dot and
+// the word from it.
+const AUTH_TONE = { ok: 'success', bad: 'danger', neutral: 'neutral' }
 
 function fmtAbs(iso) {
   const d = new Date(iso)
@@ -69,8 +97,15 @@ function timeAgo(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export default function LogsSection({ isActive, workspaceId }) {
+export default function LogsSection({ isActive, workspaceId, wm }) {
   const [tab, setTab] = useState('system')
+
+  // Sign-ins stream (B2 part 2, auth_events)
+  const [signIns, setSignIns] = useState([])
+  const [signInsLoading, setSignInsLoading] = useState(false)
+  const [signInsError, setSignInsError] = useState(null)
+  const [signInsMissing, setSignInsMissing] = useState(false)
+  const [signInFilter, setSignInFilter] = useState('')
 
   // System stream
   const [events, setEvents] = useState([])
@@ -162,8 +197,53 @@ export default function LogsSection({ isActive, workspaceId }) {
     }
   }
 
-  // Lazy-load: nothing until the section is opened; the Activity stream
-  // additionally waits for its tab's first activation.
+  const signInsSeqRef = useRef(0)
+  const signInsLoadedRef = useRef(false)
+  async function loadSignIns() {
+    if (!workspaceId) return
+    const seq = ++signInsSeqRef.current
+    setSignInsLoading(true)
+    setSignInsError(null)
+    try {
+      // Not .eq('workspace_id'): the sign-in server's rows carry none, so
+      // the scope is "no company, or this one" — RLS decides which of those
+      // the caller may actually see.
+      //
+      // R2: the filter is SERVER-side. The policy's `user_id = auth.uid()`
+      // arm also returns the admin's OWN rows for their other companies, and
+      // filtering those out after `.limit(200)` spent the budget on rows the
+      // tab then dropped — an admin busy in a second company could lose this
+      // company's older sign-ins off the bottom. The client-side pass below
+      // stays as belt and braces.
+      const { data, error } = await supabase
+        .from('auth_events')
+        .select(AUTH_EVENT_COLUMNS)
+        .or(`workspace_id.is.null,workspace_id.eq.${workspaceId}`)
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (!mountedRef.current || seq !== signInsSeqRef.current) return
+      if (error) {
+        if (MISSING_TABLE_CODES.has(error.code)) {
+          setSignInsMissing(true)
+          setSignIns([])
+        } else {
+          setSignInsError(error.message || String(error))
+        }
+      } else {
+        setSignInsMissing(false)
+        const rows = Array.isArray(data) ? data : []
+        setSignIns(rows.filter(r => r.workspace_id == null || r.workspace_id === workspaceId))
+      }
+    } catch (err) {
+      if (!mountedRef.current || seq !== signInsSeqRef.current) return
+      setSignInsError(err?.message || String(err))
+    } finally {
+      if (mountedRef.current && seq === signInsSeqRef.current) setSignInsLoading(false)
+    }
+  }
+
+  // Lazy-load: nothing until the section is opened; the Activity and
+  // Sign-ins streams additionally wait for their tab's first activation.
   useEffect(() => {
     if (!isActive || !workspaceId) return
     if (!eventsLoadedRef.current) {
@@ -174,6 +254,10 @@ export default function LogsSection({ isActive, workspaceId }) {
       historyLoadedRef.current = true
       loadHistory()
     }
+    if (tab === 'signins' && !signInsLoadedRef.current) {
+      signInsLoadedRef.current = true
+      loadSignIns()
+    }
     // loadEvents/loadHistory are stable within a render's closure; seq refs
     // make duplicate invocations harmless anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,11 +267,27 @@ export default function LogsSection({ isActive, workspaceId }) {
     .filter(e => !typeFilter || e.event_type === typeFilter)
     .filter(e => !sevFilter || e.severity === sevFilter), [events, typeFilter, sevFilter])
 
-  const busy = tab === 'system' ? eventsLoading : historyLoading
+  const visibleSignIns = useMemo(() => signIns.filter(r => matchesFilter(r, signInFilter)), [signIns, signInFilter])
+
+  // user_id → what the roster calls them (workspace_directory()).
+  const memberNames = useMemo(() => {
+    const map = new Map()
+    for (const m of wm?.members ?? []) {
+      if (m?.user_id) map.set(m.user_id, m.display_name || m.username || '')
+    }
+    return map
+  }, [wm?.members])
+
+  const reloadCurrent = () => {
+    if (tab === 'system') return loadEvents()
+    if (tab === 'activity') return loadHistory()
+    return loadSignIns()
+  }
+  const busy = tab === 'system' ? eventsLoading : tab === 'activity' ? historyLoading : signInsLoading
 
   return (
     <div className="at-section">
-      <SectionTitle description="Two streams: what the system did, and what people changed.">
+      <SectionTitle description="Three streams: what the system did, what people changed, and who signed in.">
         Logs
       </SectionTitle>
 
@@ -196,7 +296,7 @@ export default function LogsSection({ isActive, workspaceId }) {
           <Button
             size="sm"
             Icon={RefreshCw}
-            onClick={() => (tab === 'system' ? loadEvents() : loadHistory())}
+            onClick={reloadCurrent}
             disabled={busy}
             loading={busy}
             loadingLabel="Refreshing"
@@ -206,7 +306,11 @@ export default function LogsSection({ isActive, workspaceId }) {
         )}
       >
         <Tabs
-          items={[{ id: 'system', label: 'System' }, { id: 'activity', label: 'Activity' }]}
+          items={[
+            { id: 'system', label: 'System' },
+            { id: 'activity', label: 'Activity' },
+            { id: 'signins', label: 'Sign-ins' },
+          ]}
           value={tab}
           onChange={setTab}
           label="Log stream"
@@ -232,10 +336,20 @@ export default function LogsSection({ isActive, workspaceId }) {
             />
           </>
         )}
+        {tab === 'signins' && (
+          <Select
+            size="sm"
+            value={signInFilter}
+            onChange={(v) => setSignInFilter(v ?? '')}
+            options={KIND_OPTIONS}
+            placeholder={ALL_KINDS_LABEL}
+            aria-label="Filter sign-in events"
+          />
+        )}
       </Toolbar>
 
       <div id="at-logs-panel" role="tabpanel" className="at-logs-panel">
-      {tab === 'system' ? (
+      {tab === 'system' && (
         <SystemTable
           events={visibleEvents}
           allCount={events.length}
@@ -245,12 +359,23 @@ export default function LogsSection({ isActive, workspaceId }) {
           expandedId={expandedId}
           onToggleExpand={(id) => setExpandedId(prev => (prev === id ? null : id))}
         />
-      ) : (
+      )}
+      {tab === 'activity' && (
         <ActivityTable
           rows={history}
           loading={historyLoading}
           error={historyError}
           missing={historyMissing}
+        />
+      )}
+      {tab === 'signins' && (
+        <SignInsTable
+          rows={visibleSignIns}
+          allCount={signIns.length}
+          loading={signInsLoading}
+          error={signInsError}
+          missing={signInsMissing}
+          memberNames={memberNames}
         />
       )}
       </div>
@@ -371,6 +496,73 @@ function ActivityTable({ rows, loading, error, missing }) {
         </Row>
       ))}
     </Table>
+  )
+}
+
+// B2 part 2 (Track B): the Sign-ins stream. Six columns and a legend; a
+// failure wears the danger tone, a pass the success tone, an ending neutral —
+// StatusBadge carries the word beside the dot, so a failed sign-in is never
+// told by colour alone. "Person" is the roster name; a row whose user is no
+// longer in the directory (a removed member's old sign-ins) shows the id's
+// first eight characters rather than nothing, because that row still
+// happened. Addresses and factors are data, so they take the mono (Q4).
+function SignInsTable({ rows, allCount, loading, error, missing, memberNames }) {
+  if (error) return <Banner tone="danger">{error}</Banner>
+  if (missing) return <EmptyState text="Sign-in log not deployed yet (migration 0070)." />
+  if (loading && rows.length === 0) return <Loading rows={10} columns={6} label="Loading sign-ins" />
+  if (rows.length === 0) {
+    return <EmptyState text={allCount === 0 ? 'No sign-ins recorded yet.' : 'No sign-ins match the filter.'} />
+  }
+  return (
+    <>
+      <Table
+        className="at-log-table"
+        head={(
+          <Row>
+            <Th width={SIGNIN_COLS[0]}>Time</Th>
+            <Th width={SIGNIN_COLS[1]}>Event</Th>
+            <Th width={SIGNIN_COLS[2]}>Person</Th>
+            <Th width={SIGNIN_COLS[3]}>Where</Th>
+            <Th width={SIGNIN_COLS[4]}>Address</Th>
+            <Th width={SIGNIN_COLS[5]}>Factor</Th>
+          </Row>
+        )}
+      >
+        {rows.map(r => {
+          const { label, tone } = describeAuthEvent(r)
+          const name = memberNames.get(r.user_id)
+          return (
+            <Row key={r.id}>
+              <Td>
+                <span className="at-mono at-nowrap" title={fmtAbs(r.created_at)}>
+                  {timeAgo(r.created_at)}
+                </span>
+              </Td>
+              <Td><StatusBadge tone={AUTH_TONE[tone] || 'neutral'} label={label} /></Td>
+              <Td>
+                {name
+                  ? name
+                  : r.user_id
+                    ? <span className="at-mono">{String(r.user_id).slice(0, 8)}</span>
+                    : <span className="at-none">--</span>}
+              </Td>
+              <Td>{sourceLabel(r)}</Td>
+              <Td>
+                {r.ip_address
+                  ? <span className="at-mono">{r.ip_address}</span>
+                  : <span className="at-none">--</span>}
+              </Td>
+              <Td>
+                {r.factor_type
+                  ? <span className="at-mono">{r.factor_type}</span>
+                  : <span className="at-none">--</span>}
+              </Td>
+            </Row>
+          )
+        })}
+      </Table>
+      <p className="at-note">{ADDRESS_LEGEND}</p>
+    </>
   )
 }
 

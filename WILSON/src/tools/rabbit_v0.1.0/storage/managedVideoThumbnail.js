@@ -39,6 +39,10 @@
 // =============================================================================
 
 import { generateVideoThumbnail, isVideoExtension } from './videoThumbnails.js'
+// B3 (Track B): the thumbnail HEAD/POST below hit the desktop loopback API,
+// which refuses /api without the per-launch token. The <video> arm needs no
+// change — it is an element load, and main's httpOnly cookie rides on it.
+import { localFetch } from '../../../lib/localServerFetch.js'
 
 export function managedThumbnailUrl(projectId, fileId) {
   return `/api/rabbit/projects/${projectId}/managed-files/${fileId}/thumbnail`
@@ -90,7 +94,7 @@ export async function ensureManagedVideoThumbnail({
   projectId,
   fileId,
   extension,
-  fetchImpl = typeof fetch === 'function' ? fetch : null,
+  fetchImpl = typeof fetch === 'function' ? localFetch : null,
   generate = generateVideoThumbnail,
   toBase64 = blobToBase64,
 } = {}) {

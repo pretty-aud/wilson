@@ -29,6 +29,15 @@
 // =============================================================================
 
 import { hasLocalServer } from '../../../lib/localData'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token. localFetch attaches the header (same-origin URLs only); the XHR
+// progress path below sets the same header by hand, because an XHR cannot go
+// through fetch. The cookie arm would carry both anyway — the header is the
+// belt every renderer call wears, so a failed cookie write degrades previews
+// and never a private project's media writes.
+import {
+  localFetch, localServerToken, isLocalServerUrl, LOCAL_TOKEN_HEADER,
+} from '../../../lib/localServerFetch.js'
 
 export const LOCAL_MEDIA_BASE = '/api/rabbit/local-media'
 export const NOT_HERE =
@@ -68,6 +77,10 @@ function putWithProgress(XHR, url, body, onProgress, label) {
     const x = new XHR()
     x.open('PUT', url)
     x.setRequestHeader('content-type', 'application/octet-stream')
+    // B3: the launch token, under the same same-origin condition localFetch
+    // applies — never to a host that is not this app's own server.
+    const token = localServerToken()
+    if (token && isLocalServerUrl(url)) x.setRequestHeader(LOCAL_TOKEN_HEADER, token)
     if (x.upload) {
       x.upload.onprogress = (e) => {
         if (!e || !e.lengthComputable) return
@@ -101,7 +114,7 @@ export async function streamPutJson(url, body, {
     ? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : null)
     : xhr
   if (XHR && typeof onProgress === 'function') return putWithProgress(XHR, url, body, onProgress, label)
-  const f = fetchImpl || globalThis.fetch
+  const f = fetchImpl || localFetch
   const res = await f(url, {
     method: 'PUT',
     headers: { 'content-type': 'application/octet-stream' },
@@ -120,7 +133,7 @@ export async function streamPutJson(url, body, {
  *   progress transport.
  */
 export function createLocalServerStorageProvider({ available = hasLocalServer, fetchImpl, xhr } = {}) {
-  const f = (...args) => (fetchImpl || globalThis.fetch)(...args)
+  const f = (...args) => (fetchImpl || localFetch)(...args)
   const here = () => { if (!available()) throw new Error(NOT_HERE) }
 
   return {

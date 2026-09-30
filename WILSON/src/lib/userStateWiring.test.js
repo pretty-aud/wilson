@@ -341,7 +341,9 @@ describe('A3/R1 — the corrections round 1 found', () => {
   })
 
   it('🚨 the notice is cleared on sign-out, like the two channels beside it', () => {
-    const signOut = app.slice(app.indexOf('window.wilsonSignOut = async'))
+    // Track B (B2 part 2) moved the body into `signOutLocal`, the one exit
+    // every sign-out takes; `window.wilsonSignOut` now points at it.
+    const signOut = app.slice(app.indexOf('const signOutLocal = useCallback(async'))
     const body = signOut.slice(0, signOut.indexOf('welcomePlayedRef.current = false'))
     expect(body).toMatch(/setPetNotice\(null\);/)
     expect(body).toMatch(/setPetNoticeSticky\(null\);/)
@@ -454,7 +456,8 @@ describe('A3 — the cached pet leaves with the person', () => {
   it('🚨 and captures the owner BEFORE the teardown nulls the ref', () => {
     // Reading petUserIdRef.current after `petUserIdRef.current = null` clears
     // nothing at all, and looks completely correct.
-    const signOut = app.slice(app.indexOf('window.wilsonSignOut = async'))
+    // (Track B B2 part 2: the body is `signOutLocal`; see the note above.)
+    const signOut = app.slice(app.indexOf('const signOutLocal = useCallback(async'))
     const capture = signOut.indexOf('const leavingUserId = petUserIdRef.current')
     const teardown = signOut.indexOf('petUserIdRef.current = null')
     expect(capture).toBeGreaterThan(-1)

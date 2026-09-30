@@ -10,6 +10,18 @@ contextBridge.exposeInMainWorld('wilsonSession', {
 });
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // ── Bundle B3: the per-launch loopback token ──────────────────────────────
+  // Every /api request the desktop server answers must carry this in the
+  // `x-wilson-local-token` header or in the httpOnly cookie main sets.
+  // src/lib/localServerFetch.js reads it here and attaches the header — and
+  // attaches it ONLY to same-origin URLs, so the launch secret can never leave
+  // the machine on a call that was widened later.
+  //
+  // Behind the contextBridge on purpose: the web build has no `electronAPI` at
+  // all, so nothing there can see this, and no page loaded outside the preload
+  // can reach it either. Read synchronously at preload time (see main.cjs) so
+  // the renderer's first fetch already has it.
+  localServerToken: ipcRenderer.sendSync('wilson:local-server-token'),
   sentryTest: () => ipcRenderer.invoke('wilson:sentry-test'),
   minimize: () => ipcRenderer.invoke('window-minimize'),
   maximize: () => ipcRenderer.invoke('window-maximize'),

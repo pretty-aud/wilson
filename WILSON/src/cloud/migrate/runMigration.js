@@ -25,23 +25,26 @@ import { supabase } from '../auth/supabaseClient'
 // The edge tables' routing rule and column allowlist come from the adapter
 // that owns them — one vocabulary, not a restatement (Track A A2, 2026-09-06).
 import { DEPENDENCY_TABLE, dependencyKind, toColumns } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../lib/localServerFetch.js'
 
 const RABBIT_BASE = '/api/rabbit'
 
 async function fetchLocalProjectsList() {
-  const res = await fetch(`${RABBIT_BASE}/projects`)
+  const res = await localFetch(`${RABBIT_BASE}/projects`)
   if (!res.ok) throw new Error(`list projects failed: HTTP ${res.status}`)
   return res.json()
 }
 
 async function fetchLocalProject(projectId) {
-  const res = await fetch(`${RABBIT_BASE}/projects/${projectId}`)
+  const res = await localFetch(`${RABBIT_BASE}/projects/${projectId}`)
   if (!res.ok) throw new Error(`load project ${projectId} failed: HTTP ${res.status}`)
   return res.json()
 }
 
 async function fetchLocalFileBlob(projectId, fileId) {
-  const res = await fetch(`${RABBIT_BASE}/projects/${projectId}/files/${fileId}`)
+  const res = await localFetch(`${RABBIT_BASE}/projects/${projectId}/files/${fileId}`)
   if (!res.ok) return null
   return res.blob()
 }

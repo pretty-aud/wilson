@@ -78,6 +78,9 @@
 // =============================================================================
 
 import { defaultPet } from './petLifecycle'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from './localServerFetch.js'
 
 export function hasLocalServer() {
   return typeof window !== 'undefined' && !!window.electronAPI
@@ -160,7 +163,7 @@ function petCacheQuery(userId) {
  */
 export async function loadPet(userId = null) {
   if (hasLocalServer()) {
-    const res = await fetch('/api/pet' + petCacheQuery(userId))
+    const res = await localFetch('/api/pet' + petCacheQuery(userId))
     // 404 is the account arm's "nothing cached here yet". It is not an error
     // and must not be reported as one — a first sign-in on a new computer is
     // the ordinary case.
@@ -197,7 +200,10 @@ export async function clearPetCache(userId) {
   if (!userId) return false
   try {
     if (hasLocalServer()) {
-      const res = await fetch('/api/pet' + petCacheQuery(userId), { method: 'DELETE' })
+      // B3 (Track B): through localFetch, like every other /api call — a raw
+      // fetch here would 401 under the per-launch lock and report the cache
+      // as "not known to be gone" on every sign-out.
+      const res = await localFetch('/api/pet' + petCacheQuery(userId), { method: 'DELETE' })
       return res.ok
     }
     localStorage.removeItem(petCacheKey(userId))
@@ -215,7 +221,7 @@ export async function savePetData(pet, userId = null) {
     // returned normally and App.jsx's catch could never fire — three layers of
     // silence over one lost pet. Same defect the Validator's "Accept Fix" had
     // (see Validator.jsx applyFix), found the same way.
-    const res = await fetch('/api/pet' + petCacheQuery(userId), {
+    const res = await localFetch('/api/pet' + petCacheQuery(userId), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pet),
     })
@@ -248,7 +254,7 @@ export async function savePetData(pet, userId = null) {
 /** GET /api/otter-settings semantics. `{}` when nothing is stored yet. */
 export async function loadOtterSettings() {
   if (hasLocalServer()) {
-    const res = await fetch('/api/otter-settings')
+    const res = await localFetch('/api/otter-settings')
     if (!res.ok) throw new Error('Server not ready')
     return res.json()
   }
@@ -259,7 +265,7 @@ export async function loadOtterSettings() {
 export async function saveOtterSettings(settings) {
   if (hasLocalServer()) {
     // S30: same unchecked `await` as savePetData had. See the note there.
-    const res = await fetch('/api/otter-settings', {
+    const res = await localFetch('/api/otter-settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     })
@@ -277,7 +283,7 @@ export async function saveOtterSettings(settings) {
 /** GET /api/agent-skills semantics. `{}` default. */
 export async function loadAgentSkills() {
   if (hasLocalServer()) {
-    const res = await fetch('/api/agent-skills')
+    const res = await localFetch('/api/agent-skills')
     const data = await res.json().catch(() => ({}))
     return data && typeof data === 'object' ? data : {}
   }
@@ -288,7 +294,7 @@ export async function loadAgentSkills() {
 export async function saveAgentSkills(skills) {
   if (hasLocalServer()) {
     // S30: same unchecked `await` as savePetData had. See the note there.
-    const res = await fetch('/api/agent-skills', {
+    const res = await localFetch('/api/agent-skills', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(skills ?? {}),
     })

@@ -91,7 +91,13 @@ export default function RateCardPage() {
   // mode — in cloud mode ids are auth user_ids, so internal-card entries
   // written by the Team Members page (member_id = user_id) resolve here
   // instead of orphaning.
-  const { members: teamMembers, mode: rosterMode, loading: teamLoading } = useRosterMembers()
+  // B1: `rosterError` is surfaced in the error banner below. Without it a
+  // failed workspace_directory() read left the INTERNAL card empty with no
+  // explanation, which reads as "nobody is full-time" rather than "the roster
+  // did not load".
+  const {
+    members: teamMembers, mode: rosterMode, loading: teamLoading, error: rosterError,
+  } = useRosterMembers()
   const rabbit = useRabbit()
 
   // 0020 matrix parity: role matrix OR per-user grants (view/edit), live off
@@ -309,10 +315,16 @@ export default function RateCardPage() {
           empty 16px band on first paint — `internalCard` is undefined while
           `loading` is still true — which then vanished and shifted the table
           under the reader. */}
-      {(error || importError || missingInternal) && (
+      {/* B1 (Track B): `rosterError` joins the guard. Without it a failed
+          workspace_directory() read left the INTERNAL card empty with no
+          explanation, which reads as "nobody is full-time" rather than "the
+          roster did not load". */}
+      {(error || importError || rosterError || missingInternal) && (
         <div className="rs-body rs-body-flush">
-          {(error || importError) && (
-            <Banner tone="danger" Icon={AlertCircle}>{importError || error}</Banner>
+          {(error || importError || rosterError) && (
+            <Banner tone="danger" Icon={AlertCircle}>
+              {importError || error || `Team roster failed to load: ${rosterError}`}
+            </Banner>
           )}
           {missingInternal && (
             <Banner tone="warning" Icon={AlertTriangle}>

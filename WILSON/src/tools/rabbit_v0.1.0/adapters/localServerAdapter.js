@@ -17,6 +17,12 @@ import { describeSourceFile } from '../storage/mediaMetadata';
 
 import { byMilestoneDate } from '../state/milestoneOrder';
 
+// B3 (Track B): every request below goes to the desktop loopback server, which
+// refuses /api without the per-launch token. localFetch attaches the header;
+// the cookie main sets would carry these too, and both arms being present is
+// the point — see src/lib/localServerFetch.js.
+import { localFetch } from '../../../lib/localServerFetch.js';
+
 const BASE = '/api/rabbit';
 
 let lastError  = null;
@@ -24,7 +30,7 @@ let lastSyncAt = null;
 
 async function jfetch(url, init) {
   try {
-    const res = await fetch(url, init);
+    const res = await localFetch(url, init);
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       let code = null;
@@ -254,7 +260,7 @@ export function localServerAdapter() {
     listFiles: async (projectId) => (await jfetch(`${BASE}/projects/${projectId}`)).files || [],
 
     async downloadFile(file) {
-      const res = await fetch(`${BASE}/projects/${file.project_id}/files/${file.id}/download`);
+      const res = await localFetch(`${BASE}/projects/${file.project_id}/files/${file.id}/download`);
       if (!res.ok) throw new Error(`[localServer] download HTTP ${res.status}`);
       return res.blob();
     },
