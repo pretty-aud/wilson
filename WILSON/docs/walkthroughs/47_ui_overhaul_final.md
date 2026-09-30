@@ -592,6 +592,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 134. **Is a hairline under every gantt row, like the Tasks table, the right weight?**
    Look at: Timeline gantt: the line under each row. Choices: Right weight? (current). (WT42 Q19)
+   Q134: no rule under task rows in the gantt half, kept under phase rows (2026-09-29; post-overhaul ruling B6, done by S1 2026-09-30 in every grouping, the "+ New task" row included; the name column keeps every line; see walkthrough 48).
 
 ### R.A.B.B.I.T.: Files, Assets, Levels and Experiences
 

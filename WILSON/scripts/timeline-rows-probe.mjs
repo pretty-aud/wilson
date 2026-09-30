@@ -15,7 +15,11 @@
  *   hover     pointer on a label row lights its chart twin, and pointer on a
  *             chart row lights its label twin — the same painted background
  *             on both halves (must be yes / yes)
- *   rule      the row's bottom edge on each half (must match)
+ *   rule      the row's bottom edge on each half. Post-overhaul S1 (ruling
+ *             B6): a TASK row and a "+ New task" row have the rule in the
+ *             gutter and none in the gantt half; a phase or group row has it
+ *             on both halves, the same. (Until S1 every row's two halves
+ *             had to match.)
  *   edge      the gutter's right edge colour and its contrast on paper
  *   ink       a task name's and a phase name's colour, weight, family and
  *             contrast on the row's painted ground (4.5:1 is the floor), at
@@ -106,6 +110,7 @@ const measure = () => page.evaluate(() => {
   const rule = (el) => el ? `${getComputedStyle(el).borderBottomWidth} ${getComputedStyle(el).borderBottomStyle} ${getComputedStyle(el).borderBottomColor}` : '-';
   const task = labels.find((l) => l.dataset.shape === 'task');
   const phase = labels.find((l) => l.dataset.shape === 'phase' || l.dataset.shape === 'subgroup');
+  const dz = labels.find((l) => l.classList.contains('rb-tl-dz'));
   const ink = (row) => {
     if (!row) return { text: '-', ratio: null };
     const n = row.querySelector('.rb-tl-row-label'); const cs = getComputedStyle(n);
@@ -118,6 +123,8 @@ const measure = () => page.evaluate(() => {
   return {
     rows: labels.length, charts: charts.length, off, centres,
     ruleLabel: rule(task), ruleChart: rule(charts[labels.indexOf(task)]),
+    phaseRuleLabel: rule(phase), phaseRuleChart: phase ? rule(charts[labels.indexOf(phase)]) : '-',
+    dzRuleLabel: rule(dz), dzRuleChart: dz ? rule(charts[labels.indexOf(dz)]) : '-',
     edge: `${getComputedStyle(gutter).borderRightWidth} ${hex(over(edge, PAPER))} ${ratio(over(edge, PAPER), PAPER).toFixed(2)}:1`,
     taskInk: ink(task), phaseInk: ink(phase),
     phaseBandLabel: phase ? hex(ground(phase)) : '-', phaseBandChart: phase ? getComputedStyle(charts[labels.indexOf(phase)]).backgroundColor : '-',
@@ -197,7 +204,16 @@ for (const z of ZOOMS) {
   console.log(`         hover task from label ${hLabel}`);
   console.log(`         hover task from chart ${hChart}`);
   console.log(`         hover group from label ${pLabel}`);
-  console.log(`         rule label "${m.ruleLabel}"  chart "${m.ruleChart}"`);
+  // S1 (B6): the rule under a task row and "+ New task" is the gutter's
+  // alone; a phase or group row keeps it on both halves.
+  const RULE = /^1px solid /;
+  const NONE = /^0px none /;
+  const ruleOk = RULE.test(m.ruleLabel) && NONE.test(m.ruleChart)
+    && RULE.test(m.phaseRuleLabel) && m.phaseRuleLabel === m.phaseRuleChart
+    && (m.dzRuleLabel === '-' || (RULE.test(m.dzRuleLabel) && NONE.test(m.dzRuleChart)));
+  console.log(`         rule task: label "${m.ruleLabel}"  chart "${m.ruleChart}"`);
+  console.log(`         rule group: label "${m.phaseRuleLabel}"  chart "${m.phaseRuleChart}"`);
+  console.log(`         rule + new task: label "${m.dzRuleLabel}"  chart "${m.dzRuleChart}"${ruleOk ? '' : '   ✗ not the S1 rule (task and + New task: gutter only; group: both)'}`);
   console.log(`         edge ${m.edge}   band label ${m.phaseBandLabel} chart ${m.phaseBandChart}`);
   const groupKey = `${GROUP === 'phase' ? 'phase' : 'subgroup'}:label`;
   const hovered = hoverInk[groupKey];
@@ -208,12 +224,12 @@ for (const z of ZOOMS) {
   if (inkLow.length) { console.log(`         ✗ under ${INK_FLOOR}:1 — ${inkLow.map(([k, r]) => `${k} ${r.toFixed(2)}`).join(', ')}`); failed = true; }
   if (m.taskInk.ratio == null || m.phaseInk.ratio == null) { console.log('         ✗ a task or a group name was not found'); failed = true; }
   if (m.off.length) { console.log(`         ${m.off.slice(0, 5).join('\n         ')}`); failed = true; }
-  if (badCentre || !hLabel.startsWith('yes') || !hChart.startsWith('yes') || !pLabel.startsWith('yes') || m.ruleLabel !== m.ruleChart) failed = true;
+  if (badCentre || !hLabel.startsWith('yes') || !hChart.startsWith('yes') || !pLabel.startsWith('yes') || !ruleOk) failed = true;
   if (SHOTS) {
     await page.evaluate(() => document.querySelectorAll('animate, animateMotion, animateTransform, set').forEach((a) => a.remove()));
     await page.screenshot({ path: join(SHOTS, `rows-${GROUP}-${z.toLowerCase()}-${W}x${H}.png`) });
   }
 }
 await browser.close();
-console.log(failed ? '\n✗ a row contract failed' : '\n✓ every zoom: one row, one hover, one rule');
+console.log(failed ? '\n✗ a row contract failed' : '\n✓ every zoom: one row, one hover; a rule under every gutter row and every group row, none under a task row in the gantt');
 process.exit(failed ? 1 : 0);

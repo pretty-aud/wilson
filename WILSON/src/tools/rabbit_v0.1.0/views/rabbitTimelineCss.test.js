@@ -802,6 +802,37 @@ describe('S1 item 1: the gutter\'s inks — task names the ink, phase names the 
   })
 })
 
+/** Every rule on the element itself (no combinator) of one lane class that
+    sets its bottom border, as `selector { declaration }`. */
+const bottomRules = (css, cls) => rulesOf(css).flatMap((r) => {
+  const decl = r.body.match(/(?:^|;)\s*(border-bottom(?:-[a-z]+)?\s*:\s*[^;]+)/)?.[1]?.trim()
+  if (!decl) return []
+  return selectorsOf(r.sel).map(sameSelector)
+    .filter((s) => new RegExp(`^\\.${cls}(?![\\w-])`).test(s) && !/[\s>+~]/.test(s))
+    .map((s) => `${s} { ${decl.replace(/\s*:\s*/, ': ')} }`)
+})
+describe('S1 item 4: no rule under a task row in the gantt half; the gutter and the phase rows keep theirs (ruling B6)', () => {
+  const RULE = 'border-bottom: 1px solid var(--color-rule)'
+  it('a chart row keeps the rule, a task\'s drops it, and "+ New task" in the chart has none', () => {
+    expect(bottomRules(sheet, 'rb-tl-chart-row')).toEqual([`.rb-tl-chart-row { ${RULE} }`, '.rb-tl-chart-row[data-shape="task"] { border-bottom: none }'])
+    expect(bottomRules(sheet, 'rb-tl-chart-dz')).toEqual(['.rb-tl-chart-dz { border-bottom: none }'])
+  })
+  it('the gutter keeps every row\'s rule: nothing overrides it on a task, a phase or a "+ New task" row', () => {
+    expect(bottomRules(sheet, 'rb-tl-row')).toEqual([`.rb-tl-row { ${RULE} }`])
+    expect(bottomRules(sheet, 'rb-tl-dz')).toEqual([`.rb-tl-dz { ${RULE} }`])
+  })
+  it('the chart\'s task rows are the JSX\'s: its chart row writes data-shape="task" for every row that is not a phase', () => {
+    expect(code.timeline).toMatch(/className="absolute left-0 right-0 rb-tl-chart-row"\s+data-shape=\{r\.kind !== 'phase' \? 'task' : r\.isSubgroup \? 'subgroup' : 'phase'\}/)
+  })
+  it('CONTROL: the rule planted back under "+ New task", and a gutter task row losing its, are caught', () => {
+    const back = sheet.replace('.rb-tl-chart-dz { background-color: transparent; border-bottom: none;', `.rb-tl-chart-dz { background-color: transparent; ${RULE};`)
+    expect(back).not.toBe(sheet)
+    expect(bottomRules(back, 'rb-tl-chart-dz')).toEqual([`.rb-tl-chart-dz { ${RULE} }`])
+    const bare = `${sheet}\n.rb-tl-row[data-shape="task"] { border-bottom: none; }`
+    expect(bottomRules(bare, 'rb-tl-row')).toHaveLength(2)
+  })
+})
+
 /** How the gantt turns a pointer's x into a day where it CREATES a task: the
     "+ New task" click and drag-to-draw. */
 const creationSnaps = (src) => ({

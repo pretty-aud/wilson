@@ -120,7 +120,8 @@
      .rb-tl-axis-tick                 data-major = true|false: lighter
      .rb-tl-weekend                   data-day = sun|sat: Sunday deeper
      .rb-tl-grid                      data-week = true|false: Monday lighter
-     .rb-tl-chart-row                 data-shape: phase / subgroup banding;
+     .rb-tl-chart-row                 data-shape: phase / subgroup banding,
+                                      task no rule (post-overhaul S1, B6);
                                       data-hover = true: the label row's twin;
                                       data-drop-hover = true: the drop fill
      .rb-tl-ghost                     (no variant: a phase's ghost is told by
@@ -608,10 +609,10 @@
     box-shadow: var(--shadow-float);
   }
 
-  /* "+ New task" in the chart: the gutter row's twin — the same rule (it
-     was a dashed stone line against the gutter's none), the same hover,
-     the same drop tint and line. */
-  .rb-tl-chart-dz { background-color: transparent; border-bottom: 1px solid var(--color-rule); cursor: not-allowed; }
+  /* "+ New task" in the chart: the gutter row's twin — the same hover, the
+     same drop tint and line. Its rule went with the task rows' (post-
+     overhaul S1, ruling B6: it is not a phase row); the gutter keeps its. */
+  .rb-tl-chart-dz { background-color: transparent; border-bottom: none; cursor: not-allowed; }
   .rb-tl-chart-dz[data-writable="true"] { cursor: pointer; }
   .rb-tl-chart-dz[data-writable="true"][data-hover="true"][data-drop-hover="false"] { background-color: var(--color-hover); }
   .rb-tl-chart-dz[data-drop-hover="true"] {
@@ -623,8 +624,12 @@
   /* A chart row: the gutter row's twin (TL-03) — the rule under it, the
      band on a phase or group row (both were fills the gutter lacked: a 55%
      and a 45% stone), the hover with it, the drop tint and line under a
-     dragged task. */
+     dragged task. Post-overhaul S1 (ruling B6, walkthrough 47 Q134): a
+     TASK row has no rule in the gantt half — its bars read against the
+     column lines alone — in every grouping; a phase or group row keeps its
+     rule here, and the gutter keeps every row's. */
   .rb-tl-chart-row { background-color: transparent; border-bottom: 1px solid var(--color-rule); cursor: crosshair; }
+  .rb-tl-chart-row[data-shape="task"] { border-bottom: none; }
   .rb-tl-chart-row[data-shape="phase"],
   .rb-tl-chart-row[data-shape="subgroup"] { background-color: color-mix(in srgb, var(--color-ink) 7%, transparent); }
   .rb-tl-chart-row[data-hover="true"][data-drop-hover="false"] { background-color: var(--color-hover); }
