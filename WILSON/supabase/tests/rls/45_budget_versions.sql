@@ -15,10 +15,13 @@
 --  4. projects.budget_active_version_id really points here, and clearing a
 --     version does not delete the project (probe 9).
 --  5. The money gate applies (probe 10), and anon reaches nothing (11).
+--  6. 0084 (S3a, 2026-09-30): a version records the shot list it was built
+--     against — shot_list_id, same-project composite FK, SET NULL when the
+--     list goes — and gains a nullable summary (question F8) (12-16).
 -- =========================================================================
 BEGIN;
 
-SELECT plan(11);
+SELECT plan(16);
 
 SELECT * FROM tests.rls_setup();
 
@@ -164,6 +167,46 @@ SELECT ok(
   ),
   'anon holds no table privilege on budget_versions'
 );
+
+
+-- ── 12-16: 0084 — the version's shot list, and its summary ───────────────
+-- As postgres (probe 10's block ended with RESET ROLE): these pin the columns
+-- and the FK, not who may write them — both columns sit under the money gate
+-- like the rest of the row (0037), which probe 10 already proves.
+
+SELECT has_column('public', 'budget_versions', 'shot_list_id',
+  'budget_versions.shot_list_id exists (0084 §6d)');
+
+SELECT has_column('public', 'budget_versions', 'summary',
+  'budget_versions.summary exists (0084 §6d, question F8)');
+
+INSERT INTO public.shot_lists (id, project_id, title, version)
+VALUES ('45450000-0000-0000-0000-0000000000a1', 'aaaa1111-0000-0000-0000-000000000001', 'A list', 1),
+       ('45450000-0000-0000-0000-0000000000b1', 'bbbb2222-0000-0000-0000-000000000001', 'B list', 1);
+
+SELECT throws_ok(
+  $$INSERT INTO public.budget_versions (project_id, name, shot_list_id)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', 'Bid against B''s list',
+            '45450000-0000-0000-0000-0000000000b1')$$,
+  '23503', 'insert or update on table "budget_versions" violates foreign key constraint "budget_versions_shot_list_fk"',
+  'a version cannot name ANOTHER project''s shot list — the (shot_list_id, project_id) FK (0084 §6d)');
+
+-- CONTROL: its own project's list is accepted, so the refusal above is the
+-- pairing and not the column.
+SELECT lives_ok(
+  $$INSERT INTO public.budget_versions (id, project_id, name, shot_list_id)
+    VALUES ('33330000-0000-0000-0000-00000000bb03', 'aaaa1111-0000-0000-0000-000000000001',
+            'Bid v3', '45450000-0000-0000-0000-0000000000a1')$$,
+  'CONTROL: a version naming its own project''s list lives');
+
+-- ON DELETE SET NULL (shot_list_id): losing the list must not take the bid
+-- with it (probe 9's reasoning, for the new pointer).
+DELETE FROM public.shot_lists WHERE id = '45450000-0000-0000-0000-0000000000a1';
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM public.budget_versions
+           WHERE id = '33330000-0000-0000-0000-00000000bb03' AND shot_list_id IS NULL),
+  'deleting the list keeps the version and clears its shot_list_id');
 
 SELECT * FROM finish();
 ROLLBACK;

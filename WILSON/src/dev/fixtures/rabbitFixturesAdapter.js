@@ -18,6 +18,12 @@
 //
 // rabbitFixturesAdapter.contract.test.js proves every method the Supabase
 // adapter exposes exists here, by name, from the real factory.
+//
+// Shot lists, items and edits (post-overhaul S3a, migration 0084) enforce the
+// S3a contract's rules here the way the database does — uniqueness, the
+// archive guard, the active-list guard on the project row, same-project
+// membership, and the delete sweep — so a screen walked on the fixtures sees
+// the refusals Audrey will see on a real backend.
 // =============================================================================
 
 import { devWriteRefused } from '../devFixtures'
@@ -38,6 +44,75 @@ function byMilestoneDate(a, b) {
   if (Number.isNaN(ta)) return 1
   if (Number.isNaN(tb)) return -1
   return (ta - tb) || String(a.id).localeCompare(String(b.id))
+}
+
+// ── Shot lists, items and edits (post-overhaul S3a, migration 0084) ─────────
+// The refusals are the S3a contract's, word for word: the provider shows the
+// message, and the Local Server route and the database refuse the same inputs
+// with the same text. `status` / `code` are the Local Server's HTTP answer, so
+// a caller branches on one shape whichever backend it is talking to.
+function refusal(status, code, message) {
+  const err = new Error(message)
+  err.status = status
+  err.code = code
+  return err
+}
+const invalid = (message) => refusal(400, 'invalid', message)
+const conflict = (message) => refusal(409, 'conflict', message)
+const forbidden = (message) => refusal(403, 'forbidden', message)
+const missing = (message) => refusal(404, 'not_found', message)
+
+const LIST_ARCHIVE_ONLY = 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()'
+const EDIT_ARCHIVE_ONLY = 'edits are archived and restored only by a project manager or a workspace admin, through archive_edit()'
+const ACTIVE_LIST_ONLY = 'the active shot list is changed only by a project manager or a workspace admin, through set_active_shot_list()'
+
+function isPlainObject(v) {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
+}
+// Plain code-unit order, not localeCompare: Postgres orders uuids byte-wise,
+// which for lowercase hex is exactly this.
+function cmpText(a, b) {
+  const x = a == null ? '' : String(a)
+  const y = b == null ? '' : String(b)
+  return x < y ? -1 : x > y ? 1 : 0
+}
+// The bundle order every backend returns (the S3a contract): lists and edits
+// by created_at then id; items by position then id.
+const byCreated = (a, b) => cmpText(a.created_at, b.created_at) || cmpText(a.id, b.id)
+const byPosition = (a, b) => ((Number(a.position) || 0) - (Number(b.position) || 0)) || cmpText(a.id, b.id)
+// "Title · v3" (D14) — shotListModel.js's formatShotListLabel, restated.
+const versionedLabel = (row) => `${row.title || 'Untitled'} · v${Number(row.version) || 1}`
+const withoutUndefined = (row) => Object.fromEntries(Object.entries(row || {}).filter(([, v]) => v !== undefined))
+// Timestamps are compared as instants: a row read back may carry the same
+// moment spelled differently (Z vs +00:00).
+function sameInstant(a, b) {
+  if ((a ?? null) === (b ?? null)) return true
+  if (a == null || b == null) return false
+  const x = Date.parse(a)
+  return !Number.isNaN(x) && x === Date.parse(b)
+}
+/**
+ * 0084's fn_shot_list_archive_guard, for an UPDATE of a stored list or edit:
+ * archived_at / archived_by move only through archive_*(), and an archived
+ * row is frozen. A key the body leaves out is unchanged (an upsert of a
+ * partial row), so only a key that is present can differ.
+ */
+function guardArchived(body, stored, { archiveOnly, frozen }) {
+  if (('archived_at' in body && !sameInstant(body.archived_at, stored.archived_at))
+    || ('archived_by' in body && (body.archived_by ?? null) !== (stored.archived_by ?? null))) {
+    throw forbidden(archiveOnly)
+  }
+  if (stored.archived_at) throw conflict(frozen)
+}
+// `noun` carries its article ("A shot list", "An edit"): the contract's texts
+// are "An edit needs a title.", never "A edit ...".
+function validateVersioned(row, noun) {
+  if (typeof row.title !== 'string' || !row.title.trim()) throw invalid(`${noun} needs a title.`)
+  if (!Number.isInteger(row.version) || row.version < 1) {
+    throw invalid(`${noun}'s version must be a whole number of at least 1.`)
+  }
 }
 
 export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
@@ -86,6 +161,37 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
   }
   const binFilesWithOnline = () => store.binFiles.map(f => ({ ...f, online: true }))
 
+  // ── Shot lists (0084) ──────────────────────────────────────────────────────
+  // A trashed project hides its lists in the cloud (the SELECT hop to a LIVE
+  // project), so every shot-list write treats it as absent.
+  const liveProject = (id) => { const p = id ? projectOf(id) : null; return p && !p.deleted_at ? p : null }
+  const listIn = (projectId, listId) => store.shotLists.find(l => l.id === listId && l.project_id === projectId) || null
+
+  /**
+   * Rule 8: deleting a scene or a shot takes its items out of EVERY list and
+   * unlinks the tasks that pointed at it — what the cloud's FKs do (items
+   * ON DELETE CASCADE, tasks SET NULL). Edits keep their items (D17: a deleted
+   * shot shows as "Missing shot"), and assets.scene_ids / shot_ids are NOT
+   * swept (arrays are not FKs; the cloud leaves them too).
+   */
+  function sweepShotListLinks(column, id) {
+    store.shotListItems = store.shotListItems.filter(i => i[column] !== id)
+    for (const t of store.tasks) if (t[column] === id) { t[column] = null; t.updated_at = now() }
+  }
+
+  /**
+   * archive_shot_list() / archive_edit(): archived=true keeps an existing
+   * archived_at / archived_by (idempotent) or stamps now and the caller;
+   * false clears both. A call that changes nothing writes nothing and hands
+   * the row back unchanged (0084 §10b's "no-op").
+   */
+  function setArchived(list, row, on) {
+    const archived_at = on ? (row.archived_at ?? now()) : null
+    const archived_by = on ? (row.archived_by ?? by) : null
+    if (archived_at === (row.archived_at ?? null) && archived_by === (row.archived_by ?? null)) return row
+    return patch(list, row.id, { archived_at, archived_by, updated_by: by })
+  }
+
   const adapter = {
     mode: 'fixtures',
 
@@ -133,6 +239,11 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         binFiles: binFilesWithOnline().filter(f => f.project_id === projectId),
         binRoots: inProject(store.binRoots),
         shotTakes: inProject(store.shotTakes),
+        // 0084 (S3a): the three bundle keys every adapter returns, in the
+        // contract's order.
+        shotLists: inProject(store.shotLists).sort(byCreated),
+        shotListItems: inProject(store.shotListItems).sort(byPosition),
+        edits: inProject(store.edits).sort(byCreated),
       })
     },
     async createProject(payload) {
@@ -140,6 +251,18 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
       return clone(row)
     },
     async updateProject(id, fields) {
+      // Rule 7 (0084 §7b, trg_projects_active_shot_list_guard): the active
+      // list moves only through setActiveShotList (D8: a project manager or a
+      // workspace admin). Only a CHANGE is refused — a client that sends the
+      // whole row back with the pointer unchanged passes — and so is clearing
+      // a pointer to a list that no longer exists (the FK's own SET NULL).
+      const stored = projectOf(id)
+      if (stored && fields && fields.active_shot_list_id !== undefined) {
+        const next = fields.active_shot_list_id || null
+        const prev = stored.active_shot_list_id || null
+        const clearsDangling = next === null && prev !== null && !store.shotLists.some(l => l.id === prev)
+        if (next !== prev && !clearsDangling) throw forbidden(ACTIVE_LIST_ONLY)
+      }
       return clone(patch(store.projects, id, stampBy(fields)))
     },
     async deleteProject(id) { softDelete(store.projects, id, by) },
@@ -363,16 +486,194 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     // ── Scenes, shots, levels, experiences ───────────────────────────────────
     async listScenes(projectId) { return clone(store.scenes.filter(s => s.project_id === projectId)) },
     async upsertScene(scene) { return clone(upsert(store.scenes, { workspace_id: workspaceId, created_by: by, ...scene, updated_by: by })) },
-    async deleteScene(id) { remove(store.scenes, id) },
+    // Hard deletes, as in the cloud; rule 8's sweep runs with each (above).
+    async deleteScene(id, _projectId) { remove(store.scenes, id); sweepShotListLinks('scene_id', id) },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
-    async deleteShot(id) { remove(store.shots, id) },
+    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id) },
     async listLevels(projectId) { return clone(store.levels.filter(s => s.project_id === projectId)) },
     async upsertLevel(level) { return clone(upsert(store.levels, { workspace_id: workspaceId, created_by: by, ...level, updated_by: by })) },
     async deleteLevel(id) { remove(store.levels, id) },
     async listExperiences(projectId) { return clone(store.experiences.filter(s => s.project_id === projectId)) },
     async upsertExperience(exp) { return clone(upsert(store.experiences, { workspace_id: workspaceId, created_by: by, ...exp, updated_by: by })) },
     async deleteExperience(id) { remove(store.experiences, id) },
+
+    // ── Shot lists, items, edits (0084; the S3a contract's nine methods) ─────
+    // Same names, signatures, rules and refusal texts as the Supabase and
+    // Local Server adapters. There is no delete: lists and edits are archived,
+    // never deleted (D4/D18). No role check here — the fixtures sign in as
+    // Mara, a workspace admin, who may do everything D8 allows.
+    //
+    // Where one input breaks several rules, the refusal is the one the
+    // database reaches first: on an UPDATE the guard trigger (moves, archive
+    // columns, a frozen archived row), then the CHECK constraints (title,
+    // version, snapshot / items shape, own parent), then the unique key, then
+    // the foreign keys (list and parent in this project).
+    async listShotLists(projectId) {
+      return clone(store.shotLists.filter(l => l.project_id === projectId).sort(byCreated))
+    },
+
+    async upsertShotList(list) {
+      const body = clone(withoutUndefined(list))
+      if (!body.project_id) throw invalid('A shot list needs a project.')
+      const project = liveProject(body.project_id)
+      if (!project) throw notFound(body.project_id)
+      const stored = body.id ? findById(store.shotLists, body.id) : null
+      if (stored) {
+        if (stored.project_id !== body.project_id) throw forbidden('a shot_lists row cannot move to another project')
+        guardArchived(body, stored, { archiveOnly: LIST_ARCHIVE_ONLY, frozen: 'this shot list is archived — restore it before changing it' })
+      } else if (body.archived_at || body.archived_by) {
+        throw forbidden(LIST_ARCHIVE_ONLY)
+      }
+      const row = stored
+        ? { ...stored, ...body }
+        : { version: 1, summary: null, snapshot: {}, archived_at: null, archived_by: null, ...body }
+      validateVersioned(row, 'A shot list')
+      if ('snapshot' in body && !isPlainObject(body.snapshot)) throw invalid("A shot list's snapshot must be an object.")
+      const title = row.title.trim()
+      const clash = store.shotLists.find(l => l.project_id === row.project_id && l.id !== row.id
+        && String(l.title || '').trim() === title && Number(l.version) === row.version)
+      if (clash) throw conflict(`There is already a shot list called "${versionedLabel(clash)}".`)
+      return clone(upsert(store.shotLists, stored
+        ? { ...row, updated_by: by }
+        : { ...row, workspace_id: project.workspace_id ?? workspaceId, created_by: by, updated_by: by }))
+    },
+
+    async listShotListItems(projectId) {
+      return clone(store.shotListItems.filter(i => i.project_id === projectId).sort(byPosition))
+    },
+
+    /**
+     * Replace ONE list's whole membership (replace_shot_list_items(), 0084
+     * §10d). Everything is validated before anything is written. An id of this
+     * list keeps its row (created_at kept, updated_at bumped); an unknown id is
+     * inserted with that id; no id mints one; an id that belongs to ANOTHER
+     * list's item is skipped (the database's ON CONFLICT ... WHERE same list).
+     * Items of this list that are not named are deleted. An archived list is
+     * not frozen here (the database does not freeze it either — the provider
+     * refuses client-side).
+     */
+    async replaceShotListItems(projectId, listId, items) {
+      const list = liveProject(projectId) ? listIn(projectId, listId) : null
+      if (!list) throw missing('shot list not found')
+      if (!Array.isArray(items)) throw invalid('items must be a JSON array')
+      const sceneIds = new Set(store.scenes.filter(s => s.project_id === projectId).map(s => s.id))
+      const shotIds = new Set(store.shots.filter(s => s.project_id === projectId).map(s => s.id))
+      const seen = new Set()
+      const seenIds = new Set()
+      for (const it of items) {
+        if (!isPlainObject(it) || !it.scene_id === !it.shot_id) throw invalid('each item names exactly one scene or one shot')
+        if (it.scene_id ? !sceneIds.has(it.scene_id) : !shotIds.has(it.shot_id)) {
+          throw invalid('an item names a scene or shot that is not in this project')
+        }
+        const key = it.scene_id ? `scene:${it.scene_id}` : `shot:${it.shot_id}`
+        if (seen.has(key)) throw conflict('a shot list holds each scene and each shot once')
+        seen.add(key)
+        if (it.position != null && !(Number.isInteger(it.position) && it.position >= 0)) {
+          throw invalid("an item's position must be a whole number of at least 0")
+        }
+        // Not in the contract's list: the database answers two rows with one
+        // id with "ON CONFLICT DO UPDATE command cannot affect row a second
+        // time", so the fixtures refuse it too rather than keep the last one.
+        if (it.id) {
+          if (seenIds.has(it.id)) throw invalid('an item id appears twice')
+          seenIds.add(it.id)
+        }
+      }
+      const at = now()
+      const own = new Map(store.shotListItems.filter(r => r.shot_list_id === listId).map(r => [r.id, r]))
+      const elsewhere = new Set(store.shotListItems.filter(r => r.shot_list_id !== listId).map(r => r.id))
+      const next = []
+      items.forEach((it, i) => {
+        if (it.id && elsewhere.has(it.id)) return
+        const fields = { scene_id: it.scene_id || null, shot_id: it.shot_id || null, position: it.position ?? i }
+        const kept = it.id ? own.get(it.id) : null
+        next.push(kept
+          ? { ...kept, ...fields, updated_at: at, updated_by: by }
+          : {
+            id: it.id || newId(), shot_list_id: listId, project_id: projectId,
+            workspace_id: list.workspace_id ?? workspaceId, ...fields,
+            created_at: at, created_by: by, updated_at: at, updated_by: by,
+          })
+      })
+      store.shotListItems = [...store.shotListItems.filter(r => r.shot_list_id !== listId), ...next]
+      return clone([...next].sort(byPosition))
+    },
+
+    async listEdits(projectId) {
+      return clone(store.edits.filter(e => e.project_id === projectId).sort(byCreated))
+    },
+
+    async upsertEdit(edit) {
+      const body = clone(withoutUndefined(edit))
+      if (!body.project_id) throw invalid('An edit needs a project.')
+      const project = liveProject(body.project_id)
+      if (!project) throw notFound(body.project_id)
+      const stored = body.id ? findById(store.edits, body.id) : null
+      if (stored) {
+        if (stored.project_id !== body.project_id) throw forbidden('a edits row cannot move to another project')
+        if ('shot_list_id' in body && body.shot_list_id !== stored.shot_list_id) {
+          throw forbidden('an edit cannot move to another shot list')
+        }
+        guardArchived(body, stored, { archiveOnly: EDIT_ARCHIVE_ONLY, frozen: 'this edit is archived — restore it before changing it' })
+      } else if (body.archived_at || body.archived_by) {
+        throw forbidden(EDIT_ARCHIVE_ONLY)
+      }
+      const row = stored
+        ? { ...stored, ...body }
+        : { version: 1, summary: null, parent_edit_id: null, items: [], snapshot: null, archived_at: null, archived_by: null, ...body }
+      validateVersioned(row, 'An edit')
+      if (!Array.isArray(row.items)) throw invalid("An edit's items must be a list.")
+      if (row.snapshot != null && !isPlainObject(row.snapshot)) throw invalid("An edit's snapshot must be an object.")
+      const badParent = "an edit's parent must be another edit of the same shot list"
+      if (row.parent_edit_id && row.parent_edit_id === row.id) throw invalid(badParent) // edits_not_own_parent_chk
+      const title = row.title.trim()
+      const clash = store.edits.find(e => e.project_id === row.project_id && e.shot_list_id === row.shot_list_id
+        && e.id !== row.id && String(e.title || '').trim() === title && Number(e.version) === row.version)
+      if (clash) throw conflict(`This shot list already has an edit called "${versionedLabel(clash)}".`)
+      if (!row.shot_list_id || !listIn(row.project_id, row.shot_list_id)) {
+        throw invalid('an edit belongs to a shot list of this project')
+      }
+      if (row.parent_edit_id) {
+        // edits_parent_same_list_fk: the parent is an edit of the SAME list (D6's one linear chain).
+        const parent = findById(store.edits, row.parent_edit_id)
+        if (!parent || parent.shot_list_id !== row.shot_list_id) throw invalid(badParent)
+      }
+      return clone(upsert(store.edits, stored
+        ? { ...row, updated_by: by }
+        : { ...row, workspace_id: project.workspace_id ?? workspaceId, created_by: by, updated_by: by }))
+    },
+
+    /** set_active_shot_list(): null clears (no active list = every scene and shot, D10). */
+    async setActiveShotList(projectId, listId) {
+      if (!liveProject(projectId)) throw missing('project not found')
+      const next = listId || null
+      if (next) {
+        const list = listIn(projectId, next)
+        if (!list) throw missing('shot list not found in this project')
+        if (list.archived_at) throw conflict('an archived shot list cannot be made active — restore it first')
+      }
+      patch(store.projects, projectId, stampBy({ active_shot_list_id: next }))
+      return next
+    },
+
+    async archiveShotList(projectId, listId, archived = true) {
+      const project = liveProject(projectId)
+      const list = project ? listIn(projectId, listId) : null
+      if (!list) throw missing('shot list not found')
+      const on = archived == null ? true : Boolean(archived) // COALESCE(p_archived, true)
+      if (on && project.active_shot_list_id === listId) {
+        throw conflict('the active shot list cannot be archived — make another list active first')
+      }
+      return clone(setArchived(store.shotLists, list, on))
+    },
+
+    async archiveEdit(projectId, editId, archived = true) {
+      const edit = liveProject(projectId) ? store.edits.find(e => e.id === editId && e.project_id === projectId) : null
+      if (!edit) throw missing('edit not found')
+      const on = archived == null ? true : Boolean(archived)
+      return clone(setArchived(store.edits, edit, on))
+    },
 
     // ── Folders and the project mirror ───────────────────────────────────────
     async listFolders(projectId) {

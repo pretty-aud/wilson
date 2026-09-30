@@ -91,6 +91,28 @@ function sortByPath(rows) {
 // happen again. The tests in loadProjectBundle.test.js still drive it through
 // listMilestones, so they cover the move as well as the order.
 
+// Post-overhaul S3a (0084): shot lists and edits come back ordered by
+// created_at then id, shot-list items by position then id — the orders the
+// Supabase adapter asks Postgres for. Same trap as folders and milestones: the
+// bundle is an array in INSERTION order, and a replace of one list's items
+// appends that list's rows at the end. Code-unit comparison (not
+// localeCompare) on purpose: created_at is fixed-width ISO, and a lower-case
+// uuid compared by code unit sorts as Postgres sorts the uuid. Copies, never
+// in place — the caller owns the bundle.
+function cmpCodeUnits(a, b) {
+  const x = a == null ? '' : String(a)
+  const y = b == null ? '' : String(b)
+  if (x < y) return -1
+  if (x > y) return 1
+  return 0
+}
+function sortByCreatedThenId(rows) {
+  return [...(rows || [])].sort((a, b) => cmpCodeUnits(a?.created_at, b?.created_at) || cmpCodeUnits(a?.id, b?.id))
+}
+function sortByPositionThenId(rows) {
+  return [...(rows || [])].sort((a, b) => ((Number(a?.position) || 0) - (Number(b?.position) || 0)) || cmpCodeUnits(a?.id, b?.id))
+}
+
 export function localServerAdapter() {
   return {
     mode: 'local_server',
@@ -167,6 +189,13 @@ export function localServerAdapter() {
         binFiles:        bundle.binFiles || [],
         binRoots:        bundle.binRoots || [],
         shotTakes:       bundle.shotTakes || [],
+        // Post-overhaul S3a (0084) — same reason as every key above: omitted,
+        // the EMPTY_BUNDLE spread would reset them to [] on every load, and
+        // every surface that reads the ACTIVE list (D10) would fall back to
+        // "every scene and shot". Sorted as the cloud orders them.
+        shotLists:       sortByCreatedThenId(bundle.shotLists),
+        shotListItems:   sortByPositionThenId(bundle.shotListItems),
+        edits:           sortByCreatedThenId(bundle.edits),
       };
     },
 
@@ -520,6 +549,66 @@ export function localServerAdapter() {
     }),
     deleteShot: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/shots/${id}`, { method: 'DELETE' }),
+
+    // ── Shot lists, items and edits (post-overhaul S3a, 0084) ──────────────
+    //
+    // The same nine methods, with the same signatures, on every adapter (the
+    // S3a contract). The routes are electron/rabbitShotLists.cjs; they refuse
+    // with `{ error, code }`, which jfetch turns into an Error carrying
+    // `.status` and `.code`. Lists and edits are archived, never deleted
+    // (D4/D18), so there is no delete method. The list* methods read the
+    // bundle, as listScenes does — there is no GET route per collection.
+    listShotLists: async (projectId) =>
+      sortByCreatedThenId((await jfetch(`${BASE}/projects/${projectId}`)).shotLists),
+    upsertShotList: async (list) => {
+      if (!list?.project_id) throw new Error('[localServer] upsertShotList needs list.project_id')
+      return jfetch(`${BASE}/projects/${list.project_id}/shot-lists`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(list),
+      })
+    },
+    listShotListItems: async (projectId) =>
+      sortByPositionThenId((await jfetch(`${BASE}/projects/${projectId}`)).shotListItems),
+    // The WHOLE membership of one list, in one request: rows not named are
+    // removed, named ids keep their rows. Answers that list's rows, ordered.
+    replaceShotListItems: (projectId, listId, items) =>
+      jfetch(`${BASE}/projects/${projectId}/shot-lists/${listId}/items`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ items }),
+      }),
+    listEdits: async (projectId) =>
+      sortByCreatedThenId((await jfetch(`${BASE}/projects/${projectId}`)).edits),
+    upsertEdit: async (edit) => {
+      if (!edit?.project_id) throw new Error('[localServer] upsertEdit needs edit.project_id')
+      return jfetch(`${BASE}/projects/${edit.project_id}/edits`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(edit),
+      })
+    },
+    // null clears the active list. `listId ?? null`, never a bare listId:
+    // JSON.stringify drops an undefined key, and the route refuses a body
+    // without one rather than guess that it meant "clear".
+    setActiveShotList: async (projectId, listId) =>
+      (await jfetch(`${BASE}/projects/${projectId}/active-shot-list`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ listId: listId ?? null }),
+      }))?.active_shot_list_id ?? null,
+    archiveShotList: (projectId, listId, archived = true) =>
+      jfetch(`${BASE}/projects/${projectId}/shot-lists/${listId}/archive`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ archived: archived !== false }),
+      }),
+    archiveEdit: (projectId, editId, archived = true) =>
+      jfetch(`${BASE}/projects/${projectId}/edits/${editId}/archive`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ archived: archived !== false }),
+      }),
 
     // ── Levels ─────────────────────────────────────────────────
     listLevels: async (projectId) =>

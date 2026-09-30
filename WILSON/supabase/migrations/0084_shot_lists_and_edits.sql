@@ -532,7 +532,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_armed BOOLEAN := COALESCE(
+  v_armed BOOLEAN := TG_OP = 'UPDATE' AND COALESCE(
     current_setting(CASE TG_TABLE_NAME WHEN 'shot_lists' THEN 'wilson.shot_list_archive'
                                        ELSE 'wilson.edit_archive' END, true) = OLD.id::text,
     false);
@@ -541,13 +541,45 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- INSERT: a row is born live. Archiving is the RPC's alone (D8), and a row
+  -- that ARRIVES archived would skip it (merge review of S3a's adapters: the
+  -- guard was UPDATE-only). PostgREST's upsert fires this for the proposed
+  -- row before the conflict check, so re-sending an archived row is refused
+  -- here too — an archived row cannot be changed by any path but the RPC.
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.archived_at IS NOT NULL OR NEW.archived_by IS NOT NULL THEN
+      RAISE EXCEPTION '% are archived and restored only by a project manager or a workspace admin, through %()',
+        CASE TG_TABLE_NAME WHEN 'shot_lists' THEN 'shot lists' ELSE 'edits' END,
+        CASE TG_TABLE_NAME WHEN 'shot_lists' THEN 'archive_shot_list' ELSE 'archive_edit' END
+        USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- An UPDATE issued by ANOTHER trigger is not a client write. The one that
+  -- can reach here is the FK's own ON DELETE SET NULL (parent_edit_id): an
+  -- operator or a cascade removing a parent edit must not be refused because
+  -- a surviving child is archived (clients cannot delete edits at all). A
+  -- client statement fires this at depth 1; no trigger on these tables issues
+  -- an UPDATE of its own, so depth > 1 is always the FK action.
+  IF pg_trigger_depth() > 1 THEN
+    RETURN NEW;
+  END IF;
+
   IF NEW.project_id IS DISTINCT FROM OLD.project_id
      OR NEW.workspace_id IS DISTINCT FROM OLD.workspace_id THEN
     RAISE EXCEPTION 'a % row cannot move to another project', TG_TABLE_NAME
       USING ERRCODE = '42501';
   END IF;
-  IF TG_TABLE_NAME = 'edits' AND NEW.shot_list_id IS DISTINCT FROM OLD.shot_list_id THEN
-    RAISE EXCEPTION 'an edit cannot move to another shot list' USING ERRCODE = '42501';
+  -- NESTED, not `TG_TABLE_NAME = 'edits' AND NEW.shot_list_id …`: the one
+  -- function serves both tables, and a shot_lists row has no shot_list_id —
+  -- PL/pgSQL resolves every field in an expression before it evaluates the
+  -- AND, so the flat form raised 42703 on every shot_lists UPDATE (suite 84
+  -- caught it). The inner statement is only ever prepared for edits.
+  IF TG_TABLE_NAME = 'edits' THEN
+    IF NEW.shot_list_id IS DISTINCT FROM OLD.shot_list_id THEN
+      RAISE EXCEPTION 'an edit cannot move to another shot list' USING ERRCODE = '42501';
+    END IF;
   END IF;
 
   IF v_armed THEN
@@ -576,16 +608,16 @@ REVOKE EXECUTE ON FUNCTION public.fn_shot_list_archive_guard() FROM PUBLIC, anon
 
 DROP TRIGGER IF EXISTS trg_shot_lists_guard ON public.shot_lists;
 CREATE TRIGGER trg_shot_lists_guard
-  BEFORE UPDATE ON public.shot_lists
+  BEFORE INSERT OR UPDATE ON public.shot_lists
   FOR EACH ROW EXECUTE FUNCTION public.fn_shot_list_archive_guard();
 
 DROP TRIGGER IF EXISTS trg_edits_guard ON public.edits;
 CREATE TRIGGER trg_edits_guard
-  BEFORE UPDATE ON public.edits
+  BEFORE INSERT OR UPDATE ON public.edits
   FOR EACH ROW EXECUTE FUNCTION public.fn_shot_list_archive_guard();
 
 COMMENT ON FUNCTION public.fn_shot_list_archive_guard() IS
-  '0084: refuses a change to archived_at/archived_by outside archive_shot_list() / archive_edit() (their transaction-local GUC names the one row), refuses any change to an archived row, and pins a list or edit to its project (and an edit to its list). service_role passes.';
+  '0084: refuses a row INSERTED already archived, and a change to archived_at/archived_by outside archive_shot_list() / archive_edit() (their transaction-local GUC names the one row), refuses any change to an archived row, and pins a list or edit to its project (and an edit to its list). service_role passes, and so does an UPDATE issued by another trigger (the FK''s ON DELETE SET NULL on parent_edit_id during a cascade — the project purge).';
 
 -- ── 7b. The active-list guard on projects ───────────────────────────────────
 -- projects_update (0013) admits every can_write_project caller — every member

@@ -55,6 +55,33 @@ import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../l
 import { devFixtures } from '../../../dev/devFixtures';
 import { probeInBrowser } from '../bins/binProbeFallback';
 import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
+// Shot lists and edits (post-overhaul S3a, migration 0084). The pure half —
+// selectors, the D11 backfill order, the item-set plans every membership
+// mutator writes — lives in shotListModel.js so it is testable without React.
+import {
+  activeShotListOf,
+  activeScenesOf,
+  activeShotsOf,
+  scenesOfList,
+  shotsOfList,
+  listsContainingOf,
+  editsOfList,
+  itemsOf,
+  nextShotListVersion as nextShotListVersionOf,
+  nextEditVersion as nextEditVersionOf,
+  formatShotListLabel,
+  validateVersionedTitle,
+  assertUniqueShotList,
+  assertUniqueEdit,
+  planAddToList,
+  planRemoveFromList,
+  planReorderList,
+  planCopyList,
+  planAllScenesAndShots,
+  buildShotListSnapshot,
+  normalizeEditItems,
+  buildEditSnapshot,
+} from './shotListModel';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -118,6 +145,14 @@ const EMPTY_BUNDLE = {
   binFiles:       [],
   binRoots:       [],
   shotTakes:      [],
+  // Shot lists and edits (post-overhaul S3a, migration 0084). Same rule, on
+  // EVERY adapter: supabase, localServer, the dev fixtures — and the key
+  // lists in loadProjectBundle.test.js (EXPECTED_KEYS),
+  // supabaseLoadProject.test.js (CLOUD_BUNDLE_KEYS) and
+  // rabbitFixturesAdapter.contract.test.js (BUNDLE_KEYS).
+  shotLists:      [],
+  shotListItems:  [],
+  edits:          [],
 };
 
 function indexById(rows) {
@@ -1542,10 +1577,517 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
 
+  // ── Shot lists and edits (post-overhaul S3a, migration 0084) ───────────
+  //
+  // Audrey's rulings (docs/design/POST_OVERHAUL_PLAN.md §0.1):
+  //   D1 + D3  a list is MEMBERSHIP (shotListItems), not copies. A scene's or
+  //            shot's name, notes, status and thumbnail are shared by every
+  //            list that contains it; only membership and order are per list.
+  //   D10      ctx.scenes / ctx.shots are the ACTIVE list's rows (every row
+  //            when the project has no active list); scenesOf(listId) /
+  //            shotsOf(listId) serve the list the Scenes tab is VIEWING.
+  //   D4/D18   lists and edits are archived, never deleted; the active list
+  //            cannot be archived.
+  //   D8       set active and archive are a project manager's or a workspace
+  //            admin's (the database refuses anyone else; the Local Server has
+  //            no roles, so there it is a label).
+  //
+  // Every membership change is ONE adapter call, replaceShotListItems — the
+  // whole item set of one list, atomic on every backend — and its undo is the
+  // same call with the set read before. Creation of a list or an edit cannot
+  // be undone by deleting it (nothing is ever deleted): its undo ARCHIVES it,
+  // which the database allows only a manager or admin. For anyone else that
+  // undo is refused and the refusal lands in ctx.error (optimistic()).
+  //
+  // These helpers are FUNCTION DECLARATIONS on purpose: they are hoisted, so
+  // addScene / deleteScene below can call them without a temporal-dead-zone
+  // hazard (the ordering trap the comment above writeManifestSoon records).
+  // They read refs and the stable setBundle only — no captured render state.
+
+  function shotListAdapter() {
+    const a = adapterRef.current;
+    if (!a || typeof a.replaceShotListItems !== 'function') {
+      throw new Error('Shot lists are not available on this backend.');
+    }
+    return a;
+  }
+
+  function findShotList(id) {
+    return (bundleRef.current.shotLists || []).find(l => l.id === id) || null;
+  }
+
+  function findEdit(id) {
+    return (bundleRef.current.edits || []).find(e => e.id === id) || null;
+  }
+
+  // A list that exists and is not archived — the provider refuses to change an
+  // archived list BEFORE any optimistic write, with the database's own words.
+  function requireEditableShotList(id) {
+    const list = findShotList(id);
+    if (!list) throw new Error('shot list not found');
+    if (list.archived_at) throw new Error('this shot list is archived — restore it before changing it');
+    return list;
+  }
+
+  function putRow(key, row) {
+    if (!row || !row.id) return;
+    setBundle(prev => {
+      const arr = prev[key] || [];
+      const i = arr.findIndex(r => r.id === row.id);
+      return { ...prev, [key]: i < 0 ? [...arr, row] : arr.map(r => (r.id === row.id ? row : r)) };
+    });
+  }
+
+  function putListItems(listId, rows) {
+    setBundle(prev => ({
+      ...prev,
+      shotListItems: [...(prev.shotListItems || []).filter(i => i.shot_list_id !== listId), ...(rows || [])],
+    }));
+  }
+
+  // The one membership write. Optimistic on the set, then the server's rows
+  // (ids and stamps) replace it. Guards a project switch mid-flight.
+  async function writeShotListItems(listId, nextRows) {
+    const pid = activeProjectIdRef.current;
+    const a = shotListAdapter();
+    const wire = (nextRows || []).map(r => ({
+      id: r.id, scene_id: r.scene_id || null, shot_id: r.shot_id || null, position: r.position ?? 0,
+    }));
+    const res = await optimistic(
+      prev => ({
+        ...prev,
+        shotListItems: [
+          ...(prev.shotListItems || []).filter(i => i.shot_list_id !== listId),
+          ...(nextRows || []).map(r => ({ ...r, shot_list_id: listId, project_id: pid })),
+        ],
+      }),
+      () => a.replaceShotListItems(pid, listId, wire),
+    );
+    if (activeProjectIdRef.current !== pid) return res;
+    if (Array.isArray(res)) putListItems(listId, res);
+    return res;
+  }
+
+  function snapshotListItems(listId) {
+    return itemsOf(bundleRef.current.shotListItems, listId).map(i => ({ ...i }));
+  }
+
+  // Where a NEW scene or shot goes: the list the caller names (S3b passes the
+  // list the Scenes tab is viewing), else the active list, else nowhere — a
+  // project with no active list shows every row anyway. `null` means "no list".
+  function targetListFor(opts) {
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'listId')) return opts.listId || null;
+    return bundleRef.current.project?.active_shot_list_id || null;
+  }
+
+  // Put a just-created scene or shot into its list. Returns the list id used.
+  async function addNewEntityToList(kind, row, opts) {
+    const listId = targetListFor(opts);
+    if (!listId || !findShotList(listId)) return null;
+    const shots = kind === 'shot'
+      ? [...(bundleRef.current.shots || []).filter(s => s.id !== row.id), row]
+      : (bundleRef.current.shots || []);
+    const { next, added } = planAddToList({
+      items: bundleRef.current.shotListItems,
+      listId,
+      projectId: activeProjectIdRef.current,
+      shots,
+      sceneIds: kind === 'scene' ? [row.id] : [],
+      shotIds:  kind === 'shot'  ? [row.id] : [],
+      newId: uuidv4,
+    });
+    if (added.length) await writeShotListItems(listId, next);
+    return listId;
+  }
+
+  // Undo of a scene/shot delete: put back the memberships the delete removed
+  // (the database cascaded them away; the Local Server swept them), leaving
+  // every other item of those lists as it now is.
+  async function restoreMemberships(removedItems) {
+    const byList = new Map();
+    for (const it of removedItems || []) {
+      if (!byList.has(it.shot_list_id)) byList.set(it.shot_list_id, []);
+      byList.get(it.shot_list_id).push(it);
+    }
+    for (const [listId, back] of byList) {
+      if (!findShotList(listId)) continue;
+      const current = snapshotListItems(listId);
+      const has = (it) => current.some(c => (it.scene_id && c.scene_id === it.scene_id) || (it.shot_id && c.shot_id === it.shot_id));
+      const next = [...current, ...back.filter(it => !has(it)).map(it => ({ ...it }))];
+      if (next.length !== current.length) await writeShotListItems(listId, next);
+    }
+  }
+
+  // Undo of a scene/shot delete: re-point the tasks the delete un-linked (the
+  // database's ON DELETE SET NULL; the Local Server's sweep), unless the task
+  // has been linked to something else since.
+  async function restoreTaskLinks(field, entityId, taskIds) {
+    for (const taskId of taskIds || []) {
+      const t = (bundleRef.current.tasks || []).find(x => x.id === taskId);
+      if (!t || t[field]) continue;
+      try { await mutationsRef.current.updateTask(taskId, { [field]: entityId }); } catch { /* ctx.error has it */ }
+    }
+  }
+
+  // The undo primitive: put one list's membership back verbatim. No history.
+  const replaceShotListItems = useCallback(async (listId, items) => {
+    if (!findShotList(listId)) throw new Error('shot list not found');
+    return writeShotListItems(listId, items || []);
+  }, [optimistic]);
+
+  /**
+   * New list. { title, version?, summary?, from?, fromAll?, id? }
+   *   from     — a list id: link the SAME scene and shot rows in the same
+   *              order ("New list from the current one", D1 + D3)
+   *   fromAll  — every scene and shot of the project, in number order (the
+   *              D11 set; for a project that has no list yet)
+   * version defaults to the next free version of the title (D14). Not made
+   * active — that is setActiveShotList, a manager's decision (D8).
+   */
+  const addShotList = useCallback(async (opts = {}) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    const lists = bundleRef.current.shotLists || [];
+    const title = String(opts.title || '').trim();
+    const version = opts.version ?? nextShotListVersionOf(lists, title);
+    validateVersionedTitle({ title, version });
+    assertUniqueShotList(lists, { title, version });
+    if (opts.from && !findShotList(opts.from)) throw new Error('shot list not found');
+    const a = shotListAdapter();
+    const row = {
+      id: opts.id || uuidv4(),
+      project_id: pid,
+      title,
+      version,
+      summary: opts.summary ?? null,
+      snapshot: {},
+      archived_at: null,
+      archived_by: null,
+    };
+    return runBatch(async () => {
+      const created = await optimistic(
+        prev => ({ ...prev, shotLists: [...(prev.shotLists || []), row] }),
+        () => a.upsertShotList(row),
+      );
+      const listRow = created || row;
+      if (activeProjectIdRef.current !== pid) return listRow;
+      putRow('shotLists', listRow);
+      let items = [];
+      if (opts.from) {
+        items = planCopyList({ items: bundleRef.current.shotListItems, fromListId: opts.from, toListId: listRow.id, projectId: pid, newId: uuidv4 });
+      } else if (opts.fromAll) {
+        items = planAllScenesAndShots({ scenes: bundleRef.current.scenes, shots: bundleRef.current.shots, listId: listRow.id, projectId: pid, newId: uuidv4 });
+      }
+      if (items.length) await writeShotListItems(listRow.id, items);
+      pushHistory({
+        undoOps: [() => mutationsRef.current.archiveShotList(listRow.id, true)],
+        redoOps: [() => mutationsRef.current.archiveShotList(listRow.id, false)],
+      });
+      return listRow;
+    });
+  }, [optimistic, runBatch]);
+
+  /** Title / version / summary (and, for undo, snapshot). Refused on an archived list. */
+  const updateShotList = useCallback(async (id, patch = {}) => {
+    const list = requireEditableShotList(id);
+    const allowed = {};
+    for (const k of ['title', 'version', 'summary', 'snapshot']) {
+      if (Object.prototype.hasOwnProperty.call(patch, k)) allowed[k] = patch[k];
+    }
+    if (allowed.title !== undefined) allowed.title = String(allowed.title).trim();
+    const nextRow = { ...list, ...allowed };
+    validateVersionedTitle({ title: nextRow.title, version: nextRow.version });
+    assertUniqueShotList(bundleRef.current.shotLists, nextRow);
+    const oldValues = {};
+    for (const k of Object.keys(allowed)) oldValues[k] = list[k];
+    const a = shotListAdapter();
+    const res = await optimistic(
+      prev => ({ ...prev, shotLists: (prev.shotLists || []).map(l => (l.id === id ? nextRow : l)) }),
+      () => a.upsertShotList(nextRow),
+    );
+    if (res) putRow('shotLists', res);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.updateShotList(id, oldValues)],
+      redoOps: [() => mutationsRef.current.updateShotList(id, allowed)],
+    });
+    return res || nextRow;
+  }, [optimistic]);
+
+  /**
+   * "Save" (D5): record a version point — the list's scenes, shots and
+   * membership as they are now go into shot_lists.snapshot. Field edits are
+   * already live-saved; this is the history mark. { summary? } rides along.
+   */
+  const saveShotListSnapshot = useCallback(async (id, opts = {}) => {
+    const list = requireEditableShotList(id);
+    const snapshot = buildShotListSnapshot({
+      list,
+      scenes: bundleRef.current.scenes,
+      shots: bundleRef.current.shots,
+      items: bundleRef.current.shotListItems,
+      savedAt: new Date().toISOString(),
+    });
+    const patch = { snapshot };
+    if (Object.prototype.hasOwnProperty.call(opts, 'summary')) patch.summary = opts.summary;
+    return mutationsRef.current.updateShotList(id, patch);
+  }, []);
+
+  /** Make a list the project's active list (null clears it). Manager/admin (D8). */
+  const setActiveShotList = useCallback(async (listId) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    const target = listId || null;
+    const prevId = bundleRef.current.project?.active_shot_list_id || null;
+    if (target === prevId) return prevId;
+    if (target) {
+      const list = findShotList(target);
+      if (!list) throw new Error('shot list not found in this project');
+      if (list.archived_at) throw new Error('an archived shot list cannot be made active — restore it first');
+    }
+    const a = shotListAdapter();
+    notePendingFields('projects', pid, ['active_shot_list_id']);
+    try {
+      await optimistic(
+        prev => ({ ...prev, project: prev.project ? { ...prev.project, active_shot_list_id: target } : prev.project }),
+        () => a.setActiveShotList(pid, target),
+      );
+    } finally {
+      clearPendingFields('projects', pid, ['active_shot_list_id']);
+    }
+    setProjectsIndex(idx => (idx[pid] ? { ...idx, [pid]: { ...idx[pid], active_shot_list_id: target } } : idx));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.setActiveShotList(prevId)],
+      redoOps: [() => mutationsRef.current.setActiveShotList(target)],
+    });
+    return target;
+  }, [optimistic, notePendingFields, clearPendingFields]);
+
+  /** Archive (default) or restore a list. The ACTIVE list cannot be archived (D4). */
+  const archiveShotList = useCallback(async (listId, archived = true) => {
+    const list = findShotList(listId);
+    if (!list) throw new Error('shot list not found');
+    const want = archived !== false;
+    if (want && bundleRef.current.project?.active_shot_list_id === listId) {
+      throw new Error('the active shot list cannot be archived — make another list active first');
+    }
+    if (!!list.archived_at === want) return list;
+    const a = shotListAdapter();
+    const pid = activeProjectIdRef.current;
+    const res = await optimistic(
+      prev => ({
+        ...prev,
+        shotLists: (prev.shotLists || []).map(l => (l.id === listId
+          ? { ...l, archived_at: want ? (l.archived_at || new Date().toISOString()) : null, archived_by: want ? l.archived_by : null }
+          : l)),
+      }),
+      () => a.archiveShotList(pid, listId, want),
+    );
+    if (res) putRow('shotLists', res);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.archiveShotList(listId, !want)],
+      redoOps: [() => mutationsRef.current.archiveShotList(listId, want)],
+    });
+    return res || list;
+  }, [optimistic]);
+
+  /**
+   * Add scenes and/or shots to a list: { sceneId, shotId, sceneIds, shotIds }.
+   * A shot whose scene the list lacks brings its scene along. Returns the
+   * items added ([] when everything was already there).
+   */
+  const addToShotList = useCallback(async (listId, what = {}) => {
+    requireEditableShotList(listId);
+    const sceneIds = [...(what.sceneIds || []), ...(what.sceneId ? [what.sceneId] : [])];
+    const shotIds  = [...(what.shotIds  || []), ...(what.shotId  ? [what.shotId]  : [])];
+    const before = snapshotListItems(listId);
+    const { next, added } = planAddToList({
+      items: bundleRef.current.shotListItems, listId, projectId: activeProjectIdRef.current,
+      shots: bundleRef.current.shots, sceneIds, shotIds, newId: uuidv4,
+    });
+    if (!added.length) return [];
+    await writeShotListItems(listId, next);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.replaceShotListItems(listId, before)],
+      redoOps: [() => mutationsRef.current.replaceShotListItems(listId, next)],
+    });
+    return added;
+  }, [optimistic]);
+
+  /** Remove scenes and/or shots from a list (a scene takes its shots' items with it). */
+  const removeFromShotList = useCallback(async (listId, what = {}) => {
+    requireEditableShotList(listId);
+    const sceneIds = [...(what.sceneIds || []), ...(what.sceneId ? [what.sceneId] : [])];
+    const shotIds  = [...(what.shotIds  || []), ...(what.shotId  ? [what.shotId]  : [])];
+    const before = snapshotListItems(listId);
+    const { next, removed } = planRemoveFromList({
+      items: bundleRef.current.shotListItems, listId, shots: bundleRef.current.shots, sceneIds, shotIds,
+    });
+    if (!removed.length) return [];
+    await writeShotListItems(listId, next);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.replaceShotListItems(listId, before)],
+      redoOps: [() => mutationsRef.current.replaceShotListItems(listId, next)],
+    });
+    return removed;
+  }, [optimistic]);
+
+  /**
+   * Reorder one group of a list — its scenes, or the shots of one scene.
+   * orderedIds are scene ids, shot ids or item ids (see planReorderList).
+   */
+  const reorderShotListItems = useCallback(async (listId, orderedIds) => {
+    requireEditableShotList(listId);
+    const before = snapshotListItems(listId);
+    const { next } = planReorderList({ items: bundleRef.current.shotListItems, listId, shots: bundleRef.current.shots, orderedIds });
+    const same = next.every(n => before.find(b => b.id === n.id)?.position === n.position);
+    if (same) return next;
+    await writeShotListItems(listId, next);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.replaceShotListItems(listId, before)],
+      redoOps: [() => mutationsRef.current.replaceShotListItems(listId, next)],
+    });
+    return next;
+  }, [optimistic]);
+
+  /**
+   * New edit on a list (D6: any list, active or not; one linear chain).
+   * { listId, parentEditId?, title, version?, summary?, items?, id? }
+   * items default to the parent's (same item ids, so S3c can compare
+   * versions item by item) or [] with no parent.
+   */
+  const createEditFrom = useCallback(async (opts = {}) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    const listId = opts.listId;
+    requireEditableShotList(listId);
+    const parent = opts.parentEditId ? findEdit(opts.parentEditId) : null;
+    if (opts.parentEditId && (!parent || parent.shot_list_id !== listId)) {
+      throw new Error('an edit\'s parent must be another edit of the same shot list');
+    }
+    const edits = bundleRef.current.edits || [];
+    const title = String(opts.title || '').trim();
+    const version = opts.version ?? nextEditVersionOf(edits, listId, title);
+    validateVersionedTitle({ title, version }, 'edit');
+    assertUniqueEdit(edits, { shot_list_id: listId, title, version });
+    const items = opts.items !== undefined
+      ? normalizeEditItems(opts.items, uuidv4)
+      : (parent ? normalizeEditItems(parent.items || [], uuidv4) : []);
+    const row = {
+      id: opts.id || uuidv4(),
+      project_id: pid,
+      shot_list_id: listId,
+      title,
+      version,
+      summary: opts.summary ?? null,
+      parent_edit_id: parent ? parent.id : null,
+      items,
+      snapshot: null,
+      archived_at: null,
+      archived_by: null,
+    };
+    const a = shotListAdapter();
+    const created = await optimistic(
+      prev => ({ ...prev, edits: [...(prev.edits || []), row] }),
+      () => a.upsertEdit(row),
+    );
+    if (created) putRow('edits', created);
+    const finalRow = created || row;
+    pushHistory({
+      undoOps: [() => mutationsRef.current.archiveEdit(finalRow.id, true)],
+      redoOps: [() => mutationsRef.current.archiveEdit(finalRow.id, false)],
+    });
+    return finalRow;
+  }, [optimistic]);
+
+  /** Title / version / summary / items / snapshot of an edit. Refused when archived. */
+  const updateEdit = useCallback(async (id, patch = {}) => {
+    const edit = findEdit(id);
+    if (!edit) throw new Error('edit not found');
+    if (edit.archived_at) throw new Error('this edit is archived — restore it before changing it');
+    const allowed = {};
+    for (const k of ['title', 'version', 'summary', 'items', 'snapshot']) {
+      if (Object.prototype.hasOwnProperty.call(patch, k)) allowed[k] = patch[k];
+    }
+    if (allowed.title !== undefined) allowed.title = String(allowed.title).trim();
+    if (allowed.items !== undefined) allowed.items = normalizeEditItems(allowed.items, uuidv4);
+    const nextRow = { ...edit, ...allowed };
+    validateVersionedTitle({ title: nextRow.title, version: nextRow.version }, 'edit');
+    assertUniqueEdit(bundleRef.current.edits, nextRow);
+    const oldValues = {};
+    for (const k of Object.keys(allowed)) oldValues[k] = edit[k];
+    const a = shotListAdapter();
+    const res = await optimistic(
+      prev => ({ ...prev, edits: (prev.edits || []).map(e => (e.id === id ? nextRow : e)) }),
+      () => a.upsertEdit(nextRow),
+    );
+    if (res) putRow('edits', res);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.updateEdit(id, oldValues)],
+      redoOps: [() => mutationsRef.current.updateEdit(id, allowed)],
+    });
+    return res || nextRow;
+  }, [optimistic]);
+
+  /**
+   * "Save" an edit (D5, S3c's draft → the database): the whole item array in
+   * one write, plus a snapshot of the names of the shots and scenes it
+   * references so a later-deleted shot still reads "Missing shot: <name>"
+   * (D17). summary rides along when given.
+   */
+  const saveEdit = useCallback(async (editId, items, summary) => {
+    const normalized = normalizeEditItems(items, uuidv4);
+    const patch = {
+      items: normalized,
+      snapshot: buildEditSnapshot({
+        items: normalized,
+        shots: bundleRef.current.shots,
+        scenes: bundleRef.current.scenes,
+        savedAt: new Date().toISOString(),
+      }),
+    };
+    if (summary !== undefined) patch.summary = summary;
+    return mutationsRef.current.updateEdit(editId, patch);
+  }, []);
+
+  /** Archive (default) or restore an edit. Manager/admin (D8). */
+  const archiveEdit = useCallback(async (editId, archived = true) => {
+    const edit = findEdit(editId);
+    if (!edit) throw new Error('edit not found');
+    const want = archived !== false;
+    if (!!edit.archived_at === want) return edit;
+    const a = shotListAdapter();
+    const pid = activeProjectIdRef.current;
+    const res = await optimistic(
+      prev => ({
+        ...prev,
+        edits: (prev.edits || []).map(e => (e.id === editId
+          ? { ...e, archived_at: want ? (e.archived_at || new Date().toISOString()) : null, archived_by: want ? e.archived_by : null }
+          : e)),
+      }),
+      () => a.archiveEdit(pid, editId, want),
+    );
+    if (res) putRow('edits', res);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.archiveEdit(editId, !want)],
+      redoOps: [() => mutationsRef.current.archiveEdit(editId, want)],
+    });
+    return res || edit;
+  }, [optimistic]);
+
   // ── Scenes ─────────────────────────────────────────────
-  const addScene = useCallback(async (scene) => {
+  //
+  // S3a: a new scene joins a list — opts.listId (the list the Scenes tab is
+  // viewing, S3b), else the ACTIVE list — so it stays visible under D10.
+  // opts.restoreItems / opts.restoreTaskLinks are the undo path of
+  // deleteScene: the memberships and task links the delete removed.
+  const addScene = useCallback(async (scene, opts = {}) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    // Refuse an archived or unknown target list BEFORE the scene is written,
+    // or the scene would land outside every list the caller can see.
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'listId') && opts.listId) {
+      requireEditableShotList(opts.listId);
+    }
     const row = {
       id:           scene.id || uuidv4(),
       project_id:   activeProjectId,
@@ -1561,9 +2103,22 @@ export function RabbitProvider({ children }) {
     // cannot be written must not undo that. ensureEntityFolderFor warns
     // and the next create or reload reconciles.
     ensureEntityFolderFor('scene', finalRow);
+    let listId = null;
+    try {
+      if (opts?.restoreItems) {
+        await restoreMemberships(opts.restoreItems);
+        await restoreTaskLinks('scene_id', finalRow.id, opts.restoreTaskLinks);
+      } else {
+        listId = await addNewEntityToList('scene', finalRow, opts);
+      }
+    } catch (err) {
+      // The scene is saved; a membership that could not be written is
+      // reported (ctx.error, set by optimistic) rather than undoing it.
+      console.warn('[rabbit] scene saved but its shot-list membership was not:', err?.message || err);
+    }
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteScene(finalRow.id)],
-      redoOps: [() => mutationsRef.current.addScene(finalRow)],
+      redoOps: [() => mutationsRef.current.addScene(finalRow, { listId })],
     });
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
@@ -1594,15 +2149,26 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, ensureEntityFolderFor]);
 
+  // S3a: deleting a scene takes it out of EVERY list (0084's CASCADE; the
+  // Local Server's sweep) and un-links its tasks (SET NULL). State mirrors
+  // both, and the undo puts both back — without that, an undone delete would
+  // bring the scene back OUTSIDE the active list, i.e. invisible (D10).
   const deleteScene = useCallback(async (id) => {
     const oldScene = bundleRef.current.scenes.find(s => s.id === id);
+    const removedItems = (bundleRef.current.shotListItems || []).filter(i => i.scene_id === id).map(i => ({ ...i }));
+    const linkedTaskIds = (bundleRef.current.tasks || []).filter(t => t.scene_id === id).map(t => t.id);
     const result = await optimistic(
-      prev => ({ ...prev, scenes: prev.scenes.filter(s => s.id !== id) }),
+      prev => ({
+        ...prev,
+        scenes: prev.scenes.filter(s => s.id !== id),
+        shotListItems: (prev.shotListItems || []).filter(i => i.scene_id !== id),
+        tasks: prev.tasks.map(t => (t.scene_id === id ? { ...t, scene_id: null } : t)),
+      }),
       () => adapterRef.current.deleteScene(id, activeProjectId),
     );
     if (oldScene) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.addScene(oldScene)],
+        undoOps: [() => mutationsRef.current.addScene(oldScene, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds })],
         redoOps: [() => mutationsRef.current.deleteScene(id)],
       });
     }
@@ -1610,9 +2176,13 @@ export function RabbitProvider({ children }) {
   }, [optimistic, activeProjectId]);
 
   // ── Shots ──────────────────────────────────────────────
-  const addShot = useCallback(async (shot) => {
+  // S3a: the same list rules as addScene — see its comment.
+  const addShot = useCallback(async (shot, opts = {}) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'listId') && opts.listId) {
+      requireEditableShotList(opts.listId);
+    }
     const row = {
       id:           shot.id || uuidv4(),
       project_id:   activeProjectId,
@@ -1628,9 +2198,20 @@ export function RabbitProvider({ children }) {
     // cannot be written must not undo that. ensureEntityFolderFor warns
     // and the next create or reload reconciles.
     ensureEntityFolderFor('shot', finalRow);
+    let listId = null;
+    try {
+      if (opts?.restoreItems) {
+        await restoreMemberships(opts.restoreItems);
+        await restoreTaskLinks('shot_id', finalRow.id, opts.restoreTaskLinks);
+      } else {
+        listId = await addNewEntityToList('shot', finalRow, opts);
+      }
+    } catch (err) {
+      console.warn('[rabbit] shot saved but its shot-list membership was not:', err?.message || err);
+    }
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteShot(finalRow.id)],
-      redoOps: [() => mutationsRef.current.addShot(finalRow)],
+      redoOps: [() => mutationsRef.current.addShot(finalRow, { listId })],
     });
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
@@ -1661,15 +2242,24 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, ensureEntityFolderFor]);
 
+  // S3a: the deleteScene rule, for a shot — out of every list, tasks un-linked,
+  // both restored by the undo.
   const deleteShot = useCallback(async (id) => {
     const oldShot = bundleRef.current.shots.find(s => s.id === id);
+    const removedItems = (bundleRef.current.shotListItems || []).filter(i => i.shot_id === id).map(i => ({ ...i }));
+    const linkedTaskIds = (bundleRef.current.tasks || []).filter(t => t.shot_id === id).map(t => t.id);
     const result = await optimistic(
-      prev => ({ ...prev, shots: prev.shots.filter(s => s.id !== id) }),
+      prev => ({
+        ...prev,
+        shots: prev.shots.filter(s => s.id !== id),
+        shotListItems: (prev.shotListItems || []).filter(i => i.shot_id !== id),
+        tasks: prev.tasks.map(t => (t.shot_id === id ? { ...t, shot_id: null } : t)),
+      }),
       () => adapterRef.current.deleteShot(id, activeProjectId),
     );
     if (oldShot) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.addShot(oldShot)],
+        undoOps: [() => mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds })],
         redoOps: [() => mutationsRef.current.deleteShot(id)],
       });
     }
@@ -3492,6 +4082,47 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.updateShotTake   = updateShotTake;
   mutationsRef.current.removeShotTakes  = removeShotTakes;
   mutationsRef.current.reorderShotTakes = reorderShotTakes;
+  // Shot lists and edits (S3a). Every name a history op calls — the same
+  // silent-undo hazard as above; mutationsRegistry.test.js pins it.
+  mutationsRef.current.replaceShotListItems = replaceShotListItems;
+  mutationsRef.current.addShotList          = addShotList;
+  mutationsRef.current.updateShotList       = updateShotList;
+  mutationsRef.current.saveShotListSnapshot = saveShotListSnapshot;
+  mutationsRef.current.setActiveShotList    = setActiveShotList;
+  mutationsRef.current.archiveShotList      = archiveShotList;
+  mutationsRef.current.addToShotList        = addToShotList;
+  mutationsRef.current.removeFromShotList   = removeFromShotList;
+  mutationsRef.current.reorderShotListItems = reorderShotListItems;
+  mutationsRef.current.createEditFrom       = createEditFrom;
+  mutationsRef.current.updateEdit           = updateEdit;
+  mutationsRef.current.saveEdit             = saveEdit;
+  mutationsRef.current.archiveEdit          = archiveEdit;
+
+  // ── Shot-list selectors (S3a) ───────────────────────────
+  // D10: `scenes` / `shots` below are the ACTIVE list's rows (every row when
+  // the project has no active list — the pre-0084 state, so nothing on
+  // screen changes for a project without lists). After the D11 backfill the
+  // active list holds every row, so every existing consumer sees exactly
+  // what it saw before. `allScenes` / `allShots` are the unfiltered rows.
+  const shotListView = useMemo(() => {
+    const project = bundle.project;
+    const lists = bundle.shotLists || [];
+    const items = bundle.shotListItems || [];
+    const edits = bundle.edits || [];
+    const scenes = bundle.scenes || [];
+    const shots = bundle.shots || [];
+    return {
+      activeShotList: activeShotListOf(project, lists),
+      activeScenes: activeScenesOf({ project, shotLists: lists, shotListItems: items, scenes, shots }),
+      activeShots: activeShotsOf({ project, shotLists: lists, shotListItems: items, shots }),
+      scenesOf: (listId) => scenesOfList(scenes, items, listId, shots),
+      shotsOf: (listId) => shotsOfList(shots, items, listId, scenes),
+      listsContaining: (id) => listsContainingOf({ shotLists: lists, shotListItems: items, shots }, id),
+      editsOf: (listId) => editsOfList(edits, listId),
+      nextShotListVersion: (title) => nextShotListVersionOf(lists, title),
+      nextEditVersion: (listId, title) => nextEditVersionOf(edits, listId, title),
+    };
+  }, [bundle.project, bundle.shotLists, bundle.shotListItems, bundle.edits, bundle.scenes, bundle.shots]);
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
@@ -3545,8 +4176,24 @@ export function RabbitProvider({ children }) {
     budgetLines:     bundle.budgetLines || [],
     budgetActuals:   bundle.budgetActuals || [],
     projectTeam:     bundle.projectTeam || [],
-    scenes:          bundle.scenes || [],
-    shots:           bundle.shots || [],
+    // D10 (S3a): the ACTIVE shot list's scenes and shots, in load order —
+    // every row when the project has no active list. See shotListView.
+    scenes:          shotListView.activeScenes,
+    shots:           shotListView.activeShots,
+    allScenes:       bundle.scenes || [],
+    allShots:        bundle.shots || [],
+    // Shot lists and edits (S3a, migration 0084) — the API S3b and S3c use.
+    shotLists:       bundle.shotLists || [],
+    shotListItems:   bundle.shotListItems || [],
+    edits:           bundle.edits || [],
+    activeShotList:  shotListView.activeShotList,
+    scenesOf:        shotListView.scenesOf,
+    shotsOf:         shotListView.shotsOf,
+    listsContaining: shotListView.listsContaining,
+    editsOf:         shotListView.editsOf,
+    nextShotListVersion: shotListView.nextShotListVersion,
+    nextEditVersion: shotListView.nextEditVersion,
+    formatShotListLabel,
     // The bin system (demo 2026-09-11).
     bins:            bundle.bins || [],
     binFiles:        bundle.binFiles || [],
@@ -3647,6 +4294,10 @@ export function RabbitProvider({ children }) {
 
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
+    // Shot lists and edits (S3a).
+    addShotList, updateShotList, saveShotListSnapshot, setActiveShotList, archiveShotList,
+    addToShotList, removeFromShotList, reorderShotListItems, replaceShotListItems,
+    createEditFrom, updateEdit, saveEdit, archiveEdit,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
@@ -3693,6 +4344,9 @@ export function RabbitProvider({ children }) {
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
+    addShotList, updateShotList, saveShotListSnapshot, setActiveShotList, archiveShotList,
+    addToShotList, removeFromShotList, reorderShotListItems, replaceShotListItems,
+    createEditFrom, updateEdit, saveEdit, archiveEdit, shotListView,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,

@@ -24,6 +24,16 @@ const {
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
 const ffmpeg = require('./ffmpeg.cjs');
+// Post-overhaul S3a (0084): shot lists, their membership and edits on the
+// Local Server. The routes are mounted inside startLocalServer; the two
+// read-time helpers run in readRabbitBundle (D11's backfill) and the sweep
+// runs in the scene / shot DELETE (the desktop's copy of 0084's FK actions).
+const {
+  mountRabbitShotLists,
+  ensureShotListKeys,
+  backfillShotListsOnRead,
+  sweepShotListLinks,
+} = require('./rabbitShotLists.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -1320,6 +1330,19 @@ function startLocalServer(distPath) {
       if (!bundle.experiences)     { bundle.experiences     = []; dirty = true; }
       if (!bundle.fileEvents)      { bundle.fileEvents      = []; dirty = true; }
       if (!bundle.folders)         { bundle.folders         = []; dirty = true; }
+      // Post-overhaul S3a (0084, D11): a bundle that PREDATES shot lists (no
+      // `shotLists` array) gets "Shot list 1 · v1", active, holding every
+      // scene and shot in 0084's backfill order — the desktop's copy of the
+      // cloud's one-time backfill. A bundle that already has the array (even
+      // an empty one: every project created since has it) is never backfilled
+      // again; for those only the two sibling arrays are ensured. Either way
+      // the change is persisted by the dirty write below, so it happens once.
+      // Guarded: the backfill computes before it mutates, so a throw leaves
+      // the bundle as it was and the next read tries again.
+      try {
+        if (backfillShotListsOnRead(bundle, { newId: uuidv4, now: new Date().toISOString(), projectId })) dirty = true;
+        if (ensureShotListKeys(bundle)) dirty = true;
+      } catch (e) { console.error('shot list backfill failed:', e.message); }
       // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
       // is stored absolute (the project POST writes <root>/<slug>), so a folder
       // moved or copied elsewhere would keep pointing at where it USED to be —
@@ -1435,6 +1458,12 @@ function startLocalServer(distPath) {
         // same shape either way.
         folders:         [],
         fileEvents:      [],
+        // Post-overhaul S3a (0084). Present from birth, so a new project is
+        // never backfilled (readRabbitBundle backfills only a bundle with no
+        // `shotLists` array) — parity with the cloud, whose backfill ran once.
+        shotLists:       [],
+        shotListItems:   [],
+        edits:           [],
       };
     }
     function rabbitTouch(row) {
@@ -1544,7 +1573,8 @@ function startLocalServer(distPath) {
         // 🚨 NOT ported to the folders TABLE, and it must not be. On `main`
         // this was never a files folder, it was the DATASTORE —
         // mirrorProjectDatabases writes project.json, team.json, tasks.json,
-        // timeline.json and budget.json into it. Database information lives
+        // timeline.json, budget.json and (S3a, D21) scenes.json into it.
+        // Database information lives
         // in Supabase. It keeps being created here so existing local projects
         // are untouched, and it is deliberately absent from FOLDER_CATEGORIES
         // so it never becomes a second copy of every project in the cloud.
@@ -1756,6 +1786,17 @@ function startLocalServer(distPath) {
           budgetActuals:  bundle.budgetActuals  || [],
           budgetVersions: bundle.budgetVersions || [],
           expenses:       bundle.expenses       || [],
+        });
+        // scenes.json — shot lists, their membership, the shared scene and
+        // shot rows, and edits (post-overhaul S3a; Audrey D21: scenes.json
+        // joins the desktop's readable database files). Lists first because a
+        // list is how a person reads them: membership, not copies (D1 + D3).
+        writeJSON(path.join(dbDir, 'scenes.json'), {
+          shotLists:     bundle.shotLists     || [],
+          shotListItems: bundle.shotListItems || [],
+          scenes:        bundle.scenes        || [],
+          shots:         bundle.shots         || [],
+          edits:         bundle.edits         || [],
         });
       } catch (e) {
         console.error('mirrorProjectDatabases failed:', e.message);
@@ -2003,6 +2044,11 @@ function startLocalServer(distPath) {
         folder_slug:     fileSlugify(String(req.body.folder_slug || req.body.title || 'Untitled-Project')),
         folder_root:     folderRootIn,
         files_dir:       filesDirIn,
+        // Post-overhaul S3a (0084): a new project has no shot list, so it can
+        // have no active one. Forced, not taken from the body — a duplicated
+        // project's row would otherwise point at ANOTHER project's list, which
+        // the cloud's same-project FK (projects_active_shot_list_fk) refuses.
+        active_shot_list_id: null,
         created_at:      now,
         updated_at:      now,
       };
@@ -2024,6 +2070,25 @@ function startLocalServer(distPath) {
     expressApp.patch('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
       if (!bundle) return rabbitNotFound(res);
+      // Post-overhaul S3a, rule 7 — the desktop's copy of 0084 §7b
+      // (trg_projects_active_shot_list_guard). The active shot list changes
+      // only through POST …/active-shot-list (electron/rabbitShotLists.cjs),
+      // which checks the list exists here and is not archived; this spread
+      // would otherwise accept any id, including one of another project's
+      // lists. Only a CHANGE is refused: the adapters send whole project rows
+      // back, and an unchanged pointer (null and absent count as the same)
+      // must pass, the S35 idiom this route uses for folder_root below.
+      // Refused BEFORE anything else looks at the body, so nothing is written.
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'active_shot_list_id')) {
+        const nextActive = req.body.active_shot_list_id || null;
+        const curActive = bundle.project.active_shot_list_id || null;
+        if (String(nextActive) !== String(curActive)) {
+          return res.status(403).json({
+            error: 'the active shot list is changed only by a project manager or a workspace admin, through set_active_shot_list()',
+            code: 'forbidden',
+          });
+        }
+      }
       // Session 35 (TPN-NET-015): folder_root is the one field this spread
       // must not accept verbatim. Clearing (null/'') is a reset to the
       // configured chain and passes; an UNCHANGED value re-sent by a caller
@@ -2169,6 +2234,14 @@ function startLocalServer(distPath) {
       // route clears it. The bundle keeps the row either way — that is what
       // makes "Recently deleted" and Undo work here at all.
       const softDelete = !!(opts && opts.softDelete);
+      // Post-overhaul S3a, rule 8: `shotListLinks: 'scene' | 'shot'` makes a
+      // hard DELETE run sweepShotListLinks (electron/rabbitShotLists.cjs) in
+      // the same write — the row's shot-list items leave every list and the
+      // tasks pointing at it are unlinked, as 0084's FKs CASCADE / SET NULL.
+      // Replayed with a failing control by desktopDeleteSweep.test.js, which
+      // passes the real sweepShotListLinks into its lifted copy of this
+      // function (so it stays a plain name here, not an opts callback).
+      const shotListLinks = (opts && opts.shotListLinks) || null;
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -2228,8 +2301,11 @@ function startLocalServer(distPath) {
         const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
         if (!removed) return rabbitNotFound(res, entityName);
         const swept = sweepDependencies ? sweepDependencyEdges(bundle, req.params.id) : 0;
+        // `unlinked` ({ items, tasks }) appears only for an entity registered
+        // with shotListLinks, so every other entity answers exactly as before.
+        const unlinked = shotListLinks ? sweepShotListLinks(bundle, shotListLinks, req.params.id) : null;
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json({ ok: true, swept });
+        res.json(unlinked ? { ok: true, swept, unlinked } : { ok: true, swept });
       });
       // RESTORE — registered only for soft-delete entities, so a hard-delete
       // entity has no route that could half-work.
@@ -2448,8 +2524,10 @@ function startLocalServer(distPath) {
     // Session 26: the four entity types that get their own folders. Assets
     // are the fifth and have their own routes below (they already had folder
     // side-effects before this session).
-    rabbitSubentityRoutes('scenes',          'scenes',      'scene');
-    rabbitSubentityRoutes('shots',           'shots',       'shot');
+    // Post-overhaul S3a, rule 8: deleting a scene or a shot takes it out of
+    // every shot list and unlinks the tasks that named it (0084's FKs).
+    rabbitSubentityRoutes('scenes',          'scenes',      'scene', { shotListLinks: 'scene' });
+    rabbitSubentityRoutes('shots',           'shots',       'shot',  { shotListLinks: 'shot' });
     rabbitSubentityRoutes('levels',          'levels',      'level');
     rabbitSubentityRoutes('experiences',     'experiences', 'experience');
     // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
@@ -2547,7 +2625,8 @@ function startLocalServer(distPath) {
     // recovery and handoff, never an input to normal operation.
     //
     // 🚨 THIS IS NOT `_DATABASES/`. That folder holds project.json, team.json,
-    // tasks.json, timeline.json and budget.json — a full second datastore,
+    // tasks.json, timeline.json, budget.json and scenes.json (S3a) — a full
+    // second datastore,
     // and the reason the mirror rule exists at all. The manifest is ONE file
     // of SETTINGS at the project root, beside ASSETS/ and SCENES/, where a
     // person browsing the folder will actually find it.
@@ -3814,6 +3893,14 @@ function startLocalServer(distPath) {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
       getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
       userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
+    });
+
+    // ── Shot lists, their membership and edits (post-overhaul S3a, 0084) —
+    // electron/rabbitShotLists.cjs. Same placement rule as the bins: after the
+    // /api/rabbit missing-folder guard, BEFORE the static/SPA fallback. Uses
+    // the default-touch writeRabbitBundle so scenes.json is re-mirrored.
+    mountRabbitShotLists(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitNotFound, uuidv4,
     });
 
     // ── Cloud rows, local bodies (demo 2026-09-11) — electron/localMedia.cjs ──

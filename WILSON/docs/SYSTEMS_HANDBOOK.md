@@ -3494,6 +3494,32 @@ omitted hidden and counted, several shots at once), "Used in shots" on the
 inspector and a usage badge on tiles and rows. `state/rabbitNavigate.js`
 carries open-in-Scenes / show-in-Bins across the shell's tabs.
 
+**Shot lists and edits** (post-overhaul S3a, migration 0084, 2026-09-30;
+Audrey's rulings D1–D22 in `docs/design/POST_OVERHAUL_PLAN.md` §0.1). A shot
+list is MEMBERSHIP, not copies: `shot_list_items` names a scene or a shot and
+its position in one list, and the scene and shot rows themselves are shared by
+every list that holds them (a rename in one list is a rename everywhere). A
+list is `title` + integer `version`, unique per project ("Title · v3"); "Save"
+writes the list's current contents into `shot_lists.snapshot`; lists and
+edits are archived, never deleted. `projects.active_shot_list_id` names the
+ACTIVE list, and every surface except the Scenes tab reads only its rows —
+`ctx.scenes` / `ctx.shots` ARE the active list's (every row when there is no
+active list); `ctx.allScenes` / `allShots` / `scenesOf(listId)` /
+`shotsOf(listId)` give the rest. An edit is an ordered JSONB array of items
+referencing shot ids (repeats allowed), one linear chain per list. Writes to
+lists, items and edits pass `can_edit_shot_lists()` — `can_write_project`
+plus the REVIEWER seat, the first thing a reviewer may write — while set
+active and archive go through three SECURITY DEFINER RPCs that admit only a
+workspace admin or the project manager, backed by guard triggers so the plain
+UPDATE policies cannot do either. Same-project composite FKs keep every link
+(items, tasks' new `scene_id` / `shot_id`, budget versions' `shot_list_id`,
+the active pointer) inside its own project. The D11 backfill gave every
+project with scenes or shots "Shot list 1 · v1", active, in the cloud (the
+migration) and on the Local Server (on read, once, for bundles that predate
+the keys). The Local Server routes live in `electron/rabbitShotLists.cjs`;
+the pure model in `state/shotListModel.js`; the API is documented in
+`docs/sessions/handoffs/po-s3a-2026-09-30.md`.
+
 ### 13.4 The shell and the shared surfaces
 
 **The model: every page rendered, one visible.** `renderAllPages()` mounts all

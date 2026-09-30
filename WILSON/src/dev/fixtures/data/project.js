@@ -44,6 +44,11 @@ export const PROJECT = {
   budget_active: true,
   budget_active_version_id: fid('budgetVersion', 2),
   budget_finalized: false,
+  // 0084 (D10): the ACTIVE shot list, "Shot list 1 · v1" in data/scenes.js.
+  // Hard-coded, like budget_active_version_id above: scenes.js imports this
+  // file, so importing SHOT_LISTS here would be circular. dataset.test.js
+  // proves the id names the seeded, non-archived list 1.
+  active_shot_list_id: fid('shotList', 1),
   scene_separator: '_',
   scene_digits: 2,
   shot_digits: 3,

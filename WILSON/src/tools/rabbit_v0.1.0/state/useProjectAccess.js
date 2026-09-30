@@ -1,6 +1,7 @@
 // =============================================================================
 // useProjectAccess — Session 29. One place that assembles the project-permission
-// context, so no call site has to remember the four fields again.
+// context, so no call site has to remember its fields again (four until S3a
+// added `noRoles`).
 //
 // Before this, every view rebuilt the same object by hand:
 //
@@ -22,8 +23,16 @@
 // Returns:
 //   canWrite     — boolean, project.entity.write (the common case, pre-computed)
 //   writeReason  — string|null, why not (null when allowed)
-//   can(action)  — boolean, for the other three project actions
+//   can(action)  — boolean, for the other project actions (the shot-list pair
+//                  included: project.shotlist.write / project.shotlist.activate)
 //   reasonFor(a) — string|null, the matching explanation
+//
+// `noRoles` (post-overhaul S3a, 0084 / D8): the Local Server has no roles, and
+// its shot-list routes check no seat, so set-active and archive are labels
+// there, always allowed. Without this flag a signed-out Local Server user
+// (appRole null, no roster) would see those two controls greyed for a rule
+// nothing below enforces. canOnProject applies it to the shot-list actions
+// only; every older action resolves exactly as before.
 //
 // Pair the reason with <GatedAction> to render a denied control greyed and
 // self-explaining rather than absent. The DATABASE is the real gate; all of this
@@ -41,9 +50,10 @@ export function useProjectAccess() {
 
   const projectRole = ctx?.myProjectRole ?? null
   const isStaffed = ctx?.projectIsStaffed ?? false
+  const noRoles = ctx?.adapterMode === 'local_server'
 
   return useMemo(() => {
-    const gateCtx = { appRole: role, projectRole, isStaffed, ready }
+    const gateCtx = { appRole: role, projectRole, isStaffed, ready, noRoles }
     return {
       gateCtx,
       canWrite: canOnProject(gateCtx, 'project.entity.write'),
@@ -51,5 +61,5 @@ export function useProjectAccess() {
       can: (action) => canOnProject(gateCtx, action),
       reasonFor: (action) => projectActionDeniedReason(gateCtx, action),
     }
-  }, [role, projectRole, isStaffed, ready])
+  }, [role, projectRole, isStaffed, ready, noRoles])
 }

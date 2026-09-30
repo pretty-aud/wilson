@@ -18,13 +18,15 @@ import * as Y from 'yjs'
 import { TASK_STATUSES, PRIORITIES } from '../../components/Dashboard/dashboardTaskModel'
 import { b64ToU8 } from '../../components/Dashboard/noteSync'
 import { BIN_KINDS, COLORS, REVIEW_FLAGS, MEDIA_TYPES } from '../../tools/rabbit_v0.1.0/bins/binMedia'
-import { FIXTURE_ID_PREFIX } from './ids'
-import { WORKSPACE, MEMBERS, PERMISSIONS, FIXTURE_USER } from './data/workspace'
+import { FIXTURE_ID_PREFIX, fid } from './ids'
+import { WORKSPACE, MEMBERS, PERMISSIONS, FIXTURE_USER, MEMBER_ID } from './data/workspace'
 import {
   PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, TASK_LINKS, COMMENTS,
   ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
-import { SCENES, SHOTS, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES } from './data/scenes'
+import {
+  SCENES, SHOTS, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
+} from './data/scenes'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS, EXPENSES, PROJECT_RATE_OVERRIDES,
@@ -219,6 +221,115 @@ describe('scenes, shots, bins and takes', () => {
   })
 })
 
+describe('shot lists and edits (post-overhaul S3a, migration 0084)', () => {
+  const [list1, list2] = SHOT_LISTS
+  const itemsOf = (list) => SHOT_LIST_ITEMS.filter((i) => i.shot_list_id === list.id)
+  const shotById = new Map(SHOTS.map((s) => [s.id, s]))
+  const sceneById = new Map(SCENES.map((s) => [s.id, s]))
+  // Positions per group: the list's scenes, then each scene's shots (and the
+  // unlinked bucket) — each group must read 0..n-1 exactly.
+  const groups = (items) => {
+    const out = new Map()
+    for (const i of items) {
+      const key = i.scene_id ? 'scenes' : `shots:${shotById.get(i.shot_id)?.scene_id ?? 'unlinked'}`
+      out.set(key, [...(out.get(key) || []), i])
+    }
+    return out
+  }
+  const expectContiguous = (items, label) => {
+    for (const [key, rows] of groups(items)) {
+      expect(rows.map((r) => r.position).sort((a, b) => a - b), `${label} ${key}`).toEqual(rows.map((_, n) => n))
+    }
+  }
+
+  it('every row has the contract shape; one per (title, version); snapshots are objects', () => {
+    expect(SHOT_LISTS.length).toBe(2)
+    expect(SHOT_LIST_ITEMS.length).toBe(29)
+    expect(EDITS).toEqual([]) // D11 creates no edit
+    for (const l of SHOT_LISTS) {
+      expect(Object.keys(l).sort()).toEqual([
+        'archived_at', 'archived_by', 'created_at', 'created_by', 'id', 'project_id', 'snapshot',
+        'summary', 'title', 'updated_at', 'updated_by', 'version', 'workspace_id',
+      ])
+      expect(l.project_id).toBe(PROJECT.id)
+      expect(l.workspace_id).toBe(WORKSPACE.id)
+      expect(l.title.trim().length).toBeGreaterThan(0)
+      expect(Number.isInteger(l.version) && l.version >= 1).toBe(true)
+      expect(l.snapshot !== null && typeof l.snapshot === 'object' && !Array.isArray(l.snapshot)).toBe(true)
+    }
+    expect(new Set(SHOT_LISTS.map((l) => `${l.title.trim()}|${l.version}`)).size).toBe(SHOT_LISTS.length)
+    for (const i of SHOT_LIST_ITEMS) {
+      expect(Object.keys(i).sort()).toEqual([
+        'created_at', 'created_by', 'id', 'position', 'project_id', 'scene_id', 'shot_id', 'shot_list_id',
+        'updated_at', 'updated_by', 'workspace_id',
+      ])
+      expect(ids(SHOT_LISTS).has(i.shot_list_id)).toBe(true)
+      expect(i.project_id).toBe(PROJECT.id)
+      expect(i.workspace_id).toBe(WORKSPACE.id)
+      expect(!i.scene_id !== !i.shot_id, i.id).toBe(true) // exactly one of the two
+      expect(Number.isInteger(i.position) && i.position >= 0).toBe(true)
+    }
+    // Item ids are the contract's: list 1 holds 1..22, list 2 holds 23..29.
+    expect(itemsOf(list1).map((i) => i.id)).toEqual(Array.from({ length: 22 }, (_, n) => fid('shotListItem', n + 1)))
+    expect(itemsOf(list2).map((i) => i.id)).toEqual(Array.from({ length: 7 }, (_, n) => fid('shotListItem', n + 23)))
+  })
+
+  it('list 1 is the D11 backfill: every scene and shot exactly once, in number order, and it is the ACTIVE list', () => {
+    expect(list1).toMatchObject({
+      id: fid('shotList', 1), title: 'Shot list 1', version: 1, summary: 'Created from existing scenes',
+      archived_at: null, archived_by: null,
+    })
+    expect(PROJECT.active_shot_list_id).toBe(list1.id)
+    const items = itemsOf(list1)
+    const sceneItems = items.filter((i) => i.scene_id)
+    const shotItems = items.filter((i) => i.shot_id)
+    expect(sceneItems.map((i) => i.scene_id).sort()).toEqual(SCENES.map((s) => s.id).sort())
+    expect(shotItems.map((i) => i.shot_id).sort()).toEqual(SHOTS.map((s) => s.id).sort())
+    expectContiguous(items, 'list 1')
+    // backfillItems() order: scenes by scene_number; shots by shot_number within their scene.
+    const byPos = (a, b) => a.position - b.position
+    expect([...sceneItems].sort(byPos).map((i) => sceneById.get(i.scene_id).scene_number)).toEqual([1, 2, 3, 4, 5, 6])
+    for (const [key, rows] of groups(shotItems)) {
+      const numbers = [...rows].sort(byPos).map((i) => shotById.get(i.shot_id).shot_number)
+      expect(numbers, key).toEqual([...numbers].sort((a, b) => a - b))
+    }
+  })
+
+  it('list 2 is archived by Mara, not active, a strict subset of list 1, and every item resolves', () => {
+    expect(list2).toMatchObject({ id: fid('shotList', 2), title: 'Pickups', version: 1, summary: 'Scenes 3 and 5, second unit' })
+    expect(typeof list2.archived_at).toBe('string')
+    expect(Number.isNaN(Date.parse(list2.archived_at))).toBe(false)
+    expect(list2.archived_by).toBe(MEMBER_ID.mara)
+    expect(memberIds.has(list2.archived_by)).toBe(true)
+    expect(PROJECT.active_shot_list_id).not.toBe(list2.id)
+    const items = itemsOf(list2)
+    for (const i of items) {
+      if (i.scene_id) expect(sceneById.has(i.scene_id), i.id).toBe(true)
+      else expect(shotById.has(i.shot_id), i.id).toBe(true)
+    }
+    const key = (i) => i.scene_id || i.shot_id
+    const one = new Set(itemsOf(list1).map(key))
+    const two = items.map(key)
+    expect(new Set(two).size).toBe(two.length) // each scene and shot once
+    for (const k of two) expect(one.has(k), k).toBe(true)
+    expect(two.length).toBeLessThan(one.size) // strict
+    // Scenes 3 and 5 with exactly their shots: no shot without its scene heading.
+    const scenes = items.filter((i) => i.scene_id).map((i) => sceneById.get(i.scene_id).scene_number).sort()
+    expect(scenes).toEqual([3, 5])
+    const shotScenes = new Set(items.filter((i) => i.shot_id).map((i) => shotById.get(i.shot_id).scene_id))
+    expect(shotScenes).toEqual(new Set(items.filter((i) => i.scene_id).map((i) => i.scene_id)))
+    expect(items.filter((i) => i.shot_id).length).toBe(SHOTS.filter((s) => shotScenes.has(s.scene_id)).length)
+    expectContiguous(items, 'list 2')
+  })
+
+  it('the control: a gap in positions, or a scene listed twice, fails the checks above', () => {
+    const gap = itemsOf(list1).map((i) => (i.scene_id && i.position === 5 ? { ...i, position: 6 } : i))
+    expect(() => expectContiguous(gap, 'gap')).toThrow()
+    const twice = [...itemsOf(list1), { ...itemsOf(list1)[0], id: 'x' }]
+    expect(twice.filter((i) => i.scene_id).map((i) => i.scene_id).sort()).not.toEqual(SCENES.map((s) => s.id).sort())
+  })
+})
+
 describe('folders and files', () => {
   it('the tree has a root, category folders and an entity folder per asset, scene and shot', () => {
     const root = FOLDERS.find((f) => f.kind === 'root')
@@ -349,7 +460,8 @@ describe('ids', () => {
     const all = [
       WORKSPACE, ...PHASES, ...MILESTONES, ...ASSETS, ...TASKS, ...DEPENDENCIES, ...TASK_LINKS, ...COMMENTS,
       ...ASSET_VERSIONS, ...EDIT_HISTORY, ...TASK_TEMPLATES, ...SCENES, ...SHOTS, ...BINS, ...BIN_FILES, ...BIN_ROOTS,
-      ...SHOT_TAKES, ...FOLDERS, ...FILES, ...FILE_EVENTS, ...RATE_CARDS, ...RATE_CARD_ENTRIES, ...BUDGET_LINES,
+      ...SHOT_TAKES, ...SHOT_LISTS, ...SHOT_LIST_ITEMS, ...EDITS,
+      ...FOLDERS, ...FILES, ...FILE_EVENTS, ...RATE_CARDS, ...RATE_CARD_ENTRIES, ...BUDGET_LINES,
       ...BUDGET_ACTUALS, ...BUDGET_VERSIONS, ...EXPENSES, ...PROJECT_RATE_OVERRIDES, ...NOTES, ...NOTE_SUBJECTS,
       COURSE, ...SUBJECTS, ...QUIZ_ATTEMPTS, PROJECT,
     ].map((r) => r.id).concat(MEMBERS.map((m) => m.user_id))
