@@ -95,7 +95,7 @@ import {
 import './rabbitTimeline.css'
 // UI overhaul B3 (Q22, the minimap as a priority): the minimap's rows, axis,
 // span readout and snap marks, computed and tested outside this file.
-import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth } from './timelineMinimap.js'
+import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth, buildAxisTicks, isMonthStartShown } from './timelineMinimap.js'
 import { IconButton } from '../../../ui/IconButton'
 import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
@@ -2037,7 +2037,17 @@ function DetailPane({
 
   const phasesById = useMemo(() => Object.fromEntries((phases || []).map(p => [p.id, p])), [phases])
 
-  const ticks = useMemo(() => buildAxisTicks(span.start, totalDays, zoom), [span.start, totalDays, zoom])
+  // The header's ticks: timelineMinimap.js's buildAxisTicks since S1 (ruling
+  // B2, option B): every tick keeps its line, a label prints only where it
+  // fits before the next tick, a month's start always wins, and with weekends
+  // hidden a month whose 1st is a weekend shows on its first shown day.
+  const ticks = useMemo(() => buildAxisTicks(span.start, totalDays, zoom, {
+    ...(dayMask ? {
+      hidden: (i) => !!dayMask.mask[i]?.hidden,
+      xOf: (i) => dayMask.mask[i]?.offsetPx ?? i * zoom.dayPx,
+    } : {}),
+    end: effectiveChartW,
+  }), [span.start, totalDays, zoom, dayMask, effectiveChartW])
 
   // Row index lookup for dependency arrow positioning.
   // For each visible row, we know its y-center and bar x-range.
@@ -2629,7 +2639,8 @@ function DetailPane({
             style={{ height: HEADER_PX }}
           >
             {ticks.map(tick => {
-              if (dayMask && dayMask.mask[tick.offset]?.hidden) return null
+              // A hidden day is never a tick (buildAxisTicks skips it); a
+              // label that does not fit is null and its line stays.
               return (
                 <div
                   key={tick.key}
@@ -2673,12 +2684,34 @@ function DetailPane({
               const dow = d.getDay()
               const isWeek = dow === 1
               const isWeekend = dow === 0 || dow === 6
-              const isMonthStart = d.getDate() === 1
+              // S1 (ruling B8b): with weekends hidden, a month whose 1st is a
+              // Saturday or Sunday takes its bold line on its first shown day
+              // (the header's month label goes there too, buildAxisTicks).
+              const isMonthStart = isMonthStartShown(d, hideWeekends)
               const isQuarterStart = isMonthStart && [0, 3, 6, 9].includes(d.getMonth())
+              // Month-1st boundaries are always drawn as bold lines in
+              // week + day views so months are clearly divided.
+              // Quarter-1st boundaries are bold in quarter + month views.
+              const isMajorBoundary =
+                (isMonthStart && (zoomId === 'week' || zoomId === 'day')) ||
+                (isQuarterStart && (zoomId === 'quarter' || zoomId === 'month'))
+              const majorLine = isMajorBoundary && (
+                <div
+                  key={`g-${i}`}
+                  className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
+                  style={{
+                    left: dayToX(i),
+                    width: 1,
+                  }}
+                />
+              )
               // In day view we paint a soft tint on the entire weekend
-              // column so the user can spot Sat/Sun at a glance.
+              // column so the user can spot Sat/Sun at a glance. A 1st on a
+              // weekend keeps its month's line over the tint (S1: the tint
+              // alone was drawn, so the header's bold tick had no line under
+              // it).
               if (zoomId === 'day' && !hideWeekends && isWeekend) {
-                return (
+                return [
                   <div
                     key={`wk-${i}`}
                     className="absolute top-0 bottom-0 pointer-events-none rb-tl-weekend"
@@ -2687,28 +2720,12 @@ function DetailPane({
                       left: dayToX(i),
                       width: dayPx,
                     }}
-                  />
-                )
+                  />,
+                  majorLine,
+                ]
               }
               if (dayMask && dayMask.mask[i]?.hidden) return null
-              // Month-1st boundaries are always drawn as bold lines in
-              // week + day views so months are clearly divided.
-              // Quarter-1st boundaries are bold in quarter + month views.
-              const isMajorBoundary =
-                (isMonthStart && (zoomId === 'week' || zoomId === 'day')) ||
-                (isQuarterStart && (zoomId === 'quarter' || zoomId === 'month'))
-              if (isMajorBoundary) {
-                return (
-                  <div
-                    key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
-                    style={{
-                      left: dayToX(i),
-                      width: 1,
-                    }}
-                  />
-                )
-              }
+              if (majorLine) return majorLine
               // In quarter view, also draw lighter month-1st lines so
               // months within each quarter are visibly separated.
               if (isMonthStart && zoomId === 'quarter') {
@@ -7105,96 +7122,10 @@ function parseDate(value) {
   if (isNaN(d.getTime())) return null
   return startOfDay(d)
 }
-const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-
-function formatDayLabel(d) {
-  // "Apr 9" — compact and readable at tiny font sizes.
-  return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`
-}
-function formatMonth(d) {
-  return `${MONTH_ABBR[d.getMonth()]} ${d.getFullYear()}`
-}
-function formatQuarter(d) {
-  const q = Math.floor(d.getMonth() / 3) + 1
-  return `Q${q} ${d.getFullYear()}`
-}
-
-// Detail axis ticks honoring the current zoom level.
-//
-// Rules to prevent stray single-day fragments in the header:
-//   • Week: emit only Mondays and month-1st boundaries. The span
-//     start (i === 0) is NOT force-emitted because it usually
-//     falls mid-week and creates a tiny stub label.
-//   • Month: emit only month-1st boundaries.
-//   • Quarter: emit only quarter-1st boundaries.
-//   • Day: every single day is a tick — no stub possible.
-//
-// The very first tick in the output ALWAYS gets a full "Mon YYYY"
-// label instead of the short day format so the user immediately
-// knows the date context when scrolling to the start of the span.
-function buildAxisTicks(start, totalDays, zoom) {
-  const out = []
-  // Track the last emitted major tick offset so we can suppress
-  // regular ticks that would overlap (e.g. a Monday 1 day after
-  // a month-1st boundary at week zoom).
-  let lastMajorOffset = -Infinity
-  const MIN_GAP = Math.max(3, Math.ceil(60 / zoom.dayPx)) // ≥60px between ticks
-  for (let i = 0; i <= totalDays; i++) {
-    const d = addDays(start, i)
-    let include = false
-    let label = ''
-    let topLabel = null   // optional upper-tier label (month header above day)
-    let major = false
-    switch (zoom.axisFormat) {
-      case 'day':
-        include = true
-        label = formatDayLabel(d)
-        major = d.getDate() === 1
-        if (major) topLabel = formatMonth(d)
-        break
-      case 'week': {
-        const isMonday = d.getDay() === 1
-        const isMonth1 = d.getDate() === 1
-        if (isMonth1) {
-          include = true
-          major = true
-          topLabel = formatMonth(d)
-          label = formatDayLabel(d)
-          lastMajorOffset = i
-        } else if (isMonday) {
-          // Suppress Mondays too close to a month boundary
-          if (i - lastMajorOffset >= MIN_GAP) {
-            include = true
-            label = formatDayLabel(d)
-          }
-        }
-        break
-      }
-      case 'month':
-        include = d.getDate() === 1
-        label = formatMonth(d)
-        major = d.getMonth() === 0
-        break
-      case 'quarter':
-        // Emit every month-1st as a tick. Quarter starts (Jan/Apr/Jul/Oct)
-        // are major — they get bold lines + a "Q1 2026" label on top.
-        // Non-quarter months are minor with just the month abbreviation.
-        include = d.getDate() === 1
-        if ([0, 3, 6, 9].includes(d.getMonth())) {
-          major = true
-          topLabel = formatQuarter(d)
-          label = formatMonth(d)
-        } else {
-          label = MONTH_ABBR[d.getMonth()]
-        }
-        break
-      default:
-        include = false
-    }
-    if (include) out.push({ key: i, offset: i, label, topLabel, major })
-  }
-  return out
-}
+// Detail axis ticks: timelineMinimap.js's buildAxisTicks() since post-overhaul
+// S1 (ruling B2, option B — a label prints only where it fits before the next
+// tick, and a month's start always wins); moved there so it is tested without
+// a DOM.
 
 // Overview ticks: timelineMinimap.js's minimapTicks() since B3 (a line at
 // every month boundary, as before, and a label on a stride that leaves every

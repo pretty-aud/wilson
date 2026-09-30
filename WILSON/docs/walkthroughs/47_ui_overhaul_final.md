@@ -588,6 +588,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 133. **The gantt's week dates print a week's date against a month's first day ('Aug 31' beside 'Sep 1' at week zoom): apply the minimap's no-overlap rule to the gantt?**
    Look at: Timeline gantt at Week zoom: the dates at a month's start. Choices: Apply the minimap's rule, or leave it (not changed). (WT42 Q18)
+   Q133: option B chosen 2026-09-29 (post-overhaul ruling B2: a label prints only where it fits before the next tick, and a month's start always wins). Done by post-overhaul S1, 2026-09-30; see walkthrough 48.
 
 134. **Is a hairline under every gantt row, like the Tasks table, the right weight?**
    Look at: Timeline gantt: the line under each row. Choices: Right weight? (current). (WT42 Q19)

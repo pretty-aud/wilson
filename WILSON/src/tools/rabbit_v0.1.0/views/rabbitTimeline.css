@@ -549,6 +549,25 @@
   .rb-tl-axis-label { color: var(--color-ink-3); }
   .rb-tl-axis-tick[data-major="true"] .rb-tl-axis-label { color: var(--color-ink-2); }
   .rb-tl-axis-top { color: var(--color-ink); }
+  /* Post-overhaul S1 (ruling B2, option B): a label prints only where it
+     fits before the next tick (buildAxisTicks, timelineMinimap.js), and a
+     month's — a quarter's — labels always print, so they sit on the paper
+     above every tick line: at Day zoom "Dec 2026" (59px) is wider than a
+     day's 56px column and the next day's line crossed it, and at Week zoom
+     the Monday after a Sunday 1st lies inside "Nov 1". 4px of paper each
+     side of the text; the negative start margin hands the tick's own 4px
+     padding to the backing, so the text does not move. Each label hugs its
+     own text (flex-start): stretched to the tick's width, a month's day
+     label would take the month's width and cover the next day's label. */
+  .rb-tl-axis-top,
+  .rb-tl-axis-tick[data-major="true"] .rb-tl-axis-label {
+    position: relative;
+    z-index: 1;
+    align-self: flex-start;
+    margin-inline-start: -4px;
+    padding-inline: 4px;
+    background-color: var(--color-paper);
+  }
 
   /* Day view's weekend tint, Sunday a shade deeper; a day line, a week's
      first day lighter; a month inside a quarter; a month or quarter
