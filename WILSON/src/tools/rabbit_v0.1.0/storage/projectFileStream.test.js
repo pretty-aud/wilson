@@ -121,6 +121,23 @@ describe('PUT …/files-stream', () => {
     expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
   })
 
+  it('a scope with a document kind and a description lands both on the row (0075, Track C / C3)', async () => {
+    // The row is "field for field the base64 POST's", and the POST carries
+    // these two since Track C; without them the desktop threw a file's kind
+    // and description away on the one transport every upload uses.
+    const r = await put(PID, { name: 'Nightjar_brief.pdf', mimeType: 'application/pdf', sizeBytes: '3', scope: JSON.stringify({ documentKind: 'brief', description: 'the v3 brief', isCoreDefiner: true }) }, Buffer.from('pdf'))
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row).toMatchObject({ document_kind: 'brief', description: 'the v3 brief', is_core_definer: true, is_financial: false })
+    const bundle = readRabbitBundle(PID)
+    expect(bundle.files.find(f => f.id === row.id)).toMatchObject({ document_kind: 'brief', description: 'the v3 brief' })
+    // Absent from the scope: null, as the POST writes them — never undefined.
+    const r2 = await put(PID, { name: 'plate.png', mimeType: 'image/png', sizeBytes: '3', scope: JSON.stringify({ kind: 'source' }) }, Buffer.from('png'))
+    const row2 = await r2.json()
+    expect(row2.document_kind).toBe(null)
+    expect(row2.description).toBe(null)
+  })
+
   it('records the real size when the caller sends none, and sanitises a name with separators', async () => {
     const r = await put(PID, { name: '../..\\evil name?.png' }, Buffer.from('12345'))
     expect(r.status).toBe(200)

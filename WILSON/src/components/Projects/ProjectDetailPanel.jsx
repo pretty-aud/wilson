@@ -105,6 +105,25 @@ export default function ProjectDetailPanel({
   onFileUpdate,
   onFileDelete,
   onFileUpload,
+  // C3. Drive is read-only (adapterSupportsWrites is false for it), so the
+  // drop zone would only ever produce a thrown sentence — it says so instead.
+  canUpload = true,
+  // C3, §6 #31 trap (g). TRUE in cloud mode, where deleteFile is 0014's soft
+  // delete: the row keeps deleted_at, the blob stays, and the space is held
+  // for 30 days. FALSE on Local Server, where the same button unlinks the
+  // body immediately and certificates it as 'purged'. The copy below is the
+  // only place a person is told which one they are about to do.
+  //
+  // 🚨 THREE STATES, NOT TWO — review round 2. Round 1 defaulted this to
+  // `false` on a "never worse than the truth" argument, which held on the
+  // destructiveness axis and failed on the accuracy one: the false branch
+  // NAMES A BACKEND ("there is no trash in Local Server mode"), so a renderer
+  // that forgot the prop on a cloud surface would tell a Supabase user they
+  // were in Local Server mode AND that a restorable, quota-holding soft delete
+  // was permanent. A default cannot know which backend it is on, so it says
+  // nothing: null means "do not make a claim about deletion", and each renderer
+  // that knows passes true or false.
+  deletesAreSoft = null,
   saveError,
   storageWarning,
 }) {
@@ -115,6 +134,7 @@ export default function ProjectDetailPanel({
   const handleDrop = (e) => {
     e.preventDefault()
     setIsDragging(false)
+    if (!canUpload) return
     if (e.dataTransfer.files.length > 0) onFileUpload?.(e.dataTransfer.files)
   }
 
@@ -282,7 +302,19 @@ export default function ProjectDetailPanel({
         {/* ── Project files ───────────────────────────── */}
         <div className="pj-section">
           <SectionTitle
-            description="Upload documents, images, and media. Mark core project files with the checkbox."
+            description={
+              'Upload documents, images, and media. Mark core project files with the '
+              + 'checkbox — D.O.G. treats those as the sources that define the project '
+              + 'and everything else as reference.'
+              // C3, §6 #31 trap (g): which kind of delete this backend does. The
+              // null default makes no claim, so a renderer that forgot the prop
+              // cannot tell a Supabase user they are in Local Server mode.
+              + (deletesAreSoft === true
+                ? ' Deleting moves a file to the trash and keeps it for 30 days; it holds storage until then.'
+                : deletesAreSoft === false
+                  ? ' Deleting removes the file from this computer immediately — there is no trash in Local Server mode.'
+                  : '')
+            }
             actions={fileCount > 0 ? (
               <span className="rs-count">
                 {fileCount} file{fileCount !== 1 ? 's' : ''}
@@ -301,21 +333,27 @@ export default function ProjectDetailPanel({
           </SectionTitle>
 
           {/* Drop zone — one padding and one icon size for both states, so the
-              first upload does not shift the page under the pointer. */}
+              first upload does not shift the page under the pointer.
+              C3: on a read-only backend (Drive) it is a disabled button that
+              says so — `canUpload` — rather than a click that ends in a thrown
+              `readOnly('uploadFile')` sentence. */}
           <button
             type="button"
             className="pj-drop"
             data-dragging={isDragging || undefined}
+            disabled={!canUpload}
             onDrop={handleDrop}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragOver={(e) => { e.preventDefault(); if (canUpload) setIsDragging(true) }}
             onDragLeave={() => setIsDragging(false)}
-            onClick={() => inputRef.current?.click()}
+            onClick={() => { if (canUpload) inputRef.current?.click() }}
           >
             <Upload className="pj-drop-icon" aria-hidden="true" />
             <span className="pj-drop-text">
-              {filesBusy
-                ? 'Uploading…'
-                : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
+              {!canUpload
+                ? 'This backend is read-only — files cannot be uploaded to it'
+                : filesBusy
+                  ? 'Uploading…'
+                  : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
             </span>
           </button>
           <input
@@ -337,6 +375,13 @@ export default function ProjectDetailPanel({
               files={allFiles}
               onUpdate={onFileUpdate}
               onDelete={onFileDelete}
+              // 🚨 C3 review round 2, §6 #31 trap (f) at the surface the drop
+              // zone already guarded. `canUpload` disabled the drop zone and
+              // left the Core checkbox, the Kind select, the Description cell
+              // and Delete fully live on a read-only backend — where every one
+              // of them ends in a thrown `readOnly(...)` stub. One backend, one
+              // answer.
+              readOnly={!canUpload}
               maxHeight={380}
             />
           )}

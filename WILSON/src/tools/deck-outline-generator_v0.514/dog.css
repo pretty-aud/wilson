@@ -330,6 +330,10 @@
     color: var(--color-ink-3);
     margin-bottom: 8px;
   }
+  /* C3 (Track C): the attachment panel's notes under the count — what was
+     left out, and a failed write or upload. The failure takes the danger ink,
+     as the history dialog's warning note takes its own tone. */
+  .dog-details-note[data-tone='danger'] { color: var(--color-danger); }
   .dog-roles {
     border-top: 1px solid var(--color-rule);
     padding-top: 8px;
@@ -353,6 +357,8 @@
      3.45px right of Ref rows (review round 2). Its pressed state is not
      announced, because its label already flips (Core / Ref). */
   .dog-role-chip { width: 56px; justify-content: center; }
+  /* C3: a legacy row's tag — the kit Badge, inert, at the row's end. */
+  .dog-role-source { flex: none; }
 
   .dog-upload-hint {
     font-size: var(--text-caption);

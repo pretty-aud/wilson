@@ -464,7 +464,12 @@
                 border-color var(--duration-state) ease-out,
                 color var(--duration-state) ease-out;
   }
-  .pj-drop:hover { border-color: var(--color-ink-3); color: var(--color-ink); }
+  .pj-drop:hover:not(:disabled) { border-color: var(--color-ink-3); color: var(--color-ink); }
+  /* C3 (Track C): a read-only backend cannot take an upload, so the zone is a
+     disabled button that says so — the third ink, the resting rule, no
+     pointer (`.pj-drop` sets its own cursor in this layer, so the global
+     `:disabled` rule in @layer base cannot reach it). */
+  .pj-drop:disabled { cursor: not-allowed; color: var(--color-ink-3); border-color: var(--color-rule); }
   .pj-drop[data-dragging] {
     border-color: var(--color-signal);
     background-color: var(--color-signal-tint);

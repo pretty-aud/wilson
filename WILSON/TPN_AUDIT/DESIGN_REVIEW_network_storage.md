@@ -358,6 +358,55 @@ uploads and add an event term for the abandoned case, designed **with** Phase 2b
 rather than after it. This is the same lesson as the `downloaded` event below —
 lifecycle terms are almost never retrofitted once a feature ships working.
 
+**Status (2026-09-06, Track C / migration 0073) — addressed on the
+certification axis.** S42's first attempt (0057) metered a table WILSON's TUS
+path never writes and was withdrawn by 0058 in the same session. 0073 replaces
+it with a record WILSON does own: `public.upload_reservations` is written by
+the client before every resumable upload starts, and
+`sweep_abandoned_uploads()` writes one `file_events` `upload_abandoned` row per
+reservation that expired (24 h, Supabase's own TUS URL expiry) unreleased with
+no object landed — invoked by `storage-gc` per workspace on every cleanup and
+by pg_cron hourly across all workspaces. The vocabulary term is back with a
+writer (pgTAP suite 77, 53 probes, seven breakers; suite 66 probe 27 asserts
+term and writer land together). **Stated limit, so the pack does not
+overclaim:** the partial object itself remains un-enumerable from WILSON and is
+disposed of by the platform's 24 h TUS expiry, so the certificate records that
+the upload was *abandoned*, not that bytes were *destroyed* — the TPN pack
+should state partial-upload disposal as the platform's control (AS-3.15,
+chain-of-custody satisfied for receipt-through-abandonment; disposal
+inherited). The same reservation row is what closes the concurrency hole in
+the quota gate (`petal_storage_quota_insert` now weighs active reservations).
+**Coverage limit (review rounds 1–2, 2026-09-06):** the certificate covers
+uploads that never reached the client's release — a closed tab, a crash, the
+app quit mid-upload, and a network drop (the release RPC rides the same
+network) — not an upload that failed while the client could still reach the
+server (a storage 5xx, an expired session) and so released on the way out;
+those rows stay queryable (`upload_reservations.outcome = 'released'` with
+no object at the path) but carry no certificate. Whether a failed upload should
+be certified at once is a ruling owed by Audrey (hand-off C1 §6); the pack
+should describe the certificate's scope as "abandoned by the client without
+release" until then.
+
+**Status (2026-09-07, Track C / migration 0074) — the coverage limit above is
+closed on both counts, by Audrey's rulings.** (a) A resumable upload that
+FAILS with a server-answered error is now certified AT ONCE:
+`abandon_upload_reservation(path, reason)` is called from the client's failure
+path, closes the row as `abandoned` and writes the `upload_abandoned` row with
+the error text in `details.reason` (`details.reported_by = 'client'`); a
+failure reported after the object had in fact landed closes `completed` and
+certifies nothing. (b) Workspace teardown closes every OPEN reservation of the
+tenant BEFORE the CASCADE (`sweep_open_uploads`) and certifies the abandoned
+paths in `platform_audit` as `WIL-7012` — the table the CASCADE cannot reach —
+with the counts on `WIL-7005` and a `reservation_sweep_failed` flag that
+starts true and is cleared only by an answer. The certificate's scope is now
+"every reservation that did not complete", with one remaining, stated
+exception: rows a person's own client releases when they next open Files
+(`release_stale_upload_reservations`, Audrey's ruling 2) close without a
+certificate — a closed tab's partial is still reaped by the platform's 24 h
+expiry and is still un-enumerable, so the pack should describe those as
+"released by the owner before expiry, uncertified by design". pgTAP suite 78
+(49 probes, ten breakers); handbook §5, §12.3, §17.
+
 ### TPN-CLOUD-008 — A thumbnail bucket repeats TPN-CLOUD-004 if it is public or its policies are partially ported
 
 ```yaml

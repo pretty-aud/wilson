@@ -157,6 +157,14 @@ function mountProjectFileStream(expressApp, {
         storage_path:     diskName,
         kind:             scope.kind || 'source',
         is_core_definer:  !!scope.isCoreDefiner,
+        // 0075's two columns (Track C / C3), mirrored here as the base64 POST
+        // mirrors them: the local adapter sends EVERY upload down this route
+        // since the demo, so without these the desktop threw a file's kind
+        // and description away at upload — the exact loss 0075 closed in the
+        // cloud. Added at the post-overhaul merge (2026-09-30); the POST is
+        // the reference and this row must stay field for field its equal.
+        document_kind:    scope.documentKind || null,
+        description:      scope.description  || null,
         is_financial:     isFinancial,
         uploaded_at:      new Date().toISOString(),
         // 0081's two columns, mirrored on the local row (demo 2026-09-11).

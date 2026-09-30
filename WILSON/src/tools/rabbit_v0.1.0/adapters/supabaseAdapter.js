@@ -504,6 +504,13 @@ const FILE_COLUMNS = new Set([
   'name', 'mime_type', 'size_bytes',
   'storage_provider', 'storage_path', 'thumbnail_url',
   'kind', 'is_core_definer', 'is_financial',
+  // 0075 (Track C, C3). ProjectFilesTable's Kind select and Description cell
+  // have written these two on every gesture since S27 and the cloud had
+  // neither column, so toColumns stripped both and the optimistic
+  // setCloudFiles() hid the no-op until the next listFiles(). The migration
+  // and these two names are ONE change: either alone still loses the write.
+  // MASTER_PLAN §6 #31 trap (a).
+  'document_kind', 'description',
   'uploaded_at',
   // 0081 (demo 2026-09-11) — the file's own duration and modified time.
   'duration_sec', 'source_modified_at',
@@ -839,10 +846,18 @@ function hasRealAttachments(payload) {
       || (Array.isArray(payload.visualAssets) && payload.visualAssets.length > 0);
 }
 
+// 🚨 THE REFUSAL STAYS after C3 closed §6 #31. Attachments now have a real
+// cloud home (public.files + the rabbit-files bucket, reached through
+// uploadFile), and nothing in the app writes these arrays in cloud mode any
+// more — which is exactly why a patch that still carries them is a caller
+// that was missed, and dropping its files silently is the S15 defect this
+// throw exists to prevent. Only the ADVICE changed: it names the surface that
+// works instead of a promise about future work.
 const ATTACHMENTS_MSG =
   'Cloud projects store files as file records, not on the project row — '
-  + 'this attachment was not saved. Upload it from the project’s Files list '
-  + '(RABBIT), which writes to the rabbit-files bucket. See MASTER_PLAN §6 #31.';
+  + 'this attachment was not saved. Add it from the project’s Resources list '
+  + '(or RABBIT’s Files view), which uploads to the rabbit-files bucket and '
+  + 'writes a row in public.files.';
 
 function mapDogProjectFields(row) {
   if (!row || typeof row !== 'object') return { row, droppedAttachments: false };
@@ -1241,11 +1256,15 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Session 24: `INVOICES` is a RESERVED path segment, and the check
       // comes first so a financial file can never be filed under another
-      // entity. Storage policy `rabbit_files_invoices_select` keys on exactly
-      // this third segment, and the three base rabbit-files policies exclude
-      // it — so the segment IS the gate for the blob, while
-      // files.is_financial gates the row. Changing either without the other
-      // opens a hole.
+      // entity. 🚨 THE POLICY FAMILY IS `rabbit_files_money_*`, NOT
+      // `rabbit_files_invoices_*`: 0042 dropped the invoices name, and there
+      // are FOUR base rabbit-files policies, not three — eight in total, which
+      // is what 0042's own post-condition asserts. The phantom name is the S39
+      // incident recorded in OUTSTANDING.md, found here for the third time.
+      // The money policies key on exactly this third segment, and the four
+      // base policies exclude it — so the segment IS the gate for the blob,
+      // while files.is_financial gates the row. Changing either without the
+      // other opens a hole.
       //
       // 🚨 The case of this string is load-bearing and is matched by
       // migration 0039 with upper(). Audrey asked for the folder to be called
@@ -1453,7 +1472,22 @@ export function supabaseAdapter() {
         // "A path or URL to the thumbnail, never image bytes.")
         thumbnail_url:    thumbnailPath,
         kind:             scope.kind || 'source',
+        // 🚨 §6 #31 trap (b), THE POLARITY, resolved here rather than in the
+        // database. files.is_core_definer is NOT NULL DEFAULT false and stays
+        // that way (0075 post-condition 7, suite 79 probe 17): it is RABBIT's
+        // own flag — "this file defines the asset" — and moving its default to
+        // suit D.O.G. would re-mean every file on every project. D.O.G.'s
+        // legacy arrays default `isCore` TRUE, so a 1:1 map would flip every
+        // previously-unmarked file from CORE to REF and change generation
+        // output. The flag therefore travels EXPLICITLY: the caller says what
+        // it is, and runAttachmentMigration carries `isCore !== false` across
+        // when it moves a legacy row. Neither side infers it from a default.
         is_core_definer:  !!scope.isCoreDefiner,
+        // 0075. `|| null` rather than leaving it undefined: an uploader that
+        // says nothing about the kind writes NULL — which is the truth for
+        // every image and video — instead of asserting one.
+        document_kind:    scope.documentKind || null,
+        description:      scope.description  || null,
         // 0038. Must agree with the `invoices` path segment above: the row
         // and the blob are gated independently, and either one alone is a way
         // in — the amount is useless to hide if the invoice stating it is

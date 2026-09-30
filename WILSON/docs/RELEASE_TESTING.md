@@ -587,8 +587,11 @@ early-return as no-ops. That is by design, not a failure; do not run §L there.
 **Skip these.** They are recorded and dispositioned in `docs/MASTER_PLAN.md` §6; consolidated
 limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing we know about.
 
-1. D.O.G. cloud projects have no attachment surface — the picker is replaced by explanatory
-   copy. Local mode works. §6 #31.
+1. ~~D.O.G. cloud projects have no attachment surface — the picker is replaced by explanatory
+   copy. Local mode works.~~ **FIXED** in Track C bundle C3 (migration 0075, `2a4924f`): project
+   attachments are ordinary project files on both write-capable backends — D.O.G. lists,
+   downloads and rehydrates them (20 files / 32 MiB, documents first), and Settings → "Move deck
+   attachments into project files" moves the legacy arrays across. §6 #31 (closed).
 2. Quiz scores and Validator findings are never persisted — React state only.
 3. ~~O.T.T.E.R. → SETTINGS → Tools → "Storage Location"~~ — **REMOVED** in Track A bundle A4
    (Audrey’s decision 28b). The field wrote `settings.storageLocation` and nothing ever read it;
@@ -597,7 +600,7 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
    `08_otter.md`. The project-files location in General settings is real and unchanged.
 4. R.A.B.B.I.T.'s agent integration is prompt-only and unreachable; the Agent Skills
    checkboxes gate nothing.
-5. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
+4. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
    methods throw.
 6. Managed files (the ASSETS/SCENES/SHOTS mirror) are local_server only.
 7. ~~A username colliding across two workspaces makes sign-in unreachable — no company field.~~

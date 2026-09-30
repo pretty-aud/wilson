@@ -27,7 +27,7 @@ import {
   DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
   ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
   Lock, LockOpen, CheckCircle, Plus, Pencil, X, Undo2, Redo2,
-  Upload, FileText, Paperclip, Search, Filter, ArrowUpDown, ArrowRight,
+  Upload, FileText, Paperclip, FolderOpen, Search, Filter, ArrowUpDown, ArrowRight,
   BookmarkPlus, ChevronDown, ChevronRight, ShieldCheck, RotateCcw,
   Users, Star, Eye, CheckSquare, Square, MinusSquare,
   Film, Gamepad2, Zap,
@@ -46,7 +46,7 @@ import ClientViewTab from './budget/ClientViewTab'
 import MarginContPopover from './budget/MarginContPopover'
 import {
   Table, Th, Td, Row, Stat, StatusDot, StatusBadge, EmptyState, Loading,
-  SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs,
+  SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs, Spinner,
 } from '../../../ui'
 import './rabbitBudget.css'
 
@@ -2545,7 +2545,12 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // Every field, its order and its save are as they were; the relation
 // pickers are restyled in place. Q17: Escape closes it now, and focus stays
 // inside it; its backdrop still closes it, as it always did. Portalled into
-// <body> (W9).
+// <body> (W9).// The receipt's open button while it fetches: the kit Spinner at the sm
+// icon's 14px, the size of the folder it stands in for — InvoiceAttachment's
+// BusyGlyph (A4-KR-6, until the kit IconButton takes `loading`).
+function ReceiptBusyGlyph({ 'aria-hidden': hidden }) {
+  return <Spinner size="sm" aria-hidden={hidden} />
+}
 function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency, onSave, onClose }) {
   const isEdit = !!expense
   const [title, setTitle]                 = useState(expense?.title || '')
@@ -2561,6 +2566,11 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const [uploading, setUploading]         = useState(false)
   const [uploadError, setUploadError]     = useState(null)
   const [busy, setBusy]                   = useState(false)
+  const [openingId, setOpeningId]         = useState(null)
+  // Round 2: opening and uploading are two actions; sharing one error channel
+  // made an open failure read as an upload failure, and wiped a pending upload
+  // error on every open.
+  const [openError, setOpenError]         = useState(null)
   const fileInputRef = useRef(null)
 
   const [existingFiles, setExistingFiles] = useState([])
@@ -2589,7 +2599,66 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
     try {
       const results = []
       for (const file of files) {
-        const uploaded = await adapter.uploadFile(projectId, { type: 'expense' }, file)
+        // 🚨 C4. `financial: true` IS THE WHOLE GATE, AND IT IS ONE KEY BECAUSE
+        // uploadFile SPENDS IT THREE TIMES. It picks the reserved `INVOICES`
+        // path segment — which is what the four `rabbit_files_money_*` storage
+        // policies key on and what the four base `rabbit_files_*` policies
+        // negate, the blob gate — it writes files.is_financial (the row gate,
+        // 0038), and on the Supabase backend it pins the body to Petal's
+        // bucket whatever storage the workspace chose (0050's
+        // files_money_provider_chk). The two gates are independent by design
+        // and either one alone is a way in, so they must be set together —
+        // which is why the flag is passed to the single writer rather than
+        // patched onto the row afterwards.
+        //
+        // ⚠️ BUNDLE C4's REVIEW ROUND 1 corrected three things in this comment.
+        // (Not to be confused with 0078's own review rounds, whose correction
+        // is the ✅ block under (c) below — two different reviews, months of
+        // work apart, both landing in this one comment.)
+        // (a) It named `rabbit_files_invoices_*`, a policy family 0042 DROPPED
+        //     and replaced with `rabbit_files_money_*` — the same phantom name
+        //     that caused the S39 incident recorded in OUTSTANDING.md. The
+        //     real predicate is `NOT rabbit_money_segment(seg 3)`: INVOICES or
+        //     FINANCE, in any case, not a literal 'invoices'.
+        // (b) The Supabase pin is supabaseAdapter's alone. Local Server writes
+        //     to the customer's disk with storage_provider 'local_server'; it
+        //     honours the same flag by routing into its own INVOICES dir.
+        // (c) 🚨 A FOURTH CONSEQUENCE, and it LOOSENS rather than tightens:
+        //     the INVOICES segment is exempt from the Petal storage quota
+        //     (0055's rabbit_quota_exempt_path short-circuits the RESTRICTIVE
+        //     petal_storage_quota_insert), while the meter still counts the
+        //     bytes. The picker below takes `multiple` files with no accept
+        //     and no size cap, so until 0078 a receipt could not be refused
+        //     for quota AT ANY SIZE. Not a security hole — 0037 gates
+        //     `expenses` — but a billing one.
+        //     ✅ BOUNDED BY 0078, on Audrey's ruling of 2026-09-09: the
+        //     exemption now holds only up to rabbit_quota_exempt_max_bytes()
+        //     (25 MiB). Above it a receipt is WEIGHED like ordinary media —
+        //     still uploadable while the company has room, refusable when it
+        //     does not. Handbook §12.10.
+        //
+        // What was here before was `{ type: 'expense' }`, and `scope.type` is
+        // read by NOTHING — not this adapter, not localServerAdapter, not the
+        // Express server. So the scope was effectively empty: a receipt landed
+        // as an ordinary project-level file, readable by every project member,
+        // while the `expenses` row that points at it is manager-only
+        // (0037 gates all five money tables on can_access_project_money).
+        // The amount was hidden and the receipt stating it was not — 0038's
+        // own words for why both gates exist.
+        //
+        // No `lineId`. The create form has no expense id yet, and — review
+        // round 1 — THE EDIT PATH DOES NOT PASS ONE EITHER, so the original
+        // "does not exist yet" reason was only half the story; one uniform
+        // folder per project's receipts is the actual justification. uploadFile
+        // falls back to `|| projectId` (supabaseAdapter.js). That fallback is
+        // NOT documented: the UploadScope typedef in adapters/index.js lists
+        // neither `lineId` nor `financial` — the key this whole gate turns on
+        // is missing from the only contract describing this argument.
+        // The gate is the THIRD segment; the fourth is only organisation.
+        //
+        // Deliberately NOT a matching change to `files.is_core_definer` — the
+        // C3 polarity lesson. This flag says "money", nothing else.
+        const uploaded = await adapter.uploadFile(projectId, { financial: true }, file)
         if (uploaded?.id) results.push({ id: uploaded.id, name: file.name, mime_type: file.type })
       }
       setUploadedFiles(prev => [...prev, ...results])
@@ -2610,6 +2679,58 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
     setFileIds(prev => prev.filter(fid => fid !== id))
     setUploadedFiles(prev => prev.filter(f => f.id !== id))
     setExistingFiles(prev => prev.filter(f => f.id !== id))
+  }
+
+  // 🚨 C4 REVIEW ROUND 1. THIS IS THE OTHER HALF OF MAKING A RECEIPT MONEY.
+  // Marking it financial removed it from BOTH surfaces that could open a file:
+  // `FileManager` drops every `is_financial` row (its comment says invoices
+  // "have their own surface" — a receipt had none), and `ProjectsPage`'s
+  // **Project Files** table filters them the same way ("Resources" is the
+  // left-hand nav section, not a per-project list — review round 2). So after the gate went on, the
+  // manager who uploaded a receipt could see its NAME here and open it
+  // nowhere — walkthrough 16's own step A3 asserts they can, and it could not
+  // have passed. A gate that locks out the person it is meant to admit is not
+  // a finished gate; this is the receipt's own surface, the twin of
+  // `InvoiceAttachment.handleOpen`.
+  //
+  // Always re-lists rather than trusting the row in state: a freshly uploaded
+  // file is only `{ id, name, mime_type }` from uploadFile's result, and
+  // downloadFile needs the real row. A missing row is the expected shape of
+  // "you are not cleared for this" as well as "it was deleted" — RLS returns
+  // an empty set, not an error — so say something either way.
+  async function openFile(id) {
+    setOpeningId(id)
+    setOpenError(null)
+    try {
+      const adapter = ctx?.getAdapter?.()
+      // 🚨 Round 2: this was a bare `return`, while the button that calls it
+      // renders unconditionally — the exact silent nothing-happens that
+      // `InvoiceAttachment`'s header calls the bug it replaced. Say it instead.
+      if (!adapter?.downloadFile || !adapter?.listFiles) {
+        throw new Error('This backend cannot open files.')
+      }
+      const files = await adapter.listFiles(projectId)
+      const row = (files || []).find(f => f.id === id)
+      if (!row) throw new Error('That receipt is no longer available to you.')
+      const blob = await adapter.downloadFile(row)
+      const url = URL.createObjectURL(blob)
+      // 🚨 Round 2: `window.open` runs after TWO awaits — a listFiles round
+      // trip and a full body download — and transient user activation expires
+      // in a few seconds, so a large receipt gets the tab blocked. It returns
+      // null when that happens, and not checking it is the same silent failure
+      // again, one layer up.
+      const opened = window.open(url, '_blank', 'noopener')
+      if (!opened) {
+        URL.revokeObjectURL(url)
+        throw new Error('Your browser blocked the new tab. Allow pop-ups for this site to open receipts.')
+      }
+      // Give the new tab time to take the blob before revoking it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      setOpenError(err?.message || 'Could not open that receipt.')
+    } finally {
+      setOpeningId(null)
+    }
   }
   function handleSubmit() {
     if (!title.trim()) return
@@ -2732,10 +2853,27 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
                   <div key={f.id} className="rb-budget-exp-file">
                     <Paperclip className="rb-budget-exp-file-icon" aria-hidden="true" />
                     <span className="rb-budget-exp-file-name">{f.name}</span>
+                    {/* C4 review round 1: the receipt's own open control. A
+                        financial row is dropped by FileManager and by the
+                        Projects page, so this is the one place its uploader
+                        can open it — the twin of InvoiceAttachment's, on the
+                        kit: the Spinner stands in the glyph's place while it
+                        fetches (A4-KR-6, until IconButton takes `loading`). */}
+                    <IconButton
+                      size="sm"
+                      Icon={openingId === f.id ? ReceiptBusyGlyph : FolderOpen}
+                      title="Open this receipt"
+                      onClick={() => openFile(f.id)}
+                      disabled={openingId === f.id}
+                      aria-busy={openingId === f.id || undefined}
+                    />
                     <IconButton size="sm" Icon={X} danger title={`Remove ${f.name}`} onClick={() => removeFile(f.id)} />
                   </div>
                 ))}
               </div>
+            )}
+            {openError && (
+              <p className="rb-budget-exp-error">{openError}</p>
             )}
             <Button
               size="sm"

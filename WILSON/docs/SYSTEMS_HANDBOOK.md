@@ -1110,6 +1110,36 @@ to understand why it cannot be simplified:
    workspace. They are built from `reservedProjectObjectPaths()` over the
    project ids the sweep already proved this workspace owns, so they inherit
    its tenancy check, and deduped against the row-derived set.
+   **Also in the collect step, since Track C / C2:** (3b) the **avatars** —
+   `user-avatars/{workspace_id}/…` LISTED by prefix, because no row names an
+   avatar object (`avatar_url` names the current one only) and the prefix is
+   the tenancy proof (0009's INSERT policy pins it); bounded at 5000 objects,
+   past which the scan stops and `avatars_truncated: true` says so. A listing
+   that fails refuses the teardown like any other scan. And (3c) the **open
+   upload reservations** — `sweep_open_uploads(workspace_id)` (0074) closes
+   every open `upload_reservations` row of the tenant, expired or not
+   (`completed` where the object landed, `abandoned` with a certificate
+   otherwise), BEFORE the CASCADE would take both that table and the tenant's
+   `file_events` away uncertified. The failure flag starts true and only an
+   answer clears it: a database without 0074 reads
+   `reservation_sweep_failed: true`, never 0/0. And (3d) the abandoned uploads
+   are certified AT ONCE — one `WIL-7012` per 40 paths, before any blob is
+   touched — because 3c commits its rows immediately and the CASCADE destroys
+   `file_events` moments later. **What 3d certifies is the company's WHOLE
+   `upload_abandoned` record**, read back from `file_events`: the reservations
+   3c just closed, plus any the hourly sweep or a person's own failed upload
+   had already certified, all of which the CASCADE is about to destroy. That
+   read is also what makes a retried teardown safe — a run that died between
+   3c and 3d left rows already closed, so a second attempt's sweep finds
+   nothing open, but the records are still there to be read (`truncated: true`
+   on the certificate if a company somehow had more than one page of them).
+   Nothing is destroyed in 3d (the partials expire at 24 h in Supabase Storage,
+   which nothing on the platform can see), so it is "certified abandoned",
+   never "purged". ⚠️ **A certificate that cannot be WRITTEN is logged and the
+   teardown continues** — `logPlatformEvent` reports an insert failure on
+   supabase-js's error channel to `console.error` and never throws, which is
+   deliberate (a destruction must not be half-done because its record failed)
+   and true of every `WIL-70xx` here, not only this one.
 4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
    project id belongs to *this* workspace are accepted. `files.storage_path` is
    client-writable and the sweep runs as service_role, so a member could
@@ -1128,13 +1158,23 @@ to understand why it cannot be simplified:
    `reserved_failed`): the inputs are two *candidates* per project, most of
    which will not exist, so folding them into `blobs_missing` would make the
    certificate read as a far larger failed purge than it was.
+   **Then, since Track C / C2:** (6b) the **avatars**, in `user-avatars`, own
+   pass, own counters (`avatars_found` / `_removed` / `_failed` /
+   `_truncated`), certificate per 40 paths (`WIL-7006` with `avatars: true`),
+   `avatars_removed` counted from `remove()`'s returned array like every other
+   count here. (The abandoned uploads were certified back in 3d.)
 7. **Delete the workspace row.** This fires the CASCADE.
 8. **Drop the queue rows — *after* the cascade, not before.** The `files`
    CASCADE re-enqueues one `storage_gc_queue` row per file; clearing first
    would leave those undrainable.
 9. **Write the final `workspace.teardown` certificate** (`WIL-7005`, severity
    critical) with found/removed/missing/failed/rejected counts, plus the
-   reserved-object counts.
+   reserved-object counts — and, since Track C / C2, the `avatars_*` counts,
+   `reservations_abandoned` / `reservations_completed` /
+   `reservation_sweep_failed`, and `thumbnails_note`, a sentence stating that
+   `blobs_*` and `thumbnails_*` are ROW-DERIVED (an object whose row never
+   landed is neither removed nor counted), so that limit is on the certificate
+   itself and not only in §17.
 
 The reason the collection must happen *first*: after the CASCADE there is no way
 to discover which blobs belonged to the tenant, and `storage-gc`'s orphan scan
@@ -1683,21 +1723,47 @@ Every relink writes a `relinked` event, including a base-folder change itself.
 
 ### 12.3 `file_events` — the lifecycle stream
 
-Vocabulary (a CHECK constraint, not a convention): `uploaded`, `moved`,
-`relinked`, `trashed`, `restored`, `purged`. Cloud path changes emit `moved`;
-local relink emits `relinked`.
+Vocabulary (a CHECK constraint, not a convention): `uploaded`, `downloaded`
+(0047), `moved`, `relinked`, `trashed`, `restored`, `purged`, and
+`upload_abandoned` (0073). Cloud path changes emit `moved`; local relink emits
+`relinked`. `upload_abandoned` is written **only** by
+`sweep_abandoned_uploads()` (§12.4): a resumable upload whose
+`upload_reservations` row expired unreleased with no object landed. Its
+`file_id` is a SURROGATE — the fragment never had a `files` row — so the
+per-file audit drawer never shows one; the workspace takeout and the
+`WIL-3003` cleanup counts do. 0057 added the term without a writer and 0058
+withdrew it; suite 66 probe 27 now asserts the term and the writer land
+together.
 
-Written **only** by `trg_files_lifecycle` → `fn_file_events_capture()`
-(SECURITY DEFINER). INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
+Written by `trg_files_lifecycle` → `fn_file_events_capture()` (SECURITY
+DEFINER) — and, since 0073, by `sweep_abandoned_uploads()` (SECURITY DEFINER)
+for `upload_abandoned` only, joined in 0074 (Track C / C2) by
+`abandon_upload_reservation()` (the client's failure path: a resumable upload
+that FAILED with an error the server answered is certified at once, with the
+client's reason in `details.reason`) and `sweep_open_uploads()` (teardown: every
+open reservation of the tenant, `details.closed_by = 'teardown'`), both for
+`upload_abandoned` only; nothing else writes the table. INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
 `deleted_at` transition and/or `moved` on a `storage_path` change (one UPDATE
 can emit both); DELETE → `purged` with a JSONB snapshot whose `mime_type` is
 truncated to 256 characters, specifically so a client-writable oversized value
 can never trip the `details` CHECK and void the certificate.
 
 Read policy: project readers **plus** a workspace-admin arm, so proof of
-deletion stays readable after the project itself is gone. There are no FKs on
-`file_id` / `project_id` — deliberately, so the certificate outlives its
-subject. Append-only is enforced three ways: zero write policies, revoked
+deletion stays readable after the project itself is gone — **and, since 0074
+(Track C / C2, Audrey's ruling 22), a money arm.** Every row carries
+`is_financial`, snapshotted at capture by ONE definition,
+`file_event_is_financial()`: the `files` row's `is_financial` flag OR a
+row-shaped key under a money segment (`INVOICES/`, `FINANCE/` — 0042's
+`rabbit_money_segment`). A non-money reader sees a flagged row **only when
+`event = 'purged'`** (deletion records stay visible to everyone who could read
+the project); every other event of an invoice — upload, move, trash, restore,
+download — is for workspace admins and project managers
+(`can_access_project_money`, 0037). One policy, every arm restated (a replay of
+0027 would drop the money arm; 0074's post-condition 3 is the tripwire).
+Limit: the flag is a snapshot — a file that becomes financial LATER keeps its
+earlier events unflagged (§17). Suite 78 pins it; 33 pins the rest. There are
+no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
+its subject. Append-only is enforced three ways: zero write policies, revoked
 grants, and migration post-conditions.
 
 **The `purged` rows are deletion certificates** (TPN-CONT-002). That is why the
@@ -1709,7 +1775,7 @@ churn.
 
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
-Function (adminGuard, workspace-scoped) then does three jobs:
+Function (adminGuard, workspace-scoped) then does four jobs:
 
 1. **Queue drain** — up to 500 pending rows, re-checking that no `files` row
    (live *or* trashed) still references the path before removing it, so a
@@ -1723,6 +1789,24 @@ Function (adminGuard, workspace-scoped) then does three jobs:
    reads (max_rows applies to service_role too — the unpaged version deleted
    *current* avatars past the cap), removing anything that is not a member's
    current `avatar_url` and older than 24 hours.
+4. **Abandoned-upload certification (0073, Track C)** — calls
+   `sweep_abandoned_uploads(workspace_id)`: every `upload_reservations` row
+   past its 24 h expiry that was never released is closed as `completed` (its
+   object landed, or a `files` row names the path) or `abandoned` (one
+   `file_events` `upload_abandoned` row, TPN-CONT-017). The counts land on the
+   certificate as `reservations_abandoned` / `reservations_completed`, and
+   `reservation_sweep_failed: true` says the sweep did not run to completion
+   — the RPC is missing (a database without 0073), it raised, or the run died
+   before step 4: the flag STARTS true and is cleared only when the RPC
+   answers, so the `WIL-3004` failure certificate, which carries the same
+   counts, can never claim a sweep that never ran (review round 1) — rather
+   than letting 0/0 claim one. It
+   destroys nothing (the partial is reaped by Supabase's own 24 h TUS expiry,
+   which nothing here can see), so TS-1.5's dual-authorisation argument does
+   not bind it and the same function also runs **hourly under pg_cron**
+   (`wilson-sweep-abandoned-uploads`, `39 * * * *`) across all workspaces; the
+   per-workspace call here is so an admin's cleanup click certifies now rather
+   than within the hour.
 
 🚨 **A row is not the only thing that makes an object wanted — the RESERVED
 rule (S36).** R.A.B.B.I.T. writes two objects straight to the bucket with **no
@@ -2555,6 +2639,425 @@ the folder's *Reset demo folder* leaves `media\` alone on purpose (its rows
 outlive the folder); the bins remain Local Server only (Audrey: next week).
 Opening a demo folder no longer pins Local Server mode (§12.8's "choosing a
 folder switches the backend" is gone).
+
+### 12.8b Deck attachments (Track C / C3, migration 0075)
+
+*Numbered 12.8b at the post-overhaul merge (2026-09-30): the demo sprint's §12.8
+and §12.8a were already in this file when Track C landed. Track C's hand-offs
+and commit messages call this section §12.8.*
+
+D.O.G.'s project attachments are **ordinary project files**, on every backend
+that has a file store. There is no second mechanism: the Resources drop zone
+and D.O.G.'s new-project modal both call `adapter.uploadFile`, so an
+attachment is a row in `public.files` / `bundle.files` with its body in
+`rabbit-files` / the project's files directory, and it inherits the quota
+meter, the reservation (§12.4), the money gate, `file_events` (§12.3), the
+30-day trash and the teardown sweep without any of them being told about it.
+
+**What marks a file as a DECK attachment** (`deckAttachments.js`, one module
+for one contract — the reader and its three writers drifted the moment they
+lived apart):
+
+- `document_kind` is non-null (0075's column, the ten-value enum 0000
+  declared) — whoever uploaded it; **or** the file is an image or a video
+  **filed against the project itself**, with no `scene_id` / `shot_id` /
+  `asset_id` / `task_id` / `phase_id` / `level_id` / `experience_id`.
+- 🚨 RABBIT's own uploads leave `document_kind` NULL, and for DOCUMENTS that
+  is the whole separation: a project's scripts and specs are not deck source
+  material unless someone gives them a Kind in the Resources table.
+- 🚨 **MEDIA HAS NO MARKER OF ITS OWN, SO THE MARKER IS WHERE IT WAS FILED.**
+  Review round 1 caught the first version of this rule admitting *every* image
+  and video the project had ever held. On a project a month into production
+  the twenty NEWEST files are renders, so the brief was pushed out of D.O.G.'s
+  budget entirely and 32 MiB of production media went into the generation
+  prompt in its place. An entity FileManager stamps the file with the entity it
+  was opened on; the Resources drop zone stamps nothing.
+- ⚠️ **The residue, stated rather than closed — and review round 2 corrected
+  WHERE it is.** Round 1 named "`FileManager` mounted at project level"; there
+  is no such mount, since every `<FileManager>` passes an entity. The surfaces
+  that really write project-level media are **`ProjectSummaryView`'s
+  ProjectFilesSection** (its Add Files calls `uploadFile(file, { type:
+  'project' })`, no entity keys) and **`BudgetView`'s expense receipts** (a
+  scope `uploadFile` does not read — its own `OUTSTANDING.md` entry). Files
+  from either are indistinguishable from a Resources drop and WILL be
+  included. Bounded rather than fixed: documents are always taken first
+  (below), so nothing can crowd out the brief, and D.O.G.'s File roles list
+  names every file it is using. Closing it properly needs a column that says
+  "filed as deck source material", which C3 did not take.
+- ⚠️ **On Local Server the entity check is weaker than it looks.** The Express
+  upload route writes `phase_id`, `asset_id` and `task_id` and drops
+  `scene_id`, `shot_id`, `level_id` and `experience_id`, so "no entity" there
+  can mean "the route discarded it". Narrow in practice — that backend's entity
+  FileManagers write the *managed* store, which `listFiles` never returns — but
+  real when the renderer runs without the preload bridge.
+- 🚨 A writer that KNOWS it is writing an attachment must therefore leave the
+  row recognisable. `documentKindFor()` is total by construction: media →
+  NULL, anything else → the detected kind **or `'other'`**. Using
+  `detectDocumentKind(name) || null` — which is what all three writers did at
+  first — writes NULL for a PDF whose name matches none of its heuristics, and
+  the file then uploads, lists in the grid, and is invisible to generation.
+  Measured, not reasoned about: `polarityRoundTrip.test.js` caught it on a
+  file called `legacy.pdf`.
+
+**What D.O.G. reads back, and the bound.** It lists the rows, filters them,
+then DOWNLOADS each body through `adapter.downloadFile` and rehydrates it —
+text as text, binary as base64 with the data-URL prefix stripped. Without that
+step a cloud attachment uploads perfectly and contributes nothing to
+generation, which is worse than the loud refusal it replaced. Bounded at
+**20 files and 32 MiB in total**, because `files` holds a project's whole
+production tree; anything over the budget is skipped rather than truncated,
+and the panel states how many were left out.
+
+🚨 **The budget is spent DOCUMENTS FIRST, then media, each newest-first**
+(`orderAttachmentCandidates`). A single date sort spends it on whatever
+happens to be newest, which on a working project is media — so what the bound
+costs is visual reference material and never the source material the deck is
+about.
+
+**The legacy arrays are still read.** `project.documents[]` /
+`visualAssets[]` are never written any more but are still merged into both the
+Resources list and D.O.G.'s source set on every backend, so nothing an
+existing local project had was lost. Moving them is a deliberate one-time
+action: **Settings → RABBIT → "Move deck attachments into project files"**,
+dry run required first, per-file ceiling **32 MiB**, oversized files named and
+left in place, and each entry cleared from the array only after its upload
+returns — so a crash mid-run means a re-run moves exactly what is left.
+
+⚠️ The ceiling is 32 MiB because `localServerAdapter.uploadFile` base64-encodes
+into a JSON body that `express.json({ limit: '50mb' })` caps — and Local Server
+is the only backend whose projects can hold legacy arrays at all, so a ceiling
+above ~37 MiB would never bind: those files would fail with a raw HTTP 413,
+counted as failures rather than named as oversize.
+
+**Two CORE flags with opposite defaults**, deliberately not unified — see
+§17's "Correctness" note. `runAttachmentMigration` is the one place they meet
+and it carries `isCore !== false` across explicitly.
+
+🚨 **A NEWLY WRITTEN ATTACHMENT IS CORE** (`NEW_ATTACHMENT_IS_CORE`), because
+that is what the legacy writer produced: it never set `isCore`, and D.O.G.
+reads a missing flag as CORE. Review round 1 found this bundle's first version
+writing `false` there, which turned an identical gesture — drop a brief on
+Resources — from "a primary source of truth for what this project IS" into
+"supporting reference material only", silently. Both measured polarity diffs
+stayed at zero throughout, because both covered the READ path and the
+migration and neither covered the WRITE path.
+
+⚠️ **`is_core_definer` is shared with RABBIT's Files views, and that is the
+whole of it — it does NOT reach intake.** Review round 1 added a paragraph
+here claiming a Resources drop became an intake candidate; review round 2
+traced it and found it false. `IntakeWizardView` keeps its files in local
+state, populated only by `IntakePrepare` from a picker as staging objects
+carrying a `dataUrl`, and `runIngestion` needs that `dataUrl` to extract text.
+A `files` row has none, and no code path puts one in that list. Left here as a
+correction rather than silently deleted, because "measured" was claimed for it
+and it had not been.
+
+### 12.9 Expense receipts are money (Track C / C4, migration 0076)
+
+An expense receipt is gated exactly like an invoice. `BudgetView`'s expense
+form uploads through `adapter.uploadFile(projectId, { financial: true }, file)`
+— **one key**, and it is genuinely one key because `uploadFile` spends
+`scope.financial` three times inside a single function:
+
+- the reserved **`INVOICES`** third path segment, which is what the four
+  `rabbit_files_money_*` storage policies key on and what the four base
+  `rabbit_files_*` policies negate — the **blob** gate. ⚠️ Review round 1
+  corrected this sentence twice over: it named `rabbit_files_invoices_*`, a
+  family **0042:212-214 dropped and replaced**, and it said *three* base
+  policies where 0042 creates four (`_select`, `_insert`, `_update`,
+  `_delete_own`) — eight in all, the count 0042's own post-condition asserts.
+  The predicate is `NOT public.rabbit_money_segment(seg 3)`, i.e. `INVOICES`
+  **or** `FINANCE` in **any case**, not a literal `'invoices'`;
+- **`files.is_financial`** — the **row** gate (0038);
+- the **Supabase pin** — a money body never leaves Petal's bucket whatever
+  storage the workspace selected (0050's `files_money_provider_chk`). This one
+  is `supabaseAdapter`'s alone; Local Server writes to the customer's disk with
+  `storage_provider: 'local_server'`.
+
+Local Server reads the same flag and writes the body into the project's
+invoices directory, so both write-capable backends gate on one word. There are
+exactly two: `adapters/index.js` registers three adapters and Google Drive's
+`uploadFile` is `readOnly()` — a function that throws (`googleDriveAdapter.js:267`)
+— so Drive cannot write an ungated receipt because it cannot write at all.
+⚠️ Nothing pins that, and C4 did not check it; a session that ever gives Drive
+a write path must revisit this section. No `lineId` is passed — the create form
+has no expense id yet, and **the edit path does not pass one either** — so
+`uploadFile` falls back to `projectId` (`supabaseAdapter.js:1184`). That
+fallback is not *documented*: the `UploadScope` typedef (`adapters/index.js`)
+lists neither `lineId` nor, more importantly, **`financial`** — the key this
+whole gate turns on is absent from the only contract describing the argument.
+The gate is the THIRD segment; the fourth is only organisation.
+
+🚨 **A consequence C4 did not name: a receipt BECAME EXEMPT FROM THE STORAGE
+QUOTA.** ⚠️ This paragraph is in the PAST TENSE throughout: it describes the
+state between C4 and 0078, and review round 2 found it still written in the
+present after 0078 had closed it. The RESTRICTIVE `petal_storage_quota_insert`
+(0055) then read `bucket_id <> 'rabbit-files' OR rabbit_quota_exempt_path(name)
+OR rabbit_petal_storage_ok(...)` — **the live arm 2 is now
+`rabbit_quota_exempt_object(name, metadata)`, and 0078's post-condition 6b
+raises if `rabbit_quota_exempt_path` appears in the policy at all** — and
+`rabbit_quota_exempt_path` is true for any money segment. Before C4 a receipt's
+third segment was `project`, so it was weighed and could be refused; C4 made it
+`INVOICES`, so **the quota could no longer refuse a receipt at any size**.
+Meanwhile `workspace_petal_committed_bytes` had no exemption clause, so those
+bytes still consumed the allowance that refuses ordinary media. 0055 justified
+the exemption on the premise that money paths are tiny — one invoice PDF per
+budget line — and `BudgetView`'s picker is `<input type="file" multiple>` with
+no `accept` and no size cap. Not a security hole (0037 gates `expenses`, so
+only money-cleared people reach it), but a billing one: a manager **could** burn
+a workspace's storage without limit and without refusal. **Bounding the
+exemption by object size was a pricing decision. Audrey ruled on it on
+2026-09-09 and 0078 is that ruling** — a new migration in 0055's family, NOT an
+edit to 0055. ✅ **FIXED by migration 0078 on 2026-09-09**, on Audrey's ruling
+of that day: BOUND THE EXEMPTION BY SIZE — not cap the picker, and not leave
+it. A money path stays quota-exempt only below a threshold; above it the object
+is weighed like any other and can be refused. **See §12.10**, which also
+records the enforcement site this paragraph did not know about.
+
+**Why this was a bug and not a gap.** `public.expenses` is one of the five
+tables 0037 gates on `can_access_project_money()`, so only a workspace admin or
+a project manager can read — or create — an expense at all. The receipt,
+meanwhile, was uploaded with `{ type: 'expense' }`, and **`scope.type` is read
+by nothing** in the tree: not `supabaseAdapter`, not `localServerAdapter`, not
+the Express server. The scope was therefore empty and the receipt landed as an
+ordinary project-level file readable by every project member. The amount was
+manager-only and the receipt stating the amount was not. 0038's column comment
+had said "an invoice or receipt" since the day it was written; only the receipt
+half was ever wired.
+
+A consequence worth knowing: because a receipt is now financial, it is also
+excluded from D.O.G.'s attachment set (§12.8b) and from the Resources list,
+which both drop `is_financial` rows. That is the same rule C3 pinned for
+invoices, not a new one.
+
+🚨 **What migration 0076 did NOT close, and cannot.** It marks every existing
+receipt financial — a `files` row whose id appears in some `expenses.file_ids`,
+the only `file_ids` column in the schema — and backfills their `file_events` so
+the activity stream cannot serve the history of a row the reader can no longer
+see. Two residuals remain, both **counted and reported by the migration at
+apply time** rather than left invisible, and both empty on dev and staging:
+
+1. **Row gated, blob not.** The base storage policies key on the PATH segment
+   and never consult `is_financial`, so a pre-existing receipt's object stays
+   under its container segment. The path can no longer be DISCOVERED (the
+   `files` row carrying it is now manager-only), but anyone already holding one
+   keeps object-level read access. Moving bytes is not a migration's job —
+   `storage.objects.name` IS the S3 key — so this needs a one-time client-side
+   mover in the shape of C3's `runAttachmentMigration`.
+2. **A receipt on a customer's bucket cannot be flagged at all.**
+   `files_money_provider_chk` refuses a financial row outside Supabase, so the
+   backfill is scoped to `storage_provider = 'supabase'`. Without that scoping
+   the migration ABORTS on the first such row with a 23514 — proven by breaker
+   BM1, which kills the whole suite rather than failing an assertion.
+
+**The standing diagnostic** for both (run it as `service_role`/`postgres` — see the note under it):
+
+```sql
+SELECT
+  count(*) FILTER (WHERE f.is_financial
+                     AND f.storage_provider = 'supabase'
+                     AND NOT public.rabbit_money_key(f.storage_path)) AS blob_outside_money_segment,
+  count(*) FILTER (WHERE NOT f.is_financial
+                     AND f.storage_provider <> 'supabase')            AS ungated_on_customer_bucket
+FROM public.files f
+WHERE EXISTS (SELECT 1 FROM public.expenses e WHERE f.id = ANY (e.file_ids));
+```
+
+🚨 **Read the two columns differently — review round 1 corrected a false
+invariant here.** This used to say "Both columns must be 0", which contradicts
+the two residuals described above and would send an operator to "fix" a
+documented, accepted state.
+
+- **`ungated_on_customer_bucket` must be 0** on any environment whose receipts
+  all live in Supabase. Non-zero is residual 2: those rows need their body
+  moved before they can be gated at all.
+- **`blob_outside_money_segment` is the SIZE of residual 1, not a fault.** Every
+  receipt 0076 backfills lands in this count by construction — 0076 computes
+  exactly it as `v_blob_outside` and **reports it as expected output**, and
+  suite 78 probe 55 asserts it is true of a backfilled receipt while probe 59
+  measures the exposure directly. It is 0 only where no receipt predates 0076.
+  A non-zero value is the backlog for the one-time body-mover, not a failure.
+
+Run it as `service_role`/`postgres`: as an ordinary money-cleared role the
+counts are RLS-scoped to that person's workspace, which is not the global
+answer the prose implies.
+
+A durable view over this query was deliberately NOT created: it would add a
+second readable surface over the money table, which is the class of defect this
+bundle exists to fix.
+
+🚨 **Residual 3, which C4 did not name at all: Local Server receipts uploaded
+before C4.** 0076 is a Postgres migration. The desktop keeps its own
+`is_financial` in its JSON bundle (`electron/main.cjs`), and **nothing
+backfills it and nothing moves those bodies into `INVOICES/`.** A receipt
+uploaded on the desktop before this bundle therefore stays ungated forever —
+still listed in Project Files, and still eligible as D.O.G. deck source
+material, which is the literal defect this entry marks fixed. Unlike residuals
+1 and 2 it is counted and reported by nothing. New desktop uploads are gated
+correctly; only the existing ones are stranded.
+
+**Reading a receipt back.** Marking it financial removed it from both surfaces
+that could open a file — `FileManager` and `ProjectsPage`'s **Project Files** table both
+drop `is_financial` rows — so after the gate went on, the manager who uploaded
+a receipt could see its name on the expense and open it nowhere. Review round 1
+added the receipt's own surface: `ExpensePopup` now has an open control that
+re-lists through the adapter and hands back a blob URL, the twin of
+`InvoiceAttachment.handleOpen`. A money file's only surface is the record it
+hangs off — that is the design, and it is now true of receipts as well as
+invoices.
+
+### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
+
+Audrey's ruling, 2026-09-09, on the consequence §12.9 describes: **bound the
+exemption by size**, rather than cap `BudgetView`'s picker. Migration **0078**
+is that bound. Migration number taken with her explicit permission the same day
+— the ledger had assigned 0078 onward to Track D, which has not started; Track
+D now begins at 0079.
+
+**The bound is one function.** `public.rabbit_quota_exempt_max_bytes()` returns
+**26214400** (25 MiB), mirroring how `storage_free_tier_bytes()` (0055) is the
+one definition of the free tier rather than a literal repeated at each site.
+⚠️ **It is still DUPLICATED, and the first draft of this section said otherwise.**
+That function is the one definition the PREDICATES read, but the figure is also
+written out in `StorageSection.jsx`'s two banners and as a literal in suite 77
+probes **55, 57, 60 and 61**. Moving the bound means editing the function FIRST
+and then every one of those; **suite 77 probe 64 asserts the value** and is what
+goes red if only the function moves.
+It was chosen against the real populations: `PROJECT.json` measured 2,959 bytes
+on staging, `FINANCE/RATES.json` is kilobytes, an invoice PDF is single-digit
+MB and a phone photograph of a receipt is 2–12 MB. Against what it refuses,
+the `rabbit-files` per-object ceiling is **53687091200 — 50 GiB** (measured on
+dev), so for exempt paths the effective ceiling drops by a factor of 2048.
+
+🚨 **THE EXEMPTION HAS TWO ENFORCEMENT SITES, AND §12.9 NAMED ONE.** This
+was found while building 0078, not while planning it:
+
+1. **`petal_storage_quota_insert`** (0055) — the RESTRICTIVE INSERT policy on
+   `storage.objects`. Arm 2 is now
+   `public.rabbit_quota_exempt_object(name, metadata)`.
+2. **`public.reserve_upload_bytes`** (0073, bundle C1) — which returned NULL
+   early for an exempt path, so nothing was reserved and nothing weighed. It
+   now tests `public.rabbit_quota_exempt_bytes(p_path, p_bytes)`.
+
+Site 2 is the one the client calls, from `supabaseProvider.js`, before any byte
+moves. Bounding only site 1 would let a 5 GB receipt reserve nothing, upload for
+ten minutes and be refused at commit — the exact failure bundle C1 was built to
+remove. pgTAP suite 77 probe 55 is what catches that: with the policy bounded
+and the reservation left unbounded, it is the only probe that goes red
+(measured as breaker B3).
+
+🚨 **BUT "BEFORE ANY BYTE MOVES" IS TRUE ONLY ABOVE 50 MiB, AND THE BOUND IS
+25 MiB.** `reserveUpload` is called only inside `if (shouldUseResumable(body))`,
+and `RESUMABLE_THRESHOLD_BYTES` is 52,428,800; `0073`'s header says it in one
+line — "Only the RESUMABLE path reserves (bodies above 50 MiB)". So a money file
+in **(25 MiB, 50 MiB]** loses the exemption, is never offered to site 2, transfers
+in full, and is refused by site 1 at commit — the very shape site 2 exists to
+prevent. Accepted rather than fixed: the bound binds correctly at both sites and
+only the TIMING differs in that band; such an upload is seconds, not the ten
+minutes C1 was about; ordinary media under 50 MiB has always been weighed only
+at commit; and raising the bound to 50 MiB would double the billing exposure to
+buy a cosmetic improvement. ⚠️ In that band the refusal is a raw
+`petal_storage_quota_insert` RLS violation, **not** the friendly PT402 sentence —
+`classifyUpload` is reached only from `FileManager`, never from the invoice or
+receipt pickers. Walkthrough 13 step 3 says so, so the tester cannot report it
+as a fault.
+
+**The predicate, and why it is shaped this way.** `rabbit_quota_exempt_path`
+(0055) is **unchanged** and is delegated to; it remains the one path
+classifier, and suite 65's probes 13–17 on it stay green. The size axis is a
+second, separately auditable predicate composed over it:
+
+```
+rabbit_quota_exempt_bytes(name, bytes)  = rabbit_quota_exempt_path(name)
+                                          AND COALESCE(bytes, 0) <= rabbit_quota_exempt_max_bytes()
+rabbit_quota_exempt_object(name, md)    = rabbit_quota_exempt_bytes(name, rabbit_object_incoming_bytes(md))
+```
+
+🚨 **`COALESCE(bytes, 0)` IS LOAD-BEARING: AN UNKNOWN SIZE KEEPS THE
+EXEMPTION.** This is the opposite of the intuitive polarity and it is what
+keeps 0055's **second** reason intact — the `FINANCE/RATES.json` mirror,
+rewritten on every rates change — together with 0055's **separate fourth
+exemption bullet**, the `PROJECT.json` manifest, rewritten on every project
+change. Neither is about size. ⚠️ 0055's three reasons all belong to the MONEY
+bullet, and the first draft of this section wrongly listed the manifest as one
+of them; the real third reason is **"invoices are the paperwork by which a
+company pays Petal"**, which 0055 calls the decisive one and which this
+migration does override above the bound — see the paragraph below. A bare
+comparison yields NULL when metadata carries no size, and **under a RESTRICTIVE
+policy a NULL DENIES**, so every such write would fail with a symptom
+indistinguishable from the bound working. Suite 77 **probe 63** is the probe
+that goes red if someone "tidies" the COALESCE away (measured as breaker B2),
+and **probe 62** is the precondition that makes it able to.
+
+🚨 **WHY OVERRIDING 0055's DECISIVE REASON IS RIGHT, ABOVE THE BOUND.** Reason
+three protects a company's ability to send the paperwork that pays Petal. A
+genuine invoice or receipt is single-digit MB, so 25 MiB never locks that
+paperwork out in practice. What reason three was never meant to protect is a
+50 GiB object under an `INVOICES/` segment — and because
+`workspace_petal_committed_bytes` counts those bytes with no matching
+exemption, such an object does not merely go unrefused: it consumes the
+allowance that refuses the company's own media. Left unbounded, reason three
+stops protecting billing and starts breaking the product it was written to keep
+working.
+
+⚠️ **AND THE COST, STATED RATHER THAN HIDDEN: the bound applies to the mirror
+and manifest arms too**, because `rabbit_quota_exempt_path` is ONE predicate and
+0078 bounds the predicate rather than the segment. The FIRST INSERT of a
+`PROJECT.json` or `FINANCE/RATES.json` larger than 25 MiB on a full or suspended
+workspace would be refused — the "corrupted folder view" 0055 wrote its
+exemption to prevent. The exposure is small and bounded: the manifest measured
+2,959 bytes, the mirror is kilobytes, both are written by WILSON rather than by
+a person, and after the first write the manifest is an upsert — an UPDATE this
+INSERT-only policy does not govern. A machine-written bookkeeping file that
+reached 25 MiB would be a defect worth surfacing rather than silently exempting.
+**Suite 77 probe 57 pins this deliberately**; if the manifest and mirror should
+stay unbounded instead, the change is to split the predicate and that probe is
+where to start.
+
+Failing open on an unknown size is safe because authorisation happens twice
+(0057): the tus permission phase carries `contentLength`, which a client could
+suppress, but `completeUpload` writes the row with metadata **authored by
+storage-api** including a true `size`. So a forged first phase buys only that
+the bytes move before the refusal — not a bypass. `rabbit_object_incoming_bytes`
+reads both keys, so the bound applies at both phases; suite 77 probe 61 pins
+the `contentLength` arm.
+
+**What this deliberately does NOT do**, stated so it is not rediscovered as a
+defect:
+
+- An oversized money file is **not rejected outright**. It loses the
+  EXEMPTION and becomes subject to the ordinary quota, so it still uploads
+  whenever the company has room. "Bounded" is not "capped"; that is the
+  difference Audrey chose.
+- A money file **under** the bound still consumes the allowance without being
+  refusable, because `workspace_petal_committed_bytes` counts it and gains no
+  exemption here. The asymmetry is deliberate and is now bounded at 25 MiB per
+  object instead of unbounded. Exempting small money files from the METER would
+  raise every company's effective quota, which is a pricing change nobody asked
+  for.
+- The INSERT-only limit of 0055/0057 is unchanged: an upsert reusing an
+  existing key becomes an UPDATE, which this policy does not govern.
+
+**The Admin Terminal copy carries the bound.** `StorageSection.jsx`'s suspended
+and at-ceiling banners said invoices, finance files and the manifest "still
+save"; they now say "still save if they are under 25 MB", because after 0078
+the unqualified sentence is false. ⚠️ The figure is duplicated from SQL, as
+"30 days" already is in the same banners; if the bound moves it moves in
+`rabbit_quota_exempt_max_bytes()` first, then in those two sentences **and in
+suite 77 probes 55, 57, 60, 61 and 64**.
+
+**Verification.** pgTAP suite **77 at 67/67** (probes 54–67 are 0078's), each
+proven by a breaker. On the predicate: **B1** dropping the size axis reddens the
+refusal probes (55, 57, 60, 61) and nothing else; **B2** removing the COALESCE
+reddens only 63; **B3** bounding the policy but not the reservation reddens only
+55, which is what proves the two-site claim rather than asserting it. On the
+post-conditions, added in review round 1 after it found that a substring check
+could not tell a polarity inversion apart: **B4** inverting the bucket arm to
+`bucket_id = 'rabbit-files'` fires post-condition 7, and **B5** negating the
+exemption arm fires post-condition 6a — both passed the original `LIKE` form. Probe 10 of that suite asserted "a 5 GB invoice is not
+refused" and was true until 0078; it now uses a real invoice's size and says so
+in place, because a probe that silently loses its teeth is how a gate stops
+being a gate.
 
 ## 13. The three tools, the shell, and the agent
 
@@ -3741,6 +4244,14 @@ of a session — this section is limits by design, that file is faults.
   ⚠️ The manifest exemption tests the FILENAME as well as the depth: `[3] IS
   NULL` alone would let `projects/<id>/dailies.mov` through, a whole object at a
   time.
+  ✅ **BOUNDED BY SIZE since 0078** (Audrey's ruling, 2026-09-09): the exemption
+  holds only up to `rabbit_quota_exempt_max_bytes()` — 25 MiB — at BOTH
+  enforcement sites (the policy and `reserve_upload_bytes`). Above it a money
+  file is weighed like ordinary media: still uploadable with room to spare,
+  refusable without. An UNKNOWN size keeps the exemption, so the mirror and the
+  manifest are never blocked by absent metadata. ⚠️ The bound is applied to the
+  manifest and mirror arms too, not only to invoices — see §12.10 for why that
+  is acceptable and what it costs.
 - ✅ **The predicate WEIGHS the incoming object: `used + incoming <= quota`
   (0057).** S41 shipped `used < quota` deliberately, and it was right while the
   per-object cap was 50 MB — the overshoot was bounded and trivial. At 50 GiB
@@ -3760,16 +4271,93 @@ of a session — this section is limits by design, that file is faults.
   hold one clip next to a 50 GiB per-file cap. The number lives ONLY in
   `storage_free_tier_bytes()`; the client reads the resolved figure back from
   `workspace_storage_usage()`.
-- ⚠️ **CONCURRENT uploads can still exceed the quota, and this is OPEN.** Each
-  in-flight resumable upload is invisible to the others until it completes, so
-  two 30 GiB uploads started together against a 50 GiB quota both pass their
-  creation check. 0057 tried to close this by metering
-  `storage.s3_multipart_uploads.in_progress_size`; **0058 removed that because
-  WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects —
-  that table is written only by the S3-compatible protocol handler WILSON never
-  calls, so the arm summed a permanently empty set while claiming to close the
-  hole.** Suite 66 probe 13 now asserts the meter does NOT move, so re-adding it
-  fails there first. Recorded in `OUTSTANDING.md`.
+- ✅ **CONCURRENT uploads can no longer exceed the quota (0073, Track C).** A
+  resumable upload RESERVES its bytes in `public.upload_reservations` before
+  `tus.Upload.start()` — `reserve_upload_bytes(path, bytes)`, SECURITY DEFINER,
+  evaluating the SAME predicate as the policy under a per-workspace advisory
+  lock — and `workspace_petal_bytes()` adds active reservations to the total
+  the RESTRICTIVE policy weighs, so the second of two uploads that together
+  exceed the quota is refused at START, with the standing over-quota sentence
+  (HTTP 402 through PostgREST, SQLSTATE `PT402`). 0057's attempt metered a
+  table TUS never writes; suites 66/13 and 77/48 both assert that meter still
+  does not move (live on the hosted projects; CI's stack starts without
+  storage-api, so there both inserts are skipped and the probes are controls
+  only). **Two things that had to be true at once:** the policy now
+  passes the object's own key (`rabbit_petal_storage_ok(project, incoming,
+  path)`) so an upload's own reservation is never weighed against it, at the
+  tus trial insert or at completion; and the reservation arm EXCLUDES any
+  reservation whose object has landed, so object and reservation are never both
+  in `used` for the same instant, whatever the client does next — suite 77
+  probes 23–27 (23–25 failed by breakers B2/B3 before 0073 touched dev; 20,
+  26–27 and 30 by the review round's breakers against dev and staging — the second C1
+  hand-off has the table). **Limits, both directions:** only the
+  resumable path (bodies over 50 MiB) reserves — a standard PUT lands in one
+  request and is weighed as it lands; a reservation lasts 24 h (Supabase's own
+  TUS URL expiry, past which the upload cannot complete anyway) and a lapsed
+  one cannot admit an over-quota object because the policy re-weighs at commit;
+  reserved space shows as USED in `workspace_storage_usage()` and the operator
+  summary until the upload lands, is released, or expires; a database without
+  0073 makes the client upload UNRESERVED (PostgREST `PGRST202`, said in the
+  console) with the policy still gating at commit — exactly the pre-0073
+  behaviour, never a refusal. An abandoned upload's reservation expires and is
+  certified `upload_abandoned` by the sweep (§12.4): the certificate names the
+  abandonment, not the disposal of bytes, which SQL cannot see. **How a
+  reservation closes (0074, Track C / C2, Audrey's rulings of 2026-09-07):**
+  the upload lands → `release_upload_reservation` (`released`; the meter had
+  already stopped counting it). The upload FAILS with an error the server
+  answered (a 5xx, the session expired mid-way) → the client calls
+  `abandon_upload_reservation(path, reason)`, which closes the row `abandoned`
+  and writes the `upload_abandoned` certificate AT ONCE with the error text
+  (ruling 1; a "failure" reported after the object had in fact landed closes
+  `completed` and certifies nothing). The NETWORK dropped → neither RPC can
+  cross it; the row expires at 24 h and the hourly sweep certifies it, as does
+  a closed tab, a crash or the app quit mid-upload. The person next opens
+  Files → `release_stale_upload_reservations(keep)` closes their OWN open rows
+  except the keys that tab is still uploading, WITHOUT a certificate (ruling 2:
+  those rows lose theirs — so a closed tab no longer holds its bytes for a day
+  against the same person's retry). The company is torn down →
+  `sweep_open_uploads` closes every open row before the CASCADE and the
+  abandoned paths are certified in `platform_audit` as `WIL-7012` (§5). **Two
+  stated limits:** a second browser tab cannot see the first tab's in-flight
+  keys, so opening Files in tab B while tab A uploads releases A's row early —
+  the policy still refuses an over-quota object at commit, so the cost is a
+  late refusal, never an over-quota object; and there is NO per-person cap on
+  active reservations (ruling 3): a member who can write one project can
+  reserve the whole quota under fabricated keys until the 24 h expiry, which
+  is the bound. A database with 0073 but not 0074 makes the client fall back
+  to release on failure (PostgREST `PGRST202`, said in the console) and answers
+  0 to the stale release — the pre-0074 behaviour, never a refusal. And both "landed" tests — the meter's
+  exclusion arm and the sweep's classification — key on the object's CURRENT
+  name (`storage.objects.name`, then `files.storage_path`): nothing renames a
+  Petal object today (a move is a `folder_id` change), but a future rename
+  inside a reservation's 24 h would make an unreleased row count again and let
+  the sweep certify a completed upload as abandoned; the durable alternative,
+  if renames ever ship, is the `uploaded` `file_events` row, which snapshots the
+  path at upload time. The client's courtesy check (`classifyUpload`) reads the
+  same `usedBytes` and so refuses the second of two concurrent clips FIRST,
+  with the same "uploads in progress" sentence — the server's refusal is the
+  one a direct REST caller meets. And the reservation is written by the
+  CLIENT: an older desktop build, a stale web bundle or a direct call to the
+  storage REST API uploads unreserved and is gated only at commit, exactly as
+  before — the policy is the enforcement; the reservation is the early answer,
+  and it protects everyone else's uploads from the one that wrote it.
+- ✅ **Invoice activity is hidden from non-managers (0074, Track C / C2,
+  Audrey's ruling 22).** `file_events.is_financial` is snapshotted at capture
+  by one definition — the `files` row's flag OR a row-shaped key under
+  `INVOICES/` / `FINANCE/` — and `file_events_select` shows a flagged row to a
+  non-money reader ONLY as its `purged` certificate; workspace admins and
+  project managers (`can_access_project_money`) see every event, and
+  `log_file_downloaded` flags an invoice read the same way. Suite 78 (49
+  probes, ten breakers, each failing the probes it was built to fail).
+  **Limits, both directions:** the flag is a SNAPSHOT — a file that becomes
+  financial LATER keeps its earlier events unflagged, and a purged invoice that
+  lived outside a money segment before 0042 stays unclassified (its certificate
+  is visible to everyone anyway); a plain member simply sees fewer rows — there
+  is deliberately NO "hidden rows" indicator, because an indicator is an
+  existence oracle for invoices; and a workspace admin's money visibility rides
+  the JWT role (0026's read-only rationale), the same basis as the admin arm
+  beside it. Replaying 0027 or 0047 after 0074 would revert part of this;
+  0074's post-conditions 3–5 are the tripwires.
 - 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
   `storage-gc` refuses a trashed row for 30 days, while the meter reads
   `storage.objects`. Every over-quota message says so, because the obvious
@@ -4146,6 +4734,23 @@ of a session — this section is limits by design, that file is faults.
 - `CrewTeamTab` / `TalentTab` do not check `res.ok` on the invoice-folder call,
   so a 400 becomes a swallowed `ERR_INVALID_ARG_TYPE` and the Attach button
   appears to do nothing.
+- **Two CORE flags mean opposite things by default, and that is deliberate**
+  (Track C, C3; MASTER_PLAN §6 #31 trap (b)). D.O.G.'s legacy attachment
+  arrays carry `isCore` and read it as TRUE unless it says otherwise
+  (`f.isCore !== false`); `public.files.is_core_definer` is `NOT NULL DEFAULT
+  false` and is read strictly (`=== true`). Unifying them would move every
+  previously-unmarked file between CORE and REFERENCE, and CORE/REFERENCE is
+  injected into the generation prompt as "primary sources of truth" versus
+  "supporting reference material only" — so the decks would change with
+  nothing failing. Every writer therefore passes the flag EXPLICITLY, and the
+  one place the two meet, `runAttachmentMigration`, carries `isCore !== false`
+  across at the moment of the move. Migration 0075's post-condition 7 and
+  pgTAP 79's probe 17 fail if a later session "fixes" this in the database.
+  *~~The two ProjectFilesTable columns a cloud row could not keep~~ — fixed by
+  0075 in the same bundle: `document_kind` and `description` were written by
+  the Kind select and the Description cell on every gesture, stripped by
+  `toColumns` because `files` had neither column, and persisted only on Local
+  Server, whose PATCH route spreads `req.body`.*
 
 *Fixed in Session 17 and listed here only so a reader of an older copy is not
 misled:* milestones dropped on project load, `addManagedFile` unguarded
@@ -4192,8 +4797,47 @@ global Space shortcut firing from every page.
   sites repo-wide, for O.T.T.E.R. as well as RABBIT. The copy claiming they
   "control which actions are honored at runtime" was corrected in S17; the
   state is still loaded, persisted, rendered and read by nothing.
-- D.O.G. cloud attachments: refused at the write layer, with the re-homing
-  plan and its seven traps catalogued in §6 #31. Re-owned post-1.0.
+- ~~D.O.G. cloud attachments: refused at the write layer~~ — **CLOSED, Track C
+  bundle C3 (`2a4924f`, migration 0075).** Attachments are ordinary project
+  files on every write-capable backend now: a row in `public.files` /
+  `bundle.files` and a body in `rabbit-files` / the project's files directory,
+  written through `adapter.uploadFile` by the Resources drop zone and by
+  D.O.G.'s new-project modal, and read back by D.O.G. through
+  `adapter.downloadFile`. The limits that remain, stated in both directions:
+  * D.O.G. reads at most **20** attachments per project and **32 MiB** in
+    total (`deckAttachments.js`), spending that budget **documents first, then
+    media, each newest-first**. `public.files` is every file RABBIT has stored
+    for that project, so selecting one must not start a gigabyte download —
+    and ordering by date alone spent it on renders, which is why the order is
+    by kind first. Anything that does not fit is skipped, never truncated, and
+    the panel says how many were left out.
+  * A stored row counts as a deck attachment when it has a `document_kind`
+    (0075) **or** is an image or video **filed against the project itself**.
+    The full rule, its residue and why the second arm needs that qualifier are
+    in §12.8b; the short version is that `document_kind` is the marker for
+    documents and media has none, so for media the marker is where it was
+    filed. ⚠️ This bullet read "or is an image or video" flat until review
+    round 2 — the very rule that let every plate and render in a project become
+    deck source material, corrected in the code by round 1 and left standing
+    here, in the section a reader goes to for the limits.
+  * The **legacy arrays are still read** on every backend, so no existing
+    project lost anything. Moving them is Audrey's own one-time action:
+    Settings → RABBIT → "Move deck attachments into project files", dry run
+    first, per-file ceiling **32 MiB** (Local Server's JSON body limit is
+    50 MB and the migration base64-encodes, so a larger ceiling would refuse
+    with a raw HTTP 413 instead of naming the file), oversized files named and
+    left in place.
+  * `is_core_definer` keeps its `NOT NULL DEFAULT false`. D.O.G.'s legacy
+    arrays default `isCore` TRUE and the two are deliberately NOT unified —
+    see §17's "Correctness" note and 0075's header. The migration carries
+    `isCore !== false` across explicitly, and the round-trip diff in
+    `polarityRoundTrip.test.js` is what proves no file changes side.
+  * Google Drive is read-only, so the drop zone is disabled there with a
+    sentence rather than a thrown stub.
+  * **Deleting means two different things** and the panel now says which:
+    in cloud mode it is 0014's soft delete (30-day window, still holding
+    quota); on Local Server it unlinks the body and certificates it as
+    `purged`, because there is no local trash.
 
 **Documentation drift inside the product**
 
@@ -4236,7 +4880,16 @@ documentation and starts being wrong answers.
   objects — `PROJECT.json` and `FINANCE/RATES.json`, built from the owned
   project ids rather than discovered — so what remains uncovered is only a blob
   no row points at *and* that the product does not write, i.e. a stranded
-  upload whose row never landed. Those are storage-gc's job.
+  upload whose row never landed. Those are storage-gc's job. **Since Track C /
+  C2 the certificate says this itself** — `WIL-7005` carries `thumbnails_note`,
+  a sentence stating that `blobs_*` and `thumbnails_*` are row-derived — and
+  the THIRD bucket, `user-avatars`, which teardown never touched before C2
+  (avatars are photographs of identifiable people, so "torn down" with them
+  resident was a personal-data statement), is LISTED by prefix rather than
+  derived: a stranded avatar IS removed and counted (`avatars_found` /
+  `_removed` / `_failed`, with `avatars_truncated: true` if the listing hit its
+  5000-object bound and stopped). Read that flag: truncated means objects
+  remain, stated, never assumed swept.
 
   🚨 **This entry used to end "the row-derived sweep covers every blob the
   product itself created", and that sentence had been false since S26 shipped
@@ -4313,6 +4966,7 @@ entry. `eventVocabulary.test.js` exempts exactly those three, by name.
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
 | `WIL-7009` | `workspace.invite_sent` — a setup link was emailed to a company's founding admin (S43b); the address is in `context.sent_to` | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
+| `WIL-7012` | Teardown certified abandoned upload(s) (Track C / C2, 0074): every `upload_abandoned` record the company had — the open reservations `sweep_open_uploads()` closed plus any the hourly sweep or a person's own failed upload had already certified — preserved 40 paths per row, straight after the sweep and before any blob is touched, because the CASCADE destroys `file_events` moments later. Certifies the abandonment, not a disposal: the partials expire at 24 h in Supabase Storage. ⚠️ 7009 was NOT free — it is `workspace.invite_sent`, written by `send_setup_link` in the same function (Track A), and this table does not list it. | `platform_audit` |
 
 ---
 

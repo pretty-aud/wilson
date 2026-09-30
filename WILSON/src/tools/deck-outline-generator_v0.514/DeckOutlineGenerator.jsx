@@ -1,7 +1,14 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, Chip, Badge, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
+import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
+import {
+  isDeckAttachmentRow, dogTypeForRow, documentKindFor,
+  orderAttachmentCandidates, NEW_ATTACHMENT_IS_CORE,
+  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES, DOG_ATTACHMENT_MAX_MIB,
+} from '../../tools/rabbit_v0.1.0/deckAttachments';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -19,6 +26,44 @@ import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
 import './dog.css';
 import HistoryModal from './modals/HistoryModal';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project attachments that live in the file store (Track C, bundle C3;
+// MASTER_PLAN §6 #31).
+//
+// 🚨 TRAP (c) OF §6 #31, AND IT IS THE ONE THAT MAKES THIS FEATURE WORTH
+// BUILDING. `legacyProjectFiles` below requires an inline `content` payload and
+// skips any entry without one, so routing attachments to storage WITHOUT a
+// download-and-rehydrate step would make them upload successfully and
+// contribute NOTHING to generation — silently, which is worse than the loud
+// throw the cloud path used to give. The rows say a file is there; only the
+// BODY can reach the model. The effect below exists to fetch that body.
+//
+// (§6 #31 said `adapter.downloadFile` had "zero call sites anywhere". That was
+// true when it was filed and is not now — S24's InvoiceAttachment and
+// FileManager's download both ride it. Re-measured before relying on it.)
+//
+// WHICH rows count, what each becomes, and the bound on how many are read all
+// live in `deckAttachments.js`, beside the three writers that have to satisfy
+// them — see that file's header for why the reader and the writers are one
+// module and what it cost to learn that.
+
+function blobToDogContent(blob, type) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('could not read the file'));
+    if (type === 'text') {
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.readAsText(blob);
+    } else {
+      reader.onload = () => {
+        const s = String(reader.result || '');
+        resolve(s.includes(',') ? s.split(',')[1] : s);
+      };
+      reader.readAsDataURL(blob);
+    }
+  });
+}
 
 export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
@@ -98,11 +143,27 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
   const updateUnifiedProject = rabbitCtx?.updateProject;
-  // Session 12: cloud projects carry no documents/visualAssets (locked #17 —
-  // D.O.G. gets no content model; cloud-readable file blobs are S14 work).
-  // The attachment affordances degrade visibly in cloud mode instead of
-  // silently losing files at the adapter.
-  const cloudProjects = rabbitCtx?.adapterMode === 'supabase';
+  // Session 12: cloud projects carried no documents/visualAssets, so the
+  // attachment affordances degraded visibly rather than losing files silently
+  // at the adapter. C3 gave them a real home (public.files + rabbit-files,
+  // migration 0075), so the degraded copy is gone — and with it the
+  // `cloudProjects` flag that gated it: nothing on this surface differs
+  // between cloud and Local Server any more, only between a backend that can
+  // store files and one that cannot (`canStoreFiles`, below).
+  const adapterMode = rabbitCtx?.adapterMode;
+  // 🚨 STABLE, AND THAT MATTERS. RabbitProvider's context VALUE is a useMemo
+  // over a long dependency list, so it takes a new identity whenever the
+  // bundle or the projects index changes — many times a session. `getAdapter`
+  // is its own `useCallback(..., [])` and never changes, so an effect that
+  // downloads file bodies can depend on THIS and not on the whole context.
+  // Depending on `rabbitCtx` would re-run that effect on every provider
+  // render and re-download every attachment each time.
+  const getAdapter = rabbitCtx?.getAdapter;
+  // 🚨 §6 #31 trap (f): the MODE, never `typeof adapter.uploadFile`. Google
+  // Drive's uploadFile is `readOnly('uploadFile')` — a function that throws —
+  // so a typeof check reads as "this backend can store files" for the one
+  // backend that cannot.
+  const canStoreFiles = adapterSupportsWrites(adapterMode);
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -134,11 +195,27 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     return projects.find(p => p.id === selectedProjectId) || null;
   }, [selectedProjectId, projects]);
 
-  // Convert project files to DOG-compatible format for injection into generation.
-  // Each file carries `isCore`: files marked core are the ones that define
-  // the project concept itself; the rest are reference / supporting context.
-  // Default is true so existing projects keep working — explicit opt-out only.
-  const projectFiles = useMemo(() => {
+  // ── The project's attachments, from BOTH stores (Track C, C3) ────────────
+  //
+  // 🚨 §6 #31 TRAP (b), THE POLARITY, LIVES IN THESE TWO READERS AND NOWHERE
+  // ELSE. The legacy arrays carry `isCore` and default it TRUE
+  // (`doc.isCore !== false`); `files.is_core_definer` is NOT NULL DEFAULT
+  // false. A 1:1 map would flip every previously-unmarked legacy file from
+  // CORE to REF and change generation output for every existing project —
+  // which is the one consequence §6 #31's disposition row calls out by name.
+  //
+  // So the two readers keep their OWN polarity, deliberately:
+  //   * a legacy-array row  -> isCore = f.isCore !== false   (default TRUE)
+  //   * a stored files row  -> isCore = is_core_definer === true (from data)
+  //
+  // Nothing is inferred across the boundary. The only place the two meet is
+  // runAttachmentMigration, which writes `isCore !== false` into
+  // is_core_definer when it MOVES a row — so a legacy file that was CORE is
+  // still CORE after the move, and the outline does not change. That is what
+  // the polarity diff in this bundle's commit message measures.
+  //
+  // Legacy half first: unchanged since S12 apart from this comment.
+  const legacyProjectFiles = useMemo(() => {
     if (!selectedProject) return [];
     const files = [];
     // Add project documents
@@ -155,6 +232,9 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           type: 'image',
           mediaType: doc.type,
           isCore,
+          source: 'legacy',
+          category: 'documents',
+          rowId: doc.id,
         });
       } else if (doc.type === 'application/pdf' || doc.name?.endsWith('.pdf')) {
         files.push({
@@ -164,6 +244,9 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           type: 'pdf',
           mediaType: 'application/pdf',
           isCore,
+          source: 'legacy',
+          category: 'documents',
+          rowId: doc.id,
         });
       } else {
         // Text-based files — decode base64 to text if needed
@@ -176,6 +259,9 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           type: 'text',
           mediaType: 'text/plain',
           isCore,
+          source: 'legacy',
+          category: 'documents',
+          rowId: doc.id,
         });
       }
     });
@@ -193,10 +279,159 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         type: isVideo ? 'video' : 'image',
         mediaType: asset.type || (isVideo ? 'video/mp4' : 'image/png'),
         isCore,
+        source: 'legacy',
+        category: 'visualAssets',
+        rowId: asset.id,
       });
     });
     return files;
   }, [selectedProject]);
+
+  // ── The stored half: rows in public.files / bundle.files, rehydrated ──────
+  //
+  // Asynchronous, so it cannot be a useMemo: the rows come from the adapter
+  // and each body is a separate download. See the module header for the bound
+  // and for why trap (c) makes the download mandatory rather than an
+  // optimisation.
+  const [storedProjectFiles, setStoredProjectFiles] = useState([]);
+  const [storedFilesBusy, setStoredFilesBusy] = useState(false);
+  const [storedFilesNote, setStoredFilesNote] = useState('');
+  // 🚨 SEPARATE FROM THE NOTE, and round 2 is why. Round 1 put the create
+  // modal's upload failure into `storedFilesNote` — the same state the fetch
+  // effect ends by overwriting with '' — so the message it promised was "NOT
+  // silent" could be erased by a listFiles round trip that landed after it.
+  // An error the effect never writes cannot be raced.
+  const [storedFilesError, setStoredFilesError] = useState('');
+
+  useEffect(() => {
+    // 🚨 A REQUEST TOKEN, NOT A BOOLEAN. Selecting project A then B while A's
+    // downloads are in flight must not let A's bodies land in B's panel; a
+    // plain `cancelled` flag closes over the right effect run but this state
+    // is also written from the reload path below, so the token is compared on
+    // every setState rather than only at the end.
+    let live = true;
+    const adapter = getAdapter?.();
+    if (!selectedProjectId || !adapter?.listFiles || !adapter?.downloadFile) {
+      setStoredProjectFiles([]);
+      setStoredFilesNote('');
+      // 🚨 R1: CLEARED HERE TOO. It used to be set only on the live path and
+      // cleared only at the end of it, so an aborted run (`if (!live) return`)
+      // followed by an early return left "Reading project attachments…" on
+      // screen for the rest of the session, hiding the real count.
+      setStoredFilesBusy(false);
+      return () => { live = false; };
+    }
+    setStoredFilesBusy(true);
+    setStoredFilesError('');
+    (async () => {
+      let rows;
+      try {
+        rows = await adapter.listFiles(selectedProjectId);
+      } catch (err) {
+        // A backend that cannot list is not an error here — the legacy arrays
+        // still render and still generate. Never silent, though: this is the
+        // layer that eats it (S30's rule).
+        console.warn('[DOG] project files not listed:', err?.message || err);
+        if (live) { setStoredProjectFiles([]); setStoredFilesNote(''); setStoredFilesBusy(false); }
+        return;
+      }
+      // 🚨 R1: ORDERED BY KIND FIRST, then date. A single date sort spends
+      // the budget on whatever is newest, which on a working project is media
+      // — so the brief the deck is about falls off the end and is reported
+      // only as "N more files are not included". See
+      // deckAttachments.orderAttachmentCandidates.
+      const candidates = orderAttachmentCandidates((rows || []).filter(isDeckAttachmentRow));
+
+      const out = [];
+      let bytes = 0;
+      let skippedTooBig = 0;
+      let failed = 0;
+      for (const row of candidates) {
+        if (out.length >= DOG_ATTACHMENT_MAX_FILES) break;
+        const size = row.size_bytes ?? 0;
+        // Skipped, never truncated: half a brief is worse than no brief,
+        // because nothing downstream can tell it is half.
+        if (bytes + size > DOG_ATTACHMENT_MAX_BYTES) { skippedTooBig++; continue; }
+        const type = dogTypeForRow(row);
+        try {
+          const blob = await adapter.downloadFile(row);
+          if (!live) return;
+          const content = await blobToDogContent(blob, type);
+          if (!live) return;
+          // 🚨 THE POLARITY, from DATA: strict === true against a NOT NULL
+          // boolean. Never `!== false`, which is the legacy default-TRUE idiom
+          // and would mark every stored file CORE.
+          const isCore = row.is_core_definer === true;
+          const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
+          out.push({
+            id: `file-${row.id}`,
+            file: { name: `${labelPrefix} ${row.name}`, size },
+            content,
+            type,
+            mediaType: row.mime_type
+              || (type === 'pdf' ? 'application/pdf'
+                : type === 'text' ? 'text/plain'
+                : type === 'video' ? 'video/mp4' : 'image/png'),
+            isCore,
+            source: 'stored',
+            rowId: row.id,
+          });
+          bytes += size;
+        } catch (err) {
+          // One unreadable body must not take the whole panel down — a
+          // relinked Local Server file whose disk path is gone answers 410,
+          // and `fetch` resolves for every status (the standing trap), which
+          // downloadFile turns into a throw. Counted, then reported.
+          console.warn('[DOG] attachment body not read:', row.name, err?.message || err);
+          failed++;
+        }
+      }
+      if (!live) return;
+      // 🚨 R1: `left` ALREADY INCLUDES the two counted causes, so listing all
+      // three side by side double-counted them. Only the remainder — files the
+      // COUNT cut off — is reported as its own number, and the size figure
+      // comes from the constant rather than a literal beside it.
+      const left = candidates.length - out.length - skippedTooBig - failed;
+      const parts = [];
+      if (left > 0) {
+        parts.push(`${left} more file${left === 1 ? '' : 's'} on this project ` +
+          `${left === 1 ? 'is' : 'are'} not included — D.O.G. reads ` +
+          `${DOG_ATTACHMENT_MAX_FILES} attachments at most, documents first, ` +
+          `up to ${DOG_ATTACHMENT_MAX_MIB} MiB in total`);
+      }
+      if (skippedTooBig > 0) {
+        // ⚠️ "did not fit" rather than "over the budget": this counts files
+        // that did not fit the REMAINING budget, so a 400 KB reference photo
+        // behind a 31 MiB document lands here too. Round 1 made this more
+        // specific and less true; round 2 made it true again.
+        parts.push(`${skippedTooBig} did not fit in the remaining space`);
+      }
+      if (failed > 0) parts.push(`${failed} could not be read`);
+      setStoredProjectFiles(out);
+      setStoredFilesNote(parts.join(' · '));
+      setStoredFilesBusy(false);
+    })();
+    return () => { live = false; };
+    // 🚨 `adapterMode`, not the adapter object: getAdapter returns
+    // adapterRef.current and keeps ONE identity across a backend switch, so
+    // without the mode in this list a switch from Local Server to Supabase
+    // would leave the previous backend's bodies on screen.
+    //
+    // ⚠️ NO RELOAD KEY. Round 1 added one and then removed both of its
+    // bumpers in the same commit (the Core toggle reconciles locally now, and
+    // the create modal selects the project, which re-runs this effect on its
+    // own) — leaving dead state with a comment naming two callers that no
+    // longer existed, and a source pin holding it in place. Round 2 removed
+    // it. If a future write needs to force a re-read, add the trigger and its
+    // caller together.
+  }, [selectedProjectId, getAdapter, adapterMode]);
+
+  // Both stores, one list. Legacy first so an existing project's ordering —
+  // and therefore its generation output — is untouched by the new source.
+  const projectFiles = useMemo(
+    () => [...legacyProjectFiles, ...storedProjectFiles],
+    [legacyProjectFiles, storedProjectFiles],
+  );
 
   // Combined files: uploaded + project (for use in generation)
   const allFiles = useMemo(() => {
@@ -250,15 +485,71 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     return parts.length > 0 ? parts.join('\n') : '';
   }, [selectedProject, projectFiles]);
 
-  // Flip a project file's CORE / REFERENCE flag and persist it
-  // through the unified project store. The flag lives directly on
-  // the file row in `documents[]` / `visualAssets[]` — the rest of
-  // the row is left untouched.
-  const toggleProjectFileCore = useCallback(async (category, fileId) => {
+  /**
+   * Flip a project file's CORE / REFERENCE flag and persist it.
+   *
+   * TWO STORES, TWO WRITES, and the entry says which it is. A legacy row's
+   * flag lives on the object inside `documents[]` / `visualAssets[]` on the
+   * project row; a stored row's lives in `files.is_core_definer`. Writing the
+   * wrong one is silent — the array write on a stored row would be refused by
+   * ATTACHMENTS_MSG in cloud mode and would invent an array entry on Local
+   * Server — so the branch is on `entry.source`, which
+   * legacyProjectFiles/storedProjectFiles both stamp at the point they are
+   * built rather than on anything inferred here.
+   *
+   * 🚨 The two polarities are preserved on the way OUT as well as in: a legacy
+   * flip reads `f.isCore !== false` (default TRUE) and a stored flip reads
+   * `is_core_definer === true`. See the note above legacyProjectFiles.
+   */
+  const toggleProjectFileCore = useCallback(async (entry) => {
+    if (!entry) return;
+
+    if (entry.source === 'stored') {
+      // 🚨 R1, §6 #31 trap (f) AGAIN, at the one gate this bundle missed.
+      // `if (!adapter?.updateFile)` is the typeof check the trap names:
+      // googleDriveAdapter sets `updateFile: readOnly('updateFile')`, a
+      // FUNCTION THAT THROWS, so on Drive the guard passed, the tag flipped
+      // optimistically, the write threw into a console line and the reload
+      // flipped it back — a silent revert. The mode is the gate here as
+      // everywhere else, and the button is disabled to match.
+      if (!canStoreFiles) return;
+      const adapter = getAdapter?.();
+      if (!adapter?.updateFile) return;
+      const next = !entry.isCore;
+      const relabel = (f, core) => ({
+        ...f, isCore: core,
+        file: { ...f.file,
+          name: `${core ? '[Project · CORE]' : '[Project · REF]'} ` +
+                `${f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')}` },
+      });
+      // Optimistic, and reconciled LOCALLY rather than by a reload.
+      setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, next) : f)));
+      try {
+        await adapter.updateFile(entry.rowId, {
+          is_core_definer: next,
+          project_id: selectedProjectId,
+        });
+      } catch (err) {
+        // 🚨 R1: DO NOT BUMP THE RELOAD KEY HERE. It is a dependency of the
+        // fetch effect, so every click re-ran the effect and re-DOWNLOADED
+        // every attachment body — up to 20 files and 32 MiB per toggle. Worse
+        // than the bandwidth: supabaseAdapter.downloadFile calls the
+        // log_file_downloaded RPC and Local Server's route appends a
+        // `downloaded` event, so each click wrote N audit rows for downloads
+        // nobody performed, into the very stream 0047 exists to keep honest.
+        // One flag changed; only that flag is reconciled.
+        console.error('[DOG] toggle core flag failed:', err);
+        setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, !next) : f)));
+        setStoredFilesError(`That file's role could not be saved: ${err?.message || err}`);
+      }
+      return;
+    }
+
     if (!selectedProject || !updateUnifiedProject) return;
+    const category = entry.category;
     const list = Array.isArray(selectedProject[category]) ? selectedProject[category] : [];
     const next = list.map(f => {
-      if (f.id !== fileId) return f;
+      if (f.id !== entry.rowId) return f;
       const current = f.isCore !== false; // default true
       return { ...f, isCore: !current };
     });
@@ -267,7 +558,7 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     } catch (err) {
       console.error('[DOG] toggle core flag failed:', err);
     }
-  }, [selectedProject, updateUnifiedProject]);
+  }, [selectedProject, selectedProjectId, updateUnifiedProject, getAdapter, canStoreFiles]);
 
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
@@ -291,6 +582,12 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           content: reader.result,
           type: file.type,
           size: file.size,
+          // C3: the ORIGINAL File, kept beside the data URL. A backend with a
+          // file store takes the File through adapter.uploadFile; only a
+          // backend without one falls back to the base64 array. Re-deriving a
+          // File from the data URL would work and would also silently change
+          // the bytes' name and type, which the storage path is built from.
+          raw: file,
         });
         reader.readAsDataURL(file);
       });
@@ -307,25 +604,92 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   // Handle creating a new project from the modal — writes through
   // the unified RabbitProvider so the same record shows up in the
   // Projects page and RABBIT itself, not just inside DOG.
+  /**
+   * Create a project from the modal, with whatever the two pickers hold.
+   *
+   * 🚨 CREATE FIRST, THEN UPLOAD, on every backend that has a file store.
+   * S15's finding was that createProject discarded droppedAttachments
+   * entirely, so this modal lost every file in cloud mode with no error at
+   * all; S15 made it refuse. C3 makes it WORK instead — but only by writing
+   * the files where they belong, which needs the project's id, which only
+   * exists after the create returns. Passing the arrays would still be
+   * refused by ATTACHMENTS_MSG in cloud mode, and that refusal stays: it is
+   * what catches a caller nobody migrated.
+   *
+   * A create that succeeds and an upload that fails is NOT silent: the
+   * project exists (correctly — it was created), and the failure is surfaced
+   * on the panel rather than swallowed into a console line, because the files
+   * are the reason the person opened this modal.
+   */
   const handleCreateProjectFromModal = useCallback(async () => {
     if (!newProjectTitle.trim() || !createUnifiedProject) return;
+    const pending = [...newProjectDocuments, ...newProjectAssets];
     try {
       const created = await createUnifiedProject({
         title:        newProjectTitle.trim(),
         description:  newProjectDescription.trim(),
         startDate:    newProjectStartDate,
         endDate:      newProjectEndDate,
-        documents:    newProjectDocuments,
-        visualAssets: newProjectAssets,
+        // Only when there is nowhere better. Drive has no store and no create
+        // either, so in practice this arm is the legacy path for a backend
+        // that grows one later — it is not dead, it is the honest fallback.
+        ...(canStoreFiles ? {} : {
+          documents:    newProjectDocuments,
+          visualAssets: newProjectAssets,
+        }),
         status:       'active',
       });
+      // 🚨 SELECTED IMMEDIATELY — round 2 reversed round 1 here, because
+      // round 1 traded a message race for two worse things. Selecting AFTER
+      // the uploads meant an upload rejection skipped the selection entirely:
+      // the project existed, the modal closed, the pickers were cleared, and
+      // D.O.G. still pointed at whatever was selected before — so the person
+      // could neither see the project they had just made nor retry the files.
+      // And the error itself became invisible, because the panel that renders
+      // it is inside `{selectedProject && …}`, which was exactly the case that
+      // had not been selected.
+      //
+      // The race round 1 was avoiding is closed properly instead: the failure
+      // goes to `storedFilesError`, which the fetch effect never writes.
       if (created?.id) setSelectedProjectId(created.id);
+
+      if (created?.id && canStoreFiles && pending.length > 0) {
+        const adapter = getAdapter?.();
+        if (adapter?.uploadFile) {
+          setStoredFilesBusy(true);
+          for (const f of pending) {
+            if (!f.raw) continue;
+            await adapter.uploadFile(created.id, {
+              // Total by construction — see deckAttachments.documentKindFor.
+              // `detectDocumentKind(name) || null` here would write NULL for a
+              // PDF whose name matches no heuristic, and the row would then
+              // not be a deck attachment at all: uploaded, listed, and absent
+              // from generation. Measured on `legacy.pdf` by this bundle's
+              // round-trip diff.
+              documentKind: documentKindFor(f.type, f.name, detectDocumentKind),
+              // 🚨 R1, §6 #31 trap (b): CORE, not false. This modal's legacy
+              // writer never set `isCore`, and D.O.G. reads a missing flag as
+              // CORE — so `false` here quietly demoted every file attached at
+              // project creation from "a primary source of truth" to
+              // "supporting reference material only". See
+              // deckAttachments.NEW_ATTACHMENT_IS_CORE.
+              isCoreDefiner: NEW_ATTACHMENT_IS_CORE,
+            }, f.raw);
+          }
+        }
+      }
+      // Only cleared once everything that needed them has succeeded: the
+      // pickers hold the only copy of what the person chose, so clearing them
+      // on failure would make the retry impossible.
+      resetNewProjectModal();
     } catch (err) {
       console.error('[DOG] createProject failed:', err);
+      setStoredFilesError(`Project attachments could not be saved: ${err?.message || err}`);
+      setShowNewProjectModal(false);
     } finally {
-      resetNewProjectModal();
+      setStoredFilesBusy(false);
     }
-  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal]);
+  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal, canStoreFiles, getAdapter]);
 
   // Editable System Prompts
   const [singlePageSystemPrompt, setSinglePageSystemPrompt] = useState(DEFAULT_SINGLE_PAGE_SYSTEM);
@@ -3837,60 +4201,69 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {selectedProject.description && (
                       <p className="dog-details-desc">{selectedProject.description}</p>
                     )}
-                    {cloudProjects ? (
-                      <p className="dog-details-note">
-                        Cloud project — the title and description above feed generation.
-                        File attachments on cloud projects arrive with the storage work;
-                        until then, upload files below to include them.
-                      </p>
-                    ) : (
+                    {/* C3: one count for one list. Before this, cloud
+                        projects were told their attachments "arrive with the
+                        storage work" and local ones were counted out of the
+                        two legacy arrays — two different sentences for what is
+                        now one store on both backends. */}
                     <p className="dog-details-note">
-                      {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
-                      {' · '}
-                      {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
+                      {storedFilesBusy
+                        ? 'Reading project attachments…'
+                        : `${projectFiles.length} attachment${projectFiles.length !== 1 ? 's' : ''}` +
+                          (projectFiles.filter(f => f.isCore).length > 0
+                            ? ` · ${projectFiles.filter(f => f.isCore).length} core`
+                            : '')}
                     </p>
+                    {storedFilesNote && (
+                      <p className="dog-details-note">{storedFilesNote}</p>
+                    )}
+                    {storedFilesError && (
+                      <p className="dog-details-note" data-tone="danger" role="alert">
+                        {storedFilesError}
+                      </p>
                     )}
 
                     {/* CORE / REFERENCE classifier — tells the AI which files
                         actually define the project concept vs. which are just
-                        supporting reference. Click a tag to flip it. */}
-                    {((selectedProject.documents || []).length + (selectedProject.visualAssets || []).length) > 0 && (
+                        supporting reference. Click a tag to flip it.
+                        C3: driven by projectFiles, so a stored row and a legacy
+                        row appear in the same list and each writes back to the
+                        store it came from. */}
+                    {projectFiles.length > 0 && (
                       <div className="dog-roles">
                         <p className="ui-field-label dog-roles-label">
                           File roles · click to toggle
                         </p>
                         <div className="space-y-0.5">
-                          {(selectedProject.documents || []).map(doc => {
-                            const isCore = doc.isCore !== false;
+                          {projectFiles.map(entry => {
+                            const isCore = entry.isCore;
+                            const bareName = entry.file.name
+                              .replace(/^\[Project · (CORE|REF)\]\s*/, '');
                             return (
-                              <div key={doc.id} className="flex items-center gap-1.5">
+                              <div key={entry.id} className="flex items-center gap-1.5">
                                 <Chip
                                   active={isCore}
                                   aria-pressed={undefined}
-                                  onClick={() => toggleProjectFileCore('documents', doc.id)}
+                                  onClick={() => toggleProjectFileCore(entry)}
+                                  // R1: a stored row's flag can only be written
+                                  // on a backend that supports writes. A legacy
+                                  // row's lives on the project record and
+                                  // follows updateProject's own rules.
+                                  disabled={entry.source === 'stored' && !canStoreFiles}
                                   className="dog-role-chip"
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
                                 >
                                   {isCore ? 'Core' : 'Ref'}
                                 </Chip>
-                                <span className="dog-role-name">{doc.name}</span>
-                              </div>
-                            );
-                          })}
-                          {(selectedProject.visualAssets || []).map(asset => {
-                            const isCore = asset.isCore !== false;
-                            return (
-                              <div key={asset.id} className="flex items-center gap-1.5">
-                                <Chip
-                                  active={isCore}
-                                  aria-pressed={undefined}
-                                  onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="dog-role-chip"
-                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
-                                >
-                                  {isCore ? 'Core' : 'Ref'}
-                                </Chip>
-                                <span className="dog-role-name">{asset.name}</span>
+                                <span className="dog-role-name">{bareName}</span>
+                                {entry.source === 'legacy' && (
+                                  <Badge
+                                    className="dog-role-source"
+                                    title="Stored on the project record. Settings → Migration moves these into the project's files."
+                                  >
+                                    legacy
+                                  </Badge>
+                                )}
                               </div>
                             );
                           })}
@@ -5098,14 +5471,15 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
             </div>
 
-            {/* Documents Upload — cloud projects have no attachment home
-                yet (locked #17 / S14 storage work), so the pickers degrade
-                to an explanation rather than losing files silently. */}
-            {cloudProjects ? (
+            {/* Documents Upload. C3: the pickers work on every backend with
+                a file store. Only a read-only backend (Drive) still degrades
+                to an explanation, and it degrades because it cannot store
+                anything at all — not because attachments have no home. */}
+            {!canStoreFiles ? (
               <p className="dog-np-note">
-                File attachments on cloud projects arrive with the storage
-                work. Create the project here, then upload files in the
-                generator panel to include them in generation.
+                This backend is read-only, so files cannot be attached here.
+                Switch to Supabase or Local Server in Settings to attach
+                project files.
               </p>
             ) : (<>
             <div>

@@ -349,15 +349,50 @@ one binds first.
 >    handler WILSON never calls. The arm summed a permanently empty set, and the
 >    three pgTAP probes asserting the closure passed only on rows the suite
 >    inserted itself.
-> 5. 🚨 **TPN-CONT-017 IS NOT ADDRESSED, for the same reason.** 0057 added an
->    `upload_abandoned` event term and a nightly sweep; 0058 removed both. TUS
->    partials are reaped by Supabase's own 24h expiry, which SQL can neither see
->    nor certify.
+> 5. ✅ **TPN-CONT-017 IS ADDRESSED BY 0073 (Track C, 2026-09-06)** — not by
+>    seeing the partial, which SQL still cannot, but by a WILSON-side
+>    reservation (`public.upload_reservations`) written before
+>    `tus.Upload.start()`: one that expires unreleased with no object landed
+>    is certified `upload_abandoned` by `sweep_abandoned_uploads()` (storage-gc
+>    per workspace on every cleanup; pg_cron hourly across all). The
+>    certificate claims the abandonment, not the disposal — Supabase's 24 h
+>    TUS expiry reaps the bytes. The same row is what closes note 4's
+>    concurrency hole: `workspace_petal_bytes()` adds active reservations, the
+>    policy weighs them, and the second of two over-quota uploads is refused at
+>    start (pgTAP suite 77; handbook §12.4, §17).
 > 6. ⚠️ **The write ceiling was raised a thousandfold and the READ side was not.**
 >    `downloadFile` buffered the whole object into a Blob, so the product could
 >    accept files it could never give back. Fixed in the same session with a
 >    signed-URL download (`Content-Disposition` via `createSignedUrl`'s
 >    `download` option, because `a.download` is ignored cross-origin).
+> 7. ✅ **0074 (Track C / C2, 2026-09-07) closes the two certification gaps
+>    note 5 left open, and gives the stream the money arm it never had.** A
+>    resumable upload that FAILS with a server-answered error is certified at
+>    once (`abandon_upload_reservation`, called from the client's failure path
+>    with the error as the reason); a tenant torn down with open reservations
+>    has them closed BEFORE the CASCADE (`sweep_open_uploads`) and the
+>    abandoned paths certified in `platform_audit` as `WIL-7012`, the one
+>    table the CASCADE cannot reach; a person's own stale rows are released
+>    when they next open Files, without a certificate (Audrey's ruling); and
+>    there is NO per-person reservation cap (her ruling — the 24 h expiry is
+>    the bound). Separately, `file_events.is_financial` + the
+>    `file_events_select` money arm make invoice history manager-only while
+>    deletion certificates stay visible to every project reader (pgTAP suite
+>    78; handbook §12.3, §17). Teardown also sweeps `user-avatars`, the third
+>    bucket, listed by prefix (§5).
+> 8. ✅ **0075 (Track C / C3, 2026-09-07) puts D.O.G.'s deck attachments in
+>    this store, on every backend that has one.** They used to be base64 data
+>    URLs on the project ROW — the shape §3.6 exists to argue against, and one
+>    the cloud never accepted at all. Now they are ordinary `public.files` /
+>    `bundle.files` rows with bodies in `rabbit-files` / the project's files
+>    directory, so they inherit everything this path already has: the quota
+>    meter, the reservation, the money gate, `file_events`, the 30-day trash
+>    and the teardown sweep. Nothing about the storage design changed to make
+>    that true — the point is that it did not have to. Two consequences worth
+>    stating: an attachment now COUNTS toward the Petal quota where a project-row
+>    blob never did, and D.O.G. bounds what it reads back (newest 20, 32 MiB)
+>    because `files` holds a project's entire production tree and selecting a
+>    project must not start a gigabyte download (handbook §17).
 >
 > ⚠️ **s3 workspaces are unchanged: still a 5 GB single presigned PUT.** S3
 > multipart was not implemented, so Petal's cap is now ten times the s3 one —
@@ -796,8 +831,10 @@ S42 is blocked on S41 in the master plan's sequence table.
 >    GRANT: it ORs into the permissive set and admits a write
 >    `rabbit_files_money_insert` was refusing. Suite 65's plain-member probe goes
 >    green-to-red. One keyword re-creates what 0038 shipped and 0039 closed.
-> 3. **The gate EXEMPTS money paths and the project manifest**, which this
->    section did not anticipate. `FINANCE/RATES.json` is a mirror rewritten on
+> 3. **The gate EXEMPTS money paths and the project manifest** — since 0078,
+>    only up to `rabbit_quota_exempt_max_bytes()` (25 MiB); above that a money
+>    file is weighed like ordinary media, and an unknown size keeps the
+>    exemption. Handbook §12.10. This section did not anticipate any of it. `FINANCE/RATES.json` is a mirror rewritten on
 >    every rates change, so blocking it turns a quota state into a silent
 >    settings-save failure in an unrelated subsystem; invoices are how a company
 >    pays Petal; and the manifest is WILSON's own bookkeeping. ⚠️ The manifest

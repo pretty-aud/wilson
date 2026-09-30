@@ -164,25 +164,44 @@ describe('ProjectFilesTable — the four callers', () => {
   })
   it('the rows that are not `files` rows carry `size_bytes` where they are made', () => {
     expect(read('../views/intake/IntakePrepare.jsx')).toMatch(/size_bytes: f\.size,/)
+    // The Projects page makes no rows of its own since Track C / C3: every
+    // upload is a store row (the local route records `size_bytes` from the
+    // body), and the two legacy arrays are READ with the one field mapped
+    // from the saved `size` — once, where the list is built.
     const projects = read('../../../components/Projects/ProjectsPage.jsx')
-    expect(projects).toMatch(/size_bytes:\s+file\.size,/)
-    // The cloud rows are spread, not mapped back to `size`.
+    expect(projects.match(/size_bytes: f\.size_bytes \?\? f\.size \?\? null,/g)).toHaveLength(2)
+    expect(projects).not.toMatch(/readAsDataURL/)
+    // The store rows are spread, not mapped back to `size`.
     expect(projects).not.toMatch(/size:\s+f\.size_bytes/)
   })
 })
 
-describe('ProjectsPage — an upload is written in both size spellings', () => {
-  it('a local upload writes `size_bytes` (ProjectFilesTable\'s one field) AND `size` (what D.O.G. reads from the same two arrays)', async () => {
-    // The premise, in D.O.G.'s own source (not edited here): it reads a
-    // project's documents and visual assets by `size`. With `size_bytes`
-    // alone, a file uploaded here reached it as 0 bytes (B4c review round one).
+describe('ProjectsPage — an upload goes to the file store (Track C / C3), never to the legacy arrays', () => {
+  it('a Local Server upload calls adapter.uploadFile per file — documents kinded, everything CORE — and leaves the project row alone', async () => {
+    // D.O.G. still reads a LEGACY row's size by `size` (B4c review round
+    // one): those arrays are read, never written, since C3. A STORED row's
+    // size is `size_bytes`, which the local route records from the body.
     const dog = read('../../deck-outline-generator_v0.514/DeckOutlineGenerator.jsx')
     expect(dog).toMatch(/size: doc\.size \|\| 0/)
     expect(dog).toMatch(/size: asset\.size \|\| 0/)
+    expect(dog).toMatch(/const size = row\.size_bytes \?\? 0;/)
 
+    const stored = []
+    const adapter = {
+      listFiles: vi.fn(async () => stored.slice()),
+      uploadFile: vi.fn(async (projectId, scope, file) => {
+        const row = {
+          id: `f${stored.length + 1}`, project_id: projectId, name: file.name, mime_type: file.type,
+          size_bytes: file.size, document_kind: scope.documentKind, is_core_definer: !!scope.isCoreDefiner,
+        }
+        stored.push(row)
+        return row
+      }),
+    }
     const updateProject = vi.fn(async () => {})
     rabbit.current = {
-      adapterMode: 'local',
+      adapterMode: 'local_server',
+      getAdapter: () => adapter,
       projectsIndex: { p1: { id: 'p1', title: 'Salt Hours', documents: [], visualAssets: [] } },
       updateProject,
       setActiveProject: vi.fn(),
@@ -193,11 +212,19 @@ describe('ProjectsPage — an upload is written in both size spellings', () => {
     const brief = new File(['hello'], 'brief.txt', { type: 'text/plain' })
     const board = new File(['12345678'], 'board.png', { type: 'image/png' })
     fireEvent.change(picker, { target: { files: [brief, board] } })
-    await waitFor(() => expect(updateProject).toHaveBeenCalledTimes(1))
-    const [id, patch] = updateProject.mock.calls[0]
-    expect(id).toBe('p1')
-    // A document to `documents`, a picture to `visualAssets` — each in both spellings.
-    expect(patch.documents.map((f) => [f.name, f.size, f.size_bytes])).toEqual([['brief.txt', 5, 5]])
-    expect(patch.visualAssets.map((f) => [f.name, f.size, f.size_bytes])).toEqual([['board.png', 8, 8]])
+    await waitFor(() => expect(adapter.uploadFile).toHaveBeenCalledTimes(2))
+    const calls = adapter.uploadFile.mock.calls
+    expect(calls.map(([id]) => id)).toEqual(['p1', 'p1'])
+    expect(calls.map(([, , f]) => f.name)).toEqual(['brief.txt', 'board.png'])
+    // A document carries its kind (the name heuristic; 'other' when none
+    // fits), media carries none; both are CORE, the legacy default (§6 #31 b).
+    expect(calls[0][1]).toEqual({ documentKind: 'brief', isCoreDefiner: true })
+    expect(calls[1][1]).toEqual({ documentKind: null, isCoreDefiner: true })
+    // Nothing is written to `documents` / `visualAssets` any more.
+    expect(updateProject).not.toHaveBeenCalled()
+    // The list is re-read from the store after the batch: once on opening the
+    // project, once after the uploads.
+    await waitFor(() => expect(adapter.listFiles.mock.calls.length).toBeGreaterThanOrEqual(2))
+    await waitFor(() => expect(screen.getByText('board.png')).toBeTruthy())
   })
 })

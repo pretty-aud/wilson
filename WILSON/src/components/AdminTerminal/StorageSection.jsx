@@ -718,7 +718,17 @@ export default function StorageSection({ isActive, workspaceId }) {
                     rabbit-files + rabbit-thumbnails), so saying "files" alone
                     would leave an admin unable to reconcile the number with
                     what the file manager shows. */}
-                <span style={{ color: INK_2 }}> — files and their previews.</span>
+                <span style={{ color: INK_2 }}> — files, their previews, and uploads in progress.</span>
+              </p>
+              {/* Track C / 0073: workspace_storage_usage() also adds the space
+                  RESERVED by resumable uploads in progress (above 50 MB), so
+                  this number can exceed what the file manager shows while a
+                  clip is uploading — or for up to 24 hours after a tab was
+                  closed mid-upload. Said here so an admin can reconcile the
+                  figure rather than suspect the meter. */}
+              <p className="text-dense mb-2" style={{ color: INK_2 }}>
+                Uploads in progress count as used until they finish — or, if one is
+                abandoned, until its 24-hour reservation expires.
               </p>
 
               {/* The bar renders ONLY on a known quota. quotaKnown is false for
@@ -787,20 +797,40 @@ export default function StorageSection({ isActive, workspaceId }) {
                     This company&rsquo;s Petal storage is not active yet, so new
                     files are not being accepted. Everything already stored still
                     opens and downloads, and invoices, other finance files and
-                    the project manifest still save. Contact Petal to activate it.
+                    the project manifest still save if they are under 25 MB.
+                    Contact Petal to activate it.
                   </span>
                 </div>
               )}
 
               {/* 🚨 WORDED TO BE TRUE, NOT TO BE ALARMING. 0055's restrictive
-                  policy is FOR INSERT on `rabbit-files` ONLY, and it exempts
-                  rabbit_quota_exempt_path — INVOICES/, FINANCE/ and
-                  projects/<id>/PROJECT.json. So reads, downloads and deletes
+                  policy is FOR INSERT on `rabbit-files` ONLY, and its
+                  exemption arm — rabbit_quota_exempt_object since 0078,
+                  rabbit_quota_exempt_path before it — covers INVOICES/,
+                  FINANCE/ and projects/<id>/PROJECT.json. So reads, downloads and deletes
                   are untouched, and the paperwork a company bills Petal with
                   keeps saving. Promising a total lockout would send an admin
                   hunting for a fault that is not there — and would be the
                   reason they never send the invoice that pays for the bigger
-                  plan. */}
+                  plan.
+                  🚨 "IF THEY ARE UNDER 25 MB" IS LOAD-BEARING AND IS NOT A
+                  HEDGE. Since 0078 the exemption is BOUNDED BY OBJECT SIZE at
+                  public.rabbit_quota_exempt_max_bytes() — 25 MiB — because a
+                  receipt landing under an INVOICES/ segment (bundle C4) was
+                  otherwise unrefusable at any size while its bytes still
+                  counted against the allowance. Over that bound a money file is
+                  weighed like ordinary media, so on a full or suspended company
+                  it IS refused. Saying it "still saves" without the bound would
+                  be the promise this banner exists not to make.
+                  ⚠️ THE FIGURE IS DUPLICATED, and 0078's own SQL comment used to
+                  claim this function was "a change to THIS function and nothing
+                  else", which was never true. The bound is written out here, in
+                  BOTH banners this comment sits between — the suspended one
+                  above and the at-ceiling one below — and as literals in suite
+                  77's probes 54, 55, 57, 60, 61, 64 and 66. Moving it means
+                  editing rabbit_quota_exempt_max_bytes() FIRST and then every
+                  one of those places — suite 77 probe 64 is what fails if only
+                  the function moves. */}
               {atCeiling && !suspended && (
                 <div className="flex items-start gap-1.5 p-2 rounded-control text-dense"
                      style={{ backgroundColor: SIGNAL_TINT, color: INK }}>
@@ -817,9 +847,9 @@ export default function StorageSection({ isActive, workspaceId }) {
                     This company has used all of its Petal storage, so new files
                     are not being accepted until the plan is raised. Everything
                     already stored still opens and downloads, and invoices, other
-                    finance files and the project manifest still save. Deleting
-                    files does not free space straight away — deleted files stay
-                    recoverable for 30 days.
+                    finance files and the project manifest still save if they
+                    are under 25 MB. Deleting files does not free space straight
+                    away — deleted files stay recoverable for 30 days.
                   </span>
                 </div>
               )}

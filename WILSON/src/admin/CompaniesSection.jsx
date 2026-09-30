@@ -383,7 +383,29 @@ export default function CompaniesSection({ isActive }) {
                 {tornDown.blobs_rejected > 0 && (
                   <> · <strong>{tornDown.blobs_rejected} refused</strong> (paths outside this company — see the Audit log)</>
                 )}.
-                A deletion certificate is in the Audit log and survives the company.
+                {/* Track C / C2: the third bucket and the uploads in flight. Both
+                    counts are what the function's own returned arrays said, never
+                    what was attempted. `reservation_sweep_failed` means the sweep
+                    did not ANSWER (a database without 0074, or a transport
+                    failure) — the number beside it would read 0 for the wrong
+                    reason, so the sentence names the failure instead. Absent
+                    fields (an older function still deployed) render nothing. */}
+                {typeof tornDown.avatars_found === 'number' && (
+                  <>
+                    {' '}{tornDown.avatars_removed} of {tornDown.avatars_found} avatar(s) removed
+                    {tornDown.avatars_failed > 0 && <> · <strong>{tornDown.avatars_failed} avatar(s) failed</strong></>}
+                    {tornDown.avatars_truncated && <> · <strong>the avatar listing stopped early — objects remain</strong></>}.
+                  </>
+                )}
+                {tornDown.reservation_sweep_failed === true ? (
+                  <> <strong>The open-upload sweep did not answer</strong> — any upload in flight went uncertified.</>
+                ) : typeof tornDown.reservations_abandoned === 'number' && (
+                  <>
+                    {' '}{tornDown.reservations_abandoned} upload(s) in flight certified abandoned
+                    {tornDown.reservations_completed > 0 && <>, {tornDown.reservations_completed} had already landed</>}.
+                  </>
+                )}
+                {' '}A deletion certificate is in the Audit log and survives the company.
               </p>
             </div>
             <button
@@ -752,6 +774,10 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
             <p className="text-dense mb-2 leading-relaxed" style={{ color: '#78716c' }}>
               <strong style={{ color: '#1c1917' }}>{formatBytes(usedBytes)}</strong> of{' '}
               <strong style={{ color: '#1c1917' }}>{formatBytes(quotaBytes)}</strong> used
+              {/* Track C / 0073: operator_storage_plan_summary() reads
+                  workspace_petal_bytes(), which now adds the space reserved by
+                  resumable uploads in progress. */}
+              {' (uploads in progress count)'}
               {usedPct !== null && <> · {usedPct}%</>}
               {' · '}
               {/* The resolved figure is already printed by formatBytes above,
