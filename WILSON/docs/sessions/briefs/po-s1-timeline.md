@@ -1,0 +1,71 @@
+# Brief — S1 · Timeline pass (post-overhaul, wave 1)
+
+**Model: Claude Opus 5.5.** State it on line one of the chat; stop if the picker shows anything else.
+Read first: `docs/design/POST_OVERHAUL_PLAN.md` (§0.1 rulings B1–B9, §4 mechanics), `docs/sessions/HANDOFF_PROTOCOL.md`, `docs/design/UI_OVERHAUL_PLAN.md` §3 (type, colour, spacing, motion) and §4 (the kit). Then the two Timeline lane hand-offs `docs/sessions/handoffs/ui-b3c-2026-09-24.md` and `ui-b3d-2026-09-25.md` (the sheet's rules and the open questions this bundle answers).
+
+Branch `po/s1-timeline` from `origin/feat/post-overhaul-edit-versioning`; dev server port **5272**; walkthrough **48** (`docs/walkthroughs/48_timeline_pass.md`); hand-off `docs/sessions/handoffs/po-s1-<date>.md`. One bundle. Two adversarial review rounds (`model: "opus"`), the second attacking the first's corrections. Do not wait for Audrey's report. Do not spawn chips (the controller does). Last command `git checkout --detach`.
+
+**Line numbers below are from the overhaul tip `bbf3bcd`; the track merge shifted `TimelineView.jsx` by about a hundred lines. Locate by the identifier named, never by the number alone.**
+
+## Files you own
+
+`src/tools/rabbit_v0.1.0/views/TimelineView.jsx` (7,156 lines; one file), `views/rabbitTimeline.css`, `views/timelineMinimap.js` (+ its two tests), `views/rabbitTimelineCss.test.js`, `src/tools/rabbit_v0.1.0/v2Motion.test.js` (add the sheet), `src/ui/tokens.js` + `src/index.css` `@theme` + `src/ui/tokens.test.js` (ONE new token and its pairs), a new `src/tools/rabbit_v0.1.0/dates.js` (+ test), `src/components/projects/ProjectListPanel.jsx` (P1-20), `src/tools/rabbit_v0.1.0/views/ProjectTasksView.jsx` (two parses, if time), `scripts/timeline-state-shots.mjs` baselines, `scripts/timeline-rows-probe.mjs` expectation, `src/tools/rabbit_v0.1.0/rabbitHelpContent.jsx` (the Timeline paragraph, only if the header idiom changes), `docs/OUTSTANDING.md` (P1-20, P1-32 rows), `docs/walkthroughs/47_ui_overhaul_final.md` (append dated answers under Q133 and Q134). Nothing else.
+
+## The five items
+
+### 1. Inks in the name column (B1c, B9)
+
+Today: gutter rows are `.rb-tl-row` with `data-shape` task | phase | subgroup; the name is `.rb-tl-row-label` in `--color-ink-2` (#b8b4b0, "gray") lifting to `--color-ink` on hover (rabbitTimeline.css ~505–531); phase and subgroup names are `--color-ink` at 600. Orange was removed under TL-02 (ui-b3c hand-off).
+
+Do:
+- Add ONE token: `--color-signal-ink: #fb923c` in `src/index.css` `@theme` and `SIGNAL_INK` in `tokens.js` THEME, documented as "the signal as small text on dark — headings and names only, never a fill". In `tokens.test.js` PAIRS assert it at ≥ 4.5:1 on `paper` (#1c1917), on the phase row's 7 % band (`color-mix` of the ink at 7 % over paper ≈ #2b2826 — compute it the way `contrast.js` does) and on the 11 % hover band. Measured beforehand: 7.73 / 6.47 / 5.71. Add a failing control (the plain signal #ea580c on the 7 % band is 4.11:1 and must FAIL the same assertion).
+- `.rb-tl-row[data-shape="phase"] > .rb-tl-row-label, .rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color: var(--color-signal-ink) }` at weight 600 (keep the weight).
+- Task names: `.rb-tl-row-label { color: var(--color-ink) }`; delete the now-dead hover lift rule (the `[data-hover="true"] > .rb-tl-row-label` one); hover is carried by the row fill.
+- Unchanged: the phase BAR's own label in the chart (`.rb-tl-bar-label`), the minimap's phase names (`.rb-tl-ov-name`), the collapse chevron, the "+ New task" row label, the PHASE / TASK header.
+- `scripts/timeline-rows-probe.mjs` keeps its 4.5:1 floor; the new token passes it. `rabbitTimelineCss.test.js`: the sheet must not gain a colour literal; the token is referenced by name.
+
+### 2. The week header — option B (B2, B8b)
+
+Today: `buildAxisTicks(span.start, totalDays, zoom)` (private, near the end of TimelineView.jsx, `axisFormat` branches day / week / month / quarter). At week zoom every month-1st is a major tick with a two-line label ("Dec 2026" above, "Dec 1" below) and a Monday is a tick only when `i - lastMajorOffset >= MIN_GAP` — a look-BACK only, so a Monday one day BEFORE a 1st is always drawn and its label prints under the 1st's line and band ("Nov 30" under "Dec 2026 / Dec 1"). The header renders one absolutely positioned div per tick with `rb-tl-axis-tick` / `-top` / `-label`, unclipped. The minimap already solves this with `minimapTicks` in `timelineMinimap.js` (a label prints only when it fits: `estimateWidth` 7 px per char at the Caption step, `LABEL_GAP` 12, `LABEL_PAD` 4; tests `timelineMinimap.test.js` 'no two labels overlap' at every zoom and 760/1024/1440, and its rendered twin `timelineMinimapRender.test.jsx`).
+
+Do:
+- Move `buildAxisTicks` into `timelineMinimap.js` (export it) and give it the measured rule: a tick's label is drawn only if `offset*dayPx + LABEL_PAD + width(label) + LABEL_GAP <= nextTick.offset*dayPx`; a month-1st's labels ALWAYS win (suppress the neighbour instead); the per-character width for the gantt is the Dense step (13 px → about 7.6 px per char; measure once in the browser and pin it as a constant with a comment). The tick LINE stays even when the label is suppressed.
+- Day zoom: the month label ("Dec 2026", wider than the 56 px column) is crossed by the next day's tick line — give `.rb-tl-axis-top` a paper background and 4 px side padding so it prints over the 6 % lines. With weekends hidden, a 1st that falls on Saturday/Sunday currently loses its month label and bold line: move both to the first VISIBLE day of that month.
+- Tests: an arithmetic test on the pattern of `timelineMinimap.test.js:62–98` across all four zooms and three widths, with the Nov 30 → Dec 1 2026 boundary (a Monday and a Tuesday: the fixtures' project spans Aug–Dec 2026, so `VITE_DEV_FIXTURES=1` reproduces it) and a Tuesday-1st and Wednesday-1st month; the render twin if the DOM changes (it should not); the `lineHeight: 1` inline leading on the tick label is the ONE allowed inline leading pinned by `typeScale.test.js` (`T2_LEADING_RESIDUE = 1`) — keep it where it is.
+- The function's header comment claims "the first tick always gets a full Mon YYYY label"; the code never did that. Delete the claim; do not implement it.
+- Walkthrough 48 shows week zoom at the Nov/Dec boundary before and after, plus Day zoom's month label, and describes option C (a two-tier header: a month band on top, one cell per unit below) in one paragraph as "its own later session if you want a week to read as a cell". Append "Q133: option B chosen 2026-09-29" under 47's Q133.
+
+### 3. Dates are read one day early — the cause is proven (B3, B4, B5, B8a)
+
+Facts: `tasks.start_date` / `end_date` (and phases, assets, scenes, shots, milestones) are DATE columns; PostgREST returns `'YYYY-MM-DD'`; the Local Server spreads the string verbatim; the client writes `toIsoDate()` (local y-m-d). But `parseDate(value)` in TimelineView.jsx is `new Date(value)` then `startOfDay` — a date-only ISO string parses as UTC midnight, so west of UTC (this workstation is Eastern: `new Date('2026-12-01').getDate()` is 30) every bar draws a day EARLY; a bar dropped on Dec 3 stores Dec 3 and is redrawn on Dec 2. Also on the same parse: `toDateInputValue()` seeds the phase / asset / key-date editor's draft (so those editors open a day early and Save writes the day-early value back — real stored drift), `onMovePhaseAndChildren` shifts children through it, the containment check, and the group-by rows for assets/scenes/levels/experiences/team. The minimap bar drag (P1-11) writes the drawn date back and stays open. The Projects page has the identical bug (P1-20, `ProjectListPanel.jsx` `formatDate` = `new Date(iso)`), and `ProjectTasksView.jsx` has two project-date parses; `ProjectTasksView.showDate` already does it right (regex → `new Date(y, m-1, d)`).
+
+Do:
+- Create `src/tools/rabbit_v0.1.0/dates.js`: `parseIsoDate(s)` (regex `^(\d{4})-(\d{2})-(\d{2})$` → `new Date(+y, +m-1, +d)`; anything else falls back to `new Date(s)`), `toIsoDate(d)` (local y-m-d), `showDate(s)` (the existing pattern). Test: `parseIsoDate('2026-12-01').getDate() === 1` and `toIsoDate(parseIsoDate('2026-12-01')) === '2026-12-01'` hold whatever the machine zone is; and a control that the old `new Date('2026-12-01').getDate()` is NOT 1 when `new Date().getTimezoneOffset() > 0` (skip with a message otherwise).
+- Route every `parseDate` and `toDateInputValue` in TimelineView.jsx through it (28 and 7 sites at the tip); `ProjectListPanel.jsx:48`; `ProjectTasksView.jsx`'s two if time. Audrey's words: *"i just need it to land where i place it … if im in east coast that is fine. because the project will be run from the timezone the timeline is made in."* So: local dates, no zone maths.
+- Creation: the "+ New task" click (`Math.round(clickX / dayPx)`) and drag-to-draw (`Math.round(startDays/endDays)`) snap to the nearest column EDGE; change to `Math.floor` so a click lands on the day cell under the pointer (B8a: fix now).
+- After the fix every bar, key date, holiday line and editor date draws one day LATER on this machine (matching the stored value). Verify against stored values on two tasks and one key date (read the row, compare the pixel column); re-baseline `scripts/timeline-state-shots.mjs` (34 states, 1440x900 and 1280x700) and say in the hand-off that every state moved by one day-column for this reason. No audit of already-drifted data (B4): the hand-off names the save paths that drifted and the date range they could have touched.
+- OUTSTANDING: close P1-20; add the sibling note under the Timeline; P1-11 stays open with the sentence "after S1 the minimap drag is a true no-op".
+
+### 4. Borders (B6)
+
+Today `.rb-tl-chart-row { border-bottom: 1px solid var(--color-rule) }` on EVERY chart row; phase/subgroup rows add the 7 % band; `.rb-tl-chart-dz` (the "+ New task" chart row) has the same rule; the gutter rows `.rb-tl-row` / `.rb-tl-dz` keep theirs. The JSX writes `data-shape="task"` on the chart row (the `r.kind === 'asset'` branch is dead — row kinds are phase, task, drop-zone).
+
+Do: `.rb-tl-chart-row[data-shape="task"], .rb-tl-chart-dz { border-bottom: none }` (or `-color: transparent`, whichever `rabbitTimelineCss.test.js`'s "declared and written / reachable data-*" rules accept). The gutter keeps every rule; phase and group rows keep theirs; column lines (`.rb-tl-grid*`) untouched; the hover band, the dashed drop outline and the row fills untouched. Applies in every grouping. `scripts/timeline-rows-probe.mjs`'s "rule must match on both halves" check gets a NEW expectation for task rows (rule on the gutter half only), not a silenced one. Append "Q134: no rule under task rows in the gantt half, kept under phase rows (2026-09-29)" under 47's Q134.
+
+### 5. The minimap window animates on zoom change (B7)
+
+Today the window is two divs sized inline (`frameLeft = daysBetween(span.start, visibleStartDate) * dayPx`, `frameWidth = …`): `.rb-tl-ov-frame` (the dragged tint) and `.rb-tl-ov-frame-edge` (the 2 px outline — the Timeline's ONE allowed 2 px border, pinned in `typeScale.test.js` JUDGED_BORDERS). On a zoom-tab change DAY_PX changes; the first render computes the frame with the NEW scale and the OLD `detailScrollLeft` (a wrong box), then the compensation effect writes `el.scrollLeft` and a second render corrects it. No transition anywhere on the frame (the sheet's only transitions: the scroll thumb, and its `[data-dragging="true"] { transition: none }` twin).
+
+Do:
+- Add `data-animate="true"` on both frame layers for one `--duration-response` after a zoom-tab change (the four Tabs and the same change made by arrow keys on that tab list); under it `transition: left var(--duration-response) var(--ease-response), width var(--duration-response) var(--ease-response)`; a class-scoped `prefers-reduced-motion` twin with `transition: none`. Scroll-follow, frame drag, Fit, the minimap's own Today, the zoom slider, Ctrl+wheel and click-to-jump stay instant.
+- Move the scroll compensation to `useLayoutEffect` (add the import; TimelineView imports only useEffect/useMemo/useRef/useState/useCallback/forwardRef) and set `detailScrollLeft` in the same effect so the wrong first box is never painted.
+- Consolidate the sheet's TWO `prefers-reduced-motion` blocks into ONE, cover the uncovered `.rb-tl-mm-thumb`, and add `rabbitTimeline.css` to `v2Motion.test.js`'s SHEETS. Note `.rb-tl-row` and `.rb-tl-dz` wear Tailwind `transition-colors`: a sheet `transition` on THEM fails the utility-conflict rule; the frame divs wear only cursor utilities and are fine.
+- Proof: a jsdom test (mount `OverviewPane` the way `timelineMinimapRender.test.jsx` does) that `data-animate` appears after a zoom change and is gone after the duration; a hand check on port 5272 described frame by frame in the hand-off. The pixel harness injects `transition: none !important` and cannot see this.
+
+## Tests that pin this file (update in the same commit; prove each loosening with a planted fault)
+
+`rabbitTimelineCss.test.js` (every `rb-tl-` class declared AND written; every `data-x="v"` producible by the JSX; a Tailwind transition/colour utility on an element a sheet rule also styles fails; no colour literal; exactly five `--rb-tl-ms` setters; SPAN_THUMB_W), `typeScale.test.js` (the hex scan of the sheet with no exemption; the ONE 2 px border; `T2_LEADING_RESIDUE = 1`), `writeGate.test.js` (`renderSites` + `openingTagAttributes`: every task-creating surface keeps its `canWrite` attribute), `tokens.test.js` (PAIRS), `v2Motion.test.js`, `timelineMinimap*.test.*`. Run `npx vitest run` at the start (state the count) and at the end.
+
+## Verification and hand-off
+
+Dev server on 5272 with fixtures (`VITE_DEV_FIXTURES=1`), screenshots at 1440x900 and 1280x700 into `docs/sessions/handoffs/img/po-s1-*`; `scripts/timeline-state-shots.mjs` re-baselined; `scripts/timeline-rows-probe.mjs` at every zoom; walkthrough 48 (the four visible changes, the date shift explained in plain words, option C described); the hand-off in protocol §4 order with the vitest counts, the CI URL, and "Waiting on Audrey": her look at the week header and the confirmation that bars now land where she drops them. Copy walkthrough 48 to `C:\Users\Audrey\Desktop\WILSON walkthroughs\Post-overhaul\`.
