@@ -1933,3 +1933,45 @@ walkthrough 49 §5, not here.
   this wave, and S2a's brief allowed it one title string (the drawer
   footer's Help). Owner: the next session that edits `TimelineView.jsx`
   (S3c or S5).
+
+## Post-overhaul S2b (`po/s2b-otter-functions-lesson`) — left open (2026-09-30)
+
+What S2b's review rounds found and did not fix, because the file is another
+session's or the decision is Audrey's. Her questions are in walkthrough 50
+§3, not here.
+
+- **S2b-01 · The pet reads a nameless function category as no group.**
+  `petKnowledge.js` (`flattenDoc`) labels a function category
+  `cat.category || cat.name || ''`, so her Python library's 46 functions
+  reach the pet with an empty group where O.T.T.E.R.'s views now say
+  "General" (and a category whose name is not a string is read raw).
+  INFERRED from the code by S2b's review round 1 (A-L6). Owner: the next
+  session that edits `petKnowledge.js`: read it through
+  `functionCategoryName` (`adapters/otterRoutes.js`).
+- **S2b-02 · The hotkeys merge has the same keying weaknesses the functions
+  merge had fixed in S2b.** `mergeHotkeys` (otterRoutes.js) and its Local
+  Server twin key a category on `normKey`, so names with no Latin letters
+  ("文字列", "数学") all key to '' and merge into one, and a category value
+  that is not a string throws on every later merge. Its keying on
+  `category || name` was already right. INFERRED from S2b's review of the
+  functions merge (A-L2, A-L3). Owner: whoever next edits the hotkeys merge.
+- **S2b-03 · The outline page's "[outline]" is clipped, or lost, when the
+  subject title nearly fills the column.** The subject (`.otter-crumb-current`,
+  capped at the line) and the note do not share the line: a subject within
+  about 50px of the column pushes "[outline]" out of sight. MEASURED by S2b's
+  review round 2 (B-L1) on stress titles; her real subjects (296px at most)
+  only meet it below a 345px column, and the outline page's column is 595px
+  or more at every window measured. A fix (measured by the reviewer):
+  `.otter-crumb-current:has(+ .otter-crumb-note) { max-width: calc(100% -
+  4px - 3.84em) }`. Owner: the next session on O.T.T.E.R.'s reading pages.
+- **S2b-04 · The breadcrumb's accessible names are not the convention.**
+  "Where this lesson sits" / "Where this subject sits" (A3's) where
+  "Breadcrumb" is what screen-reader users expect, and the run's zero-width
+  space shows as its own text node in the accessibility tree. From S2b's
+  review round 2 (B-L4). Owner: the next accessibility pass.
+- **S2b-05 · A function entry that is not an object breaks the Search
+  dialog's function search** (`fnSearchText` reads `f.name`), and the
+  Functions view's card. Pre-existing (the old search read `f.name` the same
+  way); the merge no longer writes such entries since S2b, but an imported
+  library can carry one. INFERRED. Owner: the next session in the Search
+  dialog.

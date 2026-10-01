@@ -34,7 +34,9 @@ const JSX_FILES = ['./Otter.jsx', './components/CourseBadges.jsx', './components
   './components/CourseRowMenu.jsx', './components/SidebarCollapse.jsx',
   // A4's surfaces
   './Validator.jsx', './components/RequestsView.jsx', './components/ChangeRequestDialog.jsx',
-  './components/ShareCourseDialog.jsx', './components/TrashPanel.jsx']
+  './components/ShareCourseDialog.jsx', './components/TrashPanel.jsx',
+  // S2b: the one function card, both hosts' (its classes left Otter.jsx)
+  './FunctionCard.jsx']
   .map((f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8'))
 
 /** A colour written as a value rather than read from a token: hex (also
@@ -263,7 +265,7 @@ const OTTER_DIR = new URL('./', import.meta.url)
 const JSX_NAMES = ['Otter.jsx', 'components/CourseBadges.jsx', 'components/CourseFilterChips.jsx',
   'components/CourseRowMenu.jsx', 'components/SidebarCollapse.jsx', 'Validator.jsx',
   'components/RequestsView.jsx', 'components/ChangeRequestDialog.jsx', 'components/ShareCourseDialog.jsx',
-  'components/TrashPanel.jsx']
+  'components/TrashPanel.jsx', 'FunctionCard.jsx']
 const traverse = traverseModule.default ?? traverseModule
 const PARSE = (src) => parse(src, { sourceType: 'module', plugins: ['jsx'] })
 /** The kit element each kit component renders its className onto. */

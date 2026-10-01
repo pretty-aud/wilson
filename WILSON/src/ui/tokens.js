@@ -106,7 +106,8 @@ export const THEME = Object.freeze({
   'measure-reading': '66ch',
   'measure-prose-max': '72ch',
   // A3-KR-1: 60-66 CHARACTERS of Geist at the Body step (see @theme).
-  'measure-body': '45ch',
+  // S2b-KR-1 (2026-09-30, Audrey's C4): the 66ch ceiling — mirrors @theme.
+  'measure-body': '66ch',
   // density
   'control-sm': '28px',
   'control-md': '36px',

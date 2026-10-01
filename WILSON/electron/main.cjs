@@ -921,19 +921,71 @@ function startLocalServer(distPath) {
       res.json(data);
     });
 
+    // Post-overhaul S2b (C10): the function library's merge — the SAME rules,
+    // line for line, as otterRoutes.js's mergeFunctions (the cloud and the
+    // dev fixtures); functionsMerge.test.js replays both and demands the same
+    // document for every case. The `name` keying this replaces matched every
+    // incoming category (the client posts `category`) to the first nameless
+    // one and collapsed a generated library into one category with no name.
+    //  - A category's name is its `category`, else its `name`, else
+    //    "General" — a non-empty string, trimmed, invisible characters
+    //    dropped; anything else is no name.
+    //  - Categories match on that name with case and punctuation aside —
+    //    letters of any script, digits, '#' and '+' kept ("C" is not "C++").
+    //  - A function is not added again where it already is: under the same
+    //    heading by its exact name, or anywhere in a NAMELESS category (the
+    //    collapsed library the old keying wrote — hers holds 46). Functions
+    //    that differ in case or sit under different headings are different
+    //    (`map` and `Map`, `split` in "String methods" and in "os.path");
+    //    a function with no name is never taken for another.
+    //  - Stored categories are kept exactly as stored: only a category a
+    //    function is added to is rewritten (a copy, with the new functions
+    //    after its own). A new category is written `{ category, functions }`
+    //    when it brings a function or was sent with none, never when every
+    //    function it brought was already there (an empty heading). Entries
+    //    that are not categories (null, a string, `functions` not a list)
+    //    are carried over untouched and never matched. A stored document
+    //    that is not a library (an array, `categories` not a list) is left
+    //    exactly as it is.
+    function mergeFunctionsDoc(stored, incoming) {
+      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
+      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
+      const named = (c) => !!(clean(c.category) || clean(c.name));
+      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
+      const fnKey = (f) => clean(f && f.name);
+      const isCat = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions));
+      const doc = stored == null ? {} : stored;
+      if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return stored;
+      const out = { ...doc, categories: [...(doc.categories || [])] };
+      const unfiled = new Set();
+      for (const c of out.categories) if (isCat(c) && !named(c)) for (const f of (c.functions || [])) if (fnKey(f)) unfiled.add(fnKey(f));
+      for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+        if (!isObj(inCat)) continue;
+        const name = catName(inCat);
+        const i = out.categories.findIndex(c => isCat(c) && catKey(catName(c)) === catKey(name));
+        const into = i < 0 ? null : out.categories[i];
+        const have = new Set((into ? into.functions || [] : []).map(fnKey).filter(Boolean));
+        const add = [];
+        for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
+          if (!isObj(fn)) continue;
+          const k = fnKey(fn);
+          if (k && (have.has(k) || unfiled.has(k))) continue;
+          if (k) { have.add(k); if (into && !named(into)) unfiled.add(k); }
+          add.push(fn);
+        }
+        const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length);
+        if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }); }
+        else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] };
+      }
+      return out;
+    }
+
     expressApp.post('/api/software/:slug/functions/merge', (req, res) => {
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_functions.json');
-      const existing = readJSON(filePath, { categories: [] });
-      const incoming = req.body.categories || [];
-      for (const inCat of incoming) {
-        let existCat = existing.categories.find(c => c.name === inCat.name);
-        if (!existCat) { existCat = { name: inCat.name, functions: [] }; existing.categories.push(existCat); }
-        for (const fn of (inCat.functions || [])) {
-          if (!existCat.functions.some(f => f.name === fn.name)) existCat.functions.push(fn);
-        }
-      }
-      writeJSON(filePath, existing);
-      res.json(existing);
+      const merged = mergeFunctionsDoc(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
+      writeJSON(filePath, merged);
+      res.json(merged);
     });
 
     // ── Nodes endpoints ──

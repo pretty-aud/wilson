@@ -27,7 +27,7 @@ import {
   EXPENSES, PROJECT_RATE_OVERRIDES,
 } from './data/money'
 import { NOTES, NOTE_SUBJECTS } from './data/notes'
-import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS } from './data/otter'
+import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS, CODING_COURSE, CODING_SUBJECTS } from './data/otter'
 
 export function clone(v) {
   if (v === undefined) return undefined
@@ -132,8 +132,9 @@ export function createStore() {
     notes: clone(NOTES),
     noteSubjects: clone(NOTE_SUBJECTS),
 
-    courses: [clone(COURSE)],
-    subjects: clone(SUBJECTS),
+    // S2b: the C# course (a coding language) after the software one.
+    courses: [clone(COURSE), clone(CODING_COURSE)],
+    subjects: [...clone(SUBJECTS), ...clone(CODING_SUBJECTS)],
     progress,
     quizAttempts: clone(QUIZ_ATTEMPTS),
   }

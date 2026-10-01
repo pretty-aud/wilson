@@ -8,18 +8,39 @@ import { describe, it, expect } from 'vitest'
 import { parseOtterRoute } from '../../tools/otter_v0.3.1/adapters/otterRoutes'
 import { buildDevFixtures } from './install'
 import { onDevWriteRefused } from '../devFixtures'
-import { COURSE_ID } from './data/otter'
+import { COURSE_ID, CODING_COURSE_ID } from './data/otter'
 
 const call = (fx, path, method = 'GET', body) => fx.otter.handle(parseOtterRoute(path, method), body)
 
 describe('reads', () => {
-  it('course.list is one course on the Express wire, with subject_count and the cloud flags', () => {
+  it('course.list is two courses on the Express wire, with subject_count and the cloud flags', () => {
     const fx = buildDevFixtures()
     const { status, body } = call(fx, '/api/software')
     expect(status).toBe(200)
-    expect(body.length).toBe(1)
+    expect(body.length).toBe(2)
     expect(body[0]).toMatchObject({ slug: COURSE_ID, name: 'DaVinci Resolve 19', type: 'software', subject_count: 4, visibility: 'company_standard', can_read_content: true })
     expect(typeof body[0].owner_label).toBe('string')
+    // S2b: the coding-language course, so the Functions reference renders.
+    expect(body[1]).toMatchObject({ slug: CODING_COURSE_ID, name: 'C#', type: 'coding_language', subject_count: 2, can_read_content: true })
+  })
+
+  it('S2b: the C# course serves a function library with parameters and returns, a generated subject and a stub', () => {
+    const fx = buildDevFixtures()
+    const fns = call(fx, `/api/software/${CODING_COURSE_ID}/functions`).body.categories
+    expect(fns.map((c) => c.category)).toEqual(['Strings', 'Collections', 'Math'])
+    for (const c of fns) {
+      for (const f of c.functions) {
+        for (const k of ['name', 'syntax', 'parameters', 'returns', 'description', 'example']) expect(f[k], `${f.name}.${k}`).toEqual(expect.any(String))
+        expect(f.parameters.length && f.returns.length, f.name).toBeTruthy()
+      }
+    }
+    const subjects = call(fx, `/api/software/${CODING_COURSE_ID}/subjects`).body
+    expect(subjects.map((s) => [s.slug, s.is_stub])).toEqual([['types-and-variables', false], ['classes-structs-and-records', true]])
+    const full = call(fx, `/api/software/${CODING_COURSE_ID}/subjects/types-and-variables`).body
+    expect(full.sections[0].lessons[0].content).toMatch(/```csharp\n/)
+    const stub = call(fx, `/api/software/${CODING_COURSE_ID}/subjects/classes-structs-and-records`).body
+    expect(stub.sections).toEqual([])
+    expect(stub.section_outlines.map((o) => o.lesson_count)).toEqual([3, 2])
   })
 
   it('subject.list is ordered and thin; subject.get carries sections and lessons; unknown is 404', () => {
@@ -68,8 +89,9 @@ describe('reads', () => {
     const fx = buildDevFixtures()
     const { body } = call(fx, '/api/export-all')
     expect(body.version).toBe('2.0')
-    expect(body.software.length).toBe(1)
+    expect(body.software.length).toBe(2)
     expect(body.software[0].subjects.length).toBe(4)
+    expect(body.software[1].subjects.length).toBe(2)
     expect(body.quiz_history.length).toBe(2)
   })
 
@@ -87,7 +109,7 @@ describe('writes', () => {
     const fx = buildDevFixtures()
     const created = call(fx, '/api/software', 'POST', { name: 'Nuke 15', type: 'node_software', skill_level: 'advanced' }).body
     expect(created.name).toBe('Nuke 15')
-    expect(call(fx, '/api/software').body.length).toBe(2)
+    expect(call(fx, '/api/software').body.length).toBe(3)
     expect(call(fx, `/api/software/${created.slug}`, 'PATCH', { name: 'Nuke 16' }).body.name).toBe('Nuke 16')
     const sub = call(fx, `/api/software/${created.slug}/subjects`, 'POST', { title: 'Roto basics', sections: [{ id: 's1', title: 'Roto', lessons: [{ id: 'l1', title: 'Shapes', content: 'Draw a shape.' }] }] }).body
     expect(sub.slug).toBe('roto-basics')
@@ -96,7 +118,7 @@ describe('writes', () => {
     expect(call(fx, `/api/software/${created.slug}/subjects/roto-basics`, 'DELETE').status).toBe(200)
     expect(call(fx, `/api/software/${created.slug}/subjects`).body.length).toBe(0)
     expect(call(fx, `/api/software/${created.slug}`, 'DELETE').status).toBe(200)
-    expect(call(fx, '/api/software').body.length).toBe(1)
+    expect(call(fx, '/api/software').body.length).toBe(2)
   })
 
   it('doc.merge merges the way the Express server did; doc.put replaces', () => {

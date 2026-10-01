@@ -23,7 +23,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
-  CR_DOC_MERGE, mergeReferenceUrls, flattenNodesForMerge, COURSE_DOCS,
+  CR_DOC_MERGE, mergeReferenceUrls, flattenNodesForMerge, COURSE_DOCS, functionCategoryName,
 } from './otterRoutes.js'
 
 // ── the merge rules ─────────────────────────────────────────────────────────
@@ -187,7 +187,9 @@ describe('CR_DOC_MERGE — stored document in, stored document out', () => {
       functions: [
         { categories: [{ name: 'Keep', functions: [{ name: 'keep' }] }] },
         { categories: [{ name: 'Other', functions: [{ name: 'other' }] }] },
-        out => out.categories.map(c => c.name),
+        // S2b (C10): read as every view reads it — a category the merge
+        // creates is written with `category`, a stored one keeps its key.
+        out => out.categories.map(functionCategoryName),
         ['Keep', 'Other'],
       ],
       nodes: [

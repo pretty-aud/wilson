@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Editor from '@monaco-editor/react';
 /* Monaco takes its size as a NUMBER, and `TYPE.body` IS a number: `tokens.js`
    builds TYPE with `Number(THEME['text-body'].replace('px',''))`, so this is
@@ -67,50 +66,15 @@ import {
 import { localFetch } from '../../lib/localServerFetch.js';
 
 // ═══════════════════════════════════════════════════════════════════
-//  THE LESSON'S CODE BLOCK (A3). react-markdown wraps every fence in its own
-//  <pre>, even when the `code` renderer returns the highlighter (PreTag="div"
-//  names only the highlighter's inner wrapper), so `.lesson-content pre` in
-//  index.css draws the ONE code well for tagged and untagged fences alike.
-//  oneDark's block style is inline and would draw a second well inside it —
-//  a cool hsl(220) ground, its own padding, margin and radius, Fira Code —
-//  so this object takes all of that away and keeps only the app's mono. The
-//  syntax colours on the tokens inside are data and stay the theme's, but
-//  for the comments (LESSON_CODE_THEME, below).
-//  (A3 review round 1 measured the first version: two nested wells.)
-//  The box is as wide as its code, so a scrolled line ends 16px inside the
-//  well as an untagged fence's does (it ended on the edge — round 2).
+//  THE CODE LOOK — the lesson's code block, the quiz's wells and the
+//  function library's — lives in otterLanguage.js since post-overhaul S2b,
+//  so the one theme (LESSON_CODE_THEME, A3's oneDark with its comments
+//  re-inked) is shared by every code block in the tool, with A3's notes on
+//  why each setting is what it is.
 // ═══════════════════════════════════════════════════════════════════
-const LESSON_CODE_BLOCK = {
-  background: 'transparent',
-  color: 'inherit',
-  border: 0,
-  borderRadius: 0,
-  padding: 0,
-  margin: 0,
-  overflow: 'visible',
-  width: 'max-content',
-  minWidth: '100%',
-  textShadow: 'none',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--text-dense)',
-  lineHeight: 'var(--text-dense--line-height)',
-};
-// oneDark draws comments in hsl(220 10% 40%): 3.27:1 on the well at 13px,
-// the one text on the lesson page under AA (A3 review round 2). The third
-// ink is the app's own quiet text and measures 5.70:1 there. Its colours are
-// inline styles, so they are changed in the theme object, not in CSS.
-const LESSON_CODE_THEME = {
-  ...oneDark,
-  comment: { ...oneDark.comment, color: 'var(--color-ink-3)' },
-  prolog: { ...oneDark.prolog, color: 'var(--color-ink-3)' },
-  cdata: { ...oneDark.cdata, color: 'var(--color-ink-3)' },
-};
-const LESSON_CODE_TEXT = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--text-dense)',
-  lineHeight: 'var(--text-dense--line-height)',
-  whiteSpace: 'pre',
-};
+import { LESSON_CODE_BLOCK, LESSON_CODE_THEME, LESSON_CODE_TEXT, courseLanguage } from './otterLanguage.js';
+import FunctionCard from './FunctionCard.jsx';
+import { functionCategoryName } from './adapters/otterRoutes.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -1587,7 +1551,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions;
         categories = categories.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -1816,7 +1780,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // Merge functions if present (coding language type)
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -2043,7 +2007,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // Merge functions if present
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -2916,21 +2880,29 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       }
 
       // Functions search
-      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2b review round 2: ONE text per function for the count and the
+      // cards — the count left out parameters and examples, so 838 of 1,975
+      // words taken from her own library found nothing — and a category with
+      // no functions is neither counted nor shown (its heading "found" one
+      // occurrence and drew no card).
+      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ');
+      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions) && cat.functions.length > 0);
       if (funcCategories.length > 0) {
+        // S2b (C10): the heading the result shows, never "undefined" — a
+        // nameless category read as the word, so "undefined" matched it.
         const allText = funcCategories.map(cat =>
-          `${cat.category}\n` + cat.functions.map(f => `${f.name || ''} ${f.description || ''} ${f.syntax || ''} ${f.returns || ''}`).join('\n')
+          `${functionCategoryName(cat)}\n` + cat.functions.map(f => fnSearchText(f)).join('\n')
         ).join('\n');
         const lowerAll = allText.toLowerCase();
         let matchCount = 0, idx2 = 0;
         while ((idx2 = lowerAll.indexOf(q, idx2)) !== -1) { matchCount++; idx2 += q.length; }
         if (matchCount > 0) {
-          const matchedFuncCategories = funcCategories.map(cat => ({
+          // S2b review round 1: the heading is in the count above, so a
+          // category found by its heading shows its cards ("general" found
+          // one occurrence in her library and showed none).
+          const matchedFuncCategories = funcCategories.map(cat => functionCategoryName(cat).toLowerCase().includes(q) ? cat : ({
             ...cat,
-            functions: cat.functions.filter(f => {
-              const fText = [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ').toLowerCase();
-              return fText.includes(q);
-            })
+            functions: cat.functions.filter(f => fnSearchText(f).toLowerCase().includes(q))
           })).filter(cat => cat.functions.length > 0);
           results.push({
             softwareName: sw.name,
@@ -3547,25 +3519,18 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               );
             }
 
-            {/* ── Functions: the Functions view's own cards ── */}
+            {/* ── Functions: the Functions view's own cards (S2b: the one
+                FunctionCard, coloured in the result's course language) ── */}
             if (r.resultType === 'functions' && r.matchedCategories) {
+              const resultLanguage = courseLanguage({ name: r.softwareName, slug: r.softwareSlug });
               return (
                 <div>
                   {header}
                   {r.matchedCategories.map((cat, ci) => (
                     <section key={ci} className="otter-ref-section">
-                      <h4 className="otter-ref-section-title">{cat.category}</h4>
+                      <h4 className="otter-ref-section-title">{functionCategoryName(cat)}</h4>
                       <div className="otter-ref-cards">
-                        {cat.functions.map((f, fi) => (
-                          <div key={fi} className="otter-fn-card">
-                            <code className="otter-fn-name">{f.name}</code>
-                            {f.syntax && <pre className="otter-code-well">{f.syntax}</pre>}
-                            {f.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{f.parameters}</span></div>}
-                            {f.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{f.returns}</span></div>}
-                            {f.description && <p className="otter-fn-desc">{f.description}</p>}
-                            {f.example && <pre className="otter-code-well">{f.example}</pre>}
-                          </div>
-                        ))}
+                        {cat.functions.map((f, fi) => <FunctionCard key={fi} fn={f} language={resultLanguage} />)}
                       </div>
                     </section>
                   ))}
@@ -4683,14 +4648,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       return <EmptyState icon={BookOpen} title="Select a subject from the sidebar to begin studying." />;
     }
     if (activeSubject.is_stub) {
+      // S2b (C4, C5): the lesson page's width, and its one-line breadcrumb.
       return (
         <div className="otter-view">
-          <div className="otter-view-page" data-width="reading">
-            <nav className="otter-crumbs" aria-label="Where this subject sits">
-              <span>{activeSoftware?.name}</span>
-              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
-              <span className="otter-crumb-current">{activeSubject.title}</span>
-              <span>[outline]</span>
+          <div className="otter-view-page" data-width="subject">
+            <nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+              <span className="otter-crumb-trail">
+                <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+                <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              </span>
+              <span className="otter-crumb-current" aria-current="page">{activeSubject.title}</span>
+              <span className="otter-crumb-note">[outline]</span>
             </nav>
             <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
               {activeSubject.title}
@@ -4750,13 +4718,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       <div className="otter-study">
         {selectedLesson ? (
           <div className="otter-study-page">
-            <nav className="otter-crumbs" aria-label="Where this lesson sits">
-              <span>{activeSoftware?.name}</span>
-              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
-              <span>{activeSubject?.title}</span>
-              {currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span>{currentSection.title}</span></>}
-              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
-              <span className="otter-crumb-current">{selectedLesson.title}</span>
+            {/* One line (S2b, C5). Giving way, in order: the subject and the
+                section (one run, down to "› …"), then the course, and the
+                lesson only when it alone is longer than the line. The whole
+                path is the title. */}
+            <nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+              <span className="otter-crumb-trail">
+                <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+                <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
+                <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              </span>
+              <span className="otter-crumb-current" aria-current="page">{selectedLesson.title}</span>
             </nav>
             {/* The reading surface's own title, at the H1 step: the one 20px
                 line on it. The markdown's headings sit one step below (O32),
@@ -5236,6 +5208,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
     if (isCodingLang) {
       const allFuncs = (softwareFunctions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2b (C9): the language the cards colour their code in; unknown is plain.
+      const fnLanguage = courseLanguage(activeSoftware);
       const filtered = functionSearch
         ? allFuncs.map(cat => ({ ...cat, functions: cat.functions.filter(f =>
             (f.name || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
@@ -5276,18 +5250,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 : <EmptyState icon={Braces} title="No functions matching your search." />
             ) : filtered.map((cat, i) => (
               <section key={i} className="otter-ref-section" data-cat-id={`func-cat-${i}`}>
-                <h3 className="otter-ref-section-title">{cat.category}</h3>
+                {/* S2b (C10): a category the old merge left nameless reads
+                    as "General" rather than an empty heading. */}
+                <h3 className="otter-ref-section-title">{functionCategoryName(cat)}</h3>
                 <div className="otter-ref-cards">
-                  {cat.functions.map((f, j) => (
-                    <div key={j} className="otter-fn-card">
-                      <code className="otter-fn-name">{f.name}</code>
-                      {f.syntax && <pre className="otter-code-well">{f.syntax}</pre>}
-                      {f.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{f.parameters}</span></div>}
-                      {f.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{f.returns}</span></div>}
-                      {f.description && <p className="otter-fn-desc">{f.description}</p>}
-                      {f.example && <pre className="otter-code-well">{f.example}</pre>}
-                    </div>
-                  ))}
+                  {cat.functions.map((f, j) => <FunctionCard key={j} fn={f} language={fnLanguage} />)}
                 </div>
               </section>
             ))}
