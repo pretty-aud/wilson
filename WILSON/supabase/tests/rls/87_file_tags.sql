@@ -4,8 +4,10 @@
 --
 -- What this pins, in order of how badly it would hurt to get wrong:
 --
---   * THE VOCABULARY IS THE NINE, EXACTLY (probes 15-21): a member writes all
---     nine (15-16, the presence control), and the database refuses 'notes'
+--   * THE VOCABULARY IS THE NINE, EXACTLY (probes 15-21): a member writes the
+--     eight a file can be given after it is added (15-16, the presence
+--     control — since 0088 the ninth, Legal, is set only when a file is added
+--     under LEGAL/, and suite 90 owns it), and the database refuses 'notes'
 --     (17 — the tenth tag Audrey removed, E3), a different case (18), a NULL
 --     element (19), NULL itself (20) and a tenth element (21). Refusals are
 --     matched by SQLSTATE, not message text (suite 68's reason: Postgres names
@@ -171,18 +173,20 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 )::text, true);
 SELECT set_config('role','authenticated', true);
 
+-- Eight, not nine, since 0088: 'legal' goes with a LEGAL third path segment
+-- and is set when the file is added (files_legal_folder_chk; suite 90).
 SELECT lives_ok($$
   UPDATE public.files
-     SET tags = ARRAY['production','creative','legal','finance','reference',
+     SET tags = ARRAY['production','creative','finance','reference',
                       'assets','code','shots','documentation']
    WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
-$$, 'a project member tags a file with all nine');                          -- 15
+$$, 'a project member tags a file with the eight a file can be given after it is added'); -- 15
 
 SELECT is(
   (SELECT tags FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'),
-  ARRAY['production','creative','legal','finance','reference',
+  ARRAY['production','creative','finance','reference',
         'assets','code','shots','documentation']::TEXT[],
-  'the nine read back, in the order written');                              -- 16
+  'the eight read back, in the order written');                             -- 16
 
 SELECT throws_ok($$
   UPDATE public.files SET tags = ARRAY['notes']
@@ -204,10 +208,12 @@ SELECT throws_ok($$
    WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
 $$, '23502', NULL, 'NULL tags are refused (NOT NULL)');                     -- 20
 
+-- Ten elements and no 'legal', so files_tags_len_chk is the only CHECK the
+-- row breaks (0088's files_legal_folder_chk would otherwise answer too).
 SELECT throws_ok($$
   UPDATE public.files
-     SET tags = ARRAY['production','creative','legal','finance','reference',
-                      'assets','code','shots','documentation','code']
+     SET tags = ARRAY['production','creative','finance','reference',
+                      'assets','code','shots','documentation','code','shots']
    WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
 $$, '23514', NULL, 'a tenth element is refused (files_tags_len_chk)');      -- 21
 
@@ -234,8 +240,8 @@ SELECT set_config('role','authenticated', true);
 
 SELECT is(
   (SELECT cardinality(tags) FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'),
-  9,
-  '… and lands on nothing: the nine are still there');                      -- 23
+  8,
+  '… and lands on nothing: the eight are still there');                     -- 23
 
 SELECT ok(EXISTS (
   SELECT 1 FROM public.edit_history
@@ -259,9 +265,9 @@ SELECT throws_ok($$
 $$, '23514', NULL, 'a 2-D array is refused (a tag the client would not see)'); -- 26
 
 SELECT lives_ok($$
-  UPDATE public.files SET tags = ARRAY['code','legal','shots','assets']
+  UPDATE public.files SET tags = ARRAY['code','reference','shots','assets']
    WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
-$$, 'the same four tags, flat, are accepted');                              -- 27
+$$, 'four tags, flat, are accepted');                                       -- 27
 
 SELECT lives_ok($$
   UPDATE public.files SET tags = '{}'
