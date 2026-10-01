@@ -42,11 +42,27 @@ function extractRouteBody(source, head) {
   throw new Error(`unbalanced braces extracting ${head}`)
 }
 
+/** Lift `function name(...) { ... }` out of main.cjs (rabbitShotLists.routes.test.js's technique). */
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`)
+  if (start < 0) throw new Error(`main.cjs no longer defines ${name}() — the replay cannot run`)
+  const open = source.indexOf('{', source.indexOf(')', start))
+  let depth = 0
+  for (let j = open; j < source.length; j++) {
+    if (source[j] === '{') depth++
+    else if (source[j] === '}') { depth--; if (depth === 0) return source.slice(start, j + 1) }
+  }
+  throw new Error(`unbalanced braces extracting ${name}() from main.cjs`)
+}
+// eslint-disable-next-line no-new-func
+const SHIPPED_HELPER = new Function(`return ${extractFunction(MAIN_CJS, 'mergeFunctionsDoc')}`)()
+
 /** A route body as a merge: the disk is a Map of JSON text, so a read is a
- *  parsed COPY and only what the route writes is kept, as on the desktop. */
-function routeAsMerge(body) {
+ *  parsed COPY and only what the route writes is kept, as on the desktop.
+ *  The route's helper is handed in, lifted from the same file. */
+function routeAsMerge(body, helper = SHIPPED_HELPER) {
   // eslint-disable-next-line no-new-func
-  const run = new Function('req', 'res', 'readJSON', 'writeJSON', 'path', 'getSoftwareDir', body)
+  const run = new Function('req', 'res', 'readJSON', 'writeJSON', 'path', 'getSoftwareDir', 'mergeFunctionsDoc', body)
   return (existing, incoming) => {
     const disk = new Map()
     const file = '/sw/python/_functions.json'
@@ -55,7 +71,7 @@ function routeAsMerge(body) {
     const writeJSON = (p, data) => disk.set(p, JSON.stringify(data))
     const res = { json(x) { this.body = x } }
     run({ params: { slug: 'python' }, body: { categories: incoming } }, res, readJSON, writeJSON,
-      { join: (...parts) => parts.join('/') }, () => '/sw')
+      { join: (...parts) => parts.join('/') }, () => '/sw', helper)
     const written = JSON.parse(disk.get(file))
     expect(res.body, 'the route answers with what it wrote').toEqual(written)
     return written
@@ -139,6 +155,57 @@ const CASES = {
     return out.categories.length === 2 && JSON.stringify(names(out.categories[0])) === '["if"]'
       && out.categories[1].category === 'Strings' && JSON.stringify(names(out.categories[1])) === '["upper"]' ? null : JSON.stringify(out)
   },
+  // ── review round 1 (S2b) ──
+  'a function already anywhere in the library is not added again (the de-duplication the collapsed library had)': (merge) => {
+    // Her real file is one nameless category; a generation that files `len`
+    // under "Built-ins" must not put a second `len` beside the first.
+    const out = merge({ categories: [{ functions: [fn('len'), fn('print')] }] },
+      [{ category: 'Built-ins', functions: [fn('LEN'), fn('zip'), fn('zip')] }])
+    return JSON.stringify(out.categories.map((c) => [functionCategoryName(c), names(c)]))
+      === '[["General",["len","print"]],["Built-ins",["zip"]]]' ? null : JSON.stringify(out)
+  },
+  'a stored category the merge adds nothing to is left exactly as stored, and duplicates make no empty heading': (merge) => {
+    const stored = { categories: [{ category: 'Empty' }, { category: 'A', functions: [fn('a')] }] }
+    const out = merge(stored, [{ category: 'Empty', functions: [fn('a')] }, { category: 'Dupes', functions: [fn('A ')] }])
+    return JSON.stringify(out) === JSON.stringify(stored) ? null : JSON.stringify(out)
+  },
+  'a category sent with no functions is made as sent (a fork\'s empty category moves on approval)': (merge) => {
+    const out = merge({ categories: [] }, [{ category: 'Later', functions: [] }])
+    return JSON.stringify(out.categories) === JSON.stringify([{ category: 'Later', functions: [] }]) ? null : JSON.stringify(out)
+  },
+  'entries that are not categories are carried over untouched and never matched': (merge) => {
+    const out = merge({ categories: [null, 'x', { category: 'Str', functions: 'ab' }, { category: 'General', functions: [fn('f1')] }] },
+      [{ category: 'Str', functions: [fn('g')] }, { functions: [fn('h')] }, null, 'junk', { category: 'Bad', functions: [null, 'k', fn('m')] }])
+    return JSON.stringify(out.categories) === JSON.stringify([
+      null, 'x', { category: 'Str', functions: 'ab' }, { category: 'General', functions: [fn('f1'), fn('h')] },
+      { category: 'Str', functions: [fn('g')] }, { category: 'Bad', functions: [fn('m')] },
+    ]) ? null : JSON.stringify(out)
+  },
+  'a stored document with no category list gets one, and keeps its other keys': (merge) => {
+    const out = merge({ version: 2 }, [{ category: 'A', functions: [fn('a')] }])
+    return JSON.stringify(out) === JSON.stringify({ version: 2, categories: [{ category: 'A', functions: [fn('a')] }] }) ? null : JSON.stringify(out)
+  },
+  'a name that is not a non-empty string is no name; names with no Latin letters keep their own heading': (merge) => {
+    const out = merge({ categories: [] }, [
+      { category: 5, name: 'Math', functions: [fn('abs')] }, { category: '   ', functions: [fn('x')] },
+      { category: '文字列', functions: [fn('s1')] }, { category: '数学', functions: [fn('m1')] },
+    ])
+    return JSON.stringify(out.categories.map((c) => [c.category, names(c)]))
+      === '[["Math",["abs"]],["General",["x"]],["文字列",["s1"]],["数学",["m1"]]]' ? null : JSON.stringify(out)
+  },
+  'a category carrying both keys is its `category`; words run together are another heading': (merge) => {
+    // Reviewer C (M7, M8b): the two copies could read the keys in another
+    // order, or normalise differently, and no case told them apart.
+    const out = merge({ categories: [{ category: 'Strings', name: 'Text', functions: [fn('a')] }] },
+      [{ name: 'Text', functions: [fn('b')] }, { category: 'Strings', name: 'Other', functions: [fn('c')] },
+        { category: 'String methods', functions: [fn('d')] }, { category: 'Stringmethods', functions: [fn('e')] }])
+    return JSON.stringify(out.categories.map((c) => [functionCategoryName(c), names(c)]))
+      === '[["Strings",["a","c"]],["Text",["b"]],["String methods",["d"]],["Stringmethods",["e"]]]' ? null : JSON.stringify(out)
+  },
+  'a padded name is written trimmed and joins its stored heading': (merge) => {
+    const out = merge({ categories: [{ category: 'Strings', functions: [fn('a')] }] }, [{ category: '  strings  ', functions: [fn('b')] }])
+    return JSON.stringify(out.categories.map((c) => [c.category, names(c)])) === '[["Strings",["a","b"]]]' ? null : JSON.stringify(out)
+  },
 }
 /** The cases the pre-S2b keying gets WRONG — and only these. */
 const DEFECT_CASES = [
@@ -146,8 +213,18 @@ const DEFECT_CASES = [
   'a stored `name`-keyed category is the same category as an incoming `category`',
   'an incoming category with no name is written as General, never as undefined',
   'a new category never lands in the stored nameless one (the defect itself)',
+  'a function already anywhere in the library is not added again (the de-duplication the collapsed library had)',
+  'a stored category the merge adds nothing to is left exactly as stored, and duplicates make no empty heading',
+  'a category sent with no functions is made as sent (a fork\'s empty category moves on approval)',
+  'entries that are not categories are carried over untouched and never matched',
+  'a stored document with no category list gets one, and keeps its other keys',
+  'a name that is not a non-empty string is no name; names with no Latin letters keep their own heading',
+  'a category carrying both keys is its `category`; words run together are another heading',
 ]
-const failures = (merge) => Object.entries(CASES).filter(([, check]) => check(merge) !== null).map(([title]) => title)
+/** A check that throws is a failure too (the pre-S2b copies crash on some). */
+const failures = (merge) => Object.entries(CASES).filter(([, check]) => {
+  try { return check(merge) !== null } catch { return true }
+}).map(([title]) => title)
 
 const BACKENDS = {
   'cloud and dev fixtures (otterRoutes.mergeFunctions)': mergeFunctions,
@@ -186,8 +263,11 @@ describe('the function library merge keys categories as the client writes them (
   it('CONTROL: the route reader lifts the shipped route, not a stale copy', () => {
     const shipped = extractRouteBody(MAIN_CJS, ROUTE_HEAD)
     expect(shipped).toMatch(/_functions\.json/)
+    expect(shipped, 'the route merges through its helper').toMatch(/mergeFunctionsDoc\(/)
     expect(shipped).not.toMatch(/c\.name === inCat\.name/)
+    expect(extractFunction(MAIN_CJS, 'mergeFunctionsDoc')).toMatch(/^function mergeFunctionsDoc\(stored, incoming\) \{[\s\S]*return out;\s*\}$/)
     expect(() => extractRouteBody('nothing here', ROUTE_HEAD)).toThrow(/no longer registers/)
+    expect(() => extractFunction('nothing here', 'mergeFunctionsDoc')).toThrow(/no longer defines/)
   })
 })
 

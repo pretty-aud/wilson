@@ -47,7 +47,10 @@ function PreS2bCard({ f }) {
 
 describe('FunctionCard — an unknown language is today\'s card', () => {
   it('renders the pre-S2b markup exactly, for every combination of parts', () => {
-    const variants = [PRINT, { ...PRINT, syntax: '' }, { ...PRINT, parameters: '', returns: '' }, { name: 'x' }, { ...PRINT, example: '' }]
+    // Review round 1: an imported library can carry a non-string value; the
+    // plain card renders it as React always did (an array reads "ab", not "a,b").
+    const variants = [PRINT, { ...PRINT, syntax: '' }, { ...PRINT, parameters: '', returns: '' }, { name: 'x' }, { ...PRINT, example: '' },
+      { ...PRINT, example: ['a = 1', '\nb = 2'] }, { ...PRINT, syntax: 42 }]
     for (const f of variants) {
       const now = render(<FunctionCard fn={f} language={null} />).container.innerHTML
       cleanup()
@@ -121,9 +124,12 @@ describe('FunctionCard — a known language colours the code text only', () => {
     expect(naive.querySelector('code').style.whiteSpace).toBe('pre')
   })
 
-  it('CodeWell takes any value and draws it as text', () => {
+  it('CodeWell takes any value and draws it as text — an array as React would, joined', () => {
     const w = render(<CodeWell code={42} language="python" />).container.querySelector('.otter-code-well')
     expect(w.textContent).toBe('42')
+    cleanup()
+    const a = render(<CodeWell code={['a = 1', '\nb = 2']} language="python" />).container.querySelector('.otter-code-well')
+    expect(a.textContent).toBe('a = 1\nb = 2')
   })
 })
 
@@ -146,6 +152,11 @@ function hostReport(src) {
   const uses = [...code.matchAll(/<FunctionCard\b([^>]*)\/>/g)]
   if (uses.length !== 2) bad.push(`${uses.length} <FunctionCard> uses, want 2 (the Functions view and the Search dialog)`)
   for (const u of uses) if (!/\blanguage=\{[^}]+\}/.test(u[1])) bad.push(`<FunctionCard${u[1]}/> passes no language`)
+  // Review round 1 (reviewer C, O3/O4): WHICH language. The Functions view
+  // reads the open course; a Search result reads its course by NAME first
+  // (in the cloud the slug is an id).
+  if (!/const fnLanguage = courseLanguage\(activeSoftware\);/.test(code) || !/<FunctionCard key=\{j\} fn=\{f\} language=\{fnLanguage\} \/>/.test(code)) bad.push('the Functions view does not colour in the open course\'s language')
+  if (!/const resultLanguage = courseLanguage\(\{ name: r\.softwareName, slug: r\.softwareSlug \}\);/.test(code) || !/<FunctionCard key=\{fi\} fn=\{f\} language=\{resultLanguage\} \/>/.test(code)) bad.push('a Search result does not colour in its course\'s language')
   // Both function headings read the category through the shared reader.
   const fnBlocks = [
     between(src, "r.resultType === 'functions' && r.matchedCategories", "r.resultType === 'nodes' && r.matchedCategories"),
@@ -158,6 +169,9 @@ function hostReport(src) {
   }
   const search = between(src, '// Functions search', '// Nodes search')
   if (!/\$\{functionCategoryName\(cat\)\}\\n/.test(search)) bad.push('the search text reads the category raw')
+  // Review round 1: the heading is counted, so a category whose heading
+  // matches must show its cards ("general" found 1 and showed none).
+  if (!/functionCategoryName\(cat\)\.toLowerCase\(\)\.includes\(q\)\s*\?\s*cat\b/.test(search)) bad.push('a category found by its heading shows no cards')
   return bad
 }
 
@@ -173,5 +187,11 @@ describe('Otter.jsx renders the one card in both hosts', () => {
       .toMatch(/reads cat\.category/)
     expect(hostReport(OTTER.replace('`${functionCategoryName(cat)}\\n` + cat.functions', '`${cat.category}\\n` + cat.functions')).join('\n'))
       .toMatch(/search text/)
+    expect(hostReport(OTTER.replace('functionCategoryName(cat).toLowerCase().includes(q) ? cat', 'false ? cat')).join('\n'))
+      .toMatch(/shows no cards/)
+    expect(hostReport(OTTER.replace('const fnLanguage = courseLanguage(activeSoftware);', 'const fnLanguage = courseLanguage(null);')).join('\n'))
+      .toMatch(/open course's language/)
+    expect(hostReport(OTTER.replace('courseLanguage({ name: r.softwareName, slug: r.softwareSlug })', 'courseLanguage({ slug: r.softwareSlug })')).join('\n'))
+      .toMatch(/its course's language/)
   })
 })

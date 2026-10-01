@@ -1933,3 +1933,25 @@ walkthrough 49 §5, not here.
   this wave, and S2a's brief allowed it one title string (the drawer
   footer's Help). Owner: the next session that edits `TimelineView.jsx`
   (S3c or S5).
+
+## Post-overhaul S2b (`po/s2b-otter-functions-lesson`) — left open (2026-09-30)
+
+What S2b's review rounds found and did not fix, because the file is another
+session's or the decision is Audrey's. Her questions are in walkthrough 50
+§3, not here.
+
+- **S2b-01 · The pet reads a nameless function category as no group.**
+  `petKnowledge.js` (`flattenDoc`) labels a function category
+  `cat.category || cat.name || ''`, so her Python library's 46 functions
+  reach the pet with an empty group where O.T.T.E.R.'s views now say
+  "General" (and a category whose name is not a string is read raw).
+  INFERRED from the code by S2b's review round 1 (A-L6). Owner: the next
+  session that edits `petKnowledge.js`: read it through
+  `functionCategoryName` (`adapters/otterRoutes.js`).
+- **S2b-02 · The hotkeys merge has the same keying weaknesses the functions
+  merge had fixed in S2b.** `mergeHotkeys` (otterRoutes.js) and its Local
+  Server twin key a category on `normKey`, so names with no Latin letters
+  ("文字列", "数学") all key to '' and merge into one, and a category value
+  that is not a string throws on every later merge. Its keying on
+  `category || name` was already right. INFERRED from S2b's review of the
+  functions merge (A-L2, A-L3). Owner: whoever next edits the hotkeys merge.

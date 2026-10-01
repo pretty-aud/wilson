@@ -72,9 +72,12 @@ export const WELL_CODE_TEXT = { ...LESSON_CODE_TEXT, whiteSpace: 'pre-wrap' };
 // NAME first and its slug second. The name comes first because a slug loses
 // the symbols that tell the C family apart — slugify('C#') and slugify('C++')
 // are both 'c' — and in the cloud a course's wire slug is its id. A trailing
-// version ("Python 3.12", "Unity 6") and one trailing generic word ("Go
-// programming", "Rust fundamentals") are forgiven. Anything else is unknown
-// and draws as plain text, exactly as before S2b.
+// version ("Python 3.12", "Unity 6", "C++20"), one trailing generic word
+// ("Go programming", "Rust fundamentals") and a host ("Python for Houdini",
+// "C# for Unity") are forgiven. A name holding '#' or '+' is never read
+// through its slug, which has lost them ("C++20" is 'c-20', which would read
+// as C — review round 1). Anything else is unknown and draws as plain text,
+// exactly as before S2b.
 // Audrey's library (read 2026-09-30): one coding-language course, "Python".
 // Her software courses' lessons tag their own fences (python, csharp, cpp,
 // glsl, blueprint), which the lesson highlighter reads from the fence.
@@ -82,7 +85,8 @@ const LANGUAGE_NAMES = {
   python: ['python', 'py', 'python3'],
   javascript: ['javascript', 'js', 'node', 'node.js', 'nodejs', 'ecmascript'],
   typescript: ['typescript', 'ts'],
-  csharp: ['c#', 'csharp', 'c sharp', 'c-sharp', 'cs'],
+  // Not 'cs': "CS 101" is a course code (review round 1).
+  csharp: ['c#', 'csharp', 'c sharp', 'c-sharp'],
   cpp: ['c++', 'cpp', 'cplusplus', 'c plus plus'],
   c: ['c'],
   java: ['java'],
@@ -111,7 +115,8 @@ export const COURSE_LANGUAGES = Object.freeze(Object.fromEntries(
 ));
 
 const GENERIC_TAIL = /\s+(?:programming language|programming|language|scripting|basics|fundamentals)$/;
-const VERSION_TAIL = /[\s-]+v?\d+(?:[.-]\d+)*$/;
+const VERSION_TAIL = /(?:[\s-]+|(?<=[#+]))v?\d+(?:[.-]\d+)*$/;
+const HOST_TAIL = /\s+for\s+.+$/;
 
 /** The readings of one name or slug, most literal first. */
 function readings(raw) {
@@ -119,10 +124,14 @@ function readings(raw) {
   if (!k) return [];
   const out = [k];
   const add = (s) => { s = s.trim(); if (s && !out.includes(s)) out.push(s); };
-  add(k.replace(VERSION_TAIL, ''));
-  add(k.replace(GENERIC_TAIL, ''));
-  add(k.replace(GENERIC_TAIL, '').replace(VERSION_TAIL, ''));
-  add(k.replace(/-/g, ' ').replace(VERSION_TAIL, ''));
+  for (const base of [k, k.replace(/-/g, ' ')]) {
+    const host = base.replace(HOST_TAIL, '');
+    for (const s of [base, host]) {
+      add(s.replace(VERSION_TAIL, ''));
+      add(s.replace(GENERIC_TAIL, ''));
+      add(s.replace(GENERIC_TAIL, '').replace(VERSION_TAIL, ''));
+    }
+  }
   return out;
 }
 
@@ -131,7 +140,8 @@ function readings(raw) {
  * @param {{ name?: string, slug?: string } | null | undefined} course
  */
 export function courseLanguage(course) {
-  for (const raw of [course?.name, course?.slug]) {
+  const name = typeof course?.name === 'string' ? course.name : '';
+  for (const raw of /[#+]/.test(name) ? [name] : [name, course?.slug]) {
     for (const key of readings(raw)) {
       if (Object.prototype.hasOwnProperty.call(COURSE_LANGUAGES, key)) return COURSE_LANGUAGES[key];
     }

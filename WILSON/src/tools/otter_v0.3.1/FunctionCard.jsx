@@ -25,8 +25,11 @@ function WellPre({ children, 'data-language': language }) {
 }
 
 export function CodeWell({ code, language }) {
-  const text = String(code);
-  if (!language) return <pre className="otter-code-well">{text}</pre>;
+  // Plain: the value exactly as the pre-S2b card rendered it. Highlighted:
+  // the highlighter needs one string — an array (an imported library can
+  // carry one) joined as React would have drawn it (review round 1).
+  if (!language) return <pre className="otter-code-well">{code}</pre>;
+  const text = Array.isArray(code) ? code.join('') : String(code);
   return (
     <SyntaxHighlighter
       language={language}

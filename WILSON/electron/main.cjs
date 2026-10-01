@@ -921,30 +921,59 @@ function startLocalServer(distPath) {
       res.json(data);
     });
 
+    // Post-overhaul S2b (C10): the function library's merge — the SAME rules,
+    // line for line, as otterRoutes.js's mergeFunctions (the cloud and the
+    // dev fixtures); functionsMerge.test.js replays both and demands the same
+    // document for every case. The `name` keying this replaces matched every
+    // incoming category (the client posts `category`) to the first nameless
+    // one and collapsed a generated library into one category with no name.
+    //  - A category's name is its `category`, else its `name`, else
+    //    "General" — a non-empty string, trimmed; anything else is no name.
+    //  - Categories match on that name normalised (case and punctuation
+    //    aside); a name with no Latin letters or digits keys on itself.
+    //  - A function already ANYWHERE in the library (by name, case and
+    //    spaces aside) is not added again: before the fix the whole library
+    //    was one category, so this is the de-duplication it always had.
+    //  - Stored categories are kept exactly as stored: only a category a
+    //    function is added to is rewritten (a copy, with the new functions
+    //    after its own). A new category is written `{ category, functions }`
+    //    when it brings a function or was sent with none, never when every
+    //    function it brought is already in the library (an empty heading).
+    //    Entries that are not categories (null, a string, `functions` not a
+    //    list) are carried over untouched and never matched.
+    function mergeFunctionsDoc(stored, incoming) {
+      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+      const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+      const catName = (c) => str(c && c.category) || str(c && c.name) || 'General';
+      const catKey = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() || n.toLowerCase();
+      const fnKey = (f) => str(f && f.name).toLowerCase();
+      const isCat = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions));
+      const base = isObj(stored) ? stored : {};
+      const out = { ...base, categories: Array.isArray(base.categories) ? [...base.categories] : [] };
+      const seen = new Set();
+      for (const c of out.categories) if (isCat(c)) for (const f of (c.functions || [])) seen.add(fnKey(f));
+      for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+        if (!isObj(inCat)) continue;
+        const name = catName(inCat);
+        const add = [];
+        for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
+          if (!isObj(fn) || seen.has(fnKey(fn))) continue;
+          seen.add(fnKey(fn));
+          add.push(fn);
+        }
+        const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length);
+        const i = out.categories.findIndex(c => isCat(c) && catKey(catName(c)) === catKey(name));
+        if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }); }
+        else if (add.length) out.categories[i] = { ...out.categories[i], functions: [...(out.categories[i].functions || []), ...add] };
+      }
+      return out;
+    }
+
     expressApp.post('/api/software/:slug/functions/merge', (req, res) => {
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_functions.json');
-      const existing = readJSON(filePath, { categories: [] });
-      const incoming = req.body.categories || [];
-      // Post-overhaul S2b (C10): keyed on `category`, as the client posts it
-      // and as the hotkeys merge above reads it — the `name` keying this
-      // replaces matched every incoming category to the first nameless one
-      // and collapsed a generated library into one category with no name.
-      // A category with neither key reads as "General" (otterRoutes.js's
-      // functionCategoryName, which the cloud's merge and the views share);
-      // existing categories are kept exactly as stored, new ones are written
-      // with `category`.
-      const catName = (c) => (c && (c.category || c.name)) || 'General';
-      const normalizeCat = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      for (const inCat of incoming) {
-        const name = catName(inCat);
-        let existCat = existing.categories.find(c => normalizeCat(catName(c)) === normalizeCat(name));
-        if (!existCat) { existCat = { category: name, functions: [] }; existing.categories.push(existCat); }
-        for (const fn of (inCat.functions || [])) {
-          if (!existCat.functions.some(f => f.name === fn.name)) existCat.functions.push(fn);
-        }
-      }
-      writeJSON(filePath, existing);
-      res.json(existing);
+      const merged = mergeFunctionsDoc(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
+      writeJSON(filePath, merged);
+      res.json(merged);
     });
 
     // ── Nodes endpoints ──

@@ -24,7 +24,7 @@ import {
   courseLanguage, COURSE_LANGUAGES, LESSON_CODE_THEME, LESSON_CODE_TEXT, WELL_CODE_TEXT,
 } from './otterLanguage.js'
 import { THEME, PAPER_RECESSED } from '../../ui/tokens.js'
-import { contrast, rgbToHex } from '../../ui/contrast.js'
+import { contrast, rgbToHex, hexToRgb } from '../../ui/contrast.js'
 import { slugify } from './adapters/otterRoutes.js'
 
 // ── 1. the map ───────────────────────────────────────────────────────────────
@@ -57,12 +57,24 @@ const MAPPED = [
   // Read from the slug when the name says nothing (a renamed course).
   [{ name: 'My scripting notes', slug: 'python' }, 'python'],
   [{ name: '', slug: 'typescript-5' }, 'typescript'],
+  // Review round 1: a version glued to the symbol (its slug, 'c-20', would
+  // read as C), and the studio's "<language> for <host>".
+  [course('C++20'), 'cpp'],
+  [course('C#10'), 'csharp'],
+  [course('C# 12'), 'csharp'],
+  [course('C# for Unity'), 'csharp'],
+  [course('Python for Houdini'), 'python'],
+  [course('R Programming'), 'r'],
 ]
 const PLAIN = [
   // Audrey's software courses: their functions are not code in one language.
   course('Blender 5.0'), course('Premiere Pro'), course('TouchDesigner'), course('Unity 6'),
   course('Unreal Engine 5'), course('DaVinci Resolve 19'),
-  course('Houdini VEX'), course('C# for Unity'), course('Scripting'),
+  course('Houdini VEX'), course('Scripting'), course('Scripting for Unity'),
+  // Review round 1: "cs" is a course code, not C#; and names that hold a
+  // language's letters without being one.
+  course('CS 101'), course('CS fundamentals'), course('Objective-C'), course('Java Script'),
+  course('Photoshop'), course('After Effects'),
 ]
 // A cloud course's wire slug is its id; it must never read as a language.
 const CLOUD = [{ name: 'Blender 5.0', slug: '3f9c2a10-7b4e-4c1d-9a8e-0c5d2e6f7a81' }, { name: 'Notes', slug: 'fx-course-0002' }]
@@ -98,12 +110,13 @@ describe('courseLanguage — a course, read as a Prism language', () => {
   })
   it('CONTROL: a substring map and a slug-first map each fall into pitfalls the cases name', () => {
     const sub = judge(substringMap)
-    expect(sub.some((m) => m.startsWith('{"name":"C++ Basics"')), sub.join('\n')).toBe(true) // "basics" holds "cs"
-    expect(sub.some((m) => m.startsWith('{"name":"C# for Unity"')), sub.join('\n')).toBe(true) // not one language
+    expect(sub.some((m) => m.startsWith('{"name":"Photoshop"')), sub.join('\n')).toBe(true) // "photoshop" holds "sh"
+    expect(sub.some((m) => m.startsWith('{"name":"After Effects"')), sub.join('\n')).toBe(true) // "effects" holds "ts"
     expect(sub.some((m) => m.startsWith('{"name":"C"')), sub.join('\n')).toBe(true)
     const slug = judge(slugFirstMap)
     expect(slug.some((m) => m.startsWith('{"name":"C#"')), slug.join('\n')).toBe(true) // reads "c"
     expect(slug.some((m) => m.startsWith('{"name":"C++"')), slug.join('\n')).toBe(true)
+    expect(slug.some((m) => m.startsWith('{"name":"C++20"')), slug.join('\n')).toBe(true) // 'c-20'
   })
 })
 
@@ -145,13 +158,23 @@ function resolve(color) {
  *  dot-joined classes (create-element.js, createStyleObject). A descendant,
  *  a pseudo-class or an attribute never reaches a token. */
 const REACHABLE = /^[\w-]+(\.[\w-]+)*$/
+/** A token's colour as painted: an `opacity` on it (either spelling the
+ *  theme objects use) blends it into the ground (review round 1, reviewer
+ *  C's L5: a comment at opacity 0.5 stayed green). */
+function painted(hex, style, ground) {
+  const raw = style.opacity ?? style.Opacity
+  const a = raw === undefined ? 1 : Number(raw)
+  if (!(a >= 0 && a <= 1)) throw new Error(`a theme opacity this test cannot read: ${raw}`)
+  const fg = hexToRgb(hex), bg = hexToRgb(ground)
+  return rgbToHex(fg.map((x, i) => Math.round(x * a + bg[i] * (1 - a))))
+}
 function lowColours(theme, ground = PAPER_RECESSED) {
   const bad = []
   for (const [key, style] of Object.entries(theme)) {
     if (!REACHABLE.test(key) || !style?.color) continue
     const hex = resolve(style.color)
     if (hex === null) continue
-    const r = contrast(hex, ground)
+    const r = contrast(painted(hex, style, ground), ground)
     if (r < 4.5) bad.push(`${key} ${style.color} ${r.toFixed(2)}:1`)
   }
   return bad
@@ -176,6 +199,9 @@ describe('the one code theme, on the code well (C9)', () => {
     expect(() => resolve('hsla(220, 14%, 71%, 0.15)')).toThrow(/cannot read/)
     expect(lowColours({ keyword: { color: 'var(--color-ink-3)' } }, THEME['color-paper-raised'])).toEqual([]) // 5.04+ there too
     expect(lowColours({ keyword: { color: '#2a2a2a' } })).toHaveLength(1)
+    // An opacity is painted: the re-inked comment at half strength fails.
+    expect(lowColours({ ...LESSON_CODE_THEME, comment: { ...LESSON_CODE_THEME.comment, opacity: 0.5 } })).toEqual([expect.stringMatching(/^comment /)])
+    expect(lowColours({ keyword: { color: '#ffffff', Opacity: '0.2' } })).toHaveLength(1)
   })
 })
 

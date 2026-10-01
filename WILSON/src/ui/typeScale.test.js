@@ -42,7 +42,7 @@ import {
   openingTagEndFromAttr, classNameRun, ownTextFrom,
   SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE, isMonoValue,
 } from '../../scripts/ui-inline-type.mjs';
-import { allRules, decls, splitTop, themeNames } from '../../scripts/ui-css-rules.mjs';
+import { allRules, decls, splitTop, themeNames, specificity, compareSpecificity } from '../../scripts/ui-css-rules.mjs';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
    on a string from the site: the reason names ONE site, and a bare path
@@ -342,6 +342,9 @@ function measureViolations(rules) {
         // the course and the lesson leave, and stops at its own width — a
         // cap that can only be narrower than the line, never a measure.
         if (r.sel === '.otter-crumb' && p === 'max-width' && v === 'max-content') continue;
+        // …and the lesson's crumb never runs past the line it is on (review
+        // round 1: it ellipsizes only when it alone is longer than the line).
+        if (r.sel === '.otter-crumb-current' && p === 'max-width' && v === '100%') continue;
         if (p.startsWith('max-') || (p.startsWith('min-') && !/^(0|0px|auto|min-content)$/.test(v)) || /\dch\b|--measure/i.test(v)) bad.push(`${at}  ${p}: ${v}`);
       } else if (p === 'box-sizing') {
         bad.push(`${at}  box-sizing: ${v}`);
@@ -372,6 +375,91 @@ function lenDeclarations(source) {
   }
   return { where, bad };
 }
+/** S2b review round 1 (reviewer C's survivors W10-W13, B2-B5, B9b, B11b):
+ *  what WINS on an element, not what one named rule says. Every rule of a
+ *  sheet that can reach the element — its last compound selector names only
+ *  what the element carries (classes, an attribute value, its tag); a
+ *  pseudo-class counts as reaching it (worst case), a pseudo-element does
+ *  not — in specificity, then source, order, at any nesting or @media,
+ *  with the shorthands this contract reads expanded to their longhands.
+ *  `el` is { tag, classes: [], attrs: {} }. */
+function lastCompound(sel) {
+  const parts = [];
+  let depth = 0, cur = '';
+  for (const ch of sel.trim()) {
+    if (ch === '(' || ch === '[') depth++;
+    if (ch === ')' || ch === ']') depth--;
+    if (depth === 0 && /[\s>+~]/.test(ch)) { if (cur) parts.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur) parts.push(cur);
+  return parts.at(-1) || '';
+}
+function compoundReaches(compound, el) {
+  if (/::/.test(compound)) return false;
+  const body = compound.replace(/:[\w-]+(\((?:[^()]|\([^()]*\))*\))?/g, '');
+  const tag = body.match(/^[a-z*][\w-]*/i)?.[0];
+  if (tag && tag !== '*' && tag.toLowerCase() !== el.tag) return false;
+  if (/#/.test(body)) return false;
+  for (const c of body.matchAll(/\.([\w-]+)/g)) if (!el.classes.includes(c[1])) return false;
+  for (const a of body.matchAll(/\[\s*([\w-]+)\s*(?:([~|^$*]?=)\s*['"]?([^'"\]]*)['"]?\s*)?\]/g)) {
+    const v = (el.attrs || {})[a[1]];
+    if (v === undefined) return false;
+    if (a[2] === '=' && v !== a[3]) return false;
+  }
+  return true;
+}
+const FLEX_KEYWORDS = { none: ['0', '0', 'auto'], auto: ['1', '1', 'auto'], initial: ['0', '1', 'auto'] };
+function longhands(p, v) {
+  const t = v.trim().split(/\s+(?![^(]*\))/);
+  const four = (names) => {
+    const [a, b = a, c = a, d = b] = t;
+    return names.map((n, i) => [n, [a, b, c, d][i]]);
+  };
+  if (p === 'flex') {
+    if (FLEX_KEYWORDS[v.trim()]) return ['flex-grow', 'flex-shrink', 'flex-basis'].map((n, i) => [n, FLEX_KEYWORDS[v.trim()][i]]);
+    const nums = t.filter((x) => /^[\d.]+$/.test(x));
+    const basis = t.find((x) => !/^[\d.]+$/.test(x)) ?? (nums.length >= 3 ? nums[2] : '0');
+    return [['flex-grow', nums[0] ?? '1'], ['flex-shrink', nums[1] ?? '1'], ['flex-basis', basis]];
+  }
+  if (p === 'flex-flow') {
+    const out = [];
+    for (const x of t) out.push([/wrap/.test(x) ? 'flex-wrap' : 'flex-direction', x]);
+    return out;
+  }
+  if (p === 'margin' || p === 'padding') return four([`${p}-top`, `${p}-right`, `${p}-bottom`, `${p}-left`]);
+  if (/^(margin|padding)-inline$/.test(p)) return [[`${p.split('-')[0]}-left`, t[0]], [`${p.split('-')[0]}-right`, t[1] ?? t[0]]];
+  if (/^(margin|padding)-inline-start$/.test(p)) return [[`${p.split('-')[0]}-left`, t[0]]];
+  if (/^(margin|padding)-inline-end$/.test(p)) return [[`${p.split('-')[0]}-right`, t[0]]];
+  if (p === 'overflow') return [['overflow-x', t[0]], ['overflow-y', t[1] ?? t[0]]];
+  if (p === 'gap') return [['row-gap', t[0]], ['column-gap', t[1] ?? t[0]]];
+  return [[p, v.trim()]];
+}
+function cascadeOn(css, el) {
+  const hits = [];
+  allRules(css).forEach((r, i) => {
+    if (r.sel.startsWith('@')) return;
+    const outer = r.parents.filter((p) => !p.startsWith('@'));
+    const sels = splitTop(r.sel).map((s) => (outer.length ? `${outer.join(' ')} ${s.replace(/&/g, '')}` : s));
+    const reaching = sels.filter((s) => compoundReaches(lastCompound(s), el));
+    if (reaching.length) hits.push({ spec: reaching.map(specificity).sort(compareSpecificity).at(-1), i, body: r.body });
+  });
+  hits.sort((a, b) => compareSpecificity(a.spec, b.spec) || a.i - b.i);
+  const out = {};
+  for (const h of hits) for (const [p, v] of decls(h.body)) for (const [lp, lv] of longhands(p, v)) out[lp] = lv;
+  return out;
+}
+const LESSON_PAGE_EL = { tag: 'div', classes: ['otter-study-page'] };
+const OUTLINE_PAGE_EL = { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'subject' } };
+const READING_PAGE_EL = { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'reading' } };
+const CRUMBS_EL = { tag: 'nav', classes: ['otter-crumbs'] };
+const CRUMB_MIDDLE_EL = { tag: 'span', classes: ['otter-crumb'] };
+const CRUMB_TRAIL_EL = { tag: 'span', classes: ['otter-crumb-trail'] };
+const CRUMB_KEEP_EL = { tag: 'span', classes: ['otter-crumb-keep'] };
+const CRUMB_NOTE_EL = { tag: 'span', classes: ['otter-crumb-note'] };
+const CRUMB_CURRENT_EL = { tag: 'span', classes: ['otter-crumb-current'] };
+const CRUMB_SEP_EL = { tag: 'svg', classes: ['otter-crumb-sep'] };
+
 /** The ink ladder, element by element (O5): headings, links and table heads
  *  the ink; running text the second ink; emphasis its context's. */
 const LADDER = {
@@ -1002,71 +1090,144 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        before its content) was the 720px reading width beside the lesson
        page; it now IS the lesson page's width, declared the same way, and
        centred by `.otter-view-page`'s margin. C5: the breadcrumb never
-       wraps — the middle shortens, the course and the lesson do not. */
+       wraps; what gives way, in order: the subject-and-section run (never
+       below "› …"), then the course, then the lesson only when it alone is
+       longer than the line.
+       🚨 REVIEW ROUND 1 (S2b, reviewer C): the first version read ONE named
+       rule per property, so a later or a more specific rule — a 720px
+       outline page, `margin: 0`, a longhand `flex-shrink: 0` on a crumb,
+       `display: block` on the nav — undid the ruling and stayed green. This
+       judges what WINS on each element (cascadeOn), and every plant below
+       is an APPENDED rule, so none can pass by a text anchor that no longer
+       matches. */
     const judge = (css) => {
-      const rules = allRules(css).filter((r) => r.parents.every((p) => /^@layer\b/.test(p)));
-      const value = (sel, prop) => rules.filter((r) => splitTop(r.sel).includes(sel))
-        .flatMap((r) => decls(r.body).filter(([p]) => p === prop).map(([, v]) => v)).pop();
       const bad = [];
-      for (const sel of ['.otter-study-page', OUTLINE_PAGE]) {
-        if (value(sel, 'max-width') !== SUBJECT_PAGE_WIDTH) bad.push(`${sel} max-width is ${value(sel, 'max-width')}`);
-        if (value(sel, '--measure-body-len') !== 'var(--measure-body)') bad.push(`${sel} does not declare the length`);
-        if (value(sel, 'font-size') !== 'var(--text-body)') bad.push(`${sel} is not at the Body step`);
+      const on = (el) => cascadeOn(css, el);
+      // Two selectors the element model does not reach: a pseudo-element
+      // and a child combinator. Read as the last rule that names them.
+      const value = (sel, prop) => allRules(css).filter((r) => splitTop(r.sel).includes(sel))
+        .flatMap((r) => decls(r.body).filter(([p]) => p === prop).map(([, v]) => v)).pop();
+      for (const [label, el] of [['the lesson page', LESSON_PAGE_EL], ['the outline page', OUTLINE_PAGE_EL]]) {
+        const c = on(el);
+        if (c['max-width'] !== SUBJECT_PAGE_WIDTH) bad.push(`${label}: max-width ${c['max-width']}`);
+        if (!(c.width === undefined || c.width === 'auto')) bad.push(`${label}: width ${c.width}`);
+        if (!(c['min-width'] === undefined || /^(0|auto)$/.test(c['min-width']))) bad.push(`${label}: min-width ${c['min-width']}`);
+        if (c['margin-left'] !== 'auto' || c['margin-right'] !== 'auto') bad.push(`${label}: not centred (margin ${c['margin-left']} / ${c['margin-right']})`);
+        if (c['padding-left'] !== 'var(--spacing-gutter)' || c['padding-right'] !== 'var(--spacing-gutter)') bad.push(`${label}: padding ${c['padding-left']} / ${c['padding-right']}, not the gutter its width assumes`);
+        if (c['--measure-body-len'] !== 'var(--measure-body)') bad.push(`${label}: does not declare the length`);
+        if (c['font-size'] !== 'var(--text-body)') bad.push(`${label}: not at the Body step`);
+        if (c['box-sizing'] !== undefined) bad.push(`${label}: box-sizing ${c['box-sizing']}`);
       }
-      if (value('.otter-view-page', 'margin') !== '0 auto') bad.push('.otter-view-page is not centred');
-      if (value(".otter-view-page[data-width='reading']", 'max-width') !== 'var(--width-reading)') bad.push('the other reading views lost their width');
-      if (value('.otter-crumbs', 'flex-wrap') !== 'nowrap' || value('.otter-crumbs', 'overflow') !== 'hidden') bad.push('the breadcrumb can wrap');
-      if (value('.otter-crumbs', 'max-width') !== 'var(--measure-body-len)') bad.push('the breadcrumb is not on the column');
-      // No gap: a collapsed middle would leave its gaps behind. The
-      // separators carry the spacing, and a middle's is its own.
-      if (value('.otter-crumbs', 'gap') !== undefined) bad.push('the breadcrumb spaces its items with a gap');
-      if (value('.otter-crumb-sep', 'margin') !== '0 4px') bad.push('the separators do not carry the spacing');
-      // A middle takes only the room left (basis 0), up to its own width,
-      // and its chevron is inline and NOT first, so its ellipsis can take
-      // it: squeezed, it reads "…", never a bare "›".
-      for (const [p, v] of [['flex', '1 1 0'], ['max-width', 'max-content']]) {
-        if (value('.otter-crumb', p) !== v) bad.push(`a middle crumb: ${p} is ${value('.otter-crumb', p)}, want ${v}`);
-      }
-      if (value('.otter-crumb::before', 'content') !== "'\\200B'") bad.push('a middle crumb\'s chevron is the first thing on its line: it would be clipped, not ellipsed');
-      if (value('.otter-crumb > .otter-crumb-sep', 'display') !== 'inline-block') bad.push('a middle crumb\'s chevron is a block: its words go to a second line');
-      for (const sel of ['.otter-crumb', '.otter-crumb-current']) {
-        for (const [p, v] of [['min-width', '0'], ['overflow', 'hidden'], ['text-overflow', 'ellipsis'], ['white-space', 'nowrap']]) {
-          if (value(sel, p) !== v) bad.push(`${sel}: ${p} is ${value(sel, p)}, want ${v}`);
+      if (on(READING_PAGE_EL)['max-width'] !== 'var(--width-reading)') bad.push('the other reading views lost their width');
+      const nav = on(CRUMBS_EL);
+      if (nav.display !== 'flex') bad.push(`the breadcrumb is display ${nav.display}`);
+      if (!(nav['flex-direction'] === undefined || nav['flex-direction'] === 'row')) bad.push(`the breadcrumb runs ${nav['flex-direction']}`);
+      if (nav['flex-wrap'] !== 'nowrap') bad.push('the breadcrumb can wrap');
+      if (nav['overflow-x'] !== 'hidden') bad.push('the breadcrumb does not hide its overflow');
+      if (nav['max-width'] !== 'var(--measure-body-len)') bad.push('the breadcrumb is not on the column');
+      if (!(nav['column-gap'] === undefined || /^0(px)?$/.test(nav['column-gap']))) bad.push('the breadcrumb spaces its items with a gap');
+      const ellipsizes = (label, c) => {
+        for (const [p, v] of [['min-width', '0'], ['overflow-x', 'hidden'], ['text-overflow', 'ellipsis'], ['white-space', 'nowrap']]) {
+          if (c[p] !== v) bad.push(`${label}: ${p} is ${c[p]}, want ${v}`);
         }
-      }
-      if (value('.otter-crumb-keep', 'flex-shrink') !== '0') bad.push('the course can shrink');
-      // The lesson gives way last, with an ellipsis, never by a clipped word.
-      if (value('.otter-crumb-current', 'flex-shrink') === '0' || /^0 0\b/.test(value('.otter-crumb-current', 'flex') || '')) bad.push('the lesson can never give way: it would be clipped');
+        if (c.display && !/^(block|inline|inline-block)$/.test(c.display)) bad.push(`${label}: display ${c.display} ends its ellipsis`);
+      };
+      const trail = on(CRUMB_TRAIL_EL);
+      if (trail.display !== 'flex' || trail['flex-wrap'] === 'wrap' || !(trail['flex-direction'] === undefined || trail['flex-direction'] === 'row')) bad.push('the trail is not one flex row');
+      if (!(Number(trail['flex-shrink'] ?? 1) > 0) || trail['min-width'] !== '0' || trail['overflow-x'] !== 'hidden') bad.push('the trail does not give way before the lesson');
+      const mid = on(CRUMB_MIDDLE_EL);
+      ellipsizes('the subject-and-section run', mid);
+      if (mid['flex-grow'] !== '1' || mid['flex-shrink'] !== '0' || mid['flex-basis'] !== '3em') bad.push(`the subject-and-section run: flex ${mid['flex-grow']} ${mid['flex-shrink']} ${mid['flex-basis']}, want 1 0 3em (the room left, never below "› …")`);
+      if (mid['max-width'] !== 'max-content') bad.push('the subject-and-section run grows past its own width');
+      const keep = on(CRUMB_KEEP_EL);
+      ellipsizes('the course', keep);
+      if (!(Number(keep['flex-shrink'] ?? 1) > 0)) bad.push('the course never gives way, so the lesson would');
+      const cur = on(CRUMB_CURRENT_EL);
+      ellipsizes('the lesson', cur);
+      if (cur['flex-shrink'] !== '0') bad.push(`the lesson shrinks (flex-shrink ${cur['flex-shrink']}) while the course could`);
+      if (cur['max-width'] !== '100%') bad.push('the lesson can run past the line');
+      const note = on(CRUMB_NOTE_EL);
+      if (note['margin-left'] !== '4px' || note['flex-shrink'] !== '0') bad.push('the outline page\'s "[outline]" is not spaced off the subject');
+      const sep = on(CRUMB_SEP_EL);
+      if (sep['margin-left'] !== '4px' || sep['margin-right'] !== '4px' || sep['flex-shrink'] !== '0') bad.push('the separators do not carry the spacing');
+      if (value('.otter-crumb::before', 'content') !== "'\\200B'") bad.push('the run\'s chevron is the first thing on its line: it would be clipped, not ellipsed');
+      if (value('.otter-crumb > .otter-crumb-sep', 'display') !== 'inline-block') bad.push('the run\'s chevrons are blocks: its words go to a second line');
       return bad;
     };
     const sheet = readFileSync(OTTER_CSS, 'utf8');
     expect(judge(sheet)).toEqual([]);
-    // The JSX: the lesson's middle segments are `.otter-crumb`, the course and
-    // the lesson are not; the outline page is `data-width="subject"`; both
-    // breadcrumbs carry the whole path as their title.
+    // The JSX, whole: the order the CSS relies on (course and run inside the
+    // trail, the lesson after it), both titles carrying the whole path, the
+    // outline page `data-width="subject"` (reviewer C: O6, O7).
+    const flat = (s) => s.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\s+/g, ' ').replace(/> </g, '><').trim();
     const src = readFileSync(OTTER_JSX, 'utf8');
-    const lessonNav = lessonBranch(src).match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '';
-    expect(lessonNav.match(/className="otter-crumb(?:-keep|-current)?"/g)).toEqual([
-      'className="otter-crumb-keep"', 'className="otter-crumb"', 'className="otter-crumb"', 'className="otter-crumb-current"',
-    ]);
-    expect(lessonNav.match(/<span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" \/>\{/g), 'each middle carries its separator, then its words').toHaveLength(2);
-    expect(lessonNav).toMatch(/^<nav className="otter-crumbs" aria-label="[^"]+" title=\{/);
+    const lessonNav = flat(lessonBranch(src).match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '');
+    expect(lessonNav).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+      <span className="otter-crumb-trail">
+        <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+        <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{currentSection.title}</>}</span>
+        <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+      </span>
+      <span className="otter-crumb-current">{selectedLesson.title}</span>
+    </nav>`));
     const stub = src.slice(src.indexOf('if (activeSubject.is_stub) {', src.indexOf('function renderStudyView()')), src.indexOf('const selectedLesson = getSelectedLesson();'));
     expect(stub).toMatch(/<div className="otter-view-page" data-width="subject">/);
-    expect(stub).toMatch(/<nav className="otter-crumbs" aria-label="[^"]+" title=\{/);
-    // CONTROL: the sheet before S2b, and one fault at a time.
-    const plant = (from, to) => { const s = sheet.replace(from, to); expect(s, `the plant did not apply: ${from}`).not.toBe(sheet); return judge(s); };
-    expect(plant(/(\.otter-view-page\[data-width='subject'\] \{\s*max-width: )calc\([^;]*\);/, '$1var(--width-reading);')).toHaveLength(1);
-    expect(plant(/(\.otter-study-page \{\s*max-width: )calc\([^;]*\);/, '$1var(--width-reading);')).toHaveLength(1);
-    expect(plant(/(\.otter-crumbs \{[^}]*?)flex-wrap: nowrap;/, '$1flex-wrap: wrap;')).toHaveLength(1);
-    expect(plant(/(\.otter-crumbs \{[^}]*?)overflow: hidden;/, '$1gap: 4px; overflow: hidden;')).toHaveLength(1);
-    expect(plant('.otter-crumb-current { color: var(--color-ink-2); }', '.otter-crumb-current { flex-shrink: 0; color: var(--color-ink-2); }')).toHaveLength(1);
-    expect(plant(/(\.otter-crumb \{[^}]*?)flex: 1 1 0;/, '$1flex: 0 1 auto;')).toHaveLength(1);
-    expect(plant(/(\.otter-crumb,\s*\.otter-crumb-current \{[^}]*?)text-overflow: ellipsis;/, '$1')).toHaveLength(2);
-    expect(plant(".otter-crumb::before { content: '\\200B'; }", '')).toHaveLength(1);
-    expect(plant('.otter-crumb > .otter-crumb-sep { display: inline-block;', '.otter-crumb > .otter-crumb-sep {')).toHaveLength(1);
-    expect(plant('.otter-crumb-keep { flex-shrink: 0; }', '.otter-crumb-keep { }')).toHaveLength(1);
-    expect(plant(/(\.otter-view-page\[data-width='subject'\] \{[^}]*?)font-size: var\(--text-body\);/, '$1')).toHaveLength(1);
+    expect(flat(stub.match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '')).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+      <span className="otter-crumb-trail">
+        <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+        <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+      </span>
+      <span className="otter-crumb-current">{activeSubject.title}</span>
+      <span className="otter-crumb-note">[outline]</span>
+    </nav>`));
+    // CONTROL: one fault at a time, each an APPENDED rule (a later or more
+    // specific rule is exactly what the first version could not see).
+    const PLANTS = [
+      [".otter-view .otter-view-page[data-width='subject'] { max-width: 720px; }", /outline page: max-width/],
+      ['.otter-study-page { max-width: var(--width-reading); }', /lesson page: max-width/],
+      ['.otter-view-page { margin: 0; }', /outline page: not centred/],
+      ['.otter-study-page { margin-left: 0; }', /lesson page: not centred/],
+      ['.otter-study-page { padding: 64px; }', /lesson page: padding/],
+      [".otter-view-page[data-width='subject'] { padding-inline: 48px; }", /outline page: padding/],
+      [".otter-view-page[data-width='subject'] { font-size: var(--text-h2); }", /outline page: not at the Body step/],
+      ['.otter-study-page { width: 900px; }', /lesson page: width/],
+      ['.otter-crumbs { display: block; }', /display block/],
+      ['.otter-crumbs { flex-direction: column; }', /runs column/],
+      ['.otter-crumbs { flex-flow: row wrap; }', /can wrap/],
+      ['.otter-crumbs { gap: 4px; }', /gap/],
+      ['.otter-crumb { flex-shrink: 1; }', /run: flex/],
+      ['.otter-crumbs .otter-crumb { flex: 1 1 0; }', /run: flex/],
+      ['.otter-crumb { display: flex; }', /ends its ellipsis/],
+      ['.otter-crumb { max-width: none; }', /grows past/],
+      ['.otter-crumb-keep { flex: none; }', /course never gives way/],
+      ['.otter-crumb-keep { text-overflow: clip; }', /the course: text-overflow/],
+      ['.otter-crumb-current { flex: 0 1 auto; }', /lesson shrinks/],
+      ['.otter-crumb-current { max-width: none; }', /run past the line/],
+      ['.otter-crumb-trail { flex-shrink: 0; }', /trail does not give way/],
+      ['.otter-crumb-trail { display: block; }', /trail is not one flex row/],
+      ['.otter-crumb-note { margin: 0; }', /"\[outline\]"/],
+      ['.otter-crumb-sep { margin: 0; }', /separators/],
+      [".otter-crumb::before { content: none; }", /clipped, not ellipsed/],
+      ['.otter-crumb > .otter-crumb-sep { display: block; }', /second line/],
+    ];
+    for (const [rule, why] of PLANTS) expect(judge(`${sheet}\n${rule}\n`).join('\n'), rule).toMatch(why);
+    // …and rules that do NOT reach these elements change nothing.
+    for (const rule of [".otter-view-page[data-width='data'] { margin: 0; max-width: 1px; }", '.otter-crumb::after { display: block; }',
+      '.otter-crumbs-x { display: block; }', 'div.otter-crumbs { display: block; }']) {
+      expect(judge(`${sheet}\n${rule}\n`), rule).toEqual([]);
+    }
+  });
+
+  it('the measure is the number Audrey ruled — 66ch — in @theme and its tokens.js mirror (S2b, C4)', () => {
+    // The band test admits 60–66ch (§3.1's range); her ruling is 66, open
+    // only to her confirmation from the screenshots (walkthrough 50 Q1).
+    // Reviewer C's W5: 60ch in both files stayed green. If she rules another
+    // number, this line changes with it.
+    const pin = (css, js) => /--measure-body:\s*66ch\s*;/.test(css) && /'measure-body':\s*'66ch'/.test(js);
+    expect(pin(readFileSync('src/index.css', 'utf8'), readFileSync('src/ui/tokens.js', 'utf8'))).toBe(true);
+    // CONTROL
+    expect(pin('--measure-body: 60ch;', "'measure-body': '60ch'")).toBe(false);
+    expect(pin('--measure-body: 66ch;', "'measure-body': '45ch'")).toBe(false);
   });
 
   it('the measure stays on the lesson: the pet\'s chat reads no lesson length and is no lesson surface (S2b, C4)', () => {

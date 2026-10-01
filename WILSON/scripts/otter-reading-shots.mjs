@@ -5,7 +5,7 @@
  * the lesson page and the subject's outline (stub) page, at 1440x900 and
  * 1280x700, with the measurements the hand-off quotes.
  *
- *   node scripts/otter-reading-shots.mjs <before|after> [port] [--library <dir>] [--out <dir>] [--no-shots]
+ *   node scripts/otter-reading-shots.mjs <before|after> [port] [--library <dir>] [--out <dir>] [--no-shots] [--sizes WxH,…]
  *
  * Writes `<out>/po-s2b-<phase>-<view>-<W>x<H>.png` (default out:
  * docs/sessions/handoffs/img) and prints one JSON line of measurements per
@@ -43,7 +43,9 @@ const BASE = `http://localhost:${PORT}`;
 const OUT = flag('out', 'docs/sessions/handoffs/img');
 const LIBRARY = flag('library', join(process.env.APPDATA || '', 'wilson', 'otter-data', 'software'));
 const SHOTS = !args.includes('--no-shots');
-const SIZES = [[1440, 900], [1280, 700]];
+// --sizes 1024x700,853x583 measures the smallest window (and it at about
+// 120% zoom, as A3 did) without changing the shots' default pair.
+const SIZES = flag('sizes', '1440x900,1280x700').split(',').map((s) => s.trim().split('x').map(Number));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── the replay: her library, in the fixture store's row shapes ──────────────
@@ -212,7 +214,7 @@ const MEASURE = (opts = {}) => {
   const crumbs = [...document.querySelectorAll('.otter-crumbs')].find(vis);
   if (crumbs) {
     out.crumbs = { ...r(crumbs), lineHeight: parseFloat(getComputedStyle(crumbs).lineHeight), title: crumbs.getAttribute('title'),
-      segments: [...crumbs.children].filter((x) => x.tagName === 'SPAN').map((x) => ({ text: x.textContent, width: +x.getBoundingClientRect().width.toFixed(1), truncated: x.scrollWidth > x.clientWidth + 0.5 })) };
+      segments: [...crumbs.querySelectorAll('.otter-crumb-keep, .otter-crumb, .otter-crumb-current, .otter-crumb-note')].map((x) => ({ text: x.textContent, width: +x.getBoundingClientRect().width.toFixed(1), truncated: x.scrollWidth > x.clientWidth + 0.5 })) };
   }
   // Right edges on the reading surface: every edge should be one length.
   const edges = {};
@@ -221,21 +223,27 @@ const MEASURE = (opts = {}) => {
     if (e) edges[sel] = +e.getBoundingClientRect().right.toFixed(2);
   }
   out.rightEdges = edges;
-  // Characters a line on the prose: a range per character, grouped by line box.
+  // Characters a line on the prose: a range per character, grouped by LINE
+  // (a character joins the line whose middle is within 6px of its own, so an
+  // inline-code chip's taller box stays on its line — review round 1 found
+  // `Math.round(top)` splitting lines at every chip). Each text node counts
+  // once, in its nearest paragraph or list item.
   const counts = [];
   for (const p of [...document.querySelectorAll('.lesson-content p, .lesson-content li')].filter(vis)) {
-    const lines = new Map();
+    const lines = [];
     const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.parentElement.closest('p, li') !== p) continue;
       for (let i = 0; i < n.data.length; i++) {
         const rg = document.createRange(); rg.setStart(n, i); rg.setEnd(n, i + 1);
         const b = rg.getClientRects()[0];
         if (!b) continue;
-        const key = Math.round(b.top);
-        lines.set(key, (lines.get(key) || 0) + 1);
+        const mid = (b.top + b.bottom) / 2;
+        const line = lines.find((l) => Math.abs(l.mid - mid) < 6);
+        if (line) line.n++; else lines.push({ mid, n: 1 });
       }
     }
-    const per = [...lines.values()];
+    const per = lines.sort((a, b) => a.mid - b.mid).map((l) => l.n);
     per.pop(); // a paragraph's last line is short by nature
     counts.push(...per);
   }
@@ -252,6 +260,77 @@ const MEASURE = (opts = {}) => {
   const headings = [...document.querySelectorAll('.otter-ref-section-title')].filter((e) => vis(e) && inScope(e)).map((h) => h.textContent);
   if (headings.length) out.categoryHeadings = headings.slice(0, 12);
   return out;
+};
+
+/** S2b gave the outline page the Body step (14px) so it can declare the
+ *  column's length. Its text all sets its own size, so the step should move
+ *  nothing: every box on the page is read, the page's old 16px / 24px put
+ *  back in place, every box read again, and the differences returned (the
+ *  page's own width aside). [] is "the step moved nothing". */
+const STEP_NEUTRAL = () => {
+  const page = [...document.querySelectorAll(".otter-view-page[data-width='subject']")].find((e) => e.offsetParent !== null);
+  if (!page) return 'no outline page';
+  const boxes = () => [...page.querySelectorAll('*')].filter((e) => e.offsetParent !== null).map((e) => {
+    const b = e.getBoundingClientRect(); const p = page.getBoundingClientRect();
+    return `${e.tagName}.${typeof e.className === 'string' ? e.className.split(' ')[0] : ''} ${(b.left - p.left).toFixed(2)},${(b.top - p.top).toFixed(2)} ${b.width.toFixed(2)}x${b.height.toFixed(2)}`;
+  });
+  const width = page.style.width;
+  page.style.width = `${page.getBoundingClientRect().width}px`; // hold the page's own width still
+  const now = boxes();
+  page.style.fontSize = '16px'; page.style.lineHeight = '24px';
+  const before = boxes();
+  page.style.fontSize = ''; page.style.lineHeight = ''; page.style.width = width;
+  const diffs = [];
+  for (let i = 0; i < Math.max(now.length, before.length); i++) if (now[i] !== before[i]) diffs.push(`${before[i]} → ${now[i]}`);
+  return diffs.slice(0, 10);
+};
+
+/** The one thing that can cut the lesson's name in the breadcrumb is the
+ *  name itself being longer than the line (the path and then the course
+ *  give way first — review round 1). Every lesson title in her library,
+ *  measured in the breadcrumb's own font; the longest, to read against the
+ *  column at the smallest window. */
+const LONGEST_LESSON_CRUMBS = (titles) => {
+  const nav = document.createElement('nav');
+  nav.className = 'otter-crumbs';
+  nav.style.cssText = 'position:absolute;visibility:hidden;max-width:none';
+  document.body.appendChild(nav);
+  const span = document.createElement('span');
+  span.className = 'otter-crumb-current';
+  nav.appendChild(span);
+  const out = titles.map((t) => { span.textContent = t; return { lesson: t, px: +span.getBoundingClientRect().width.toFixed(1) }; });
+  nav.remove();
+  return out.sort((a, b) => b.px - a.px).slice(0, 5);
+};
+
+/** Every lesson path in her library through the LIVE breadcrumb: the open
+ *  lesson's nav is cloned once per path (same markup as Otter.jsx, same
+ *  sheet, same width) and read. Counts what gave way, in C5's order. */
+const CRUMB_SWEEP = (paths) => {
+  const live = [...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent !== null);
+  if (!live || !live.querySelector('.otter-crumb-trail')) return 'no live lesson breadcrumb';
+  const chevron = live.querySelector('.otter-crumb-sep').outerHTML;
+  const host = document.createElement('div');
+  host.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;width:${live.getBoundingClientRect().width}px`;
+  live.parentElement.appendChild(host);
+  const esc = (t) => String(t ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const tally = { paths: paths.length, lessonCut: 0, courseCut: 0, runAtMarker: 0, runBelowMarker: 0, overflow: 0, lessonCutTitles: [] };
+  for (const [course, subject, section, lesson] of paths) {
+    host.innerHTML = `<nav class="otter-crumbs"><span class="otter-crumb-trail"><span class="otter-crumb-keep">${esc(course)}</span>`
+      + `<span class="otter-crumb">${chevron}${esc(subject)}${section ? chevron + esc(section) : ''}</span>${chevron}</span>`
+      + `<span class="otter-crumb-current">${esc(lesson)}</span></nav>`;
+    const nav = host.firstChild;
+    const cut = (sel) => { const e = nav.querySelector(sel); return e.scrollWidth > e.clientWidth + 0.5; };
+    const run = nav.querySelector('.otter-crumb').getBoundingClientRect().width;
+    const marker = parseFloat(getComputedStyle(nav.querySelector('.otter-crumb')).fontSize) * 3;
+    if (cut('.otter-crumb-current')) { tally.lessonCut++; tally.lessonCutTitles.push(lesson); }
+    if (cut('.otter-crumb-keep')) tally.courseCut++;
+    if (Math.abs(run - marker) < 0.5) tally.runAtMarker++; // squeezed to "› …"
+    if (run < marker - 0.5 && cut('.otter-crumb')) tally.runBelowMarker++; // less than "› …" shows
+    if (nav.scrollWidth > nav.clientWidth + 0.5) tally.overflow++;
+  }
+  host.remove();
+  return { width: live.getBoundingClientRect().width, ...tally, lessonCutTitles: tally.lessonCutTitles.slice(0, 5) };
 };
 
 // ── run ─────────────────────────────────────────────────────────────────────
@@ -278,6 +357,11 @@ try {
       const m = await page.evaluate(MEASURE, opts);
       console.log(JSON.stringify({ phase, view, size: `${w}x${h}`, ...m }));
       if (SHOTS) await page.screenshot({ path: join(OUT, `po-s2b-${phase}-${view}-${w}x${h}.png`) });
+      // The breadcrumb alone, so a squeezed segment can be read.
+      if (SHOTS && m.crumbs) {
+        await page.screenshot({ path: join(OUT, `po-s2b-${phase}-${view}-trail-${w}x${h}.png`), scale: 'device',
+          clip: { x: Math.max(0, m.crumbs.left - 8), y: Math.max(0, (await page.evaluate(() => [...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent)?.getBoundingClientRect().top ?? 0)) - 6), width: m.crumbs.width + 16, height: 30 } });
+      }
     };
 
     // 1. The Functions reference: her Python course (the first coding language).
@@ -313,11 +397,21 @@ try {
     const crumbs = await openSubject(page, 'Unity 6', 'GameObjects and Components Fundamentals', 'Understanding GameObjects and the Transform Component');
     if (!crumbs.course || !crumbs.subject || !crumbs.lesson) console.log(`    (drive: ${JSON.stringify(crumbs)})`);
     await shoot('lesson-crumbs');
+    if (phase === 'after') {
+      const byId = new Map(replay.courses.map((c) => [c.id, c.name]));
+      const paths = replay.subjects.flatMap((s) => (s.sections || []).flatMap((sec) => (sec.lessons || []).map((l) => [byId.get(s.course_id), s.title, sec.title, l.title])));
+      console.log(JSON.stringify({ size: `${w}x${h}`, crumbSweep: await page.evaluate(CRUMB_SWEEP, paths) }));
+    }
 
     // 5. The subject page before content: a real Python stub.
     const stub = await openStub(page, 'Python', 'Loops and Iteration');
     if (stub.course !== true || stub.row !== true || stub.study !== true) console.log(`    (drive: ${JSON.stringify(stub)})`);
     await shoot('stub');
+    if (phase === 'after') console.log(JSON.stringify({ size: `${w}x${h}`, outlinePageStepMoved: await page.evaluate(STEP_NEUTRAL) }));
+    if (phase === 'after' && w === SIZES[0][0]) {
+      const titles = replay.subjects.flatMap((s) => (s.sections || []).flatMap((sec) => (sec.lessons || []).map((l) => l.title)));
+      console.log(JSON.stringify({ lessons: titles.length, longestLessonCrumbs: await page.evaluate(LONGEST_LESSON_CRUMBS, titles) }));
+    }
 
     await context.close();
   }

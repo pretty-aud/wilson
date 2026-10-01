@@ -1205,22 +1205,25 @@
   }
   /* The breadcrumb is ONE line (post-overhaul S2b, Audrey's C5: it read as
      three breadcrumbs when it wrapped; "the middle segments shorten with an
-     ellipsis and the current lesson is never cut"). The order is the flex
-     algorithm's, not a guess:
-       - each MIDDLE segment (the subject, the section) is `.otter-crumb`, its
-         separator inside it, with a flex basis of 0: it gets only the room
-         the course and the lesson leave, shared out and capped at its own
-         width, its text ending in an ellipsis; with none left it is gone,
-         separator and all, so no bare "› ›" is left behind;
-       - the course (`.otter-crumb-keep`) never shrinks;
-       - the lesson (`.otter-crumb-current`) shrinks only when the course and
-         the lesson alone are longer than the line — the middles are already
-         0 by then — and then with an ellipsis rather than a clipped word
-         (her library's longest pair is about 440px; the column is 613 at
-         1440 and 1280, 526 at the 1024 window, 355 at 1024 zoomed to 120%).
+     ellipsis and the current lesson is never cut"). What gives way, in
+     order — the flex algorithm's order, not a guess (review round 1
+     measured the first cut cutting the lesson while the course stayed
+     whole, at the smallest window zoomed to 120%):
+       1. the subject and the section: ONE run, `.otter-crumb` ("› Subject
+          › Section"), which takes only the room the course and the lesson
+          leave, ending in an ellipsis, and never less than "› …"
+          (3em, 36px: the chevron with its margins is 22px, and at 2.4em
+          and 2.5em the ellipsis, measured in Geist, still took the chevron
+          too), so a hidden level is always marked;
+       2. the course (`.otter-crumb-keep`), with an ellipsis: the trail that
+          holds the course and the path (`.otter-crumb-trail`) is what the
+          line takes room from, and the course is all in it that shrinks;
+       3. the lesson (`.otter-crumb-current`) only when it ALONE is longer
+          than the line — it never shrinks, and is capped at the line.
      The whole path is the nav's `title`, and the lesson's own title is the
-     heading right under it. Separators carry the 4px either side that the
-     gap used to, so a collapsed middle takes its spacing with it. */
+     heading right under it. Every separator carries its own 4px either side
+     (the outline page's "[outline]" its 4px before), so nothing is spaced by
+     a gap a hidden item would leave behind. */
   .otter-crumbs {
     max-width: var(--measure-body-len);
     display: flex;
@@ -1232,24 +1235,23 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  /* A middle is one line of inline content — its chevron, then its words —
-     so its ellipsis may take the chevron too: squeezed below a chevron's
-     width it reads "…", never a bare "›". The zero-width space in front is
-     what allows that: CSS clips, rather than ellipses, the FIRST character
-     or atomic inline on a line, so the chevron must not be first (measured
-     without it: "Python › › › Creating…" at the smallest window zoomed). */
+  .otter-crumb-trail { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow: hidden; }
   .otter-crumb,
+  .otter-crumb-keep,
   .otter-crumb-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* The 4px before a middle is its margin, outside it, so a squeezed "…"
-     never sits against the course ("Python…" read as a cut course name). */
-  .otter-crumb { flex: 1 1 0; max-width: max-content; margin-left: 4px; }
+  .otter-crumb { flex: 1 0 3em; max-width: max-content; }
+  /* The run is inline content — chevron, words, chevron, words — so its
+     ellipsis can take a chevron too ("› …", never a bare "›"). The
+     zero-width space in front is what allows that: CSS clips, rather than
+     ellipses, the FIRST character or atomic inline on a line. */
   .otter-crumb::before { content: '\200B'; }
-  .otter-crumb-keep { flex-shrink: 0; }
+  .otter-crumb-keep { flex: 0 1 auto; }
+  .otter-crumb-current { flex: 0 0 auto; max-width: 100%; color: var(--color-ink-2); }
+  .otter-crumb-note { flex-shrink: 0; margin-left: 4px; }
   .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin: 0 4px; color: var(--color-ink-3); }
   /* Inline, so the words stay on its line (the preflight makes every svg a
      block) and the ellipsis can take it. */
-  .otter-crumb > .otter-crumb-sep { display: inline-block; vertical-align: middle; margin-left: 0; }
-  .otter-crumb-current { color: var(--color-ink-2); }
+  .otter-crumb > .otter-crumb-sep { display: inline-block; vertical-align: middle; }
   .otter-lesson-title {
     max-width: var(--measure-body-len);
     overflow-wrap: anywhere;

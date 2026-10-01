@@ -2891,7 +2891,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         let matchCount = 0, idx2 = 0;
         while ((idx2 = lowerAll.indexOf(q, idx2)) !== -1) { matchCount++; idx2 += q.length; }
         if (matchCount > 0) {
-          const matchedFuncCategories = funcCategories.map(cat => ({
+          // S2b review round 1: the heading is in the count above, so a
+          // category found by its heading shows its cards ("general" found
+          // one occurrence in her library and showed none).
+          const matchedFuncCategories = funcCategories.map(cat => functionCategoryName(cat).toLowerCase().includes(q) ? cat : ({
             ...cat,
             functions: cat.functions.filter(f => {
               const fText = [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ').toLowerCase();
@@ -4647,10 +4650,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         <div className="otter-view">
           <div className="otter-view-page" data-width="subject">
             <nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
-              <span className="otter-crumb-keep">{activeSoftware?.name}</span>
-              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              <span className="otter-crumb-trail">
+                <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+                <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              </span>
               <span className="otter-crumb-current">{activeSubject.title}</span>
-              <span className="otter-crumb-keep">[outline]</span>
+              <span className="otter-crumb-note">[outline]</span>
             </nav>
             <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
               {activeSubject.title}
@@ -4710,16 +4715,16 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       <div className="otter-study">
         {selectedLesson ? (
           <div className="otter-study-page">
-            {/* One line (S2b, C5): the subject and the section — each with
-                its separator, so it leaves none behind — take only the room
-                the course and the lesson leave, ending in an ellipsis; the
-                lesson shortens only when it and the course alone overflow.
-                The whole path is the title. */}
+            {/* One line (S2b, C5). Giving way, in order: the subject and the
+                section (one run, down to "› …"), then the course, and the
+                lesson only when it alone is longer than the line. The whole
+                path is the title. */}
             <nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
-              <span className="otter-crumb-keep">{activeSoftware?.name}</span>
-              <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}</span>
-              {currentSection && <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{currentSection.title}</span>}
-              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              <span className="otter-crumb-trail">
+                <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+                <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{currentSection.title}</>}</span>
+                <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              </span>
               <span className="otter-crumb-current">{selectedLesson.title}</span>
             </nav>
             {/* The reading surface's own title, at the H1 step: the one 20px

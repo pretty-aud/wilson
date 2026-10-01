@@ -218,9 +218,11 @@ export const QUIZ_ATTEMPTS = [
 // Its function library is the GENERATOR's shape after the client's mapping
 // (Otter.jsx posts `{ category, functions: [{ name, syntax, parameters,
 // returns, description, example }] }`), with one example longer than any
-// well so the wrapping shows. The name is "C#" on purpose: slugify('C#') is
-// 'c', so it proves the language is read from the course's name (it would
-// otherwise colour as C). One generated subject — its first lesson's title is
+// well so the wrapping shows. The name is "C#" on purpose, and its stored
+// slug is what slugify('C#') gives, 'c' — a slug that would read as C. On
+// this wire (as in the cloud) a course's slug is its id, so in the app the
+// language comes from the name; otterLanguage.test.js proves the name wins
+// over a slug of 'c' as well. One generated subject — its first lesson's title is
 // long enough that the breadcrumb must shorten its middle at the smallest
 // window — and one stub, which the outline page draws.
 // =============================================================================
